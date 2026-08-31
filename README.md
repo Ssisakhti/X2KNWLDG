@@ -2,7 +2,17 @@
 
 X2KNWLDG turns timestamped YouTube transcripts into auditable, reusable knowledge. It extracts structured knowledge first and only summarizes later.
 
-The project is based on `velmighty/youtube-to-knowledge`, with a new canonical transcript, knowledge-unit, provenance, validation, and coverage layer.
+## Origin and attribution
+
+X2KNWLDG is an independent derivative of
+[velmighty/youtube-to-knowledge](https://github.com/velmighty/youtube-to-knowledge).
+It retains and modifies portions of the original MIT-licensed source, and adds
+a canonical transcript, knowledge-unit, provenance, validation, and coverage
+layer. X2KNWLDG is not affiliated with or endorsed by the upstream author.
+
+The upstream copyright and MIT permission notice are preserved in
+[`LICENSE`](LICENSE). See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+for provenance and attribution details.
 
 ## Current behavior
 
