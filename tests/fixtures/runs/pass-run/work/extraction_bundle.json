@@ -1,0 +1,61 @@
+{
+  "extraction_metadata": {
+    "model": "none — handwritten fixture",
+    "fixture": true
+  },
+  "knowledge_units": [
+    {
+      "id": "KU-000001",
+      "kind": "principle",
+      "source_class": "source",
+      "content": "A knowledge unit must carry the evidence it rests on.",
+      "normalized_statement": "A knowledge unit must carry the evidence it rests on.",
+      "confidence": 0.9,
+      "source": {
+        "video_id": "fixture-pass",
+        "segment_id": "seg_0001",
+        "start_sec": 0.0,
+        "end_sec": 30.0,
+        "evidence_excerpt": "a knowledge unit must carry the evidence it rests on."
+      }
+    },
+    {
+      "id": "KU-D-0001",
+      "kind": "synthesis",
+      "source_class": "derived",
+      "content": "Evidence-bearing units are what make a run auditable.",
+      "normalized_statement": "Evidence-bearing units are what make a run auditable.",
+      "confidence": 0.7,
+      "derived_from": [
+        "KU-000001"
+      ],
+      "derivation_note": "Restates KU-000001 as the property it gives the run."
+    }
+  ],
+  "relationships": [
+    {
+      "from": "KU-000001",
+      "to": "KU-D-0001",
+      "relation": "supports",
+      "confidence": 0.8,
+      "source_class": "derived"
+    }
+  ],
+  "coverage": {
+    "status": "PASS",
+    "audit_attempts": 1,
+    "windows": [
+      {
+        "window_id": "W-0001",
+        "start_sec": 0.0,
+        "end_sec": 90.0,
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000001"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      }
+    ]
+  }
+}

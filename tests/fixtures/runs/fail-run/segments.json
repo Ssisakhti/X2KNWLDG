@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "video_id": "fixture-fail",
+  "strategy": {
+    "type": "time_aware_with_boundary_preference",
+    "target_sec": 240,
+    "overlap_sec": 15
+  },
+  "segments": [
+    {
+      "segment_id": "seg_0001",
+      "start_sec": 0.0,
+      "end_sec": 90.0,
+      "caption_ids": [
+        "cap_000001",
+        "cap_000002",
+        "cap_000003"
+      ],
+      "text": "A knowledge unit must carry the evidence it rests on. Coverage is audited window by window across the whole timeline. A run reports PARTIAL when the timeline is not fully accounted for."
+    }
+  ]
+}

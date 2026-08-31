@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "pipeline_version": "0.1.0",
+  "video_id": "fixture-partial",
+  "video_url": "https://www.youtube.com/watch?v=fixture-partial",
+  "title": "TEST FIXTURE (fixture-partial) — synthetic, not real evidence",
+  "channel": "X2KNWLDG test fixtures",
+  "language": "en",
+  "transcript_source": "imported_srt",
+  "transcript_hash": "7ab1a327e807d1ce3296770a0887e1bdaf7d8436c100860c3905ef7532b7b3b9",
+  "imported_at": "2026-01-01T00:00:00+00:00",
+  "duration_sec": 90.0,
+  "extraction": {
+    "model": "none — handwritten fixture",
+    "fixture": true
+  },
+  "extracted_at": "2026-01-01T00:00:00+00:00",
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any video. Regenerate with tests/fixtures/runs/build_fixtures.py."
+}

@@ -43,7 +43,11 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
                 "video_id": video_id,
                 "title": metadata.get("title"),
                 "channel": metadata.get("channel"),
+                # Absolute, for humans and the CLI. It is a host path: it breaks
+                # when the project moves, so the index must read relative_path
+                # instead and never trust this one (risk R15).
                 "path": str(run_dir),
+                "relative_path": run_dir.relative_to(output_root).as_posix(),
             }
         )
         units = json.loads(knowledge_path.read_text(encoding="utf-8")).get("units", [])
@@ -139,6 +143,7 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
         "canonical_concepts": len(concepts),
         "edges": len(edges),
         "path": str(library_dir),
+        "relative_path": library_dir.relative_to(output_root).as_posix(),
     }
     write_json(library_dir / "status.json", result)
     return result

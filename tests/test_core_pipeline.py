@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from x2knwldg.pipeline import PipelineError, import_transcript
+from x2knwldg.pipeline import PipelineError, import_transcript, resolve_run_dir
 from x2knwldg.artifacts import apply_extraction_bundle, finalize_run
 from x2knwldg.segmenter import create_segments
 from x2knwldg.transcripts import TranscriptError, parse_transcript_file, transcript_integrity
@@ -148,6 +148,54 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("&t=0s", results[0]["source_url"])
 
 
+class RunLookupTests(unittest.TestCase):
+    """A caller-supplied id must never reach a path join unchecked (risk R14)."""
+
+    ESCAPES = [
+        "../secrets",
+        "..",
+        ".",
+        "../../etc/passwd",
+        "/etc/passwd",
+        "a/b",
+        "a\\b",
+        "",
+        "   ",
+        ".hidden",
+        "run:1",
+    ]
+
+    def test_identifier_that_escapes_the_output_root_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "output"
+            root.mkdir()
+            for video_id in self.ESCAPES:
+                with self.subTest(video_id=video_id):
+                    with self.assertRaises(PipelineError):
+                        resolve_run_dir(root, video_id)
+
+    def test_ordinary_identifier_resolves_inside_the_output_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "output"
+            (root / "abc123def45").mkdir(parents=True)
+            resolved = resolve_run_dir(root, "abc123def45")
+            self.assertEqual(resolved.name, "abc123def45")
+            self.assertEqual(resolved.parent, root.resolve())
+
+    def test_missing_run_still_resolves_so_callers_report_their_own_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "output"
+            root.mkdir()
+            self.assertEqual(resolve_run_dir(root, "neverIngested").name, "neverIngested")
+
+    def test_search_rejects_a_traversing_video_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "output"
+            root.mkdir()
+            with self.assertRaises(PipelineError):
+                search_knowledge(root, "anything", video_id="../..")
+
+
 class ValidatorTests(unittest.TestCase):
     def test_derived_unit_requires_sources_and_note(self):
         result = validate_knowledge_units(
@@ -166,6 +214,28 @@ class ValidatorTests(unittest.TestCase):
         codes = {error["code"] for error in result["errors"]}
         self.assertIn("missing_derived_from", codes)
         self.assertIn("missing_derivation_note", codes)
+
+    def test_unit_id_that_cannot_become_a_global_id_is_rejected(self):
+        """An unaddressable id must fail validation, not crash the library rebuild (D-018)."""
+        for bad_id in ("KU 1", "KU:1", "..", ".hidden", "KU/1"):
+            with self.subTest(unit_id=bad_id):
+                result = validate_knowledge_units(
+                    {
+                        "units": [
+                            {
+                                "id": bad_id,
+                                "kind": "claim",
+                                "source_class": "derived",
+                                "content": "A synthesis",
+                                "derived_from": [bad_id],
+                                "derivation_note": "Because.",
+                                "confidence": 0.8,
+                            }
+                        ]
+                    }
+                )
+                self.assertEqual(result["status"], "FAIL")
+                self.assertIn("invalid_id", {error["code"] for error in result["errors"]})
 
 
 if __name__ == "__main__":

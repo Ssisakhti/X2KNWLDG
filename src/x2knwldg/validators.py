@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .ids import is_id_part
 from .constants import (
     COVERAGE_STATUSES,
     KNOWLEDGE_KINDS,
@@ -34,6 +35,11 @@ def validate_knowledge_units(document: Any) -> dict[str, Any]:
         elif unit_id in ids:
             errors.append({"code": "duplicate_id", "unit": unit_id})
         else:
+            # An id that cannot become a global id (D-011) would leave the unit
+            # unaddressable by the index and the API, so it is rejected here
+            # rather than crashing rebuild_library later (D-018).
+            if not is_id_part(unit_id):
+                errors.append({"code": "invalid_id", "unit": unit_id})
             ids.add(unit_id)
         if unit.get("kind") not in KNOWLEDGE_KINDS:
             errors.append({"code": "invalid_kind", "unit": location, "value": unit.get("kind")})

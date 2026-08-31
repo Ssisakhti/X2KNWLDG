@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: tests (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Run the suite
+        run: pytest -q
+
+  zero-dependency:
+    # ADR 0001 invariant 5: the core package installs and tests with no
+    # optional dependency. jsonschema is absent here on purpose, so the schema
+    # validation tests must skip rather than fail.
+    name: core package without extras
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the core package and pytest only
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pytest
+      - name: Fail if an optional dependency crept into the core install
+        run: |
+          if pip show jsonschema > /dev/null 2>&1; then
+            echo "jsonschema is installed; it must stay a dev extra" >&2
+            exit 1
+          fi
+      - name: Run the suite
+        run: pytest -q
+
+  fixtures:
+    # The committed run fixtures must stay reproducible from the generator, and
+    # must keep the statuses the honest-status tests rely on (T-006, R11).
+    name: run fixtures are reproducible
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Regenerate and diff
+        run: |
+          python tests/fixtures/runs/build_fixtures.py
+          git diff --stat -- tests/fixtures/runs/
+          git diff --quiet -- tests/fixtures/runs/ || {
+            echo "Regenerating the fixtures changed them; commit the result." >&2
+            git diff -- tests/fixtures/runs/ | head -100
+            exit 1
+          }

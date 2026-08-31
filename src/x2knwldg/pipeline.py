@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import __version__
 from .coverage import create_pending_coverage
+from .ids import is_id_part
 from .io import format_timestamp, sha256_file, timestamp_url, write_json
 from .segmenter import create_segments
 from .transcripts import parse_transcript_file, transcript_integrity
@@ -37,6 +38,24 @@ def extract_video_id(value: str) -> str | None:
         path_match = re.search(r"/(?:shorts|embed)/([0-9A-Za-z_-]{11})", parsed.path)
         return path_match.group(1) if path_match else None
     return value if re.fullmatch(r"[0-9A-Za-z_-]{6,64}", value) else None
+
+
+def resolve_run_dir(output_root: Path, video_id: str) -> Path:
+    """Resolve ``output_root/<video_id>`` for reading, rejecting any escape.
+
+    ``_safe_identifier`` *rewrites* a bad id, which is right when creating a run
+    and wrong when looking one up: ``../other`` must fail, not silently become
+    ``_other``. Every id that arrives from outside the process — an MCP tool
+    argument, and later an HTTP path parameter (``T-108``) — goes through here
+    (risk R14).
+    """
+    if not is_id_part(video_id):
+        raise PipelineError(f"Invalid video ID: {video_id!r}")
+    root = output_root.expanduser().resolve()
+    run_dir = (root / video_id).resolve()
+    if root not in run_dir.parents:
+        raise PipelineError(f"Video ID resolves outside the output root: {video_id!r}")
+    return run_dir
 
 
 def _safe_identifier(value: str) -> str:

@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "video_id": "fixture-fail",
+  "language": "en",
+  "transcript_source": "imported_srt",
+  "transcript_hash": "7ab1a327e807d1ce3296770a0887e1bdaf7d8436c100860c3905ef7532b7b3b9",
+  "captions": [
+    {
+      "segment_id": "cap_000001",
+      "start_sec": 0.0,
+      "end_sec": 30.0,
+      "duration_sec": 30.0,
+      "text": "A knowledge unit must carry the evidence it rests on.",
+      "source": "imported_srt",
+      "language": "en",
+      "original_id": "1"
+    },
+    {
+      "segment_id": "cap_000002",
+      "start_sec": 30.0,
+      "end_sec": 60.0,
+      "duration_sec": 30.0,
+      "text": "Coverage is audited window by window across the whole timeline.",
+      "source": "imported_srt",
+      "language": "en",
+      "original_id": "2"
+    },
+    {
+      "segment_id": "cap_000003",
+      "start_sec": 60.0,
+      "end_sec": 90.0,
+      "duration_sec": 30.0,
+      "text": "A run reports PARTIAL when the timeline is not fully accounted for.",
+      "source": "imported_srt",
+      "language": "en",
+      "original_id": "3"
+    }
+  ]
+}

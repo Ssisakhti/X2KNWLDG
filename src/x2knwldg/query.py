@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .io import timestamp_url
+from .pipeline import resolve_run_dir
 
 
 def _tokens(value: str) -> set[str]:
@@ -33,7 +34,12 @@ def search_knowledge(
     include_transcript_fallback: bool = True,
 ) -> list[dict[str, Any]]:
     output_root = output_root.expanduser().resolve()
-    run_dirs = [output_root / video_id] if video_id else sorted(output_root.glob("*"))
+    # A caller-supplied id is never joined raw onto a path (risk R14).
+    run_dirs = (
+        [resolve_run_dir(output_root, video_id)]
+        if video_id
+        else sorted(output_root.glob("*"))
+    )
     results: list[tuple[float, dict[str, Any]]] = []
     for run_dir in run_dirs:
         knowledge_path = run_dir / "knowledge_units.json"

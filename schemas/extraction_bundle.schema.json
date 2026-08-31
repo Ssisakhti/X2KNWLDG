@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://x2knwldg.local/schemas/extraction_bundle.schema.json",
   "title": "X2KNWLDG extraction bundle",
+  "description": "The bundle an extraction produces before it becomes canonical output. Knowledge unit ids must be usable as one segment of a three-part global id (D-011): no colon, no whitespace, no leading dot, so that '.' and '..' can never appear. src/x2knwldg/ids.py is the single implementation of that rule and validators.py enforces it at validation time (D-018).",
   "type": "object",
   "required": ["knowledge_units", "relationships", "coverage"],
   "properties": {
@@ -46,13 +47,13 @@
       "type": "object",
       "required": ["id", "kind", "source_class", "content", "confidence"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$" },
         "kind": { "type": "string", "minLength": 1 },
         "source_class": { "enum": ["source", "derived"] },
         "content": { "type": "string", "minLength": 1 },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "source": { "type": "object" },
-        "derived_from": { "type": "array", "items": { "type": "string" } },
+        "derived_from": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$" } },
         "derivation_note": { "type": "string" }
       },
       "additionalProperties": true
@@ -61,9 +62,9 @@
       "type": "object",
       "required": ["from", "relation", "to", "confidence", "source_class"],
       "properties": {
-        "from": { "type": "string" },
+        "from": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$" },
         "relation": { "type": "string" },
-        "to": { "type": "string" },
+        "to": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$" },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "source_class": { "enum": ["source", "derived"] }
       },

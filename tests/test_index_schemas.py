@@ -12,9 +12,15 @@ Three things are checked:
 3. The real sample source projects onto the model with no guessed field, and a
    catalogue of dishonest records is rejected.
 
-The projection in ``_project_sample`` is a *shape probe*, not the adapter. The
+The projection in ``_project_run`` is a *shape probe*, not the adapter. The
 YouTube adapter is ``T-004``; when it lands, this probe should be replaced by a
 call into it.
+
+Every projection test runs over the committed fixture runs in
+``tests/fixtures/runs/`` — which include a ``PARTIAL`` and a ``FAIL`` run — and
+additionally over the real sample when ``output/`` is present. The fixtures are
+what keep a fresh clone honest: ``output/`` is gitignored, so without them these
+tests would skip and the suite would be green having proved nothing.
 """
 
 from __future__ import annotations
@@ -38,6 +44,7 @@ SCHEMA_DIR = PROJECT_ROOT / "schemas" / "v1"
 SAMPLE_ID = "pqlWNihgdjI"
 SAMPLE_DIR = PROJECT_ROOT / "output" / SAMPLE_ID
 LIBRARY_DIR = PROJECT_ROOT / "output" / "library"
+FIXTURE_RUNS = PROJECT_ROOT / "tests" / "fixtures" / "runs"
 
 SCHEMA_FILES = [
     "common.schema.json",
@@ -157,17 +164,34 @@ requires_sample = pytest.mark.skipif(
 )
 
 
+def _runs() -> list[Path]:
+    """Every run the projection tests exercise.
+
+    The committed fixtures are always present, so these tests never silently
+    reduce to nothing; the real sample joins them when it is on disk.
+    """
+    runs = sorted(path.parent for path in FIXTURE_RUNS.glob("*/metadata.json"))
+    assert runs, "the committed run fixtures are missing"
+    if (SAMPLE_DIR / "metadata.json").exists():
+        runs.append(SAMPLE_DIR)
+    return runs
+
+
+RUNS = _runs()
+RUN_IDS = [run.name for run in RUNS]
+
+
 def _rel(path: Path) -> str:
     return path.relative_to(PROJECT_ROOT).as_posix()
 
 
-def _project_sample() -> dict[str, list[dict]]:
-    """Shape probe: build v1 records from the sample, copying values only."""
-    metadata = _load(SAMPLE_DIR / "metadata.json")
-    validation = _load(SAMPLE_DIR / "validation.json")
-    coverage = _load(SAMPLE_DIR / "coverage.json")
-    units = _load(SAMPLE_DIR / "knowledge_units.json")["units"]
-    relationships = _load(SAMPLE_DIR / "relationships.json")["relationships"]
+def _project_run(run_dir: Path) -> dict[str, list[dict]]:
+    """Shape probe: build v1 records from a run, copying values only."""
+    metadata = _load(run_dir / "metadata.json")
+    validation = _load(run_dir / "validation.json")
+    coverage = _load(run_dir / "coverage.json")
+    units = _load(run_dir / "knowledge_units.json")["units"]
+    relationships = _load(run_dir / "relationships.json")["relationships"]
 
     external_id = metadata["video_id"]
     source_id = f"youtube:{external_id}"
@@ -192,7 +216,7 @@ def _project_sample() -> dict[str, list[dict]]:
 
     artifacts = []
     for kind, role, relative, media_type in artifact_specs:
-        path = SAMPLE_DIR / relative
+        path = run_dir / relative
         artifacts.append(
             {
                 "schema_version": "1.0",
@@ -240,14 +264,14 @@ def _project_sample() -> dict[str, list[dict]]:
         "duration_sec": metadata.get("duration_sec"),
         "imported_at": metadata.get("imported_at"),
         "extracted_at": metadata.get("extracted_at"),
-        "canonical_dir": _rel(SAMPLE_DIR),
+        "canonical_dir": _rel(run_dir),
         "status": {
             "validation": validation["status"],
             "coverage": coverage["status"],
             "overall": validation["status"],
             "audit_attempts": coverage.get("audit_attempts"),
-            "validation_path": _rel(SAMPLE_DIR / "validation.json"),
-            "coverage_path": _rel(SAMPLE_DIR / "coverage.json"),
+            "validation_path": _rel(run_dir / "validation.json"),
+            "coverage_path": _rel(run_dir / "coverage.json"),
         },
         "counts": {
             "knowledge_units": len(units),
@@ -264,7 +288,7 @@ def _project_sample() -> dict[str, list[dict]]:
         },
     }
 
-    knowledge_path = _rel(SAMPLE_DIR / "knowledge_units.json")
+    knowledge_path = _rel(run_dir / "knowledge_units.json")
     entities = []
     for unit in units:
         entity = {
@@ -319,7 +343,7 @@ def _project_sample() -> dict[str, list[dict]]:
                 }
             )
 
-    relationships_path = _rel(SAMPLE_DIR / "relationships.json")
+    relationships_path = _rel(run_dir / "relationships.json")
     relations = [
         {
             "schema_version": "1.0",
@@ -361,40 +385,68 @@ def _project_sample() -> dict[str, list[dict]]:
     }
 
 
-@requires_sample
+@pytest.mark.parametrize("run_dir", RUNS, ids=RUN_IDS)
 @pytest.mark.parametrize(
     "model", ["source", "artifact", "entity_ref", "indexed_relation"]
 )
-def test_sample_projects_onto_model(
-    validators: dict[str, Draft202012Validator], model: str
+def test_run_projects_onto_model(
+    validators: dict[str, Draft202012Validator], model: str, run_dir: Path
 ) -> None:
-    records = _project_sample()[model]
-    assert records, f"no {model} records projected from the sample"
+    records = _project_run(run_dir)[model]
+    assert records, f"no {model} records projected from {run_dir.name}"
     for record in records:
         errors = _check(validators[model], record)
         assert not errors, f"{model} {record.get('id') or record.get('global_id')}: {errors}"
 
 
-@requires_sample
-def test_sample_covers_both_provenance_classes() -> None:
+@pytest.mark.parametrize("run_dir", RUNS, ids=RUN_IDS)
+def test_projection_covers_both_provenance_classes(run_dir: Path) -> None:
     """A projection that only exercised source units would prove little."""
-    entities = _project_sample()["entity_ref"]
+    entities = _project_run(run_dir)["entity_ref"]
     classes = {entity["provenance_class"] for entity in entities}
     assert {"source", "derived"} <= classes
+
+
+@requires_sample
+def test_sample_projects_canonical_concepts() -> None:
+    """Concepts come from output/library/, which only the real sample has."""
+    entities = _project_run(SAMPLE_DIR)["entity_ref"]
     assert any(entity["entity_type"] == "concept" for entity in entities)
 
 
-@requires_sample
-def test_status_is_copied_not_recomputed() -> None:
-    projected = _project_sample()["source"][0]["status"]
-    assert projected["validation"] == _load(SAMPLE_DIR / "validation.json")["status"]
-    assert projected["coverage"] == _load(SAMPLE_DIR / "coverage.json")["status"]
+@pytest.mark.parametrize("run_dir", RUNS, ids=RUN_IDS)
+def test_status_is_copied_not_recomputed(run_dir: Path) -> None:
+    projected = _project_run(run_dir)["source"][0]["status"]
+    assert projected["validation"] == _load(run_dir / "validation.json")["status"]
+    assert projected["coverage"] == _load(run_dir / "coverage.json")["status"]
 
 
-@requires_sample
-def test_cross_field_invariants_hold_on_the_sample() -> None:
+def test_partial_and_fail_runs_are_projected_as_they_are() -> None:
+    """The whole point of the fixtures: a dishonest status must be impossible
+    to produce by accident (ADR 0001 invariant 2, risk R11)."""
+    overall = {
+        name: _project_run(FIXTURE_RUNS / f"{name}-run")["source"][0]["status"]
+        for name in ("pass", "partial", "fail")
+    }
+    assert overall["pass"]["overall"] == "PASS"
+    assert overall["partial"]["overall"] == "PARTIAL"
+    assert overall["partial"]["coverage"] == "PARTIAL"
+    assert overall["fail"]["overall"] == "FAIL"
+
+
+def test_fixture_runs_are_labelled_as_synthetic() -> None:
+    """No fixture may ever be mistaken for evidence about a real video."""
+    for run_dir in sorted(FIXTURE_RUNS.glob("*/metadata.json")):
+        metadata = _load(run_dir)
+        assert metadata["fixture"] is True
+        assert "not real evidence" in metadata["fixture_note"]
+        assert metadata["video_id"].startswith("fixture-")
+
+
+@pytest.mark.parametrize("run_dir", RUNS, ids=RUN_IDS)
+def test_cross_field_invariants_hold(run_dir: Path) -> None:
     """Two rules JSON Schema cannot express, so the adapter must carry them."""
-    projected = _project_sample()
+    projected = _project_run(run_dir)
     for entity in projected["entity_ref"]:
         parts = entity["global_id"].split(":", 2)
         assert parts == [entity["source_type"], entity["external_id"], entity["local_id"]]
@@ -413,7 +465,7 @@ def test_projection_does_not_touch_canonical_files() -> None:
         for path in sorted(SAMPLE_DIR.rglob("*"))
         if path.is_file()
     }
-    _project_sample()
+    _project_run(SAMPLE_DIR)
     after = {
         path: path.stat().st_mtime_ns
         for path in sorted(SAMPLE_DIR.rglob("*"))

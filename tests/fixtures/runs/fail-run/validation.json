@@ -1,0 +1,39 @@
+{
+  "transcript": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": [],
+    "stats": {
+      "caption_count": 3,
+      "duration_sec": 90.0,
+      "character_count": 183,
+      "adjacent_duplicate_count": 0
+    }
+  },
+  "knowledge_units": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "provenance": {
+    "status": "FAIL",
+    "errors": [
+      {
+        "code": "evidence_excerpt_not_in_segment",
+        "unit": "KU-000001"
+      }
+    ],
+    "warnings": []
+  },
+  "relationships": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "coverage": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "status": "FAIL"
+}

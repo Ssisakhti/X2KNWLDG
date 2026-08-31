@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "audit_attempts": 1,
+  "windows": [
+    {
+      "window_id": "W-0001",
+      "start_sec": 0.0,
+      "end_sec": 90.0,
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000001"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    }
+  ],
+  "schema_version": "1.0",
+  "video_id": "fixture-pass"
+}

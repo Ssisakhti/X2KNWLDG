@@ -31,6 +31,13 @@ dev = [
 x2knwldg = "x2knwldg.cli:main"
 x2knwldg-mcp = "x2knwldg.mcp_server:main"
 
+[tool.pytest.ini_options]
+# Explicit, so the suite does not silently depend on an editable install having
+# put src/ on sys.path. legacy/upstream/ holds the unmaintained upstream
+# scripts that three test modules still cover.
+pythonpath = ["src", "legacy/upstream"]
+testpaths = ["tests"]
+
 [tool.setuptools]
 package-dir = { "" = "src" }
 

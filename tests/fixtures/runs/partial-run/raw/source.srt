@@ -1,0 +1,11 @@
+1
+00:00:00,000 --> 00:00:30,000
+A knowledge unit must carry the evidence it rests on.
+
+2
+00:00:30,000 --> 00:01:00,000
+Coverage is audited window by window across the whole timeline.
+
+3
+00:01:00,000 --> 00:01:30,000
+A run reports PARTIAL when the timeline is not fully accounted for.

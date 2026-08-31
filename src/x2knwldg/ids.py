@@ -100,6 +100,15 @@ def validate_id_part(value: Any, label: str = "id part") -> str:
     return text
 
 
+def is_id_part(value: Any) -> bool:
+    """Whether *value* can stand as one segment of an identifier."""
+    try:
+        validate_id_part(value)
+    except IdError:
+        return False
+    return True
+
+
 # --------------------------------------------------------------------------
 # The two-part source id
 # --------------------------------------------------------------------------

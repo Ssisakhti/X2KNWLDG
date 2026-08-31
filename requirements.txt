@@ -1,4 +1,7 @@
-yt-dlp>=2024.1.0
-youtube-transcript-api>=0.6.0
-networkx>=3.0
-pyvis>=0.3.2
+# Dependencies are declared in pyproject.toml; this file only forwards to them
+# so that `pip install -r requirements.txt` keeps working.
+#
+#   pip install -e '.[youtube,dev]'   # the usual development install
+#
+# The core package itself has no runtime dependencies.
+.[youtube,legacy]

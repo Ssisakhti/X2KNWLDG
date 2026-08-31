@@ -114,7 +114,7 @@ The current sample `pqlWNihgdjI` has a complete extraction. State measured on 20
 
 Real, valid data is therefore available for developing the Knowledge Map, and there is no need to construct a synthetic graph. The core rule does not change, however: the UI must display status exactly as `validation.json` and `coverage.json` report it, and must never produce a fabricated graph, evidence, or content.
 
-On the other hand, no source currently has `PARTIAL` or `FAIL` status, so honest rendering of those two states is not yet testable and requires a clearly labelled test-only fixture.
+No *real* source has `PARTIAL` or `FAIL` status. Honest rendering of those two states is covered instead by the clearly labelled test-only runs in `tests/fixtures/runs/` (`T-006`, D-019), which are synthetic and must never be presented as evidence about a real video.
 
 ## 5. Invariant principles
 
@@ -857,6 +857,10 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-015 | The index model is versioned by directory — `schemas/v1/`, JSON Schema 2020-12. Controlled vocabularies are mirrored from `constants.py` and drift-tested; `jsonschema` stays a `dev`-extra dependency | accepted | A breaking change becomes `schemas/v2/` instead of a silent reinterpretation of stored records; mirroring lets the schemas stand alone for TypeScript generation without drifting from the Python vocabulary. Operates inside [ADR 0001](adr/0001-local-web-ui.md); see [`schemas/v1/README.md`](../schemas/v1/README.md) |
 | D-016 | Cross-source canonical concepts use the reserved source type `library` with external id `concepts`, giving `library:concepts:<hash>` | accepted | Extends D-011 to entities that belong to no single source, without changing what `library.py` emits |
 | D-017 | An identifier segment may begin with `-` or `_`; only a leading dot stays forbidden. `src/x2knwldg/ids.py` is the single implementation of the identifier rules, and the v1 `idPart` pattern was widened to match | accepted | A YouTube id is base64url and legitimately begins with either character — `pipeline.py` already accepts `[0-9A-Za-z_-]{11}` at ingestion, so the narrower schema pattern would have made real sources unaddressable. Widening accepts strictly more, so no stored record is invalidated and no `schemas/v2/` is needed. Barring a leading dot keeps `.` and `..` out of every identifier |
+| D-018 | A canonical knowledge unit id must be usable as one segment of a global id; `validators.py` and `extraction_bundle.schema.json` both enforce it | accepted | An id that passes validation but cannot be addressed by the index is a defect deferred to the worst possible moment — it crashed `rebuild_library` at the end of `finalize_run`, after the canonical files were already written |
+| D-019 | Labelled synthetic `PASS`/`PARTIAL`/`FAIL` run fixtures are committed under `tests/fixtures/runs/`, and the contract tests run over them unconditionally | accepted | `output/` is gitignored, so the tests that project a real run onto the index model skipped everywhere else. The fixtures also give the honest-status UI something to render before a real `PARTIAL` or `FAIL` ever occurs |
+| D-020 | Run directories are resolved by `pipeline.resolve_run_dir`, which rejects an unsafe id instead of sanitising it | accepted | Sanitising is correct when creating a run and wrong when looking one up: a lookup must fail rather than silently read a different run |
+| D-021 | `src/` holds the package only; unmaintained upstream scripts live in `legacy/upstream/` | accepted | They were importable only by accident of an editable install, and two of them are Whisper transcribers the project forbids running |
 
 ## 20. Open questions
 

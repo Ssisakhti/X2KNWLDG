@@ -1,0 +1,33 @@
+{
+  "status": "PARTIAL",
+  "audit_attempts": 3,
+  "windows": [
+    {
+      "window_id": "W-0001",
+      "start_sec": 0.0,
+      "end_sec": 45.0,
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000001"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    },
+    {
+      "window_id": "W-0002",
+      "start_sec": 45.0,
+      "end_sec": 90.0,
+      "status": "uncovered",
+      "knowledge_units": [],
+      "omitted_items": [],
+      "unresolved_items": [
+        {
+          "window_id": "W-0002",
+          "note": "Three audit attempts did not resolve this window; it stays uncovered."
+        }
+      ]
+    }
+  ],
+  "schema_version": "1.0",
+  "video_id": "fixture-partial"
+}

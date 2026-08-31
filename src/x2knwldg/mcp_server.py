@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .pipeline import import_transcript, validate_run
+from .pipeline import import_transcript, resolve_run_dir, validate_run
 from .io import write_json
 
 try:
@@ -19,6 +19,12 @@ PROJECT_ROOT = Path(os.environ.get("X2KNWLDG_PROJECT_ROOT", Path.cwd())).expandu
 
 def _output_root() -> Path:
     return PROJECT_ROOT / "output"
+
+
+def _run_dir(video_id: str) -> Path:
+    """Every tool argument that names a run is resolved here, never joined raw
+    onto a path (risk R14)."""
+    return resolve_run_dir(_output_root(), video_id)
 
 
 if MCPServer is not None:
@@ -70,7 +76,7 @@ if MCPServer is not None:
     @mcp.tool()
     def get_extraction_segment(video_id: str, segment_id: str) -> dict[str, Any]:
         """Read one prepared transcript segment with exact caption provenance."""
-        path = _output_root() / video_id / "segments.json"
+        path = _run_dir(video_id) / "segments.json"
         document = json.loads(path.read_text(encoding="utf-8"))
         for segment in document.get("segments", []):
             if segment.get("segment_id") == segment_id:
@@ -80,7 +86,7 @@ if MCPServer is not None:
     @mcp.tool()
     def get_coverage_window(video_id: str, window_id: str) -> dict[str, Any]:
         """Read one audit window together with the exact overlapping transcript captions."""
-        run_dir = _output_root() / video_id
+        run_dir = _run_dir(video_id)
         coverage = json.loads((run_dir / "coverage.json").read_text(encoding="utf-8"))
         transcript = json.loads((run_dir / "transcript.json").read_text(encoding="utf-8"))
         for window in coverage.get("windows", []):
@@ -98,31 +104,31 @@ if MCPServer is not None:
     @mcp.tool()
     def validate_video_output(video_id: str) -> dict[str, Any]:
         """Validate transcript, knowledge units, relations, and coverage."""
-        return validate_run(_output_root() / video_id)
+        return validate_run(_run_dir(video_id))
 
     @mcp.tool()
     def apply_extraction_bundle(video_id: str, bundle_path: str) -> dict[str, Any]:
         """Validate and store a JSON bundle containing knowledge units, relations, and coverage."""
         from .artifacts import apply_extraction_bundle as apply_bundle
 
-        return apply_bundle(_output_root() / video_id, Path(bundle_path))
+        return apply_bundle(_run_dir(video_id), Path(bundle_path))
 
     @mcp.tool()
     def apply_extraction_data(video_id: str, bundle: dict[str, Any]) -> dict[str, Any]:
         """Validate and store extraction data directly, without requiring a separate file connector."""
         from .artifacts import apply_extraction_bundle as apply_bundle
 
-        work_dir = _output_root() / video_id / "work"
-        bundle_path = work_dir / "mcp_extraction_bundle.json"
+        run_dir = _run_dir(video_id)
+        bundle_path = run_dir / "work" / "mcp_extraction_bundle.json"
         write_json(bundle_path, bundle)
-        return apply_bundle(_output_root() / video_id, bundle_path)
+        return apply_bundle(run_dir, bundle_path)
 
     @mcp.tool()
     def finalize_video(video_id: str) -> dict[str, Any]:
         """Generate the Markdown report, graph, and Obsidian files from canonical data."""
         from .artifacts import finalize_run
 
-        return finalize_run(_output_root() / video_id)
+        return finalize_run(_run_dir(video_id))
 
     @mcp.tool()
     def search_video_knowledge(

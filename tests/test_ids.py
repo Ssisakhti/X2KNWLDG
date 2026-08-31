@@ -23,9 +23,11 @@ import pytest
 
 from x2knwldg import ids
 from x2knwldg.library import rebuild_library
+from x2knwldg.validators import validate_knowledge_units
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 COMMON_SCHEMA = PROJECT_ROOT / "schemas" / "v1" / "common.schema.json"
+BUNDLE_SCHEMA = PROJECT_ROOT / "schemas" / "extraction_bundle.schema.json"
 
 # A real YouTube id may begin with '-' or '_': the id space is base64url, and
 # pipeline.py accepts [0-9A-Za-z_-]{11} at ingestion (D-017).
@@ -77,6 +79,47 @@ def test_helper_output_validates_against_the_schema() -> None:
         built = ids.make_global_id("youtube", video_id, "KU-000001").value
         assert not list(validator.iter_errors(built)), built
     assert not list(validator.iter_errors(ids.concept_global_id("1f4a9c2b7e01").value))
+
+
+def test_bundle_schema_agrees_with_the_helper_on_what_an_id_may_be() -> None:
+    """A canonical id must be usable as one segment of a global id (D-018)."""
+    defs = json.loads(BUNDLE_SCHEMA.read_text(encoding="utf-8"))["$defs"]
+    unit = defs["knowledgeUnit"]["properties"]
+    relationship = defs["relationship"]["properties"]
+    expected = f"^{ids.ID_PART_PATTERN}$"
+    assert unit["id"]["pattern"] == expected
+    assert unit["id"]["maxLength"] == ids.ID_PART_MAX_LENGTH
+    assert unit["derived_from"]["items"]["pattern"] == expected
+    assert relationship["from"]["pattern"] == expected
+    assert relationship["to"]["pattern"] == expected
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    ["KU-000001", "KU-D-0001", "KU_1", "_leading", "-leading", "a.b", "KU 1", "KU:1", "..", ".hidden"],
+)
+def test_validators_accept_exactly_the_ids_the_index_can_address(candidate: str) -> None:
+    """The contract that closes the crash path: if validation passes, the
+    library and the index can build an identifier for the unit (D-018)."""
+    unit = {
+        "id": candidate,
+        "kind": "claim",
+        "source_class": "source",
+        "content": "x",
+        "normalized_statement": "x",
+        "confidence": 0.5,
+        "source": {
+            "video_id": "vid12345678",
+            "segment_id": "seg_000001",
+            "start_sec": 0,
+            "end_sec": 1,
+            "evidence_excerpt": "x",
+        },
+    }
+    accepted = validate_knowledge_units([unit])["status"] == "PASS"
+    assert accepted == ids.is_id_part(candidate)
+    if accepted:
+        assert ids.make_library_id("vid12345678", candidate)
 
 
 # --------------------------------------------------------------------------
@@ -378,6 +421,18 @@ def test_concept_nodes_use_the_library_namespace(library: dict) -> None:
         assert node["id"].startswith("concept:")
     for concept in library["concepts"]["concepts"]:
         assert ids.library_id_from_global_id(concept["global_id"]) == concept["id"]
+
+
+def test_library_files_carry_a_portable_path(tmp_path: Path) -> None:
+    """An absolute host path is not portable and must not be what the index
+    reads (risk R15)."""
+    _write_run(tmp_path, LEADING_UNDERSCORE_VIDEO_ID)
+    status = rebuild_library(tmp_path)
+    videos = json.loads((tmp_path / "library" / "videos.json").read_text(encoding="utf-8"))
+    assert status["relative_path"] == "library"
+    for video in videos["videos"]:
+        assert video["relative_path"] == video["video_id"]
+        assert not Path(video["relative_path"]).is_absolute()
 
 
 def test_edge_endpoints_stay_in_the_library_vocabulary(library: dict) -> None:

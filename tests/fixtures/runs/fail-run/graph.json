@@ -1,0 +1,25 @@
+{
+  "nodes": [
+    {
+      "id": "KU-000001",
+      "label": "A knowledge unit must carry the evidence it rests on.",
+      "kind": "principle",
+      "source_class": "source"
+    },
+    {
+      "id": "KU-D-0001",
+      "label": "Evidence-bearing units are what make a run auditable.",
+      "kind": "synthesis",
+      "source_class": "derived"
+    }
+  ],
+  "edges": [
+    {
+      "from": "KU-000001",
+      "to": "KU-D-0001",
+      "relation": "supports",
+      "confidence": 0.8,
+      "source_class": "derived"
+    }
+  ]
+}
