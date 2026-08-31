@@ -711,6 +711,33 @@ def test_a_returned_record_cannot_be_edited_back_into_the_repository(
     page.items[0]["confidence"] = 1.0
     assert repo.list_entities(EntityQuery(limit=1)).items[0]["confidence"] != 1.0
 
+    # Nested values too, which is the case this test used to miss: dict(record)
+    # is shallow, so status, artifact_ids, locator and derived_from stayed live
+    # references into the index. Mutating only top-level scalars, as the
+    # assertions above do, cannot detect that. Coercing a stored FAIL upward
+    # through a returned record is precisely what ADR 0001 invariant 2 forbids.
+    failing = repo.get_source(FAIL_SOURCE)
+    assert failing is not None
+    failing.source["status"]["overall"] = "PASS"
+    failing.source["artifact_ids"].clear()
+
+    reread = repo.get_source(FAIL_SOURCE)
+    assert reread is not None
+    assert reread.source["status"]["overall"] == "FAIL", "a returned record coerced a stored status"
+    assert reread.source["artifact_ids"], "a returned record emptied a stored list"
+    assert repo.status().payload()["sources_by_status"]["FAIL"] == 1
+
+    located = next(
+        (item for item in repo.list_entities(EntityQuery(limit=MAX_LIMIT)).items
+         if isinstance(item.get("locator"), dict)),
+        None,
+    )
+    if located is not None:
+        target = located["global_id"]
+        located["locator"]["start_sec"] = 999_999
+        again = repo.get_entity(target)
+        assert again is not None and again["locator"].get("start_sec") != 999_999
+
 
 def test_an_empty_project_is_an_empty_index_not_a_broken_one(tmp_path: Path) -> None:
     (tmp_path / "output").mkdir()

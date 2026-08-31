@@ -43,6 +43,7 @@ recomputes a status, and never invents a value the canonical files do not carry.
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -703,6 +704,24 @@ def matches_source(source: Mapping[str, Any], query: SourceQuery) -> bool:
     return True
 
 
+def record_copy(record: Mapping[str, Any]) -> dict[str, Any]:
+    """An independent copy of *record*, safe to hand outside the repository.
+
+    Deep, not shallow. ``dict(record)`` duplicates only the top level, so
+    ``status``, ``artifact_ids``, ``locator`` and ``derived_from`` stayed shared
+    references into the index — and a caller that edited one edited the stored
+    record. That defeated two invariants at once: ADR 0002 invariant 6 (records
+    handed out are copies) and, worse, ADR 0001 invariant 2, because writing
+    ``status["overall"] = "PASS"`` on a returned ``FAIL`` source coerced the
+    index and every later status tally with it.
+
+    Every hand-out boundary goes through here so there is one place to get this
+    right, and so ``T-101``'s SQLite implementation — which will build fresh
+    dicts per row and needs no copy at all — has a named seam to opt out of.
+    """
+    return copy.deepcopy(dict(record))
+
+
 def order_key(record: Mapping[str, Any], model: str) -> str:
     """The total-order key *record* pages by."""
     return str(record.get(ORDER_KEYS[model], ""))
@@ -710,7 +729,9 @@ def order_key(record: Mapping[str, Any], model: str) -> str:
 
 def sort_records(records: Iterable[Mapping[str, Any]], model: str) -> list[dict[str, Any]]:
     """*records* in the one order every implementation must page in."""
-    return sorted((dict(record) for record in records), key=lambda item: order_key(item, model))
+    return sorted(
+        (record_copy(record) for record in records), key=lambda item: order_key(item, model)
+    )
 
 
 def keyset_page(
@@ -734,7 +755,7 @@ def keyset_page(
         remaining = [row for row in ordered if order_key(row, model) > start]
     else:
         remaining = list(ordered)
-    window = [dict(row) for row in remaining[: query.limit]]
+    window = [record_copy(row) for row in remaining[: query.limit]]
     exhausted = len(remaining) <= query.limit
     next_cursor = (
         None

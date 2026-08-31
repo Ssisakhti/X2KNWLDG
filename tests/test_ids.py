@@ -94,6 +94,21 @@ def test_bundle_schema_agrees_with_the_helper_on_what_an_id_may_be() -> None:
     assert relationship["to"]["pattern"] == expected
 
 
+@pytest.mark.parametrize("candidate", ["KU-1\n", "youtube\n", "KU-1\r", "KU-1\n\n"])
+def test_a_trailing_newline_is_not_a_valid_id_part(candidate: str) -> None:
+    """Python's ``$`` matches before a trailing newline; ECMA-262's does not.
+
+    The pattern strings are mirrored verbatim into
+    ``schemas/v1/common.schema.json``, where a TypeScript consumer reads them as
+    ECMA-262. Anchoring the compiled patterns with ``^...$`` therefore accepted
+    ids the declared contract rejects — and ``validators.py`` and
+    ``pipeline.resolve_run_dir`` share this gate, so such an id passed canonical
+    validation and named a run directory. The drift tests compare pattern
+    *strings*, so they cannot see the anchor.
+    """
+    assert not ids.is_id_part(candidate)
+
+
 @pytest.mark.parametrize(
     "candidate",
     ["KU-000001", "KU-D-0001", "KU_1", "_leading", "-leading", "a.b", "KU 1", "KU:1", "..", ".hidden"],

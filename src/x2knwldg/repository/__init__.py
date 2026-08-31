@@ -61,6 +61,7 @@ from .base import (
     matches_source,
     order_key,
     query_fingerprint,
+    record_copy,
     relation_belongs_to_source,
     sort_records,
 )
@@ -108,6 +109,7 @@ __all__ = [
     "matches_source",
     "order_key",
     "query_fingerprint",
+    "record_copy",
     "relation_belongs_to_source",
     "sort_records",
 ]

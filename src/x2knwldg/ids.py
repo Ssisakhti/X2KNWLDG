@@ -44,8 +44,13 @@ SOURCE_ID_MAX_LENGTH = 300
 GLOBAL_ID_MAX_LENGTH = 600
 LIBRARY_ID_MAX_LENGTH = 600
 
-_SOURCE_TYPE_RE = re.compile(f"^{SOURCE_TYPE_PATTERN}$")
-_ID_PART_RE = re.compile(f"^{ID_PART_PATTERN}$")
+# Anchored with ``\Z``, not ``$``. The pattern *strings* above are mirrored
+# verbatim into ``schemas/v1/common.schema.json``, where they are read as
+# ECMA-262 and ``$`` does not match before a trailing newline. Python's
+# ``$`` does, so ``^...$`` here would accept ``"KU-1\n"`` — an id the schema
+# rejects, and one that reaches a TypeScript consumer as unaddressable.
+_SOURCE_TYPE_RE = re.compile(f"^{SOURCE_TYPE_PATTERN}\\Z")
+_ID_PART_RE = re.compile(f"^{ID_PART_PATTERN}\\Z")
 
 #: Reserved namespace for cross-source library entities (D-016). A canonical
 #: concept belongs to no single source, so ``concept:<hash>`` becomes

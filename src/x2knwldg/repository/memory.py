@@ -55,6 +55,7 @@ from .base import (
     matches_entity,
     matches_relation,
     matches_source,
+    record_copy,
     sort_records,
 )
 
@@ -207,14 +208,16 @@ class MemoryRepository:
         if source is None:
             return None
         return SourceDetail(
-            source=dict(source),
-            artifacts=[dict(a) for a in self._artifacts_by_source.get(source["id"], ())],
+            source=record_copy(source),
+            artifacts=[
+                record_copy(a) for a in self._artifacts_by_source.get(source["id"], ())
+            ],
         )
 
     def get_artifact(self, artifact_id: str) -> dict[str, Any] | None:
         self._require_ready()
         artifact = self._artifact_by_id.get(_global_id(artifact_id, "artifact_id"))
-        return dict(artifact) if artifact is not None else None
+        return record_copy(artifact) if artifact is not None else None
 
     # ------------------------------------------------------------------
     # Entities and relations
@@ -228,7 +231,7 @@ class MemoryRepository:
     def get_entity(self, entity_id: str) -> dict[str, Any] | None:
         self._require_ready()
         entity = self._entity_by_id.get(_global_id(entity_id, "entity_id"))
-        return dict(entity) if entity is not None else None
+        return record_copy(entity) if entity is not None else None
 
     def list_relations(self, query: RelationQuery) -> Page:
         self._require_ready()
@@ -294,6 +297,9 @@ class MemoryRepository:
         A ``transcript_caption`` hit gets **no** ``global_id`` at all: v1 emits
         no caption entities (D-023), so there is no entity to address.
         """
+        # Shallow on purpose, unlike every other boundary here: a search hit is
+        # built fresh from disk by search_knowledge on each call, so it aliases
+        # nothing the index holds and there is no stored record to protect.
         hit = dict(result)
         video_id = result.get("video_id")
         source_id = (
@@ -350,7 +356,7 @@ class MemoryRepository:
         visible = {node["global_id"] for node in nodes}
         on_page = {node["global_id"] for node in page.items}
         edges = [
-            dict(relation)
+            record_copy(relation)
             for relation in self._relations
             if matches_relation(relation, query)
             and relation.get("from_id") in visible
@@ -378,7 +384,7 @@ class MemoryRepository:
         if center is None:
             return None
 
-        collected: dict[str, dict[str, Any]] = {center["global_id"]: dict(center)}
+        collected: dict[str, dict[str, Any]] = {center["global_id"]: record_copy(center)}
         frontier = [center["global_id"]]
         truncated = False
         for _ in range(query.depth):
@@ -400,13 +406,13 @@ class MemoryRepository:
                 if len(collected) >= query.limit:
                     truncated = True
                     break
-                collected[node_id] = dict(entity)
+                collected[node_id] = record_copy(entity)
                 frontier.append(node_id)
             if truncated or not frontier:
                 break
 
         edges = [
-            dict(relation)
+            record_copy(relation)
             for relation in self._relations
             if matches_relation(relation, _vocabulary_filter(query))
             and relation.get("from_id") in collected

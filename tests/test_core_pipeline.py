@@ -1,9 +1,15 @@
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from x2knwldg.pipeline import PipelineError, import_transcript, resolve_run_dir
+from x2knwldg.pipeline import (
+    PipelineError,
+    import_transcript,
+    resolve_run_dir,
+    validate_run,
+)
 from x2knwldg.artifacts import apply_extraction_bundle, finalize_run
 from x2knwldg.segmenter import create_segments
 from x2knwldg.transcripts import TranscriptError, parse_transcript_file, transcript_integrity
@@ -240,3 +246,121 @@ class ValidatorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunVerdictTests(unittest.TestCase):
+    """``validate_run``'s aggregate verdict, and what ``finalize_run`` does with it.
+
+    These cover the two branches at ``pipeline.validate_run`` that assign
+    ``FAIL`` and ``PARTIAL``. Both were previously unreachable from this suite:
+    replacing the ``FAIL`` assignment with ``if False:`` left the whole suite
+    green, because every assertion on a ``"FAIL"`` status was made against
+    ``validate_knowledge_units`` — a *section* validator — rather than against
+    the run-level aggregation that the CLI, the MCP server and ``finalize_run``
+    all consume. ``validate_run`` had four production call sites and no test.
+
+    The labelled fixtures from ``T-006`` supply the inputs, so nothing here has
+    to hand-build a broken run.
+    """
+
+    def _writable_copy(self, directory, name):
+        """A writable copy of a committed fixture run.
+
+        ``validate_run`` writes ``validation.json`` as a side effect, so it
+        cannot be pointed at ``tests/fixtures/runs/`` — other contract tests
+        assert those files are never touched.
+        """
+        target = Path(directory) / name
+        shutil.copytree(FIXTURES / "runs" / name, target)
+        return target
+
+    def test_a_run_whose_evidence_is_absent_from_the_transcript_validates_as_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = self._writable_copy(directory, "fail-run")
+            result = validate_run(run_dir)
+            self.assertEqual(result["status"], "FAIL")
+            self.assertEqual(result["provenance"]["status"], "FAIL")
+            codes = {error["code"] for error in result["provenance"]["errors"]}
+            self.assertIn("evidence_excerpt_not_in_segment", codes)
+
+    def test_a_run_with_incomplete_coverage_validates_as_partial(self):
+        """Every section passes; only ``coverage.json``'s own status is short of PASS."""
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = self._writable_copy(directory, "partial-run")
+            result = validate_run(run_dir)
+            self.assertEqual(result["status"], "PARTIAL")
+            sections = [
+                value["status"]
+                for value in result.values()
+                if isinstance(value, dict) and "status" in value
+            ]
+            self.assertEqual(set(sections), {"PASS"})
+
+    def test_a_complete_run_validates_as_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = self._writable_copy(directory, "pass-run")
+            self.assertEqual(validate_run(run_dir)["status"], "PASS")
+
+    def test_finalize_refuses_a_failing_run_and_leaves_its_artifacts_alone(self):
+        """WORKFLOW.md section 5 validates *before* final artifacts are generated.
+
+        ``finalize_run`` used to compute the verdict and write regardless, so a
+        run citing evidence absent from the transcript still produced a full
+        vault, a ``report.md`` that mentioned no failure, and — through
+        ``rebuild_library`` — a poisoned cumulative graph.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = self._writable_copy(directory, "fail-run")
+            # validation.json is excluded: validate_run legitimately refreshes it
+            # before the refusal, which is the run's own report being kept current.
+            def snapshot():
+                return {
+                    path.relative_to(run_dir).as_posix(): path.stat().st_mtime_ns
+                    for path in sorted(run_dir.rglob("*"))
+                    if path.is_file() and path.name != "validation.json"
+                }
+
+            before = snapshot()
+            with self.assertRaises(PipelineError) as caught:
+                finalize_run(run_dir)
+            self.assertIn("validation", str(caught.exception))
+            self.assertEqual(before, snapshot(), "a refused finalize rewrote an artifact")
+            self.assertFalse(
+                (run_dir.parent / "library").exists(),
+                "a refused finalize rebuilt the cumulative library",
+            )
+
+    def test_finalize_still_completes_for_an_honestly_partial_run(self):
+        """PARTIAL is a real deliverable (WORKFLOW.md section 4.5), not a failure."""
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = self._writable_copy(directory, "partial-run")
+            result = finalize_run(run_dir)
+            self.assertEqual(result["status"], "PARTIAL")
+            self.assertTrue((run_dir / "report.md").exists())
+
+    def test_finalize_refuses_a_video_id_that_would_escape_the_run_directory(self):
+        """The vault filenames are built from ``metadata['video_id']``.
+
+        ``metadata.json`` is an ordinary canonical file rather than immutable
+        evidence, so its contents are not automatically safe to put in a path.
+        An unchecked id escaped ``output/`` at arbitrary depth and overwrote any
+        ``<name>.md`` — including the instruction files at the repository root.
+        """
+        for bad_id in ("../../../../ESCAPED", "..", "a/b", ".hidden", "", "abc\n"):
+            with self.subTest(video_id=bad_id):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    run_dir = self._writable_copy(root, "pass-run")
+                    metadata = json.loads(
+                        (run_dir / "metadata.json").read_text(encoding="utf-8")
+                    )
+                    metadata["video_id"] = bad_id
+                    (run_dir / "metadata.json").write_text(
+                        json.dumps(metadata), encoding="utf-8"
+                    )
+                    with self.assertRaises(PipelineError) as caught:
+                        finalize_run(run_dir)
+                    self.assertIn("video_id", str(caught.exception))
+                    self.assertEqual(
+                        [], list(root.rglob("ESCAPED.md")), "the id escaped the run directory"
+                    )

@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from .ids import is_id_part
 from .io import format_timestamp, timestamp_url, write_json
 from .pipeline import PipelineError, validate_run
 from .validators import (
@@ -36,6 +37,30 @@ SECTION_ORDER = [
 def _read(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _checked_video_id(metadata: dict[str, Any]) -> str:
+    """The run's own ``video_id``, refused unless it is one safe path segment.
+
+    ``_export_obsidian`` builds two filenames out of this value, so an id that is
+    not a single path segment escapes ``output/<video-id>/`` entirely — and a
+    run's ``metadata.json`` is an ordinary canonical file, not immutable
+    evidence, so its contents are not automatically trustworthy.
+
+    ``is_id_part`` is the gate ``resolve_run_dir`` already applies to an id
+    arriving from outside the process (D-020), and it *rejects* rather than
+    rewrites: a finalize that quietly wrote somewhere else would be worse than
+    one that stopped. Note the asymmetry this closes — ``_slug`` below has always
+    guarded the unit ids used as filenames; the run's own id was the one that
+    reached a path unchecked.
+    """
+    video_id = metadata.get("video_id")
+    if not isinstance(video_id, str) or not is_id_part(video_id):
+        raise PipelineError(
+            f"metadata.json declares an unusable video_id: {video_id!r}. "
+            "It must be a single path segment matching the v1 idPart pattern."
+        )
+    return video_id
 
 
 def _slug(value: str) -> str:
@@ -168,9 +193,15 @@ def _export_obsidian(
     units: list[dict[str, Any]],
     relationships: list[dict[str, Any]],
     coverage: dict[str, Any],
+    video_id: str,
 ) -> list[str]:
+    """Write the vault. *video_id* has already passed :func:`_checked_video_id`.
+
+    It arrives as a parameter rather than being re-read from *metadata* so that
+    the unchecked value cannot reach a path from inside this function.
+    """
     vault = run_dir / "vault"
-    video_path = vault / "videos" / f"{metadata['video_id']}.md"
+    video_path = vault / "videos" / f"{video_id}.md"
     video_path.parent.mkdir(parents=True, exist_ok=True)
     unit_links = [f"- [[{unit['id']}]] — {unit['content']}" for unit in units]
     video_path.write_text(
@@ -178,7 +209,7 @@ def _export_obsidian(
             [
                 "---",
                 "type: video",
-                f"video_id: {metadata['video_id']}",
+                f"video_id: {video_id}",
                 f"source_url: \"{metadata['video_url']}\"",
                 "---",
                 "",
@@ -203,14 +234,14 @@ def _export_obsidian(
             "type: knowledge_unit",
             f"kind: {unit['kind']}",
             f"source_class: {unit['source_class']}",
-            f"video_id: {metadata['video_id']}",
+            f"video_id: {video_id}",
             "---",
             "",
             f"# {unit['id']}",
             "",
             unit["content"],
             "",
-            f"Source video: [[{metadata['video_id']}]]",
+            f"Source video: [[{video_id}]]",
             "",
         ]
         if unit.get("derived_from"):
@@ -222,7 +253,7 @@ def _export_obsidian(
             lines.append("")
         unit_path.write_text("\n".join(lines), encoding="utf-8")
         created.append(str(unit_path))
-    coverage_path = vault / "reports" / f"{metadata['video_id']}-coverage.md"
+    coverage_path = vault / "reports" / f"{video_id}-coverage.md"
     coverage_path.parent.mkdir(parents=True, exist_ok=True)
     coverage_path.write_text(_coverage_markdown(coverage), encoding="utf-8")
     created.append(str(coverage_path))
@@ -230,13 +261,43 @@ def _export_obsidian(
 
 
 def finalize_run(run_dir: Path) -> dict[str, Any]:
+    """Write the final artifacts for a run that has earned them.
+
+    Two refusals come before the first write, because everything after it is
+    hard to take back: ``graph.json`` and ``report.md`` are overwritten in place,
+    and ``rebuild_library`` merges this run into the cumulative cross-video graph
+    that other tools are told to trust.
+
+    **A ``FAIL`` run is refused.** ``WORKFLOW.md`` section 5 applies the bundle
+    through the validator *before* final artifacts are generated, and
+    ``CLAUDE.md`` forbids claiming completion without a passing validation. This
+    function used to compute the verdict and then write regardless, so a run
+    whose units cited evidence absent from the transcript produced a full vault,
+    a report that mentioned no failure, and a poisoned library.
+
+    ``PARTIAL`` still finalizes: an honestly incomplete run is a real
+    deliverable (``WORKFLOW.md`` section 4.5 says to use ``PARTIAL``, never
+    ``PASS``), and its status travels in the returned dict and in
+    ``validation.json``.
+    """
     run_dir = run_dir.expanduser().resolve()
     validation = validate_run(run_dir)
     metadata = _read(run_dir / "metadata.json")
+    video_id = _checked_video_id(metadata)
+    if validation["status"] == "FAIL":
+        failed = ", ".join(
+            name
+            for name, section in validation.items()
+            if isinstance(section, dict) and section.get("status") not in {None, "PASS"}
+        )
+        raise PipelineError(
+            "Refusing to finalize a run that fails validation "
+            f"({failed or 'see validation.json'}). Repair the run and re-apply "
+            f"the bundle; the full report is in {run_dir / 'validation.json'}."
+        )
     units = _read(run_dir / "knowledge_units.json").get("units", [])
     relationships = _read(run_dir / "relationships.json").get("relationships", [])
     coverage = _read(run_dir / "coverage.json")
-    video_id = metadata["video_id"]
 
     nodes = [
         {
@@ -296,7 +357,9 @@ def finalize_run(run_dir: Path) -> dict[str, Any]:
         ]
     )
     (run_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
-    obsidian_files = _export_obsidian(run_dir, metadata, units, relationships, coverage)
+    obsidian_files = _export_obsidian(
+        run_dir, metadata, units, relationships, coverage, video_id
+    )
     from .library import rebuild_library
 
     library = rebuild_library(run_dir.parent)
