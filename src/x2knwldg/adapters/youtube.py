@@ -50,18 +50,36 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .. import ids
+from ..constants import MAX_AUDIT_ATTEMPTS
 from ..io import sha256_file
 from .base import (
+    CANONICAL_PROVENANCE_CLASSES,
+    CANONICAL_RELATION_TYPES,
+    KNOWLEDGE_KINDS,
+    MAX_AUTHOR_LENGTH,
+    MAX_EDGE_ID_LENGTH,
+    MAX_LABEL_LENGTH,
+    MAX_LANGUAGE_LENGTH,
+    MAX_SEGMENT_ID_LENGTH,
+    MAX_TITLE_LENGTH,
+    MAX_URL_LENGTH,
     SCHEMA_VERSION,
     AdapterError,
     IndexRecords,
     SourceAdapter,
     check_records,
+    copied_choice,
+    copied_confidence,
+    copied_number,
+    copied_text,
+    copied_timestamp,
     declared_source_type,
     media_type_for,
     project_relative,
     read_optional_json,
+    read_optional_json_or_reason,
     read_status,
+    refuse,
 )
 
 #: Directory name of the cross-source library inside ``output/``.
@@ -151,11 +169,19 @@ class YouTubeAdapter(SourceAdapter):
         except ids.IdError as exc:
             raise AdapterError(f"{run_dir / 'metadata.json'}: {exc}") from exc
 
-        artifacts = self._artifacts(run_dir, source_id, metadata, hash_artifacts)
-        knowledge = read_optional_json(run_dir / "knowledge_units.json")
-        relationships = read_optional_json(run_dir / "relationships.json")
-        units = _items(knowledge, "units")
-        edges = _items(relationships, "relationships")
+        # What the run holds but the index cannot carry is collected rather than
+        # dropped, and reported on the Source record below: an artifact whose
+        # name cannot spell an id, and a canonical file that is there and cannot
+        # be read. Neither is allowed to leave the index quietly short.
+        unmappable: list[dict[str, str]] = []
+        damaged: list[dict[str, str]] = []
+        artifacts = self._artifacts(run_dir, source_id, metadata, hash_artifacts, unmappable)
+        knowledge = self._read(run_dir / "knowledge_units.json", damaged)
+        relationships = self._read(run_dir / "relationships.json", damaged)
+        units = _items(knowledge, "units", self.relative(run_dir / "knowledge_units.json"))
+        edges = _items(
+            relationships, "relationships", self.relative(run_dir / "relationships.json")
+        )
 
         entities = self._knowledge_entities(run_dir, source_id, units)
         relations = self._canonical_relations(run_dir, source_id, edges)
@@ -170,6 +196,8 @@ class YouTubeAdapter(SourceAdapter):
             # state that the run has none, which is a different claim.
             units=units if isinstance(knowledge, Mapping) else None,
             edges=edges if isinstance(relationships, Mapping) else None,
+            unmappable=unmappable,
+            damaged=damaged,
         )
 
         return check_records(
@@ -180,6 +208,20 @@ class YouTubeAdapter(SourceAdapter):
                 relations=relations,
             )
         )
+
+    def _read(self, path: Path, damaged: list[dict[str, str]]) -> Any | None:
+        """A canonical file, or ``None`` — recording *why* when there is a why.
+
+        An absent file is an absence and says nothing. A file that is present
+        and unreadable is damage, and the damage is reported on the Source
+        record: the counts derived from it are already omitted rather than
+        zeroed, but 'this count is missing' does not say that the file is
+        broken, and only one of those two is actionable.
+        """
+        document, reason = read_optional_json_or_reason(path)
+        if reason is not None:
+            damaged.append({"path": self.relative(path), "reason": reason})
+        return document
 
     # ----------------------------------------------------------------
     # Source
@@ -194,32 +236,73 @@ class YouTubeAdapter(SourceAdapter):
         *,
         units: list[Mapping[str, Any]] | None,
         edges: list[Mapping[str, Any]] | None,
+        unmappable: list[dict[str, str]],
+        damaged: list[dict[str, str]],
     ) -> dict[str, Any]:
+        owner = self.relative(run_dir / "metadata.json")
+        # Before the report is assembled: both of these read canonical files,
+        # and a file found damaged in there belongs in the report below.
+        status = self._status(run_dir, damaged)
+        counts = self._counts(run_dir, units, edges, damaged)
+        adapter_metadata: dict[str, Any] = {
+            key: metadata[key] for key in ADAPTER_METADATA_FIELDS if key in metadata
+        }
+        # Free-form by design, and the only place in the frozen Source record
+        # where an adapter may say what it could not map. Reporting it here
+        # keeps the omission in the index and in the API instead of leaving the
+        # file to disappear between the run and the Reader. Absent when there is
+        # nothing to report: an empty list reads like an unread finding.
+        if unmappable:
+            adapter_metadata["unmappable_artifacts"] = unmappable
+        if damaged:
+            adapter_metadata["unreadable_files"] = damaged
         return {
             "schema_version": SCHEMA_VERSION,
             "id": source_id.value,
             "source_type": source_id.source_type,
             "external_id": source_id.external_id,
-            "url": metadata.get("video_url"),
-            "title": metadata.get("title"),
+            "url": copied_text(
+                metadata.get("video_url"),
+                owner=owner,
+                field="video_url",
+                max_length=MAX_URL_LENGTH,
+                allow_empty=False,
+            ),
+            "title": copied_text(
+                metadata.get("title"), owner=owner, field="title", max_length=MAX_TITLE_LENGTH
+            ),
             # A YouTube channel is the publisher; the generic model calls that
             # field 'author' so a Medium byline and an X handle land in it too.
-            "author": metadata.get("channel"),
-            "language": metadata.get("language"),
-            "duration_sec": metadata.get("duration_sec"),
-            "imported_at": metadata.get("imported_at"),
-            "extracted_at": metadata.get("extracted_at"),
+            "author": copied_text(
+                metadata.get("channel"),
+                owner=owner,
+                field="channel",
+                max_length=MAX_AUTHOR_LENGTH,
+            ),
+            "language": copied_text(
+                metadata.get("language"),
+                owner=owner,
+                field="language",
+                max_length=MAX_LANGUAGE_LENGTH,
+            ),
+            "duration_sec": copied_number(
+                metadata.get("duration_sec"), owner=owner, field="duration_sec", minimum=0
+            ),
+            "imported_at": copied_timestamp(
+                metadata.get("imported_at"), owner=owner, field="imported_at"
+            ),
+            "extracted_at": copied_timestamp(
+                metadata.get("extracted_at"), owner=owner, field="extracted_at"
+            ),
             "canonical_dir": self.relative(run_dir),
-            "status": self._status(run_dir),
-            "counts": self._counts(run_dir, units, edges),
+            "status": status,
+            "counts": counts,
             "artifact_ids": [artifact["id"] for artifact in artifacts],
             "adapter": self.ref,
-            "adapter_metadata": {
-                key: metadata[key] for key in ADAPTER_METADATA_FIELDS if key in metadata
-            },
+            "adapter_metadata": adapter_metadata,
         }
 
-    def _status(self, run_dir: Path) -> dict[str, Any]:
+    def _status(self, run_dir: Path, damaged: list[dict[str, str]]) -> dict[str, Any]:
         """Copy the run status out of the two validator files.
 
         ``overall`` is ``validation.json``'s top-level status, which already
@@ -229,8 +312,8 @@ class YouTubeAdapter(SourceAdapter):
         """
         validation_path = run_dir / "validation.json"
         coverage_path = run_dir / "coverage.json"
-        validation = read_optional_json(validation_path)
-        coverage = read_optional_json(coverage_path)
+        validation = self._read(validation_path, damaged)
+        coverage = self._read(coverage_path, damaged)
 
         status: dict[str, Any] = {
             "validation": read_status(validation),
@@ -239,13 +322,22 @@ class YouTubeAdapter(SourceAdapter):
             "validation_path": self.relative(validation_path) if validation is not None else None,
             "coverage_path": self.relative(coverage_path) if coverage is not None else None,
         }
-        # Copied verbatim, including a value above the WORKFLOW.md cap of three.
-        # Such a run has broken the repair rule; the schema rejecting the record
-        # is the intended way to find that out, and quietly clamping it here
-        # would hide it.
-        if isinstance(coverage, Mapping):
-            attempts = coverage.get("audit_attempts")
-            status["audit_attempts"] = attempts if isinstance(attempts, int) else None
+        # Copied verbatim inside the bounds the record can carry. A count above
+        # the WORKFLOW.md cap of three means the run broke the repair rule, and
+        # a count that is not a whole number means the file is damaged: both are
+        # refused here, loudly and by name. Clamping would hide the first and
+        # nulling would restate the second as 'no file', which is a different
+        # claim. ``0`` is the honest never-audited state ``coverage.py`` writes
+        # and is carried through as stated.
+        if isinstance(coverage, Mapping) and "audit_attempts" in coverage:
+            status["audit_attempts"] = copied_number(
+                coverage.get("audit_attempts"),
+                owner=self.relative(coverage_path),
+                field="audit_attempts",
+                minimum=0,
+                maximum=MAX_AUDIT_ATTEMPTS,
+                integer=True,
+            )
         else:
             status["audit_attempts"] = None
         return status
@@ -255,6 +347,7 @@ class YouTubeAdapter(SourceAdapter):
         run_dir: Path,
         units: list[Mapping[str, Any]] | None,
         edges: list[Mapping[str, Any]] | None,
+        damaged: list[dict[str, str]],
     ) -> dict[str, int]:
         """Counts for list rendering, omitted rather than zeroed when unknown.
 
@@ -269,12 +362,16 @@ class YouTubeAdapter(SourceAdapter):
             counts["derived_units"] = sum(1 for u in units if u.get("source_class") == "derived")
         if edges is not None:
             counts["relationships"] = len(edges)
-        transcript = read_optional_json(run_dir / "transcript.json")
+        transcript = self._read(run_dir / "transcript.json", damaged)
         if transcript is not None:
-            counts["captions"] = len(_items(transcript, "captions"))
-        segments = read_optional_json(run_dir / "segments.json")
+            counts["captions"] = len(
+                _items(transcript, "captions", self.relative(run_dir / "transcript.json"))
+            )
+        segments = self._read(run_dir / "segments.json", damaged)
         if segments is not None:
-            counts["segments"] = len(_items(segments, "segments"))
+            counts["segments"] = len(
+                _items(segments, "segments", self.relative(run_dir / "segments.json"))
+            )
         return counts
 
     # ----------------------------------------------------------------
@@ -287,6 +384,7 @@ class YouTubeAdapter(SourceAdapter):
         source_id: ids.SourceId,
         metadata: Mapping[str, Any],
         hash_artifacts: bool,
+        unmappable: list[dict[str, str]],
     ) -> list[dict[str, Any]]:
         artifacts = [
             self._file_artifact(run_dir, source_id, spec, hash_artifacts)
@@ -299,9 +397,11 @@ class YouTubeAdapter(SourceAdapter):
                 self._file_artifact(run_dir, source_id, raw_source, hash_artifacts)
             )
 
-        artifacts.extend(self._vault_artifacts(run_dir, source_id, hash_artifacts))
+        artifacts.extend(
+            self._vault_artifacts(run_dir, source_id, hash_artifacts, unmappable)
+        )
 
-        video = self._video_artifact(source_id, metadata)
+        video = self._video_artifact(run_dir, source_id, metadata)
         if video is not None:
             artifacts.append(video)
         return artifacts
@@ -350,25 +450,49 @@ class YouTubeAdapter(SourceAdapter):
         return _ArtifactSpec("raw_source", "raw_source", "raw", f"raw/{matches[0].name}")
 
     def _vault_artifacts(
-        self, run_dir: Path, source_id: ids.SourceId, hash_artifacts: bool
+        self,
+        run_dir: Path,
+        source_id: ids.SourceId,
+        hash_artifacts: bool,
+        unmappable: list[dict[str, str]],
     ) -> list[dict[str, Any]]:
         """The Obsidian export under ``vault/``.
 
         Generated views, so ``role`` is ``export``. The local id is the
         run-relative path with separators folded to dots — unique by
         construction, and readable enough to recognise in a URL.
+
+        A note whose filename cannot spell an id — a space in it, say — is
+        reported on the Source record and left out of the index, rather than
+        taken as a reason to refuse the run. The vault is a generated export
+        beside the canonical files; one unaddressable note must not make a whole
+        project unindexable, and the canonical evidence is unaffected either
+        way. The omission is stated, never silent: nothing here drops a file the
+        run holds without saying so.
         """
         vault = run_dir / "vault"
         artifacts = []
         for path in sorted(p for p in vault.rglob("*.md") if p.is_file()):
             relative = path.relative_to(run_dir)
             key = ".".join(relative.with_suffix("").parts)
+            if not ids.is_id_part(key):
+                unmappable.append(
+                    {
+                        "path": relative.as_posix(),
+                        "reason": (
+                            f"the local id {key!r} this filename spells is not addressable "
+                            f"(it must match {ids.ID_PART_PATTERN!r} and stay under "
+                            f"{ids.ID_PART_MAX_LENGTH} characters); the note is not indexed"
+                        ),
+                    }
+                )
+                continue
             spec = _ArtifactSpec(key, "vault_note", "export", relative.as_posix())
             artifacts.append(self._file_artifact(run_dir, source_id, spec, hash_artifacts))
         return artifacts
 
     def _video_artifact(
-        self, source_id: ids.SourceId, metadata: Mapping[str, Any]
+        self, run_dir: Path, source_id: ids.SourceId, metadata: Mapping[str, Any]
     ) -> dict[str, Any] | None:
         """The video itself: a URL and no local file.
 
@@ -377,8 +501,14 @@ class YouTubeAdapter(SourceAdapter):
         adapter performs no network access, and the UI must never assume a
         local media file exists.
         """
-        url = metadata.get("video_url")
-        if not isinstance(url, str) or not url:
+        url = copied_text(
+            metadata.get("video_url"),
+            owner=self.relative(run_dir / "metadata.json"),
+            field="video_url",
+            max_length=MAX_URL_LENGTH,
+            allow_empty=False,
+        )
+        if url is None:
             return None
         return {
             "schema_version": SCHEMA_VERSION,
@@ -406,9 +536,19 @@ class YouTubeAdapter(SourceAdapter):
         segments_artifact = source_id.entity("segments").value
         entities = []
         for unit in units:
-            local_id = _required(unit, "id", "knowledge unit")
-            global_id = _build(source_id.entity, local_id, f"knowledge unit {local_id!r}")
-            provenance = _required(unit, "source_class", f"knowledge unit {local_id!r}")
+            local_id = _required(unit, "id", f"a knowledge unit in {canonical_path}")
+            owner = f"knowledge unit {local_id!r} in {canonical_path}"
+            global_id = _build(source_id.entity, local_id, owner)
+            # 'user' is workspace content and never appears in a canonical file;
+            # a unit that claims it would also claim a canonical path, which the
+            # three-tier storage boundary forbids (D-006).
+            provenance = copied_choice(
+                _required(unit, "source_class", owner),
+                owner=owner,
+                field="source_class",
+                allowed=CANONICAL_PROVENANCE_CLASSES,
+                required=True,
+            )
             entity: dict[str, Any] = {
                 "schema_version": SCHEMA_VERSION,
                 "global_id": global_id.value,
@@ -419,29 +559,83 @@ class YouTubeAdapter(SourceAdapter):
                 "source_id": source_id.value,
                 "entity_type": "knowledge_unit",
                 "provenance_class": provenance,
-                "kind": unit.get("kind"),
+                "kind": copied_choice(
+                    unit.get("kind"),
+                    owner=owner,
+                    field="kind",
+                    allowed=KNOWLEDGE_KINDS,
+                    # A knowledge unit whose kind is unstated has no honest
+                    # projection: the model requires one for this entity type.
+                    required=True,
+                ),
                 # library.py:52 already makes this choice; making a different
                 # one here would put two labels on one entity.
-                "label": unit.get("normalized_statement") or unit.get("content"),
-                "confidence": unit.get("confidence"),
+                "label": copied_text(
+                    unit.get("normalized_statement") or unit.get("content"),
+                    owner=owner,
+                    field="normalized_statement/content",
+                    max_length=MAX_LABEL_LENGTH,
+                ),
+                "confidence": copied_confidence(unit.get("confidence"), owner=owner),
                 "canonical_path": canonical_path,
             }
             if provenance == "source":
-                entity["locator"] = self._locator(unit, source_id, segments_artifact)
-            elif provenance == "derived":
-                entity["derived_from"] = [
-                    _build(source_id.entity, ref, f"derived_from of {local_id!r}").value
-                    for ref in unit.get("derived_from", [])
-                ]
-                entity["derivation_note"] = unit.get("derivation_note")
+                entity["locator"] = self._locator(unit, source_id, segments_artifact, owner)
+            else:
+                entity["derived_from"] = self._derived_refs(unit, source_id, owner)
+                # 'Derived from nothing, for no stated reason' is not derived
+                # synthesis, and the note is what makes the claim auditable.
+                entity["derivation_note"] = copied_text(
+                    unit.get("derivation_note"),
+                    owner=owner,
+                    field="derivation_note",
+                    max_length=None,
+                    allow_empty=False,
+                    required=True,
+                )
             entities.append(entity)
         return entities
+
+    def _derived_refs(
+        self, unit: Mapping[str, Any], source_id: ids.SourceId, owner: str
+    ) -> list[str]:
+        """The units a derived unit was synthesised from, as global ids.
+
+        The one place the list is read, so the ``EntityRef`` and the
+        ``derived_from`` edges cannot disagree about it. A derived unit that
+        shows no work is refused rather than given an empty list: the empty list
+        asserts derived provenance while naming nothing, the schemas reject it,
+        and the edge that should have recorded the provenance silently vanishes
+        along with it.
+        """
+        refs = unit.get("derived_from")
+        if refs is None:
+            raise AdapterError(
+                f"{owner} is derived but names nothing it was derived from; a derived "
+                "unit shows its work or it is not indexed as derived"
+            )
+        if not isinstance(refs, list):
+            refuse(owner, "derived_from", refs, "carries a list of unit ids there")
+        if not refs:
+            raise AdapterError(
+                f"{owner} is derived from an empty list; an empty list asserts derived "
+                "provenance while showing no work"
+            )
+        values = [_build(source_id.entity, ref, f"derived_from of {owner}").value for ref in refs]
+        duplicates = sorted({value for value in values if values.count(value) > 1})
+        if duplicates:
+            raise AdapterError(
+                f"{owner} names {', '.join(duplicates)} in derived_from more than once; "
+                "one provenance edge, one entry"
+            )
+        return values
 
     def _locator(
         self,
         unit: Mapping[str, Any],
         source_id: ids.SourceId,
         segments_artifact: str,
+        owner: str,
     ) -> dict[str, Any]:
         """A ``time_range`` into the **segments** artifact.
 
@@ -450,11 +644,10 @@ class YouTubeAdapter(SourceAdapter):
         text, so the segments file — not the transcript — is the artifact the
         evidence sits in.
         """
-        local_id = unit.get("id")
         provenance = unit.get("source")
         if not isinstance(provenance, Mapping):
             raise AdapterError(
-                f"source-class knowledge unit {local_id!r} has no source block, so it has "
+                f"source-class {owner} has no source block, so it has "
                 "no locator; a locator is never constructed without canonical data"
             )
         locator: dict[str, Any] = {"type": "time_range"}
@@ -467,16 +660,35 @@ class YouTubeAdapter(SourceAdapter):
             locator["artifact_id"] = segments_artifact
         for field_name in ("start_sec", "end_sec"):
             if field_name not in provenance:
-                raise AdapterError(
-                    f"source-class knowledge unit {local_id!r} has no {field_name}"
-                )
-            locator[field_name] = provenance[field_name]
+                raise AdapterError(f"source-class {owner} has no {field_name}")
+            locator[field_name] = copied_number(
+                provenance[field_name],
+                owner=owner,
+                field=field_name,
+                minimum=0,
+                required=True,
+            )
         segment_id = provenance.get("segment_id")
-        if segment_id:
-            locator["segment_id"] = segment_id
+        if segment_id is not None:
+            locator["segment_id"] = copied_text(
+                segment_id,
+                owner=owner,
+                field="segment_id",
+                max_length=MAX_SEGMENT_ID_LENGTH,
+                allow_empty=False,
+            )
         excerpt = provenance.get("evidence_excerpt")
-        if excerpt:
-            locator["excerpt"] = excerpt
+        if excerpt is not None:
+            # Verbatim, and never empty: the model has no length limit on an
+            # excerpt, so nothing here truncates evidence, and an empty one is
+            # refused rather than quietly read as an absent one.
+            locator["excerpt"] = copied_text(
+                excerpt,
+                owner=owner,
+                field="evidence_excerpt",
+                max_length=None,
+                allow_empty=False,
+            )
         return locator
 
     # ----------------------------------------------------------------
@@ -489,10 +701,20 @@ class YouTubeAdapter(SourceAdapter):
         canonical_path = self.relative(run_dir / "relationships.json")
         relations = []
         for index, edge in enumerate(edges):
-            owner = f"relationship {index}"
+            owner = f"relationship {index} in {canonical_path}"
             from_id = _build(source_id.entity, _required(edge, "from", owner), owner)
             to_id = _build(source_id.entity, _required(edge, "to", owner), owner)
-            name = _required(edge, "relation", owner)
+            # The canonical vocabulary is exactly constants.RELATION_TYPES. An
+            # edge outside it is not a canonical edge, and calling it one — or
+            # quietly relabelling it as synthetic — would blur the vocabulary
+            # separation the whole relation model rests on.
+            name = copied_choice(
+                _required(edge, "relation", owner),
+                owner=owner,
+                field="relation",
+                allowed=CANONICAL_RELATION_TYPES,
+                required=True,
+            )
             relation: dict[str, Any] = {
                 "schema_version": SCHEMA_VERSION,
                 "id": _edge_id(from_id.value, name, to_id.value),
@@ -500,8 +722,19 @@ class YouTubeAdapter(SourceAdapter):
                 "to_id": to_id.value,
                 "relation": name,
                 "relation_vocabulary": "canonical",
-                "provenance_class": edge.get("source_class"),
-                "confidence": edge.get("confidence"),
+                "provenance_class": copied_choice(
+                    edge.get("source_class"),
+                    owner=owner,
+                    field="source_class",
+                    allowed=CANONICAL_PROVENANCE_CLASSES,
+                    required=True,
+                ),
+                # A canonical edge states a confidence; unlike derived_from,
+                # this one is about the edge itself, so an absent value cannot
+                # be read as 'no confidence exists' and is refused instead.
+                "confidence": copied_confidence(
+                    edge.get("confidence"), owner=owner, required=True
+                ),
                 "source_id": source_id.value,
                 "canonical_path": canonical_path,
             }
@@ -530,15 +763,18 @@ class YouTubeAdapter(SourceAdapter):
             local_id = unit.get("id")
             if unit.get("source_class") != "derived":
                 continue
-            from_id = _build(source_id.entity, local_id, f"knowledge unit {local_id!r}")
-            for ref in unit.get("derived_from", []):
-                to_id = _build(source_id.entity, ref, f"derived_from of {local_id!r}")
+            owner = f"knowledge unit {local_id!r} in {canonical_path}"
+            from_id = _build(source_id.entity, local_id, owner)
+            # The same list the EntityRef carries, read once: a unit that shows
+            # no work is refused there and here alike, so an edge can no longer
+            # go missing while the unit it belongs to is still indexed.
+            for to_id_value in self._derived_refs(unit, source_id, owner):
                 relations.append(
                     {
                         "schema_version": SCHEMA_VERSION,
-                        "id": _edge_id(from_id.value, "derived_from", to_id.value),
+                        "id": _edge_id(from_id.value, "derived_from", to_id_value),
                         "from_id": from_id.value,
-                        "to_id": to_id.value,
+                        "to_id": to_id_value,
                         "relation": "derived_from",
                         "relation_vocabulary": "library_synthetic",
                         "provenance_class": "derived",
@@ -586,18 +822,17 @@ def adapt_library(library_dir: Path, project_root: Path) -> IndexRecords:
     # library.py emits both id forms on every node (T-003), which is what lets
     # a library id be resolved without assuming the source type it came from.
     global_by_library_id: dict[str, str] = {}
-    for node in _items(graph, "nodes"):
+    for node in _items(graph, "nodes", graph_path):
         library_id = node.get("id")
         global_id = node.get("global_id")
         if isinstance(library_id, str) and isinstance(global_id, str):
             global_by_library_id[library_id] = global_id
 
     entities = []
-    for concept in _items(concepts_document, "concepts"):
-        library_id = _required(concept, "id", "concept")
-        global_id = _build(
-            ids.global_id_from_library_id, library_id, f"concept {library_id!r}"
-        )
+    for concept in _items(concepts_document, "concepts", concepts_path):
+        library_id = _required(concept, "id", f"a concept in {concepts_path}")
+        owner = f"concept {library_id!r} in {concepts_path}"
+        global_id = _build(ids.global_id_from_library_id, library_id, owner)
         stated = concept.get("global_id")
         if stated is not None and stated != global_id.value:
             raise AdapterError(
@@ -616,18 +851,24 @@ def adapt_library(library_dir: Path, project_root: Path) -> IndexRecords:
                 "entity_type": "concept",
                 "provenance_class": "derived",
                 "kind": "canonical_concept",
-                "label": concept.get("canonical_label"),
+                "label": copied_text(
+                    concept.get("canonical_label"),
+                    owner=owner,
+                    field="canonical_label",
+                    max_length=MAX_LABEL_LENGTH,
+                ),
                 "confidence": None,
                 "canonical_path": concepts_path,
             }
         )
 
     relations = []
-    for index, edge in enumerate(_items(graph, "edges")):
+    for index, edge in enumerate(_items(graph, "edges", graph_path)):
         if edge.get("relation") != "expresses_concept":
             continue
-        from_id = _resolve(global_by_library_id, edge.get("from"), f"library edge {index}")
-        to_id = _resolve(global_by_library_id, edge.get("to"), f"library edge {index}")
+        owner = f"library edge {index} in {graph_path}"
+        from_id = _resolve(global_by_library_id, edge.get("from"), owner)
+        to_id = _resolve(global_by_library_id, edge.get("to"), owner)
         relations.append(
             {
                 "schema_version": SCHEMA_VERSION,
@@ -636,15 +877,30 @@ def adapt_library(library_dir: Path, project_root: Path) -> IndexRecords:
                 "to_id": to_id,
                 "relation": "expresses_concept",
                 "relation_vocabulary": "library_synthetic",
-                "provenance_class": edge.get("source_class", "derived"),
-                "confidence": edge.get("confidence"),
+                # A synthetic edge is recorded synthesis by definition, so a
+                # library that called one 'source' evidence is refused rather
+                # than believed (D-025).
+                "provenance_class": copied_choice(
+                    edge.get("source_class", "derived"),
+                    owner=owner,
+                    field="source_class",
+                    allowed=frozenset({"derived"}),
+                    required=True,
+                ),
+                "confidence": copied_confidence(edge.get("confidence"), owner=owner),
                 # Cross-source: the edge belongs to the library, not to a run.
                 "source_id": None,
                 "canonical_path": graph_path,
             }
         )
 
-    return check_records(IndexRecords(entities=entities, relations=relations))
+    # A fragment, not the whole index: every ``expresses_concept`` edge runs
+    # from a knowledge unit the *run* owns to a concept the library owns, so its
+    # ``from_id`` is outside this set by construction (D-025). Endpoint
+    # membership is judged over the union, in ``adapt_project``.
+    return check_records(
+        IndexRecords(entities=entities, relations=relations), self_contained=False
+    )
 
 
 # --------------------------------------------------------------------------
@@ -652,14 +908,23 @@ def adapt_library(library_dir: Path, project_root: Path) -> IndexRecords:
 # --------------------------------------------------------------------------
 
 
-def _items(document: Any, key: str) -> list[Mapping[str, Any]]:
-    """The list under *key*, or an empty list — never a partial read."""
-    if not isinstance(document, Mapping):
+def _items(document: Any, key: str, owner: str) -> list[Mapping[str, Any]]:
+    """The list under *key*, or an empty list — never a partial read.
+
+    An unreadable document and an absent key are both absences and read as
+    empty. A key that is present but holds something other than a list of
+    objects is neither: reading past it would report a count and a record set
+    that quietly omit whatever was in there.
+    """
+    if not isinstance(document, Mapping) or key not in document:
         return []
     value = document.get(key)
     if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, Mapping)]
+        refuse(owner, key, value, "reads a list of objects there")
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            refuse(owner, f"{key}[{index}]", item, "reads an object there")
+    return list(value)
 
 
 def _required(record: Mapping[str, Any], key: str, owner: str) -> Any:
@@ -687,11 +952,24 @@ def _resolve(table: Mapping[str, str], library_id: Any, owner: str) -> str:
 
 
 def _edge_id(from_id: str, relation: str, to_id: str) -> str:
-    """A deterministic edge id, so a rebuild yields the identical set (T-104)."""
-    edge_id = f"{from_id}|{relation}|{to_id}"
-    if len(edge_id) > 1300:
+    """A deterministic edge id, so a rebuild yields the identical set (T-104).
+
+    The parts are escaped before they are joined. A global id can never contain
+    ``|`` and a relation name from either vocabulary never does either, so no
+    id this project produces today changes shape — but a separator that only
+    works while nothing collides with it is an id collision waiting for the
+    first relation vocabulary that admits one, and two distinct edges sharing an
+    id is one of them silently disappearing from the index.
+    """
+    edge_id = "|".join(_escape_id_part(part) for part in (from_id, relation, to_id))
+    if len(edge_id) > MAX_EDGE_ID_LENGTH:
         raise AdapterError(
-            f"edge id {edge_id[:80]}… is {len(edge_id)} characters, over the 1300 the "
-            "IndexedRelation contract allows"
+            f"edge id {edge_id[:80]}… is {len(edge_id)} characters, over the "
+            f"{MAX_EDGE_ID_LENGTH} the IndexedRelation contract allows"
         )
     return edge_id
+
+
+def _escape_id_part(part: str) -> str:
+    """Make *part* unable to spell the separator, reversibly."""
+    return part.replace("\\", "\\\\").replace("|", "\\|")

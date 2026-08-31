@@ -125,6 +125,7 @@ class PipelineTests(unittest.TestCase):
                 "relationships": [],
                 "coverage": {
                     "status": "PASS",
+                    "audit_attempts": 1,
                     "windows": [
                         {
                             "window_id": "CW-0001",

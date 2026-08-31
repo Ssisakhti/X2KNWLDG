@@ -4,13 +4,13 @@
 - **Date:** 2026-08-31
 - **Decision ledger:** consolidates D-001 … D-013 (`KNOWLEDGE_CANVAS_PLAN.md` §19). D-014 (documentation language) is a project convention recorded in §19 and `docs/adr/README.md`, not an architecture decision.
 - **Supersedes:** none
-- **Superseded by:** none
+- **Superseded by:** none as a whole. **Invariant 8 is superseded by [ADR 0003](0003-reject-unsafe-identifiers.md)**; every other decision and invariant here stays in force.
 
 ## Context
 
 The X2KNWLDG core is a provenance-first extraction pipeline. It has properties worth protecting:
 
-- **Zero runtime dependencies.** `pyproject.toml` declares `dependencies = []`; everything optional sits behind an extra (`youtube`, `mcp`, `legacy`, `dev`) and is imported lazily inside the CLI branch that needs it (`src/x2knwldg/cli.py:174,180,188,196`).
+- **Zero runtime dependencies.** `pyproject.toml` declares `dependencies = []`; everything optional sits behind an extra (`youtube`, `mcp`, `legacy`, `dev`) and is imported lazily inside the CLI branch that needs it (the dispatch branches of `cli.main`, and `cli._run_process` for the `youtube` extra).
 - **Canonical files are the source of truth.** Every consumer reads `output/<source-id>/` directly.
 - **Evidence integrity is the product.** `output/<id>/raw/` is immutable; timestamps, quotes, confidence, and coverage are never invented; `source` and `derived` knowledge are kept apart.
 
@@ -108,7 +108,10 @@ Build a **dedicated, thin, local-first layer** over the existing pipeline rather
 5. **The core package installs and tests with zero dependencies.** Any import of FastAPI, uvicorn, or an adapter dependency stays lazy and behind an extra.
 6. **Source-neutrality lives in the adapter and index layer**, not in the canonical files. `video_id` is required in the canonical provenance contract (`validators.py:50`) and stays there; adapters map it to `external_id`.
 7. **Writes are atomic.** Reuse `io.write_json` (`io.py:19`), which is already temp-file + `os.replace`. Note that Markdown/report writes elsewhere use plain `write_text` and are *not* atomic.
-8. **Path traversal is closed at the boundary.** Every source id arriving over HTTP goes through `pipeline._safe_identifier` (`pipeline.py:42`). The existing `query.py` and `mcp_server.py` joins have no such guard; the API must not copy that pattern.
+8. **Path traversal is closed at the boundary.** ⚠️ **Superseded by [ADR 0003](0003-reject-unsafe-identifiers.md).** Do not implement `T-108` from this invariant.
+   - *Original text, kept as history:* "Every source id arriving over HTTP goes through `pipeline._safe_identifier` (`pipeline.py:42`). The existing `query.py` and `mcp_server.py` joins have no such guard; the API must not copy that pattern."
+   - *Why it was replaced:* it pointed at the creating-side check, which at the time **rewrote** `../other` into `_other` — a lookup that resolves to a different run rather than refusing, the opposite of D-020. The rule is a behaviour, not a function name: refuse, and prove the resolved path stays under the output root. Two of its facts were also stale: `_safe_identifier` is no longer at `pipeline.py:42`, and `query.search_knowledge` and `mcp_server._run_dir` both route through `pipeline.resolve_run_dir` today, so they are the pattern to **copy**, not to avoid (risk R14, recorded as mitigated on that basis).
+   - **In force instead (ADR 0003):** every externally supplied id — every HTTP path parameter included — is resolved by `pipeline.resolve_run_dir`, which **rejects** an unsafe id and proves containment under the output root. No sanitiser may stand in for that check, and a refused id is `400 invalid_id` (D-030), never a `404` and never a fallback.
 9. **The server binds loopback only,** with no telemetry, no default outbound requests, and an allowlist for external embeds.
 10. **Provenance is never signalled by colour alone** — icon, label, or line style must also distinguish `source` / `derived` / `user`.
 

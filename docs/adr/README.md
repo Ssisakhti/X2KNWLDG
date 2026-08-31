@@ -40,6 +40,8 @@ docs/adr/NNNN-kebab-case-title.md
 
 An accepted ADR is **never edited to change its decision**. Write a new ADR that supersedes it and update the old file's status line only. Correcting a typo or a stale fact is fine; reversing the decision in place is not.
 
+When the replacement covers only **part** of an ADR — one invariant, say, while the rest stays in force — the old file keeps its status and its `Superseded by` line names the part: *"Invariant 8 is superseded by 0003"*. Mark the superseded passage in place, keep its original wording quoted as history, and state what is in force instead, so a reader who lands on the old rule cannot follow it by accident. Retiring a whole ADR to correct one line would strand the decisions it still carries. [ADR 0003](0003-reject-unsafe-identifiers.md) is the worked example.
+
 ## Writing one
 
 1. Copy `0000-template.md` to the next number.
@@ -52,5 +54,7 @@ An accepted ADR is **never edited to change its decision**. Write a new ADR that
 
 | ADR | Title | Status |
 |---|---|---|
-| [0001](0001-local-web-ui.md) | Local-first web layer for the Knowledge Canvas | Accepted |
-| [0002](0002-index-repository-seam.md) | The index repository, and the seam between the indexer and the API | Accepted |
+| [0001](0001-local-web-ui.md) | Local-first web layer for the Knowledge Canvas | Accepted (invariant 8 superseded by [0003](0003-reject-unsafe-identifiers.md)) |
+| [0002](0002-index-repository-seam.md) | The index repository, and the seam between the indexer and the API | Accepted (decision 6 completed, two consequences replaced, by [0004](0004-graph-membership-and-search-corpus.md)) |
+| [0003](0003-reject-unsafe-identifiers.md) | Externally supplied identifiers are rejected, never rewritten | Accepted |
+| [0004](0004-graph-membership-and-search-corpus.md) | One membership rule for a source's graph, and a corpus the index owns | Accepted |

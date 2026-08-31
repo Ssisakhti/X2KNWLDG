@@ -15,7 +15,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12", "3.13"]
+        # 3.10 is the floor `requires-python` declares; 3.14 is the
+        # interpreter in daily use here, and it was missing, so every
+        # number measured locally came from a version CI never ran.
+        python-version: ["3.10", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -54,6 +57,78 @@ jobs:
             fi
           done
       - name: Run the suite
+        run: pytest -q
+
+  extras:
+    # Every declared optional extra must be provable installable. `dev` and
+    # `legacy` were the only two any job installed, so `youtube`, `mcp` and `ui`
+    # — three of the five — could have been broken (a yanked release, an
+    # impossible pin, a package that no longer builds) with nothing in CI to
+    # say so. `tests/test_ui_scaffold.py::test_ci_installs_every_declared_extra`
+    # fails if a new extra is added to pyproject.toml without a row here.
+    name: extra installs (${{ matrix.extra }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - extra: youtube
+            imports: "yt_dlp, youtube_transcript_api"
+          - extra: mcp
+            imports: "mcp, mcp.server"
+          - extra: ui
+            imports: "fastapi, uvicorn"
+          - extra: legacy
+            imports: "networkx, pyvis"
+          - extra: dev
+            imports: "pytest, jsonschema, openapi_spec_validator"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[${{ matrix.extra }},dev]"
+      - name: Fail if pip resolved a broken dependency set
+        run: pip check
+      - name: Every distribution the extra declares is actually installed
+        run: |
+          python - <<'PY'
+          import re, sys, tomllib
+          from importlib.metadata import PackageNotFoundError, version
+
+          extra = "${{ matrix.extra }}"
+          with open("pyproject.toml", "rb") as handle:
+              specs = tomllib.load(handle)["project"]["optional-dependencies"][extra]
+          missing = []
+          for spec in specs:
+              name = re.split(r"[<>=!~\[; ]", spec, maxsplit=1)[0].strip()
+              try:
+                  print(f"{name} {version(name)}")
+              except PackageNotFoundError:
+                  missing.append(name)
+          if missing:
+              print(f"declared by [{extra}] but not installed: {', '.join(missing)}", file=sys.stderr)
+              sys.exit(1)
+          PY
+      - name: Import what the extra unlocks
+        # `pip install` succeeding is not the same claim as "it imports".
+        run: python -c "import ${{ matrix.imports }}"
+      - name: The MCP server builds against the installed mcp
+        if: matrix.extra == 'mcp'
+        # The `mcp>=2,<3` pin and `from mcp.server import MCPServer` have to
+        # agree, and the 14 registrations have to construct. Nothing else in CI
+        # ever imports this module with the extra present.
+        run: |
+          python -c "
+          import x2knwldg.mcp_server as server
+          assert server.mcp is not None, 'the mcp extra is installed but no server was built'
+          assert len(server.TOOLS) == 10, server.TOOLS
+          print('MCP surface:', len(server.TOOLS), 'tools,', len(server.RESOURCES), 'resources,', len(server.PROMPTS), 'prompts')
+          "
+      - name: Run the suite with the extra present
         run: pytest -q
 
   fixtures:

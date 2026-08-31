@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any, Iterable
+
+from .constants import MAX_CAPTION_GAP_SEC
 
 
 class TranscriptError(ValueError):
@@ -15,14 +18,85 @@ _TIMESTAMP = re.compile(
     r"^(?:(?P<hours>\d+):)?(?P<minutes>\d{1,2}):(?P<seconds>\d{1,2})"
     r"(?P<fraction>[.,]\d{1,3})?$"
 )
+# A timed-text header is ``[HH:MM:SS - HH:MM:SS]``. The groups are restricted to
+# timestamp shapes so that ordinary bracketed caption text — ``[Applause - laughter]``
+# — is read as text instead of being mistaken for a header, which used to reject
+# the whole file.
+_TIMESTAMP_SHAPE = r"\d{1,4}:\d{1,2}(?::\d{1,2})?(?:[.,]\d{1,3})?"
 _TIMED_TEXT = re.compile(
-    r"^\[(?P<start>[^\]]+?)\s*(?:-->|-)\s*(?P<end>[^\]]+?)\]\s*(?P<text>.*)$"
+    rf"^\[\s*(?P<start>{_TIMESTAMP_SHAPE})\s*(?:-->|[-–—])\s*"
+    rf"(?P<end>{_TIMESTAMP_SHAPE})\s*\]\s*(?P<text>.*)$"
 )
-_TAG = re.compile(r"<[^>]+>")
+# Caption markup only. A blanket ``<[^>]+>`` also ate every inequality, threshold
+# and generic in the transcript (``if x < 5 and y > 3`` -> ``if x 3``), and this
+# function feeds transcript.json, the canonical extraction input.
+_CAPTION_MARKUP = re.compile(
+    r"""
+    </?(?:v|c|lang|b|i|u|ruby|rt)      # WebVTT voice/class/lang and styling tags
+        (?:\.[^\s<>./]+)*              # class annotations: <c.yellow.bg_blue>
+        (?:[ \t][^<>]*)?               # an annotation such as <v Speaker> or <lang en>
+    >
+    |
+    <\d{1,4}:\d{1,2}(?::\d{1,2})?[.,]\d{1,3}>   # cue timestamp tag: <00:00:01.000>
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+# Lines that head a WebVTT file or a non-cue block, and so can never be a cue
+# identifier.
+_HEADER_LINE = re.compile(
+    r"^(?:WEBVTT\b.*|X-[A-Z0-9-]+\s*[:=].*|NOTE(?:\s.*)?|STYLE|REGION)$", re.IGNORECASE
+)
+# json3 events carry ``dDurationMs`` only sometimes. A missing duration used to
+# mint a zero-length caption, which then fell out of every coverage window.
+_JSON3_FALLBACK_DURATION_SEC = 2.0
+_JSON3_MAX_INFERRED_DURATION_SEC = 10.0
+
+
+def _is_finite_number(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def _finite(value: Any, message: str) -> float:
+    """Coerce ``value`` to a finite float or raise :class:`TranscriptError`.
+
+    NaN and Infinity used to survive every check, crash the import, and reach
+    canonical JSON that no other language can parse.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise TranscriptError(message) from exc
+    if not math.isfinite(number):
+        raise TranscriptError(f"{message}: {value!r} is not a finite number")
+    return number
+
+
+def json3_duration(start_sec: float, next_start_sec: float | None) -> float:
+    """Extent for a json3 event whose ``dDurationMs`` is missing or non-positive.
+
+    Zero length is not a sane extent: it orphans the caption from every coverage
+    window, so the event runs up to the next one (capped) or takes a short
+    default. One home for the rule — :mod:`youtube` mints the same events off the
+    yt-dlp path and calls this too.
+    """
+    if (
+        next_start_sec is not None
+        and math.isfinite(next_start_sec)
+        and next_start_sec > start_sec
+    ):
+        return min(next_start_sec - start_sec, _JSON3_MAX_INFERRED_DURATION_SEC)
+    return _JSON3_FALLBACK_DURATION_SEC
 
 
 def parse_timestamp(value: str) -> float:
-    value = value.strip().split()[0]
+    parts = value.strip().split()
+    if not parts:
+        raise TranscriptError("Invalid timestamp: empty value")
+    value = parts[0]
     match = _TIMESTAMP.match(value)
     if not match:
         raise TranscriptError(f"Invalid timestamp: {value!r}")
@@ -35,7 +109,8 @@ def parse_timestamp(value: str) -> float:
 
 
 def clean_text(value: str) -> str:
-    value = _TAG.sub("", value)
+    """Strip caption markup, leaving ordinary text — ``<`` and ``>`` included — alone."""
+    value = _CAPTION_MARKUP.sub("", value)
     value = html.unescape(value)
     value = value.replace("\u200b", "").replace("\ufeff", "")
     return " ".join(value.split()).strip()
@@ -52,24 +127,28 @@ def _canonical_caption(
     original_id: Any = None,
     speaker: Any = None,
 ) -> dict[str, Any] | None:
+    """Build one canonical caption.
+
+    A cue whose text cleans away is *kept*, marked ``non_speech``, because
+    dropping it used to shrink the reported ``duration_sec`` and the audited
+    coverage windows with it — one 600 second video reported 5.0 seconds and
+    audited only 0–5s. Only an entry with neither text nor a usable start time
+    is discarded: that is not a cue at all.
+    """
     text_value = clean_text(str(text or ""))
     if not text_value:
-        return None
-    try:
-        start_value = float(start)
-    except (TypeError, ValueError) as exc:
-        raise TranscriptError(f"Caption {index} has no valid start time") from exc
+        try:
+            _finite(start, "")
+        except TranscriptError:
+            return None
 
+    start_value = _finite(start, f"Caption {index} has no valid start time")
     if end is not None:
-        try:
-            end_value = float(end)
-        except (TypeError, ValueError) as exc:
-            raise TranscriptError(f"Caption {index} has an invalid end time") from exc
+        end_value = _finite(end, f"Caption {index} has an invalid end time")
     elif duration is not None:
-        try:
-            end_value = start_value + float(duration)
-        except (TypeError, ValueError) as exc:
-            raise TranscriptError(f"Caption {index} has an invalid duration") from exc
+        end_value = start_value + _finite(
+            duration, f"Caption {index} has an invalid duration"
+        )
     else:
         raise TranscriptError(f"Caption {index} needs end_sec or duration")
 
@@ -82,6 +161,8 @@ def _canonical_caption(
         "source": source,
         "language": language,
     }
+    if not text_value:
+        result["non_speech"] = True
     if original_id not in (None, ""):
         result["original_id"] = str(original_id)
     if speaker not in (None, ""):
@@ -89,36 +170,69 @@ def _canonical_caption(
     return result
 
 
+def _cue_chunks(block: str) -> Iterable[tuple[str | None, str, list[str]]]:
+    """Yield ``(identifier, timing_line, body_lines)`` for every cue in one block.
+
+    A block is located by its ``-->`` lines rather than by its first line. Judging
+    a block by ``lines[0]`` lost real cues two ways: a ``WEBVTT`` header not
+    separated from the first cue by a blank line (the usual HLS shape) took that
+    cue down with it, and a cue whose identifier merely started with
+    ``NOTE``/``STYLE``/``REGION`` was discarded outright.
+
+    A block may hold several cues when the separator line between them carried
+    stray whitespace, so every timing line in the block starts a cue.
+    """
+    lines = block.split("\n")
+    timing_indexes = [index for index, line in enumerate(lines) if "-->" in line]
+    consumed_until = 0
+    for position, timing_index in enumerate(timing_indexes):
+        next_timing = (
+            timing_indexes[position + 1]
+            if position + 1 < len(timing_indexes)
+            else len(lines)
+        )
+        body = lines[timing_index + 1 : next_timing]
+        # A blank-ish line followed by one non-blank line, immediately before the
+        # next timing line, is that next cue's identifier \u2014 not this cue's text.
+        if (
+            next_timing < len(lines)
+            and len(body) >= 2
+            and not body[-2].strip()
+            and body[-1].strip()
+        ):
+            body = body[:-2]
+        identifier = None
+        if timing_index > 0 and timing_index - 1 >= consumed_until:
+            candidate = lines[timing_index - 1].strip()
+            if candidate and "-->" not in candidate and not _HEADER_LINE.match(candidate):
+                identifier = candidate
+        consumed_until = timing_index + 1 + len(body)
+        yield identifier, lines[timing_index], body
+
+
 def _parse_srt_or_vtt(text: str, source: str, language: str) -> list[dict[str, Any]]:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
-    blocks = re.split(r"\n\s*\n", normalized)
+    # Split on truly empty lines only: a whitespace-only line inside a cue used
+    # to split the block, and the remainder \u2014 carrying no ``-->`` \u2014 was dropped.
+    blocks = re.split(r"\n{2,}", normalized)
     captions: list[dict[str, Any]] = []
     for block in blocks:
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        if not lines:
-            continue
-        if lines[0].upper().startswith(("WEBVTT", "NOTE", "STYLE", "REGION")):
-            continue
-        timing_index = next((i for i, line in enumerate(lines) if "-->" in line), None)
-        if timing_index is None:
-            continue
-        timing = lines[timing_index]
-        start_raw, end_raw = [part.strip() for part in timing.split("-->", 1)]
-        end_raw = end_raw.split()[0]
-        original_id = lines[timing_index - 1] if timing_index > 0 else None
-        body = " ".join(lines[timing_index + 1 :])
-        caption = _canonical_caption(
-            len(captions) + 1,
-            parse_timestamp(start_raw),
-            parse_timestamp(end_raw),
-            None,
-            body,
-            source,
-            language,
-            original_id=original_id,
-        )
-        if caption:
-            captions.append(caption)
+        for identifier, timing, body_lines in _cue_chunks(block):
+            start_raw, _, end_raw = timing.partition("-->")
+            end_parts = end_raw.split()
+            body = " ".join(line.strip() for line in body_lines if line.strip())
+            caption = _canonical_caption(
+                len(captions) + 1,
+                parse_timestamp(start_raw),
+                parse_timestamp(end_parts[0] if end_parts else ""),
+                None,
+                body,
+                source,
+                language,
+                original_id=identifier,
+            )
+            if caption:
+                captions.append(caption)
     if not captions:
         raise TranscriptError("No timestamped cues were found in the subtitle file")
     return captions
@@ -134,13 +248,37 @@ def _json_items(data: Any) -> Iterable[dict[str, Any]]:
             return data[key]
     if isinstance(data.get("events"), list):
         events = []
-        for event in data["events"]:
-            if not isinstance(event, dict) or "tStartMs" not in event:
-                continue
+        timed = [
+            event
+            for event in data["events"]
+            if isinstance(event, dict) and "tStartMs" in event
+        ]
+        for position, event in enumerate(timed):
+            start_sec = _finite(
+                event["tStartMs"], f"json3 event {position + 1} has an invalid tStartMs"
+            ) / 1000
+            duration_sec = 0.0
+            if event.get("dDurationMs") is not None:
+                duration_sec = (
+                    _finite(
+                        event["dDurationMs"],
+                        f"json3 event {position + 1} has an invalid dDurationMs",
+                    )
+                    / 1000
+                )
+            if duration_sec <= 0:
+                next_start: float | None = None
+                for later in timed[position + 1 :]:
+                    try:
+                        next_start = float(later["tStartMs"]) / 1000
+                    except (TypeError, ValueError):
+                        continue
+                    break
+                duration_sec = json3_duration(start_sec, next_start)
             events.append(
                 {
-                    "start_sec": float(event["tStartMs"]) / 1000,
-                    "duration": float(event.get("dDurationMs", 0)) / 1000,
+                    "start_sec": start_sec,
+                    "duration": duration_sec,
                     "text": "".join(
                         str(segment.get("utf8", ""))
                         for segment in event.get("segs", [])
@@ -157,36 +295,30 @@ def _parse_json(text: str, source: str, language: str) -> list[dict[str, Any]]:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         raise TranscriptError(f"Invalid transcript JSON: {exc}") from exc
-    captions: list[dict[str, Any]] = []
-    for item in _json_items(data):
-        if not isinstance(item, dict):
-            continue
-        start = item.get("start_sec", item.get("start"))
-        end = item.get("end_sec", item.get("end"))
-        duration = item.get("duration_sec", item.get("duration"))
-        caption = _canonical_caption(
-            len(captions) + 1,
-            start,
-            end,
-            duration,
-            item.get("text", item.get("content")),
-            str(item.get("source") or source),
-            str(item.get("language") or language),
-            original_id=item.get("segment_id", item.get("id")),
-            speaker=item.get("speaker"),
-        )
-        if caption:
-            captions.append(caption)
-    if not captions:
-        raise TranscriptError("Transcript JSON contains no usable timestamped captions")
-    return captions
+    return captions_from_items(
+        _json_items(data),
+        source,
+        language,
+        empty_message="Transcript JSON contains no usable timestamped captions",
+    )
 
 
 def captions_from_items(
-    items: Iterable[dict[str, Any]], source: str, language: str
+    items: Iterable[dict[str, Any]],
+    source: str,
+    language: str,
+    *,
+    empty_message: str = "No usable timestamped captions were supplied",
 ) -> list[dict[str, Any]]:
+    """The one loop that turns supplied items into canonical captions.
+
+    Every JSON-shaped input path goes through here — the file parser and the
+    yt-dlp path both — so the field aliases and the drop rule have one home.
+    """
     captions: list[dict[str, Any]] = []
     for item in items:
+        if not isinstance(item, dict):
+            continue
         caption = _canonical_caption(
             len(captions) + 1,
             item.get("start_sec", item.get("start")),
@@ -201,7 +333,7 @@ def captions_from_items(
         if caption:
             captions.append(caption)
     if not captions:
-        raise TranscriptError("No usable timestamped captions were supplied")
+        raise TranscriptError(empty_message)
     return captions
 
 
@@ -276,7 +408,9 @@ def parse_transcript_file(
     raise TranscriptError(f"Unsupported transcript format: {suffix or '(no extension)'}")
 
 
-def transcript_integrity(captions: list[dict[str, Any]], max_gap_sec: float = 120) -> dict[str, Any]:
+def transcript_integrity(
+    captions: list[dict[str, Any]], max_gap_sec: float = MAX_CAPTION_GAP_SEC
+) -> dict[str, Any]:
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     previous_start = -1.0
@@ -288,9 +422,11 @@ def transcript_integrity(captions: list[dict[str, Any]], max_gap_sec: float = 12
         start = caption.get("start_sec")
         end = caption.get("end_sec")
         text = str(caption.get("text") or "").strip()
-        if not text:
+        if not text and not caption.get("non_speech"):
             errors.append({"code": "empty_text", "caption_id": caption_id})
-        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        # NaN and Infinity are floats, so an isinstance check alone let them
+        # through into canonical JSON no other language can read back.
+        if not _is_finite_number(start) or not _is_finite_number(end):
             errors.append({"code": "invalid_timing", "caption_id": caption_id})
             continue
         if start < 0 or end < start:
@@ -298,7 +434,9 @@ def transcript_integrity(captions: list[dict[str, Any]], max_gap_sec: float = 12
         if start < previous_start:
             errors.append({"code": "non_monotonic_start", "caption_id": caption_id})
         gap = start - previous_end
-        if previous_end and gap > max_gap_sec:
+        # ``previous_end`` starts at the beginning of the media, and 0.0 is
+        # falsy: guarding on it hid an hour of silence before the first caption.
+        if gap > max_gap_sec:
             warnings.append(
                 {
                     "code": "large_gap",
@@ -320,8 +458,18 @@ def transcript_integrity(captions: list[dict[str, Any]], max_gap_sec: float = 12
         "warnings": warnings,
         "stats": {
             "caption_count": len(captions),
-            "duration_sec": round(max((c["end_sec"] for c in captions), default=0), 3),
-            "character_count": sum(len(c["text"]) for c in captions),
+            "duration_sec": round(
+                max(
+                    (
+                        c["end_sec"]
+                        for c in captions
+                        if _is_finite_number(c.get("end_sec"))
+                    ),
+                    default=0,
+                ),
+                3,
+            ),
+            "character_count": sum(len(str(c.get("text") or "")) for c in captions),
             "adjacent_duplicate_count": duplicate_count,
         },
     }

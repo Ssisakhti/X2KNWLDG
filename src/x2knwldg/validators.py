@@ -1,15 +1,71 @@
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 from .ids import is_id_part
 from .constants import (
     COVERAGE_STATUSES,
+    DERIVED_KINDS,
     KNOWLEDGE_KINDS,
+    # WORKFLOW.md §4.4 and CLAUDE.md: "Run coverage repair no more than three
+    # total audit attempts."
+    MAX_AUDIT_ATTEMPTS,
     OMISSION_REASONS,
     RELATION_TYPES,
+    SOURCE_KINDS,
+    # The one timing epsilon. Six independent copies were six chances to disagree.
+    TIME_TOLERANCE_SEC,
 )
 from .transcripts import clean_text
+
+# An excerpt shorter than this cannot be evidence: a one- or two-character
+# fragment is a substring of almost every segment, so the "excerpt appears in
+# the segment" test would pass without proving anything.
+MIN_EVIDENCE_EXCERPT_CHARS = 3
+
+# Categories that carry no visible glyph: control (Cc), format (Cf, which is
+# where U+200B-adjacent joiners and U+FEFF live), and every kind of space.
+# Counting only visible characters keeps the excerpt rules independent of what
+# ``clean_text`` happens to strip today.
+_INVISIBLE_CATEGORIES = frozenset({"Cc", "Cf", "Zs", "Zl", "Zp"})
+# U+200B ZERO WIDTH SPACE is category Zs in some Unicode revisions and Cf in
+# others; listing it explicitly makes the rule version-independent.
+_ZERO_WIDTH = frozenset("\u200b\u200c\u200d\u2060\ufeff")
+
+
+def _visible_length(text: str) -> int:
+    """Number of characters in ``text`` that actually render as content."""
+    return sum(
+        1
+        for character in text
+        if character not in _ZERO_WIDTH
+        and unicodedata.category(character) not in _INVISIBLE_CATEGORIES
+    )
+
+
+def _evidence_excerpt_error(value: Any, minimum: int = 1) -> str | None:
+    """Return an error code when ``value`` is not usable evidence, else ``None``.
+
+    Defect D-021: every degenerate excerpt used to satisfy both the unit and the
+    provenance validator. ``" "`` and ``"\u200b"`` survived the truthiness test
+    in ``validate_knowledge_units``; ``"<b>"`` cleaned away to ``""`` and so
+    skipped the substring test in ``validate_provenance``; the integer ``0`` was
+    a type confusion that ``str(...)`` laundered into ``"0"``. An excerpt is now
+    evidence only if it is a string with real, visible content.
+    """
+    if value is None:
+        return "missing_evidence_excerpt"
+    if not isinstance(value, str):
+        # bool/int/float/list/dict: never a quotation, and str() would have
+        # turned each of them into a plausible-looking excerpt.
+        return "evidence_excerpt_not_a_string"
+    if _visible_length(value) == 0 or not clean_text(value):
+        # Whitespace, zero-width characters, or markup that cleans to nothing.
+        return "empty_evidence_excerpt"
+    if _visible_length(clean_text(value)) < minimum:
+        return "evidence_excerpt_too_short"
+    return None
 
 
 def _result(errors: list[dict[str, Any]], warnings: list[dict[str, Any]]) -> dict[str, Any]:
@@ -41,17 +97,41 @@ def validate_knowledge_units(document: Any) -> dict[str, Any]:
             if not is_id_part(unit_id):
                 errors.append({"code": "invalid_id", "unit": unit_id})
             ids.add(unit_id)
-        if unit.get("kind") not in KNOWLEDGE_KINDS:
-            errors.append({"code": "invalid_kind", "unit": location, "value": unit.get("kind")})
+        kind = unit.get("kind")
+        if kind not in KNOWLEDGE_KINDS:
+            errors.append({"code": "invalid_kind", "unit": location, "value": kind})
         source_class = unit.get("source_class")
         if source_class not in {"source", "derived"}:
             errors.append({"code": "invalid_source_class", "unit": location})
+        # Defect D-022: only the union of SOURCE_KINDS and DERIVED_KINDS was
+        # ever checked, so a `quote` could declare itself derived and skip the
+        # evidence block entirely — a fabricated quotation passed both
+        # validators. The two sets are disjoint, so the declared kind fixes the
+        # provenance shape the unit owes, and disagreement is itself a failure.
+        expected_class = (
+            "source" if kind in SOURCE_KINDS else "derived" if kind in DERIVED_KINDS else None
+        )
+        if expected_class is not None and source_class in {"source", "derived"}:
+            if source_class != expected_class:
+                errors.append(
+                    {
+                        "code": "kind_source_class_mismatch",
+                        "unit": location,
+                        "kind": kind,
+                        "source_class": source_class,
+                        "expected_source_class": expected_class,
+                    }
+                )
+        # The obligation follows the kind as well as the declaration, so a unit
+        # cannot shed either duty by mislabelling itself.
+        requires_provenance = source_class == "source" or kind in SOURCE_KINDS
+        requires_derivation = source_class == "derived" or kind in DERIVED_KINDS
         confidence = unit.get("confidence")
         if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
             errors.append({"code": "invalid_confidence", "unit": location})
         if not str(unit.get("content") or "").strip():
             errors.append({"code": "missing_content", "unit": location})
-        if source_class == "source":
+        if requires_provenance:
             source = unit.get("source")
             required = {"video_id", "segment_id", "start_sec", "end_sec", "evidence_excerpt"}
             if not isinstance(source, dict):
@@ -60,7 +140,16 @@ def validate_knowledge_units(document: Any) -> dict[str, Any]:
                 missing = sorted(field for field in required if source.get(field) in (None, ""))
                 if missing:
                     errors.append({"code": "incomplete_provenance", "unit": location, "fields": missing})
-        if source_class == "derived":
+                excerpt_error = _evidence_excerpt_error(source.get("evidence_excerpt"))
+                if excerpt_error is not None and "evidence_excerpt" not in missing:
+                    errors.append(
+                        {
+                            "code": excerpt_error,
+                            "unit": location,
+                            "type": type(source.get("evidence_excerpt")).__name__,
+                        }
+                    )
+        if requires_derivation:
             if not isinstance(unit.get("derived_from"), list) or not unit.get("derived_from"):
                 errors.append({"code": "missing_derived_from", "unit": location})
             if not str(unit.get("derivation_note") or "").strip():
@@ -170,13 +259,26 @@ def validate_provenance(
         start = source.get("start_sec")
         end = source.get("end_sec")
         if isinstance(start, (int, float)) and isinstance(end, (int, float)):
-            if start < 0 or end < start or end > transcript_end + 0.01:
+            if start < 0 or end < start or end > transcript_end + TIME_TOLERANCE_SEC:
                 errors.append({"code": "source_time_outside_transcript", "unit": unit_id})
-            if start < segment.get("start_sec", 0) - 0.01 or end > segment.get("end_sec", 0) + 0.01:
+            if start < segment.get("start_sec", 0) - TIME_TOLERANCE_SEC or end > segment.get("end_sec", 0) + TIME_TOLERANCE_SEC:
                 errors.append({"code": "source_time_outside_segment", "unit": unit_id})
-        excerpt = clean_text(str(source.get("evidence_excerpt") or "")).casefold()
+        raw_excerpt = source.get("evidence_excerpt")
+        excerpt_error = _evidence_excerpt_error(raw_excerpt, MIN_EVIDENCE_EXCERPT_CHARS)
+        if excerpt_error is not None:
+            # An excerpt that cleans away to nothing must fail here rather than
+            # skip the substring test and be reported as proven provenance.
+            errors.append(
+                {
+                    "code": excerpt_error,
+                    "unit": unit_id,
+                    "type": type(raw_excerpt).__name__,
+                }
+            )
+            continue
+        excerpt = clean_text(raw_excerpt).casefold()
         segment_text = clean_text(str(segment.get("text") or "")).casefold()
-        if excerpt and excerpt not in segment_text:
+        if excerpt not in segment_text:
             errors.append({"code": "evidence_excerpt_not_in_segment", "unit": unit_id})
     return _result(errors, warnings)
 
@@ -187,11 +289,29 @@ def validate_coverage(document: Any, transcript_end_sec: float) -> dict[str, Any
     if not isinstance(document, dict) or not isinstance(document.get("windows"), list):
         return _result([{"code": "coverage_windows_not_array"}], warnings)
     windows = document["windows"]
+    # The three-attempt repair cap used to be optional and self-reported,
+    # so omitting the count skipped it altogether. The count is now required;
+    # a coverage document that will not say how many audits it took cannot be
+    # validated against the cap, and an unverifiable claim is a failure.
     audit_attempts = document.get("audit_attempts")
-    if audit_attempts is not None and (
-        not isinstance(audit_attempts, int) or audit_attempts < 1 or audit_attempts > 3
-    ):
+    if "audit_attempts" not in document or audit_attempts is None:
+        errors.append({"code": "missing_audit_attempts", "max": MAX_AUDIT_ATTEMPTS})
+    elif isinstance(audit_attempts, bool) or not isinstance(audit_attempts, int):
         errors.append({"code": "invalid_audit_attempts", "value": audit_attempts})
+    elif audit_attempts < 0:
+        errors.append({"code": "invalid_audit_attempts", "value": audit_attempts})
+    elif audit_attempts > MAX_AUDIT_ATTEMPTS:
+        errors.append(
+            {
+                "code": "audit_attempts_over_cap",
+                "value": audit_attempts,
+                "max": MAX_AUDIT_ATTEMPTS,
+            }
+        )
+    elif audit_attempts == 0 and document.get("status") == "PASS":
+        # Zero attempts is the honest state of a freshly scaffolded, never
+        # audited coverage document — but it can never be a PASS.
+        errors.append({"code": "unaudited_coverage_pass", "value": audit_attempts})
     cursor = 0.0
     unresolved = 0
     for index, window in enumerate(windows):
@@ -203,7 +323,7 @@ def validate_coverage(document: Any, transcript_end_sec: float) -> dict[str, Any
         if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
             errors.append({"code": "invalid_window_timing", "window": index})
             continue
-        if abs(start - cursor) > 0.01:
+        if abs(start - cursor) > TIME_TOLERANCE_SEC:
             errors.append({"code": "coverage_gap_or_overlap", "window": index, "expected": cursor, "actual": start})
         if end < start:
             errors.append({"code": "invalid_window_timing", "window": index})
@@ -217,7 +337,7 @@ def validate_coverage(document: Any, transcript_end_sec: float) -> dict[str, Any
                 errors.append({"code": "invalid_omission_reason", "window": index, "value": reason})
             if reason == "other_explained" and not str(omission.get("note") or "").strip():
                 errors.append({"code": "missing_other_explanation", "window": index})
-    if abs(cursor - transcript_end_sec) > 0.01:
+    if abs(cursor - transcript_end_sec) > TIME_TOLERANCE_SEC:
         errors.append({"code": "timeline_not_fully_covered", "expected": transcript_end_sec, "actual": cursor})
     if document.get("status") == "PASS":
         for index, window in enumerate(windows):

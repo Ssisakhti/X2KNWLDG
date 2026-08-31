@@ -29,6 +29,7 @@ tests would skip and the suite would be green having proved nothing.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -41,7 +42,13 @@ from jsonschema import Draft202012Validator  # noqa: E402
 from referencing import Registry, Resource  # noqa: E402
 
 from x2knwldg.adapters import adapt_library, adapt_run  # noqa: E402
-from x2knwldg.constants import KNOWLEDGE_KINDS, RELATION_TYPES  # noqa: E402
+from x2knwldg.constants import (  # noqa: E402
+    KNOWLEDGE_KINDS,
+    MAX_AUDIT_ATTEMPTS,
+    RELATION_TYPES,
+)
+from x2knwldg.library import rebuild_library  # noqa: E402
+from x2knwldg.pipeline import import_transcript  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = PROJECT_ROOT / "schemas" / "v1"
@@ -195,6 +202,24 @@ def _adapt(run_dir: Path) -> dict[str, list[dict]]:
     return adapt_run(run_dir, PROJECT_ROOT).by_model()
 
 
+@pytest.fixture(scope="module")
+def library_records(tmp_path_factory: pytest.TempPathFactory) -> dict[str, list[dict]]:
+    """Canonical-concept records, from a library built out of the fixtures.
+
+    ``output/library/`` is produced by ``finalize_run`` and is gitignored, so
+    the two tests below used to skip everywhere except this developer's laptop
+    — the suite was green in CI having proved nothing about D-016. The three
+    committed runs are copied into a temp root and ``rebuild_library`` is run
+    over *them*, which yields a real library (three videos, one canonical
+    concept) on any machine. Nothing under ``output/`` is read or written.
+    """
+    root = tmp_path_factory.mktemp("library-from-fixtures")
+    for metadata in sorted(FIXTURE_RUNS.glob("*/metadata.json")):
+        shutil.copytree(metadata.parent, root / metadata.parent.name)
+    rebuild_library(root)
+    return adapt_library(root / "library", root).by_model()
+
+
 def _adapt_library() -> dict[str, list[dict]]:
     return adapt_library(LIBRARY_DIR, PROJECT_ROOT).by_model()
 
@@ -221,12 +246,10 @@ def test_adapter_covers_both_provenance_classes(run_dir: Path) -> None:
     assert {"source", "derived"} <= classes
 
 
-@requires_library
-def test_library_adapter_records_satisfy_the_model(
-    validators: dict[str, Draft202012Validator],
+def _check_library_records(
+    validators: dict[str, Draft202012Validator], records: dict[str, list[dict]]
 ) -> None:
-    """Concepts are cross-source, so they come from output/library/, not a run."""
-    records = _adapt_library()
+    """Concepts are cross-source, so they come from a library, not a run."""
     assert records["entity_ref"], "no canonical concepts were mapped"
     assert not records["source"], "the library is not an ingested source"
     for model in ("entity_ref", "indexed_relation"):
@@ -235,18 +258,39 @@ def test_library_adapter_records_satisfy_the_model(
             assert not errors, f"{model} {record.get('id') or record.get('global_id')}: {errors}"
 
 
-@requires_library
-def test_canonical_concepts_belong_to_no_single_source() -> None:
+def _check_concepts_have_no_owning_source(records: dict[str, list[dict]]) -> None:
     """D-016: a concept lives in the reserved library:concepts namespace and
     has no owning source, which is what check_entity_ref_ids enforces."""
-    entities = _adapt_library()["entity_ref"]
-    concepts = [entity for entity in entities if entity["entity_type"] == "concept"]
+    concepts = [entity for entity in records["entity_ref"] if entity["entity_type"] == "concept"]
     assert concepts
     for concept in concepts:
         assert concept["source_type"] == "library"
         assert concept["external_id"] == "concepts"
         assert concept["source_id"] is None
         assert concept["library_id"].startswith("concept:")
+
+
+def test_library_adapter_records_satisfy_the_model(
+    validators: dict[str, Draft202012Validator], library_records: dict[str, list[dict]]
+) -> None:
+    _check_library_records(validators, library_records)
+
+
+def test_canonical_concepts_belong_to_no_single_source(
+    library_records: dict[str, list[dict]],
+) -> None:
+    _check_concepts_have_no_owning_source(library_records)
+
+
+@requires_library
+def test_the_real_library_satisfies_the_model_too(
+    validators: dict[str, Draft202012Validator],
+) -> None:
+    """The fixture-built library is what runs everywhere; the real one joins it
+    when it is on disk."""
+    records = _adapt_library()
+    _check_library_records(validators, records)
+    _check_concepts_have_no_owning_source(records)
 
 
 @pytest.mark.parametrize("run_dir", RUNS, ids=RUN_IDS)
@@ -371,8 +415,21 @@ REJECTED: list[tuple[str, str, dict]] = [
     ("source", "parent traversal in path", {**_VALID_SOURCE, "canonical_dir": "output/../../etc/passwd"}),
     ("source", "three-part id in a source id field", {**_VALID_SOURCE, "id": "youtube:abc123:KU-000001"}),
     ("source", "audit_attempts above the WORKFLOW.md cap of 3", {**_VALID_SOURCE, "status": {**_VALID_SOURCE["status"], "audit_attempts": 4}}),
+    ("source", "a negative number of audit attempts", {**_VALID_SOURCE, "status": {**_VALID_SOURCE["status"], "audit_attempts": -1}}),
+    ("source", "a fractional number of audit attempts", {**_VALID_SOURCE, "status": {**_VALID_SOURCE["status"], "audit_attempts": 1.5}}),
     ("source", "unversioned record", _without(_VALID_SOURCE, "schema_version")),
     ("source", "status omitted entirely", _without(_VALID_SOURCE, "status")),
+    # isoTimestamp — 'format' is annotation-only in 2020-12 unless a validator
+    # opts into the format-assertion vocabulary, and none of this repo's do.
+    # Until the pattern was added, every one of these was accepted.
+    ("source", "a timestamp that is prose", {**_VALID_SOURCE, "imported_at": "yesterday"}),
+    ("source", "a timestamp that is a date", {**_VALID_SOURCE, "imported_at": "2026-01-01"}),
+    ("source", "a naive local time with no offset", {**_VALID_SOURCE, "imported_at": "2026-01-01T00:00:00"}),
+    ("source", "a timestamp with a bare Z-less offset", {**_VALID_SOURCE, "imported_at": "2026-01-01T00:00:00+0000"}),
+    ("source", "an empty timestamp", {**_VALID_SOURCE, "extracted_at": ""}),
+    ("source", "a timestamp with trailing prose", {**_VALID_SOURCE, "extracted_at": "2026-01-01T00:00:00Z (roughly)"}),
+    ("artifact", "an index time that is prose", {**_VALID_ARTIFACT, "indexed_at": "just now"}),
+    ("indexed_relation", "a creation time that is prose", {**_VALID_RELATION, "created_at": "recently"}),
     # EntityRef — provenance integrity
     ("entity_ref", "source-class unit with no locator", _without(_VALID_UNIT, "locator")),
     ("entity_ref", "source-class unit with a null locator", {**_VALID_UNIT, "locator": None}),
@@ -433,3 +490,117 @@ def test_baseline_record_is_accepted(
 ) -> None:
     """Guards against a schema so strict that the negative cases pass vacuously."""
     assert not _check(validators[model], instance)
+
+
+# --------------------------------------------------------------------------
+# 5. isoTimestamp is asserted, not merely annotated
+# --------------------------------------------------------------------------
+
+
+def test_the_timestamp_format_is_backed_by_a_pattern() -> None:
+    """``format`` is an annotation in 2020-12 unless a validator opts into the
+    format-assertion vocabulary — none of this repo's do, and a TypeScript or
+    Go consumer reading this document asserts even less. A ``pattern`` is
+    asserted by every validator there is, so the pattern is the contract and
+    ``format`` documents it."""
+    common = _load(SCHEMA_DIR / "common.schema.json")
+    iso = common["$defs"]["isoTimestamp"]
+    assert iso["format"] == "date-time"
+    assert "pattern" in iso, "isoTimestamp's format is not asserted by anything"
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [
+        "2026-08-31T13:06:19.495489+00:00",  # what pipeline.py writes
+        "2026-01-01T00:00:00+00:00",  # what the run fixtures carry
+        "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00.5-05:00",
+    ],
+)
+def test_a_real_timestamp_is_still_accepted(
+    validators: dict[str, Draft202012Validator], timestamp: str
+) -> None:
+    """The pattern must not be so tight that it rejects what the pipeline and
+    the fixtures actually write."""
+    assert not _check(validators["source"], {**_VALID_SOURCE, "imported_at": timestamp})
+
+
+@pytest.mark.parametrize("run_dir", RUNS, ids=RUN_IDS)
+def test_the_timestamps_the_adapter_emits_satisfy_the_pattern(
+    validators: dict[str, Draft202012Validator], run_dir: Path
+) -> None:
+    """The pattern is checked against real adapter output, not only against
+    hand-written cases — a rule the schema states and the code cannot meet
+    would be a contract nothing keeps."""
+    for source in _adapt(run_dir)["source"]:
+        assert not _check(validators["source"], source)
+        assert any(source.get(field) for field in ("imported_at", "extracted_at")), (
+            f"{run_dir.name} carries no timestamp, so this proves nothing"
+        )
+
+
+# --------------------------------------------------------------------------
+# 6. A freshly imported run is a valid record, not just a valid file
+# --------------------------------------------------------------------------
+
+
+def test_zero_audit_attempts_is_accepted(
+    validators: dict[str, Draft202012Validator],
+) -> None:
+    """REGRESSION: the floor was 1, so 'never audited' was unrepresentable.
+
+    ``coverage.py`` writes ``audit_attempts: 0`` into every run at import, and
+    WORKFLOW.md calls 0 the honest never-audited state — ``validators.py``
+    accepts it precisely while the document does not claim ``PASS``. A schema
+    that rejected it was calling the pipeline's own honest output invalid.
+    """
+    record = {**_VALID_SOURCE, "status": {**_VALID_SOURCE["status"], "audit_attempts": 0}}
+    assert not _check(validators["source"], record)
+
+
+def test_the_audit_cap_in_the_schema_is_the_one_in_constants() -> None:
+    """Drift guard, the same one MAX_AUDIT_ATTEMPTS earns everywhere else: the
+    cap has one home and the schema mirrors it (D-015)."""
+    schema = _load(SCHEMA_DIR / "source.schema.json")
+    attempts = schema["properties"]["status"]["properties"]["audit_attempts"]
+    assert attempts["maximum"] == MAX_AUDIT_ATTEMPTS
+    assert attempts["minimum"] == 0
+
+
+def test_a_scaffolded_run_produces_a_valid_source_record(
+    validators: dict[str, Draft202012Validator], tmp_path: Path
+) -> None:
+    """REGRESSION: nothing validated the record of a run that had only been
+    imported, which is why a floor of 1 went unnoticed.
+
+    Every fixture and the real sample carry an extraction, so every Source
+    record the suite checked had already been audited. The state the pipeline
+    actually leaves behind after ``import_transcript`` — no extraction, no
+    validation, ``audit_attempts: 0`` — was never put through the model at all.
+    It is now.
+    """
+    transcript = tmp_path / "transcript.srt"
+    transcript.write_text(
+        "1\n00:00:00,000 --> 00:00:30,000\nA caption with a timing.\n\n"
+        "2\n00:00:30,000 --> 00:01:00,000\nA second caption.\n",
+        encoding="utf-8",
+    )
+    run_dir = import_transcript(
+        transcript,
+        tmp_path / "output",
+        video_id="scaffolded01",
+        title="Scaffolded",
+        channel="Fixture",
+        language="en",
+        source="manual",
+    )
+
+    records = adapt_run(run_dir, tmp_path).by_model()
+    source = records["source"][0]
+    assert source["status"]["audit_attempts"] == 0, "the scaffolded state changed"
+    assert source["status"]["overall"] == "UNKNOWN", "an unvalidated run is not PASS"
+    for model, model_records in records.items():
+        for record in model_records:
+            errors = _check(validators[model], record)
+            assert not errors, f"{model} {record.get('id') or record.get('global_id')}: {errors}"

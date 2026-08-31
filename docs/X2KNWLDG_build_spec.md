@@ -159,9 +159,10 @@ Do **not** collapse them into plain text while discarding timing metadata.
 Preserve at minimum:
 
 ```yaml
-segment_id: yt_000123
+segment_id: cap_000123
 start_sec: 312.42
 end_sec: 318.91
+duration_sec: 6.49
 text: "..."
 source: youtube_caption
 language: en
@@ -172,6 +173,45 @@ If `duration` is provided instead of end time:
 ```text
 end_sec = start_sec + duration
 ```
+
+`original_id` and `speaker` are added when the source supplies them, and omitted when it
+does not.
+
+#### Non-speech cues
+
+A cue whose text cleans away to nothing is **kept**, not dropped. That means a cue that was
+blank or whitespace-only to begin with, and one whose whole body was WebVTT markup —
+`<v Speaker>`, `<c.yellow>`, a karaoke timestamp tag such as `<00:00:01.000>` — with no words
+between the tags. (A literal sound label like `[music]` is ordinary text and is **not**
+affected: it survives cleaning, so it is a normal caption.) A non-speech caption carries:
+
+```yaml
+text: ""
+non_speech: true
+```
+
+and its `start_sec`, `end_sec`, and `duration_sec` unchanged. The key is present only on such
+captions; a caption with speech carries no `non_speech` key at all, rather than `false`.
+
+**This is a timing-integrity mechanism, not a formatting nicety.** `duration_sec` in
+`metadata.json` comes from `transcripts.transcript_integrity`, which reads it off the caption
+timings, so dropping a cue moves the clock. A ten-minute VTT whose last cue (09:55–10:00) held
+only whitespace reported `duration_sec: 5.0` — the length of the one surviving caption. The
+coverage audit then built its windows over 0–5s, found them covered, and declared `PASS` over
+under 1% of the video. Keeping the cue keeps the clock. `tests/test_transcripts_hardening.py::SilentCueTests`
+is that exact case, held down.
+
+Consequences for every reader — the segmenter, the coverage audit, the UI, and any adapter:
+
+- An empty `text` on a `non_speech` caption is **data, not missing data.** Never treat it as
+  a gap, a parse failure, or something to repair.
+- Never quote one as evidence, and never build a knowledge unit from one.
+- Never drop them when computing duration, window boundaries, or caption counts.
+- A cue with neither text nor a usable start time is a different thing and *is* discarded;
+  it is not a cue.
+
+Verified against `transcripts._canonical_caption`, which is the single place a canonical
+caption is built, for every input format.
 
 ### 5.2 Fallback
 
@@ -210,7 +250,8 @@ Before extraction, verify:
 - timing is monotonic
 - no obviously missing multi-minute ranges unless source lacks data
 - language detection is plausible
-- transcript length is plausible for video duration
+- transcript length is plausible for video duration — non-speech cues are retained (§5.1),
+  so a trailing stretch of music cannot shorten the reported duration
 - duplicate caption blocks are detected
 
 Flag uncertainty instead of silently proceeding.

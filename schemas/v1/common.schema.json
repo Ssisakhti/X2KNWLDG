@@ -74,8 +74,10 @@
       "pattern": "^[0-9a-f]{64}$"
     },
     "isoTimestamp": {
+      "$comment": "The pattern is the assertion; 'format' is annotation-only in 2020-12 unless a validator opts into the format-assertion vocabulary, and none of this repo's validators do. Without the pattern, imported_at: 'yesterday' was accepted by every check in the tree. RFC 3339 date-time: an offset is required, because a naive local time is not a point in time. It is a 'pattern' and not a 'format' requirement so the rule holds for a TypeScript or Go consumer reading this document too.",
       "type": "string",
       "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]\\d{2}:\\d{2})$",
       "minLength": 1
     },
     "adapterRef": {

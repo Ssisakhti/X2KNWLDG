@@ -1,0 +1,87 @@
+# CODEOWNERS — the exclusive-ownership model of docs/PROJECT_MANAGEMENT.md, enforced
+#
+# §8.2 makes concurrent agents safe by giving each track a disjoint set of paths, and
+# §8.3 lists the small, merge-hostile files that no track agent may touch. Until now
+# that model lived only in prose, and Phase 1 fans out to four tracks at once. This file
+# is the same table, in the one place GitHub reads before a merge.
+#
+# What it actually buys: a review request on every PR that crosses a boundary. It does
+# not stop a commit, so §8.2 stays the rule and this is the tripwire.
+#
+# Rules: last matching pattern wins, so the defaults come first and the boundaries below
+# override them. Keep the order.
+#
+# ---------------------------------------------------------------------------
+# TODO — owner handles
+# ---------------------------------------------------------------------------
+# @Ssisakhti is the only GitHub identity this repository can verify: it is the owner
+# segment of `origin` (github.com/Ssisakhti/X2KNWLDG) and matches the committer address
+# `Ssisakhti@users.noreply.github.com`. Every track therefore resolves to that one
+# account today — correct for a single-maintainer project, and *not* the four-way split
+# §8.2 describes.
+#
+# When a track gets its own GitHub account or team, replace the owner on that track's
+# lines only; do not change the paths without changing §8.2 first. The four names to
+# fill in, if teams are ever created:
+#
+#   Track A — Indexer            → TODO: @<handle-or-team>
+#   Track B — API                → TODO: @<handle-or-team>
+#   Track C — Frontend           → TODO: @<handle-or-team>
+#   Track D — Fixtures & tests   → TODO: @<handle-or-team>
+#   Integrator (§8.3)            → TODO: @<handle-or-team>
+#
+# Do not invent a handle here. An owner GitHub cannot resolve is silently dropped, and
+# the boundary it was protecting then has no owner at all.
+
+# ---------------------------------------------------------------------------
+# Default
+# ---------------------------------------------------------------------------
+*                                   @Ssisakhti
+
+# ---------------------------------------------------------------------------
+# §8.2 — the four tracks, disjoint file ownership
+# ---------------------------------------------------------------------------
+# Track A — Indexer: SQLite schema, migrations, scanner, FTS5, incremental hashing,
+# behind repository.IndexRepository. (T-101…T-104)
+/src/x2knwldg/index/                @Ssisakhti
+
+# Track B — API: FastAPI routes, path safety, range requests, versioned responses.
+# (T-105…T-108)
+/src/x2knwldg/server/               @Ssisakhti
+
+# Track C — Frontend: Vite/React scaffold, tokens, i18n/bidi shell, Library, Reader.
+# (T-109…T-114)
+/web/                               @Ssisakhti
+
+# Track D — Fixtures & tests: labelled PARTIAL/FAIL fixtures, contract tests, rebuild
+# equivalence, path-traversal tests. (T-115)
+/tests/                             @Ssisakhti
+
+# ---------------------------------------------------------------------------
+# §8.3 — contention points. No track agent edits these; integrator only.
+# ---------------------------------------------------------------------------
+/src/x2knwldg/cli.py                @Ssisakhti
+/pyproject.toml                     @Ssisakhti
+/.gitignore                         @Ssisakhti
+/.github/                           @Ssisakhti
+/docs/                              @Ssisakhti
+
+# library.py is load-bearing for the kg_navigator skill: it emits the 2-part id that
+# skill mandates, and D-011 is additive on top of it (§6).
+/src/x2knwldg/library.py            @Ssisakhti
+
+# repository/base.py is the A↔B contract. Widening it is a contract change —
+# schemas/api/v1/openapi.json first, ADR 0002 second — not a track's local decision.
+/src/x2knwldg/repository/base.py    @Ssisakhti
+
+# ---------------------------------------------------------------------------
+# Frozen contracts — not named in §8.3, but changed the same way: the document first,
+# and the code second. Listed so a PR that edits one is never a quiet diff.
+# ---------------------------------------------------------------------------
+/schemas/                           @Ssisakhti
+/docs/adr/                          @Ssisakhti
+/CLAUDE.md                          @Ssisakhti
+/AGENTS.md                          @Ssisakhti
+/WORKFLOW.md                        @Ssisakhti
+/prompts/                           @Ssisakhti
+/.claude/                           @Ssisakhti

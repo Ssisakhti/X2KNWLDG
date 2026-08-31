@@ -19,21 +19,20 @@ records the real adapters produced from real runs, so a contract test over this
 repository is a test of the same dicts the API will serialise.
 
 What it is not: an index. It re-reads everything on construction, it holds it
-all in memory, and it re-runs the linear scan of ``query.search_knowledge`` for
-every search — which is exactly the cost ``T-103``'s FTS5 tables exist to
-remove. Do not serve a growing library from it.
+all in memory, and it ranks every searchable document in the library on every
+search — which is exactly the cost ``T-103``'s FTS5 tables exist to remove. Do
+not serve a growing library from it.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 from .. import ids
 from ..adapters import ADAPTERS, IndexRecords, adapt_project
-from ..pipeline import PipelineError
-from ..query import search_knowledge
+from ..query import SearchDocument, rank_documents, run_documents
 from .base import (
     READY,
     EntityQuery,
@@ -50,7 +49,9 @@ from .base import (
     SearchQuery,
     SourceDetail,
     SourceQuery,
+    check_index_integrity,
     encode_cursor,
+    graph_nodes,
     keyset_page,
     matches_entity,
     matches_relation,
@@ -58,6 +59,10 @@ from .base import (
     record_copy,
     sort_records,
 )
+
+#: Sentinel for "work the source out yourself", so that ``None`` can keep
+#: meaning "there is no source for this hit".
+_DERIVE = object()
 
 __all__ = ["MemoryRepository"]
 
@@ -114,6 +119,25 @@ class MemoryRepository:
             for endpoint in (relation.get("from_id"), relation.get("to_id")):
                 if isinstance(endpoint, str):
                     self._adjacency[endpoint].append(relation)
+
+        # A set that cannot be paged honestly is refused here rather than
+        # quietly mis-served later: a duplicate id deletes a record at a page
+        # boundary, and a dangling edge makes the graph and the relations list
+        # disagree about one fact.
+        check_index_integrity(
+            {
+                "source": self._sources,
+                "artifact": self._artifacts,
+                "entity_ref": self._entities,
+                "indexed_relation": self._relations,
+            }
+        )
+
+        # Built on the first search, from the runs this index holds — see
+        # :meth:`search`. Not at construction: a repository that never searches
+        # should not pay for a corpus, and ``/api/status`` must stay cheap.
+        self._corpus: dict[str, list[SearchDocument]] | None = None
+        self._unreadable: set[str] = set()
 
     # ------------------------------------------------------------------
     # Construction
@@ -243,91 +267,174 @@ class MemoryRepository:
     # ------------------------------------------------------------------
 
     def search(self, query: SearchQuery) -> Page:
-        """A page of search hits, ranked as ``query.search_knowledge`` ranks them.
+        """A page of search hits over the sources **this index holds**.
+
+        Search resolves against the index, not the filesystem. It used to walk
+        ``<project_root>/output`` directly, which made it a second, disagreeing
+        view of the library: a run that appeared after this repository was built
+        was searched and returned hits, and every one of them carried
+        ``source_id: null``, because no ``Source`` record existed to resolve it
+        against. Renderable, and unnavigable. Now the corpus is built from the
+        ``canonical_dir`` each indexed ``Source`` already carries, so a hit
+        always names a source ``/api/sources/{id}`` will answer for, and a run
+        added after the build simply is not in the index yet — which is what
+        every other method here already says about it.
+
+        Resolving through the record rather than the id also retires a
+        round-trip the API could not survive. The run directory used to be
+        re-derived by name and re-resolved through ``pipeline.resolve_run_dir``,
+        so a directory containing a space — an id nothing rejected at ingest —
+        came back as ``400 invalid_id`` for an id the API itself had issued, in
+        an error body naming the host directory. No id is joined onto a path
+        here at all now, and nothing about the host filesystem reaches an error
+        body (D-030).
 
         The cursor is an **offset**, not a key: a relevance rank is not a stable
-        order to key off, and there is no total order over hits to page by. That
-        is a real limitation, stated rather than hidden — a run finalised between
-        two pages can shift the ranking under the cursor. Bounded pagination over
-        a ranked list is what ``T-103``'s FTS5 replacement inherits, and the
-        cursor stays opaque so it can change its encoding then without touching
-        the contract.
+        order to key off, and there is no total order over hits to page by. It
+        is authenticated like every other cursor, so the offset that indexes the
+        ranked list is one this repository issued.
         """
         self._require_ready()
         offset = _offset(query)
-        wanted = offset + query.limit + 1
+        corpus = self._documents()
 
-        output_root, run_id = self._search_root(query.source_id)
-        if output_root is None:
-            # A well-formed source id naming no indexed source has nothing to
-            # search. An empty page, not an error: absence is a return value.
-            return Page(items=[], limit=query.limit, next_cursor=None, total=0)
+        if query.source_id is not None:
+            if query.source_id not in self._source_by_id:
+                # A well-formed source id naming no indexed source has nothing
+                # to search. An empty page, not an error: absence is a return
+                # value, and zero here is a fact rather than an absent count.
+                return Page(items=[], limit=query.limit, next_cursor=None, total=0)
+            scope = [query.source_id]
+        else:
+            scope = [source["id"] for source in self._sources]
 
-        try:
-            results = search_knowledge(
-                output_root,
-                query.q,
-                video_id=run_id,
-                limit=wanted,
-                include_transcript_fallback=query.include_transcript,
-            )
-        except PipelineError as exc:  # pragma: no cover - guarded by _search_root
-            raise InvalidId(f"source_id: {exc}") from exc
+        documents: list[SearchDocument] = []
+        complete = True
+        for source_id in scope:
+            if source_id in self._unreadable:
+                # The source is indexed but its canonical files could not be
+                # read. Its hits are not zero; they are unknown, and `total`
+                # says so rather than counting them as none.
+                complete = False
+                continue
+            for document in corpus.get(source_id, ()):
+                if not query.include_transcript and (
+                    document.hit.get("type") == "transcript_caption"
+                ):
+                    continue
+                documents.append(document)
 
-        window = [self.as_api_hit(result) for result in results[offset : offset + query.limit]]
-        exhausted = len(results) <= offset + query.limit
+        ranked = rank_documents(documents, query.q)
+        window = [record_copy(hit) for hit in ranked[offset : offset + query.limit]]
+        exhausted = len(ranked) <= offset + query.limit
         next_cursor = (
             None
             if exhausted or not window
             else encode_cursor(query.fingerprint, str(offset + query.limit))
         )
-        # `total` stays None: search_knowledge truncates at `limit` rather than
-        # counting matches, and the contract says null means unknown, never zero.
-        return Page(items=window, limit=query.limit, next_cursor=next_cursor, total=None)
+        return Page(
+            items=window,
+            limit=query.limit,
+            next_cursor=next_cursor,
+            total=len(ranked) if complete else None,
+        )
 
-    def as_api_hit(self, result: Mapping[str, Any]) -> dict[str, Any]:
+    def as_api_hit(
+        self, result: Mapping[str, Any], *, source_id: Any = _DERIVE
+    ) -> dict[str, Any]:
         """Attach D-028's two additive fields, and no others.
 
-        Every other field passes through from ``query.search_knowledge``
-        untouched — ``video_id`` stays ``video_id`` (ADR 0001 invariant 6). The
-        source type comes from the **indexed source** rather than being assumed
-        to be YouTube, and an id that cannot be built honestly is ``None`` rather
-        than a plausible string that resolves to nothing.
+        Every other field passes through from ``query.run_documents`` untouched
+        — ``video_id`` stays ``video_id`` (ADR 0001 invariant 6). The source type
+        comes from the **indexed source** rather than being assumed to be
+        YouTube, and an id that cannot be built honestly is ``None`` rather than
+        a plausible string that resolves to nothing.
+
+        *source_id* is passed when the caller already knows which indexed source
+        the hit came from, which :meth:`search` always does now. Left out, the
+        source is inferred from the hit's ``video_id``, and only when exactly one
+        indexed source claims that external id: two source types could ingest
+        the same one, and guessing between them would mint an address resolving
+        to the wrong entity (D-028).
 
         A ``transcript_caption`` hit gets **no** ``global_id`` at all: v1 emits
         no caption entities (D-023), so there is no entity to address.
         """
-        # Shallow on purpose, unlike every other boundary here: a search hit is
-        # built fresh from disk by search_knowledge on each call, so it aliases
-        # nothing the index holds and there is no stored record to protect.
+        # Shallow on purpose, unlike every other boundary here: the caller owns
+        # the dict this builds, and every hand-out of a stored one is copied.
         hit = dict(result)
-        video_id = result.get("video_id")
-        source_id = (
-            self._source_id_by_external.get(video_id) if isinstance(video_id, str) else None
-        )
+        if source_id is _DERIVE:
+            video_id = result.get("video_id")
+            source_id = (
+                self._source_id_by_external.get(video_id)
+                if isinstance(video_id, str)
+                else None
+            )
         hit["source_id"] = source_id
         if result.get("type") == "knowledge_unit":
             hit["global_id"] = _unit_global_id(source_id, result.get("id"))
         return hit
 
-    def _search_root(self, source_id: str | None) -> tuple[Path | None, str | None]:
-        """Where to search, derived from the record — never from the raw id.
+    def _documents(self) -> dict[str, list[SearchDocument]]:
+        """The searchable corpus, by source id, built once and kept.
 
-        An externally supplied id is looked **up**, and the directory that comes
-        back is the one the ``Source`` record already carries. So a hostile id
-        never reaches a path join at all, and a fixture whose directory name
-        differs from its ``external_id`` still searches the right run.
+        Building it once is the difference between a page and a walk. Reading
+        and rescoring every canonical file per call made paging cost the whole
+        library per page — the cost ADR 0002 records as the reason ``T-103``
+        exists, paid once per *page* rather than once per query.
+
+        Each run is located by the ``canonical_dir`` its own ``Source`` record
+        carries — project-relative and already proven inside the project root by
+        ``adapters.project_relative`` (risk R15) — and containment is re-checked
+        here, because a resolver that does not re-check is not a boundary
+        (ADR 0003 invariant 5). A source whose files cannot be read is recorded
+        as unreadable rather than as empty, and no path ever reaches an error.
         """
-        if source_id is None:
-            return self._output_root, None
-        source = self._source_by_id.get(source_id)
-        if source is None:
-            return None, None
+        if self._corpus is not None:
+            return self._corpus
+        corpus: dict[str, list[SearchDocument]] = {}
+        unreadable: set[str] = set()
+        for source in self._sources:
+            source_id = source["id"]
+            run_dir = self._run_dir(source)
+            if run_dir is None:
+                unreadable.add(source_id)
+                continue
+            try:
+                documents = run_documents(run_dir)
+            except (OSError, ValueError):
+                # A canonical file that is present and unparseable is not an
+                # empty run. Nothing is invented, and nothing is counted.
+                unreadable.add(source_id)
+                continue
+            corpus[source_id] = [
+                SearchDocument(
+                    hit=self.as_api_hit(document.hit, source_id=source_id),
+                    folded=document.folded,
+                    tokens=document.tokens,
+                    weight=document.weight,
+                )
+                for document in documents
+            ]
+        self._corpus = corpus
+        self._unreadable = unreadable
+        return corpus
+
+    def _run_dir(self, source: Mapping[str, Any]) -> Path | None:
+        """The run directory a ``Source`` record points at, or ``None``.
+
+        The record carries the path; nothing is rebuilt from an id. ``None``
+        means the record states no directory, or states one that does not
+        resolve inside the project root — in either case the source cannot be
+        searched, and saying so is the whole answer.
+        """
         canonical_dir = source.get("canonical_dir")
         if not isinstance(canonical_dir, str) or not canonical_dir:
-            return None, None
-        run_dir = self._project_root / canonical_dir
-        return run_dir.parent, run_dir.name
+            return None
+        run_dir = (self._project_root / canonical_dir).resolve()
+        if run_dir != self._project_root and self._project_root not in run_dir.parents:
+            return None
+        return run_dir
 
     # ------------------------------------------------------------------
     # Graph
@@ -347,10 +454,18 @@ class MemoryRepository:
         Map that draws a dangling edge is asserting a node it will not show.
         An edge whose endpoints straddle two pages appears in both, so a client
         accumulating pages dedupes by ``id``.
+
+        Which nodes a source's graph is drawn over is :func:`graph_nodes`'
+        decision, and it is the same membership rule
+        ``/api/sources/{id}/relations`` applies. The two views answered it
+        differently until now and disagreed about one fact — see that function.
+
+        ``truncated`` is about the *graph*, not about the cursor. A last page
+        with no ``next_cursor`` is still a slice of a larger graph, and reporting
+        it as whole would let the Map present a cut graph as the library.
         """
         self._require_ready()
-        node_filter = query.node_query()
-        nodes = [entity for entity in self._entities if matches_entity(entity, node_filter)]
+        nodes = graph_nodes(self._entities, self._relations, query)
         page = keyset_page(nodes, query, "entity_ref")
 
         visible = {node["global_id"] for node in nodes}
@@ -366,7 +481,7 @@ class MemoryRepository:
         return GraphPage(
             nodes=page.items,
             edges=edges,
-            truncated=page.next_cursor is not None,
+            truncated=len(page.items) < len(nodes),
             limit=page.limit,
             next_cursor=page.next_cursor,
             total=page.total,
@@ -399,9 +514,9 @@ class MemoryRepository:
             frontier = []
             for node_id in sorted(neighbours):
                 entity = self._entity_by_id.get(node_id)
-                if entity is None:
-                    # An edge may name an endpoint the index holds no entity for.
-                    # It is not invented here; it simply does not join the walk.
+                if entity is None:  # pragma: no cover - check_index_integrity refuses these
+                    # A dangling endpoint is refused at construction, so this
+                    # cannot happen; nothing is invented if it ever does.
                     continue
                 if len(collected) >= query.limit:
                     truncated = True
@@ -457,11 +572,11 @@ def _unit_global_id(source_id: str | None, local_id: Any) -> str | None:
 
 
 def _offset(query: SearchQuery) -> int:
-    start = query.start_key()
+    start = query.start()
     if start is None:
         return 0
     try:
-        offset = int(start)
+        offset = int(start.key or "")
     except ValueError as exc:
         raise InvalidQuery("cursor is not a cursor this repository issued") from exc
     if offset < 0:

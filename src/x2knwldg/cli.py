@@ -1,3 +1,42 @@
+"""The ``x2knwldg`` command line.
+
+Exit codes
+----------
+
+The pipeline's whole point is that a run which is not a pass cannot be
+mistaken for one, and an exit code is the only thing a shell or a CI job
+reads. ``PARTIAL`` used to exit ``0``, so no check could tell it from
+``PASS``; every refusal, including the ``ui`` command's standing "not
+implemented yet", shared ``1`` with every real error. The codes below are the
+same in every command that produces them.
+
+=====  ==========================================================
+Code   Meaning
+=====  ==========================================================
+``0``  ``PASS`` — the command succeeded, and any run it validated
+       passed validation *and* coverage.
+``1``  ``ERROR`` — the command refused or failed: a bad argument,
+       a missing or corrupt canonical file, an id that is not an
+       id, a run directory already in use, a missing extra. A
+       JSON object with ``"status": "ERROR"`` goes to stderr.
+``2``  Usage error. Reserved by ``argparse``, which exits ``2``
+       for an unknown flag or a missing argument, so nothing
+       semantic is given this code.
+``3``  ``PARTIAL`` — every validator passed and coverage is
+       honestly incomplete (``WORKFLOW.md`` §4.5). A real
+       deliverable, and not a pass: completion may not be
+       claimed on it.
+``4``  ``FAIL`` — the run validated as failing.
+``5``  ``TRANSCRIPT_REQUIRED`` — no native captions. ``inbox/``
+       now holds instructions; supply a timestamped transcript.
+       Whisper is never a fallback.
+``6``  ``UI_NOT_IMPLEMENTED`` — ``ui`` accepted its arguments and
+       has no server to start yet (``T-116``). Distinct from
+       ``1`` so a wrapper can wait for the feature rather than
+       report a broken install.
+=====  ==========================================================
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -6,14 +45,18 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .ids import IdError
 from .pipeline import (
     PipelineError,
+    RunAlreadyExists,
     extract_video_id,
     import_transcript,
+    is_youtube_url,
     prepare_inbox,
     project_root,
     validate_run,
 )
+from .transcripts import TranscriptError
 
 # ADR 0001 invariant 9: the local service binds loopback only. Enforced here, at
 # the boundary where a host first arrives from outside the process, so `T-116`
@@ -24,9 +67,88 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 # scope: invariant 5 is that `import x2knwldg.cli` needs nothing optional.
 UI_DEPENDENCIES = ("fastapi", "uvicorn")
 
+# The `youtube` extra. `fetch_native_transcript` needs at least one of them;
+# with neither, no URL can be processed and that is a broken install, not a
+# video without captions.
+YOUTUBE_DEPENDENCIES = ("youtube_transcript_api", "yt_dlp")
 
-def _add_import_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("transcript", type=Path, help="Timestamped SRT, VTT, JSON, TXT, or MD")
+EXIT_OK = 0
+EXIT_ERROR = 1
+EXIT_USAGE = 2  # argparse's own, reproduced here so nothing else claims it
+EXIT_PARTIAL = 3
+EXIT_FAIL = 4
+EXIT_TRANSCRIPT_REQUIRED = 5
+EXIT_UI_NOT_IMPLEMENTED = 6
+
+#: One mapping, so `validate`, `apply-bundle` and `finalize` cannot drift into
+#: disagreeing about what a verdict is worth.
+VERDICT_EXIT_CODES = {"PASS": EXIT_OK, "PARTIAL": EXIT_PARTIAL, "FAIL": EXIT_FAIL}
+
+# Errors a command may legitimately meet while handling user-supplied data.
+# `PipelineError` alone left the documented transcript path — a malformed SRT,
+# a VTT with no timings — exiting on a raw traceback, because `parse_transcript_file`
+# raises `TranscriptError`. `IdError` arrives the same way from `ids.py`, and
+# `OSError` from an unreadable file or directory.
+USER_FACING_ERRORS = (PipelineError, TranscriptError, IdError, OSError, json.JSONDecodeError)
+
+
+def verdict_exit_code(status: str) -> int:
+    """The exit code for a run verdict. An unknown verdict is never a pass."""
+    return VERDICT_EXIT_CODES.get(status, EXIT_ERROR)
+
+
+def _fail(status: str, message: str, **extra: object) -> None:
+    payload = {"status": status, "message": message}
+    payload.update(extra)
+    print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
+
+
+def _missing_dependencies(names: tuple[str, ...]) -> list[str]:
+    """Which of *names* are not importable.
+
+    ``find_spec`` rather than ``import``: probing must not execute an optional
+    dependency just to report that it is present.
+    """
+    from importlib.util import find_spec
+
+    missing = []
+    for name in names:
+        try:
+            found = find_spec(name) is not None
+        except (ImportError, ValueError):  # pragma: no cover - broken install
+            found = False
+        if not found:
+            missing.append(name)
+    return missing
+
+
+#: Shown by ``x2knwldg --help``. The same table as this module's docstring:
+#: a caller writing a shell check should not have to read the source.
+EXIT_CODE_HELP = """\
+exit codes:
+  0  PASS                 the command succeeded; a validated run passed
+                          validation and coverage
+  1  ERROR                the command refused or failed (bad argument, missing
+                          or corrupt canonical file, invalid id, run directory
+                          already in use, missing optional extra)
+  2  usage error          argparse: unknown flag or missing argument
+  3  PARTIAL              validators passed, coverage is honestly incomplete
+                          (WORKFLOW.md section 4.5). A deliverable, not a pass
+  4  FAIL                 the run validated as failing
+  5  TRANSCRIPT_REQUIRED  no native captions; supply a timestamped transcript
+                          in the inbox directory this command names
+  6  UI_NOT_IMPLEMENTED   `ui` accepted its arguments; the server lands with
+                          T-116
+
+Completion may be claimed only on 0."""
+
+
+#: The options ``import-transcript`` and ``process`` share. Declared once,
+#: because ``process`` reaches ``_run_import`` for a local file and the two
+#: commands have to agree about every one of them: a default that drifted —
+#: ``--language`` or ``--output`` differing between them — would change what a
+#: documented invocation does with nothing to catch it.
+def _add_shared_import_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--video-id", help="YouTube video ID or stable local identifier")
     parser.add_argument("--video-url", help="Original YouTube URL")
     parser.add_argument("--title")
@@ -35,10 +157,17 @@ def _add_import_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output", type=Path, default=Path("output"))
 
 
+def _add_import_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("transcript", type=Path, help="Timestamped SRT, VTT, JSON, TXT, or MD")
+    _add_shared_import_options(parser)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="x2knwldg",
         description="Timestamp-preserving, auditable video knowledge pipeline",
+        epilog=EXIT_CODE_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -52,13 +181,8 @@ def build_parser() -> argparse.ArgumentParser:
         "process", help="Process a local transcript or fetch native YouTube captions"
     )
     process_parser.add_argument("source", help="Transcript path or YouTube URL")
-    process_parser.add_argument("--video-id")
-    process_parser.add_argument("--video-url")
-    process_parser.add_argument("--title")
-    process_parser.add_argument("--channel")
-    process_parser.add_argument("--language", default="unknown")
+    _add_shared_import_options(process_parser)
     process_parser.add_argument("--preferred-language", action="append", default=[])
-    process_parser.add_argument("--output", type=Path, default=Path("output"))
     process_parser.add_argument("--inbox", type=Path, default=Path("inbox"))
 
     validate_parser = commands.add_parser("validate", help="Validate one canonical video output")
@@ -127,7 +251,7 @@ def _run_import(args: argparse.Namespace) -> int:
         language=args.language,
     )
     print(json.dumps({"status": "IMPORTED", "output": str(run_dir)}, ensure_ascii=False))
-    return 0
+    return EXIT_OK
 
 
 def _run_process(args: argparse.Namespace) -> int:
@@ -137,16 +261,44 @@ def _run_process(args: argparse.Namespace) -> int:
         return _run_import(args)
     if not args.source.startswith(("https://", "http://")):
         raise PipelineError(f"Source is neither a file nor a URL: {args.source}")
-    from .youtube import process_youtube_url
 
+    # Exact-host membership, before anything fetches anything. `extract_video_id`
+    # returning an id is not evidence that the URL belongs to YouTube — under the
+    # old substring host test it happily returned a real 11-character id for
+    # `https://youtube.com.evil.example/watch?v=<id>`, and the *full URL* was
+    # then handed to yt_dlp's generic extractor. That fetched the attacker's
+    # host (SSRF) and filed whatever came back under a genuine YouTube id.
+    if not is_youtube_url(args.source):
+        raise PipelineError(
+            f"Not a YouTube URL, refusing to fetch it: {args.source}. "
+            "Pass a transcript file, or use --video-id with import-transcript."
+        )
     video_id = extract_video_id(args.source)
     if not video_id:
         raise PipelineError("Could not extract a YouTube video ID from the URL")
+
+    # A broken install is not a video without captions. Checked before the fetch
+    # so the answer is "install the extra", not "go find a transcript yourself".
+    missing = _missing_dependencies(YOUTUBE_DEPENDENCIES)
+    if len(missing) == len(YOUTUBE_DEPENDENCIES):
+        raise PipelineError(
+            f"The 'youtube' extra is not installed (missing: {', '.join(missing)}). "
+            "Install it with: pip install 'x2knwldg[youtube]' — or import a "
+            "timestamped transcript with: x2knwldg import-transcript"
+        )
+
+    from .youtube import process_youtube_url
+
     try:
         run_dir = process_youtube_url(
             args.source, args.output, preferred_languages=args.preferred_language or None
         )
-    except PipelineError as exc:
+    except RunAlreadyExists:
+        # The captions were fetched fine; this id is already taken. Asking for a
+        # transcript would be a lie — the same collision would reject it.
+        raise
+    except (TranscriptError, PipelineError) as exc:
+        # What is left really is "YouTube has no usable captions for this video".
         inbox = prepare_inbox(args.inbox, video_id, args.source)
         print(
             json.dumps(
@@ -159,9 +311,48 @@ def _run_process(args: argparse.Namespace) -> int:
                 ensure_ascii=False,
             )
         )
-        return 2
+        return EXIT_TRANSCRIPT_REQUIRED
     print(json.dumps({"status": "IMPORTED", "output": str(run_dir)}, ensure_ascii=False))
-    return 0
+    return EXIT_OK
+
+
+def _status_row(metadata_file: Path) -> dict[str, object]:
+    """One video's status row, or a row saying why it could not be read.
+
+    One corrupt ``metadata.json`` used to take the whole listing down with an
+    uncaught ``JSONDecodeError``: a single damaged run made every *other*
+    video invisible. A run that cannot be read is reported as unreadable —
+    named, never silently dropped, and never reported as covered.
+    """
+    row: dict[str, object] = {
+        "video_id": metadata_file.parent.name,
+        "title": None,
+        "coverage": "UNREADABLE",
+        "path": str(metadata_file.parent),
+    }
+    try:
+        metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        row["error"] = f"{metadata_file.name}: {exc}"
+        return row
+    if isinstance(metadata, dict):
+        row["video_id"] = metadata.get("video_id", metadata_file.parent.name)
+        row["title"] = metadata.get("title")
+    else:
+        row["error"] = f"{metadata_file.name}: not a JSON object"
+        return row
+
+    coverage_file = metadata_file.parent / "coverage.json"
+    if not coverage_file.exists():
+        row["coverage"] = "MISSING"
+        return row
+    try:
+        coverage = json.loads(coverage_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        row["error"] = f"{coverage_file.name}: {exc}"
+        return row
+    row["coverage"] = coverage.get("status") if isinstance(coverage, dict) else "UNREADABLE"
+    return row
 
 
 def _run_status(output: Path) -> int:
@@ -169,42 +360,19 @@ def _run_status(output: Path) -> int:
     rows = []
     if output.exists():
         for metadata_file in sorted(output.glob("*/metadata.json")):
-            metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
-            coverage_file = metadata_file.parent / "coverage.json"
-            coverage = (
-                json.loads(coverage_file.read_text(encoding="utf-8"))
-                if coverage_file.exists()
-                else {"status": "MISSING"}
-            )
-            rows.append(
-                {
-                    "video_id": metadata.get("video_id"),
-                    "title": metadata.get("title"),
-                    "coverage": coverage.get("status"),
-                    "path": str(metadata_file.parent),
-                }
-            )
-    print(json.dumps({"videos": rows}, ensure_ascii=False, indent=2))
-    return 0
+            rows.append(_status_row(metadata_file))
+    unreadable = sum(1 for row in rows if "error" in row)
+    print(
+        json.dumps(
+            {"videos": rows, "unreadable": unreadable}, ensure_ascii=False, indent=2
+        )
+    )
+    return EXIT_OK
 
 
 def _missing_ui_dependencies() -> list[str]:
-    """Names from the `ui` extra that are not importable.
-
-    Uses ``find_spec`` rather than ``import``: probing must not execute a web
-    framework just to report that it is present.
-    """
-    from importlib.util import find_spec
-
-    missing = []
-    for name in UI_DEPENDENCIES:
-        try:
-            found = find_spec(name) is not None
-        except (ImportError, ValueError):  # pragma: no cover - broken install
-            found = False
-        if not found:
-            missing.append(name)
-    return missing
+    """Names from the `ui` extra that are not importable."""
+    return _missing_dependencies(UI_DEPENDENCIES)
 
 
 def _run_ui(args: argparse.Namespace) -> int:
@@ -213,9 +381,14 @@ def _run_ui(args: argparse.Namespace) -> int:
     Steps 1 and 2 of that contract are real here — the root is resolved and the
     bind address is checked — because both are refusals, and a refusal is worth
     having before the thing it guards exists. Steps 3 to 5 need the server
-    (`T-105`-`T-108`), so this reports `UI_NOT_IMPLEMENTED` and exits 2 rather
-    than starting something that cannot serve. It never prints a URL it is not
-    listening on.
+    (`T-105`-`T-108`), so this reports `UI_NOT_IMPLEMENTED` and exits
+    `EXIT_UI_NOT_IMPLEMENTED` rather than starting something that cannot serve.
+    It never prints a URL it is not listening on.
+
+    That code is its own, not `1` and not argparse's `2`: "the feature has not
+    landed" is a different fact from "your invocation was wrong", and a wrapper
+    that cannot tell them apart reports a broken install for a feature that is
+    merely unfinished.
     """
     if args.host not in LOOPBACK_HOSTS:
         raise PipelineError(
@@ -254,10 +427,11 @@ def _run_ui(args: argparse.Namespace) -> int:
             indent=2,
         )
     )
-    return 2
+    return EXIT_UI_NOT_IMPLEMENTED
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run one command and return its exit code. See this module's docstring."""
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
@@ -268,19 +442,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate":
             result = validate_run(args.run_dir)
             print(json.dumps(result, ensure_ascii=False, indent=2))
-            return 0 if result["status"] in {"PASS", "PARTIAL"} else 1
+            return verdict_exit_code(result["status"])
         if args.command == "apply-bundle":
             from .artifacts import apply_extraction_bundle
 
             result = apply_extraction_bundle(args.run_dir, args.bundle)
             print(json.dumps(result, ensure_ascii=False, indent=2))
-            return 0 if result["status"] in {"PASS", "PARTIAL"} else 1
+            return verdict_exit_code(result["status"])
         if args.command == "finalize":
             from .artifacts import finalize_run
 
             result = finalize_run(args.run_dir)
             print(json.dumps(result, ensure_ascii=False, indent=2))
-            return 0 if result["status"] in {"PASS", "PARTIAL"} else 1
+            return verdict_exit_code(result["status"])
         if args.command == "status":
             return _run_status(args.output)
         if args.command == "search":
@@ -290,19 +464,25 @@ def main(argv: list[str] | None = None) -> int:
                 args.output, args.query, video_id=args.video_id, limit=args.limit
             )
             print(json.dumps({"results": results}, ensure_ascii=False, indent=2))
-            return 0
+            return EXIT_OK
         if args.command == "rebuild-library":
             from .library import rebuild_library
 
             print(json.dumps(rebuild_library(args.output), ensure_ascii=False, indent=2))
-            return 0
+            return EXIT_OK
         if args.command == "ui":
             return _run_ui(args)
-    except PipelineError as exc:
-        print(json.dumps({"status": "ERROR", "message": str(exc)}, ensure_ascii=False), file=sys.stderr)
-        return 1
+    except USER_FACING_ERRORS as exc:
+        # Not `PipelineError` alone. `parse_transcript_file` raises
+        # `TranscriptError` for every malformed SRT/VTT/JSON — the *documented*
+        # import path — and `ids.py` raises `IdError`; both used to leave the
+        # CLI on a raw traceback. An unreadable file is `OSError`, and a corrupt
+        # canonical file `JSONDecodeError`. Programming errors keep their
+        # traceback: this tuple is the surface a user's input can reach.
+        _fail("ERROR", str(exc), error=type(exc).__name__)
+        return EXIT_ERROR
     parser.error("Unknown command")
-    return 2
+    return EXIT_USAGE
 
 
 if __name__ == "__main__":
