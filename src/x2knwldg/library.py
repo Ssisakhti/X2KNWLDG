@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from . import ids
 from .io import write_json
 
 
@@ -36,6 +37,7 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
         if not knowledge_path.exists() or not relationships_path.exists():
             continue
         video_id = metadata["video_id"]
+        source_type = metadata.get("source_type", ids.DEFAULT_SOURCE_TYPE)
         videos.append(
             {
                 "video_id": video_id,
@@ -46,12 +48,16 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
         )
         units = json.loads(knowledge_path.read_text(encoding="utf-8")).get("units", [])
         for unit in units:
-            global_id = f"{video_id}:{unit['id']}"
+            # The two-part form stays the node id: kg_navigator.md mandates it.
+            # The three-part global id (D-011) is added alongside, never instead.
+            library_id = ids.make_library_id(video_id, unit["id"])
             nodes.append(
                 {
-                    "id": global_id,
+                    "id": library_id,
                     "local_id": unit["id"],
                     "video_id": video_id,
+                    "source_type": source_type,
+                    "global_id": ids.make_global_id(source_type, video_id, unit["id"]).value,
                     "label": unit.get("normalized_statement") or unit.get("content"),
                     "kind": unit.get("kind"),
                     "source_class": unit.get("source_class"),
@@ -60,9 +66,9 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
             for source_id in unit.get("derived_from", []):
                 edges.append(
                     {
-                        "from": global_id,
+                        "from": library_id,
                         "relation": "derived_from",
-                        "to": f"{video_id}:{source_id}",
+                        "to": ids.make_library_id(video_id, source_id),
                         "source_class": "derived",
                         "confidence": unit.get("confidence", 0),
                     }
@@ -73,14 +79,16 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
                     concept = concepts_by_key.setdefault(
                         key,
                         {
-                            "id": f"concept:{hashlib.sha256(key.encode('utf-8')).hexdigest()[:12]}",
+                            "id": ids.make_concept_library_id(
+                                hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+                            ),
                             "canonical_label": unit.get("normalized_statement") or unit.get("content"),
                             "aliases": set(),
                             "occurrences": [],
                         },
                     )
                     concept["aliases"].update(unit.get("aliases", []))
-                    concept["occurrences"].append(global_id)
+                    concept["occurrences"].append(library_id)
         relationships = json.loads(relationships_path.read_text(encoding="utf-8")).get(
             "relationships", []
         )
@@ -88,8 +96,8 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
             edges.append(
                 {
                     **edge,
-                    "from": f"{video_id}:{edge['from']}",
-                    "to": f"{video_id}:{edge['to']}",
+                    "from": ids.make_library_id(video_id, edge["from"]),
+                    "to": ids.make_library_id(video_id, edge["to"]),
                     "video_id": video_id,
                 }
             )
@@ -97,10 +105,15 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
     concepts = []
     for concept in concepts_by_key.values():
         concept["aliases"] = sorted(concept["aliases"])
+        # A canonical concept is cross-source, so it lives in the reserved
+        # library:concepts namespace (D-016) rather than in any one source.
+        concept["global_id"] = ids.global_id_from_library_id(concept["id"]).value
         concepts.append(concept)
         nodes.append(
             {
                 "id": concept["id"],
+                "source_type": ids.LIBRARY_SOURCE_TYPE,
+                "global_id": concept["global_id"],
                 "label": concept["canonical_label"],
                 "kind": "canonical_concept",
                 "source_class": "derived",

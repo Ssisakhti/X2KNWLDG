@@ -26,6 +26,8 @@ resolves as a unit from any base — see `_registry` in `tests/test_index_schema
 The version is the **directory**. `v1` records carry `"schema_version": "1.0"`.
 
 - **Additive, optional field** → edit in place, no new directory.
+- **Widened pattern or bound that accepts strictly more** → edit in place: no stored
+  record is invalidated. D-017 is the precedent.
 - **New required field, removed field, narrowed type, or changed meaning** → create
   `schemas/v2/`, leave `v1` untouched, and migrate readers deliberately. A stored record
   must always be readable by the schema version it names.
@@ -44,9 +46,15 @@ invariant 4).
 | Library id | `<video-id>:<knowledge-unit-id>`, or `concept:<hash>` | `output/library/graph.json`, and the `kg_navigator` skill, which mandates it |
 
 `EntityRef` carries both, so the two vocabularies can be asserted against each other
-instead of drifting apart (risk R12). Parse a global id with a two-limit split on `:`.
-`library.py` must keep emitting the two-part form; changing it breaks
-`.claude/commands/kg_navigator.md`.
+instead of drifting apart (risk R12). Parse a global id with a two-limit split on `:` —
+or, better, with `ids.parse_global_id`. Convert between the forms with
+`ids.global_id_from_library_id` and `ids.library_id_from_global_id`, which are exact
+inverses. `library.py` must keep emitting the two-part form as the node `id`; changing it
+breaks `.claude/commands/kg_navigator.md`. Since `T-003` its nodes also carry an additive
+`source_type` and `global_id`, and its concepts an additive `global_id`.
+
+An identifier segment may begin with `-` or `_`, because a YouTube id is base64url and
+legitimately does (D-017). A leading dot is barred, so no segment can be `.` or `..`.
 
 Canonical concepts are cross-source, so they use the reserved source type `library` with
 external id `concepts`: `library:concepts:<hash>`.
@@ -72,11 +80,18 @@ external id `concepts`: `library:concepts:<hash>`.
 ## What the schemas cannot say
 
 JSON Schema cannot compare two fields, so three invariants are the **adapter's**
-obligation and are asserted in `tests/test_index_schemas.py`:
+obligation:
 
 1. `global_id` equals `source_type:external_id:local_id`.
 2. `Source.id` equals `source_type:external_id`.
 3. A `time_range` locator has `end_sec >= start_sec`.
+
+`T-003` implemented them in `src/x2knwldg/ids.py` as `check_entity_ref_ids`,
+`check_source_ids`, and `check_locator`. Build identifiers with `make_global_id`
+/ `make_source_id` rather than with an f-string, and the first two hold by
+construction. The module is stdlib-only, so the core package stays
+zero-dependency; its patterns and length bounds mirror `common.schema.json` and
+are drift-tested in `tests/test_ids.py`.
 
 ## Vocabularies are mirrored, and drift-tested
 
@@ -100,9 +115,10 @@ When you add a kind or a relation type, edit `constants.py` **and** `common.sche
 ## Validating
 
 ```bash
-.venv/bin/python -m pytest tests/test_index_schemas.py -q
+.venv/bin/python -m pytest tests/test_index_schemas.py tests/test_ids.py -q
 ```
 
-The tests skip cleanly when `jsonschema` is absent, because the core package installs and
-tests with zero dependencies (ADR 0001 invariant 5). `jsonschema` lives in the `dev`
-extra.
+`tests/test_index_schemas.py` skips cleanly when `jsonschema` is absent, because the core
+package installs and tests with zero dependencies (ADR 0001 invariant 5); `jsonschema`
+lives in the `dev` extra. `tests/test_ids.py` runs either way — only its one
+schema-validation test skips — because `ids.py` is stdlib-only.

@@ -16,30 +16,30 @@
       "examples": ["youtube", "twitter", "medium", "library"]
     },
     "idPart": {
-      "description": "One URL-safe segment of an identifier. Colons are excluded so identifiers split unambiguously.",
+      "description": "One URL-safe segment of an identifier. Colons are excluded so identifiers split unambiguously, and a leading dot is excluded so no segment can be '.' or '..'. A leading '-' or '_' is allowed: a YouTube video id is base64url and legitimately begins with either, and pipeline.py already accepts [0-9A-Za-z_-]{11} at ingestion (widened in T-003, D-017).",
       "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$",
       "minLength": 1,
       "maxLength": 256
     },
     "sourceId": {
       "description": "Two-part source identifier: <source-type>:<external-id>. Identifies a Source, not an entity inside it.",
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]*:[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "pattern": "^[a-z][a-z0-9_]*:[A-Za-z0-9_-][A-Za-z0-9._-]*$",
       "maxLength": 300,
       "examples": ["youtube:pqlWNihgdjI"]
     },
     "globalId": {
       "description": "Three-part global entity identifier (D-011): <source-type>:<external-id>:<local-id>. Identity for the index, the API, and board files. Parse with a two-limit split on ':'.",
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]*:[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "pattern": "^[a-z][a-z0-9_]*:[A-Za-z0-9_-][A-Za-z0-9._-]*:[A-Za-z0-9_-][A-Za-z0-9._-]*$",
       "maxLength": 600,
       "examples": ["youtube:pqlWNihgdjI:KU-000001", "youtube:pqlWNihgdjI:KU-D-0001", "library:concepts:1f4a9c2b7e01"]
     },
     "libraryId": {
       "description": "Identifier exactly as it appears in output/library/graph.json. Two-part <video-id>:<knowledge-unit-id> for knowledge units, or concept:<hash> for canonical concepts. Mandated by .claude/commands/kg_navigator.md and emitted by library.py:49. Carried alongside globalId so the two vocabularies cannot drift (ADR 0001 invariant 4).",
       "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*:[A-Za-z0-9_-][A-Za-z0-9._-]*$",
       "maxLength": 600,
       "examples": ["pqlWNihgdjI:KU-000001", "concept:1f4a9c2b7e01"]
     },

@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-08-31 · Phase 0 in progress, `T-001` and `T-002` complete
+**Last updated:** 2026-08-31 · Phase 0 in progress, `T-001`, `T-002`, and `T-003` complete
 **Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
@@ -52,8 +52,8 @@ Measured from disk on **2026-08-31**. Re-verify with the commands in §7.3.
 | Per-video `graph.json` | 69 nodes, 56 edges |
 | `coverage.json` status | **`PASS`** (5/5 windows covered, `audit_attempts: 1`) |
 | `validation.json` status | **`PASS`** (all 5 sections) |
-| `output/library/` | 1 video, 69 knowledge nodes, **17 canonical concepts**, 118 edges |
-| Test baseline | **95 passed** (`.venv/bin/python -m pytest -q`) — 37 pipeline + 58 schema contract tests. Without `jsonschema`: **37 passed, 1 skipped** |
+| `output/library/` | 1 video, 69 knowledge nodes, **17 canonical concepts**, 118 edges — unchanged by the `T-003` rebuild, which only added fields |
+| Test baseline | **146 passed** (`.venv/bin/python -m pytest -q`) — 37 pipeline + 58 schema contract + 51 identifier tests. Without `jsonschema`: **87 passed, 2 skipped** |
 | Toolchain | Node 26.5.0 · npm 11.17.0 · Python 3.14.6 · SQLite 3.53.4 with **FTS5 available** |
 
 > **Correction of record.** Canvas plan §4 previously stated the sample had empty
@@ -66,7 +66,8 @@ Measured from disk on **2026-08-31**. Re-verify with the commands in §7.3.
 >   states are currently untestable. See `T-006`.
 
 **Nothing of the UI has been built yet.** No `web/`, no `package.json`, no FastAPI code, no SQLite index.
-Phase 0 contracts exist on disk: `docs/adr/` (`T-001`) and `schemas/v1/` (`T-002`).
+Phase 0 contracts exist on disk: `docs/adr/` (`T-001`), `schemas/v1/` (`T-002`), and
+`src/x2knwldg/ids.py` (`T-003`).
 
 ---
 
@@ -97,7 +98,7 @@ Flags: **`S`** = serialized (single owner) · **`P`** = parallel-safe once depen
 |---|---|---|---|
 | ~~`T-001`~~ | ✅ **done** — ADR convention (`docs/adr/README.md` + `0000-template.md`), [ADR 0001](adr/0001-local-web-ui.md) consolidating D-001…D-013, canvas plan §19 cross-linked | `S` | — |
 | ~~`T-002`~~ | ✅ **done** — v1 index model in [`schemas/v1/`](../schemas/v1/README.md): `common`, `Source`, `Artifact`, `Locator`, `EntityRef`, `IndexedRelation`. JSON Schema 2020-12, versioned by directory, 58 contract tests in `tests/test_index_schemas.py` | `S` | `T-001` |
-| `T-003` | Implement the 3-part global ID helper (**D-011**) — additive only, see §6 warning | `S` | `T-002` |
+| ~~`T-003`~~ | ✅ **done** — [`src/x2knwldg/ids.py`](../src/x2knwldg/ids.py): `GlobalId`/`SourceId`, both-way conversion to the library form, and the three cross-field invariants as `check_entity_ref_ids` / `check_source_ids` / `check_locator`. `library.py` nodes **gained** `source_type` + `global_id` and kept their two-part `id`. Stdlib-only; 51 tests in `tests/test_ids.py` | `S` | `T-002` |
 | `T-004` | Write the YouTube adapter contract mapping `output/<id>/` → the generic model, changing **no** canonical output | `S` | `T-002` |
 | `T-005` | Freeze the API contract (canvas plan §15) as a written schema; set up TypeScript type generation from it | `S` | `T-002` |
 | `T-006` | Build clearly-labeled **test-only** `PARTIAL` and `FAIL` fixtures under `tests/fixtures/` | `P` | `T-002` |
@@ -155,6 +156,7 @@ New decisions from this session, formatted for the canvas plan §19 table.
 | D-014 | All project documentation in English; Persian only in the UI and in extracted knowledge content | accepted | One documentation language keeps the repo portable between agents and contributors; Persian stays where it serves the user directly |
 | D-015 | Index model versioned by directory (`schemas/v1/`), JSON Schema 2020-12; controlled vocabularies mirrored from `constants.py` and drift-tested; `jsonschema` is a `dev`-extra dependency only | accepted | A breaking change becomes `schemas/v2/` rather than a silent reinterpretation of stored records; mirroring lets the schemas stand alone for TypeScript generation without letting them drift from the Python vocabulary |
 | D-016 | Cross-source canonical concepts use the reserved source type `library` with external id `concepts` — `library:concepts:<hash>` | accepted | Gives `concept:<hash>` a well-formed three-part global id without touching what `library.py` emits, so D-011 covers every entity and not just per-source ones |
+| D-017 | An identifier segment may begin with `-` or `_`; only a leading dot stays barred. `ids.py` is the single implementation of the identifier rules, and the v1 `idPart` pattern was widened to match | accepted | A YouTube id is base64url and legitimately starts with either — `pipeline.py:39` already accepts `[0-9A-Za-z_-]{11}`, so the narrower pattern would have made a real source unaddressable by the index. Widening accepts strictly more, so no stored record is invalidated and no `schemas/v2/` is needed; barring a leading dot keeps `.` and `..` out of every identifier |
 
 ### ⚠️ D-011 is **additive** — do not "clean up" the 2-part ID
 
@@ -183,7 +185,7 @@ A future session must not consolidate these into one form without also updating 
 
 ### 7.2 Regression baseline
 ```bash
-.venv/bin/python -m pytest -q          # expect: 95 passed (plus new tests)
+.venv/bin/python -m pytest -q          # expect: 146 passed (plus new tests)
 git diff --stat -- output/             # expect: empty, always
 ```
 
@@ -253,7 +255,7 @@ These files are small, shared, and merge-hostile. **No track agent edits them.**
 |---|---|---|
 | **R7** No valid graph data for development | ✅ **Resolved** | Real `PASS` extraction exists: 69 units, 56 relations, 17 concepts |
 | **R11** No `PARTIAL`/`FAIL` fixture, so honest-status UI is untestable | 🔴 Open | `T-006` — synthetic fixtures, labeled test-only, never presented as real evidence |
-| **R12** Dual ID vocabulary (2-part in library files, 3-part in index) drifts | 🟡 Watch | §6 warning; single owner for `library.py`; assert both forms in tests |
+| **R12** Dual ID vocabulary (2-part in library files, 3-part in index) drifts | 🟡 Watch | Mitigated by `T-003`: `ids.global_id_from_library_id` / `ids.library_id_from_global_id` are exact inverses and are round-trip tested, `library.py` emits both forms, and `check_entity_ref_ids` rejects a record whose two forms disagree. Still a watch item because nothing yet stops a *new* call site from building an id with an f-string |
 | **R13** `finalize_run` triggers a full `rebuild_library` over *all* sources every time — cost grows linearly | 🟡 Watch | Acceptable at current scale; revisit when source count grows. Do not fix speculatively |
 | **R14** No path-traversal guard in existing `query.py` / `mcp_server.py` joins | 🟡 Watch | The new API must route ids through `pipeline._safe_identifier`, not copy the existing pattern (`T-108`) |
 | **R15** Absolute host paths baked into `library/status.json` and `library/videos.json` | 🟡 Watch | Index must store project-relative paths; never trust the absolute value |
@@ -274,6 +276,7 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 | `pipeline._safe_identifier` (`pipeline.py:42`) | Sanitize every HTTP-supplied source id |
 | `library.rebuild_library` (`library.py:24`) | Generalize **additively**; do not rewrite |
 | `query.search_knowledge` (`query.py:27`) | Its two result shapes are the de-facto API contract to preserve while FTS5 replaces the linear scan |
+| `ids.py` (`T-003`) | Every identifier operation: build, parse, convert between the global and library forms, and enforce the three cross-field invariants. Never assemble an id with an f-string |
 | `constants.py` | The real controlled vocabulary: 22 source kinds, 8 derived kinds, 16 relation types, 10 omission reasons |
 | `artifacts.SECTION_ORDER` (`artifacts.py:20`) | A ready-made 12-section UI grouping taxonomy for knowledge kinds |
 
@@ -285,21 +288,28 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 
 ## 11. Next step
 
-**Start `T-003`** — the three-part global ID helper (D-011), additive only.
+**Start `T-004`** — the YouTube adapter contract, mapping `output/<id>/` onto the generic model and
+changing **no** canonical output.
 
-`T-002` is complete: the v1 index model is in [`schemas/v1/`](../schemas/v1/README.md), with
-`tests/test_index_schemas.py` proving that the real sample source projects onto it with no guessed
-field, that the mirrored vocabularies still match `constants.py`, and that 34 dishonest records —
-invented statuses, absolute paths, source units without a locator, user relations with a
-confidence — are rejected.
+`T-003` is complete: [`src/x2knwldg/ids.py`](../src/x2knwldg/ids.py) is now the single place
+identifiers are built, parsed, converted, and checked. It carries `GlobalId` and `SourceId`,
+exact-inverse conversion to and from the library form, `library:concepts:<hash>` for cross-source
+concepts (D-016), and the three invariants the schemas cannot express as `check_entity_ref_ids`,
+`check_source_ids`, and `check_locator`. It is stdlib-only, so the core package stays
+zero-dependency. `library.py` gained `source_type` and `global_id` on its nodes and `global_id` on
+its concepts; its two-part node `id` is untouched, so `kg_navigator` still works. Rebuilding the
+real library produced the same 69 knowledge nodes, 17 concepts, and 118 edges — new fields only.
 
-`T-003` should implement in code the three invariants the schemas cannot express, listed in
-[`schemas/v1/README.md`](../schemas/v1/README.md#what-the-schemas-cannot-say): `global_id` equals
-its three parts, `Source.id` equals its two, and a `time_range` locator has `end_sec >= start_sec`.
-Read the §6 warning first — `library.py` keeps its two-part id, and the helper must *add* the
-three-part form rather than replace it.
+One thing changed underneath `T-002`: the v1 `idPart` pattern was too narrow to hold a real
+YouTube id. Ids are base64url and may begin with `-` or `_`, which `pipeline.py:39` already accepts
+at ingestion, so a source such as `_wJv0sPBUOI` would have been unaddressable by the index. The
+pattern was widened; a leading dot stays barred so no segment can be `.` or `..`. See **D-017**.
 
-`T-006` (`PARTIAL`/`FAIL` fixtures) is now unblocked and is the one Phase 0 task flagged `P`; it can
+`T-004` should replace `_project_sample` in `tests/test_index_schemas.py` — that projection is a
+shape probe, and the real adapter is meant to take its place. Build every identifier through
+`ids.py`; do not assemble one with an f-string.
+
+`T-006` (`PARTIAL`/`FAIL` fixtures) remains unblocked and is the one Phase 0 task flagged `P`; it can
 be picked up by the same agent at any point.
 
 Phase 0 remains **one agent, no fan-out**. Do not begin Canvas or production UI design until the
