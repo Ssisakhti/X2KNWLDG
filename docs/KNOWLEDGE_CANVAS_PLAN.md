@@ -861,6 +861,10 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-019 | Labelled synthetic `PASS`/`PARTIAL`/`FAIL` run fixtures are committed under `tests/fixtures/runs/`, and the contract tests run over them unconditionally | accepted | `output/` is gitignored, so the tests that project a real run onto the index model skipped everywhere else. The fixtures also give the honest-status UI something to render before a real `PARTIAL` or `FAIL` ever occurs |
 | D-020 | Run directories are resolved by `pipeline.resolve_run_dir`, which rejects an unsafe id instead of sanitising it | accepted | Sanitising is correct when creating a run and wrong when looking one up: a lookup must fail rather than silently read a different run |
 | D-021 | `src/` holds the package only; unmaintained upstream scripts live in `legacy/upstream/` | accepted | They were importable only by accident of an editable install, and two of them are Whisper transcribers the project forbids running |
+| D-022 | Adapters live in `src/x2knwldg/adapters/`, one `SourceAdapter` subclass per source type, registered in `ADAPTERS`. `base.py` enforces four rules for all of them: ids built through `ids.py`, project-relative paths, statuses copied, and a refusal (`AdapterError`) wherever a value would have to be guessed | accepted | The generic seam is only real if an adapter cannot opt out of it. Putting the rules in the base rather than in each implementation means a second adapter inherits them instead of re-deriving them — and the two guesses the shape probe made, a hard-coded `raw/source.json` and an assumed media type, are exactly what the rules now forbid |
+| D-023 | In v1 the adapter emits entities for knowledge units and canonical concepts only. `caption`, `segment`, and `coverage_window` stay reserved in the `EntityRef` vocabulary and unemitted | accepted | Each already has a canonical representation the Reader and the indexer read directly, and none has a consumer needing a global handle yet. 500-odd caption entities per source, or a segment entity whose only honest `label` is `null`, would have to be undone later. The reserved names mean adding them when a consumer exists needs no `schemas/v2/` |
+| D-024 | A source-class locator addresses the **segments** artifact, not the transcript. When a unit's provenance names a different video, `artifact_id` is omitted rather than pointed anywhere | accepted | `validators.py:166` resolves a unit's `segment_id` against `segments.json` and requires the excerpt to appear in that segment's text, so that is where the evidence sits — the shape probe addressed the transcript, which does not hold the segment ids at all. A mis-attributed unit is a canonical error already reported in `validation.json`; the run stays indexable and honest, and the locator stays unaddressed rather than wrong |
+| D-025 | A `derived_from` edge carries `confidence: null`. `expresses_concept` edges are read from `library/graph.json` by `adapt_library`; `derived_from` edges come only from the run that owns them | accepted | A unit's confidence is about the unit — no confidence about the edge exists in any canonical file, and copying one across would put a number on a claim nothing made. Splitting the two synthetic vocabularies by producer keeps a run indexable before `rebuild_library` has ever run, and stops the 45 `derived_from` edges being counted twice |
 
 ## 20. Open questions
 
@@ -920,12 +924,14 @@ An agent must not guess the answers to these if the decision would cause a notic
 - [x] Create the execution tracker at `docs/PROJECT_MANAGEMENT.md` with a task breakdown and the agent parallelism model
 - [x] Phase 0 / T-001: ADR convention and [ADR 0001](adr/0001-local-web-ui.md)
 - [x] Phase 0 / T-002: v1 index model in [`schemas/v1/`](../schemas/v1/README.md) — Source, Artifact, Locator, EntityRef, IndexedRelation — with contract tests that project the real sample onto it
+- [x] Phase 0 / T-003: three-part global id helper in [`src/x2knwldg/ids.py`](../src/x2knwldg/ids.py), additive to the library ids
+- [x] Phase 0 / T-006: labelled test-only `PASS`/`PARTIAL`/`FAIL` run fixtures in [`tests/fixtures/runs/`](../tests/fixtures/runs/README.md)
+- [x] Phase 0 / T-004: YouTube adapter in [`src/x2knwldg/adapters/`](../src/x2knwldg/adapters/README.md), mapping `output/<id>/` onto the v1 model and changing no canonical output
 - [x] Translate this document to English per D-014
 
 ### Not started
 
-- [ ] Phase 0: remaining contracts (T-003 ID helper, T-005 API freeze, T-006 fixtures, T-007 repository seam, T-008 scaffolding)
-- [ ] YouTube adapter (T-004)
+- [ ] Phase 0: remaining contracts (T-005 API freeze, T-007 repository seam, T-008 scaffolding, T-009 adapter/no-extras tests)
 - [ ] SQLite index
 - [ ] FastAPI local API
 - [ ] React/Vite scaffolding
@@ -948,11 +954,15 @@ The next execution session must start Phase 0 only:
    Three invariants are beyond JSON Schema and remain the adapter's obligation: a global id equals
    its three parts, a source id equals its two, and a `time_range` locator has
    `end_sec >= start_sec`.
-4. Define the YouTube adapter contract without changing any existing canonical output. The shape
-   probe in `tests/test_index_schemas.py::_project_sample` shows the mapping and should be replaced
-   by a call into the real adapter.
-5. Build valid, clearly labelled test-only fixtures for the `PARTIAL` and `FAIL` states. A real, complete graph is already available from the existing `PASS` sample and does not need to be constructed.
-6. Run the existing tests and add schema/adapter tests.
+4. ~~Define the YouTube adapter contract without changing any existing canonical output.~~
+   Done — [`src/x2knwldg/adapters/`](../src/x2knwldg/adapters/README.md). The shape probe is gone:
+   `tests/test_index_schemas.py` now validates the records the real adapter produces, and
+   `tests/test_adapters.py` covers what it refuses and never invents.
+5. ~~Build valid, clearly labelled test-only fixtures for the `PARTIAL` and `FAIL` states.~~
+   Done — [`tests/fixtures/runs/`](../tests/fixtures/runs/README.md), generated by driving the real
+   pipeline. A real, complete graph was already available from the existing `PASS` sample.
+6. Freeze the API contract (`T-005`), fix the indexer/API repository seam (`T-007`), and scaffold
+   `web/` plus the `ui` extra (`T-008`). Keep the suite green with no UI dependencies installed.
 
 Until these contracts are validated, work on the Canvas or on production UI design must not begin.
 

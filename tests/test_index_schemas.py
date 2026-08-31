@@ -1,4 +1,4 @@
-"""Contract tests for the v1 index/API schemas (T-002).
+"""Contract tests for the v1 index/API schemas (T-002) and the adapter (T-004).
 
 These schemas describe the derived index and API layer only. Nothing here reads
 or writes a canonical file for anything other than verification, and no test in
@@ -9,14 +9,17 @@ Three things are checked:
 1. The schema files are themselves valid JSON Schema 2020-12 and cross-resolve.
 2. The controlled vocabularies mirrored into the schemas still match
    ``constants.py`` — the drift guard for risk R12.
-3. The real sample source projects onto the model with no guessed field, and a
+3. The records the **real** adapter produces are accepted by the model, and a
    catalogue of dishonest records is rejected.
 
-The projection in ``_project_run`` is a *shape probe*, not the adapter. The
-YouTube adapter is ``T-004``; when it lands, this probe should be replaced by a
-call into it.
+Point 3 used to run against a hand-written shape probe. ``T-004`` replaced it
+with ``x2knwldg.adapters``, so the schemas and the code that feeds them are now
+tested against each other rather than against a stand-in that could agree with
+neither. The adapter's own behaviour — what it refuses, what it leaves out, and
+what it must never invent — is tested in ``tests/test_adapters.py``, which needs
+no ``jsonschema`` and therefore runs on a bare core install.
 
-Every projection test runs over the committed fixture runs in
+Every adapter test runs over the committed fixture runs in
 ``tests/fixtures/runs/`` — which include a ``PARTIAL`` and a ``FAIL`` run — and
 additionally over the real sample when ``output/`` is present. The fixtures are
 what keep a fresh clone honest: ``output/`` is gitignored, so without them these
@@ -37,6 +40,7 @@ jsonschema = pytest.importorskip(
 from jsonschema import Draft202012Validator  # noqa: E402
 from referencing import Registry, Resource  # noqa: E402
 
+from x2knwldg.adapters import adapt_library, adapt_run  # noqa: E402
 from x2knwldg.constants import KNOWLEDGE_KINDS, RELATION_TYPES  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -155,7 +159,7 @@ def test_library_synthetic_relations_are_not_canonical() -> None:
 
 
 # --------------------------------------------------------------------------
-# 3. The real sample projects onto the model
+# 3. The real adapter produces records the model accepts
 # --------------------------------------------------------------------------
 
 requires_sample = pytest.mark.skipif(
@@ -163,9 +167,14 @@ requires_sample = pytest.mark.skipif(
     reason=f"sample source output/{SAMPLE_ID}/ is not present",
 )
 
+requires_library = pytest.mark.skipif(
+    not (LIBRARY_DIR / "concepts.json").exists(),
+    reason="output/library/ is built by finalize_run and only the real sample has it",
+)
+
 
 def _runs() -> list[Path]:
-    """Every run the projection tests exercise.
+    """Every run the adapter tests exercise.
 
     The committed fixtures are always present, so these tests never silently
     reduce to nothing; the real sample joins them when it is on disk.
@@ -181,251 +190,77 @@ RUNS = _runs()
 RUN_IDS = [run.name for run in RUNS]
 
 
-def _rel(path: Path) -> str:
-    return path.relative_to(PROJECT_ROOT).as_posix()
+def _adapt(run_dir: Path) -> dict[str, list[dict]]:
+    """The records the real YouTube adapter produces for one run (T-004)."""
+    return adapt_run(run_dir, PROJECT_ROOT).by_model()
 
 
-def _project_run(run_dir: Path) -> dict[str, list[dict]]:
-    """Shape probe: build v1 records from a run, copying values only."""
-    metadata = _load(run_dir / "metadata.json")
-    validation = _load(run_dir / "validation.json")
-    coverage = _load(run_dir / "coverage.json")
-    units = _load(run_dir / "knowledge_units.json")["units"]
-    relationships = _load(run_dir / "relationships.json")["relationships"]
-
-    external_id = metadata["video_id"]
-    source_id = f"youtube:{external_id}"
-
-    def gid(local_id: str) -> str:
-        return f"{source_id}:{local_id}"
-
-    artifact_specs = [
-        ("metadata", "canonical", "metadata.json", "application/json"),
-        ("transcript", "canonical", "transcript.json", "application/json"),
-        ("segments", "canonical", "segments.json", "application/json"),
-        ("knowledge_units", "canonical", "knowledge_units.json", "application/json"),
-        ("relationships", "canonical", "relationships.json", "application/json"),
-        ("graph", "canonical", "graph.json", "application/json"),
-        ("coverage", "canonical", "coverage.json", "application/json"),
-        ("validation", "canonical", "validation.json", "application/json"),
-        ("report", "canonical", "report.md", "text/markdown"),
-        ("raw_source", "raw", "raw/source.json", "application/json"),
-        ("raw_transcript", "raw", "raw/transcript.json", "application/json"),
-        ("extraction_bundle", "work", "work/extraction_bundle.json", "application/json"),
-    ]
-
-    artifacts = []
-    for kind, role, relative, media_type in artifact_specs:
-        path = run_dir / relative
-        artifacts.append(
-            {
-                "schema_version": "1.0",
-                "id": gid(kind),
-                "source_id": source_id,
-                "kind": kind,
-                "role": role,
-                "media_type": media_type,
-                "path": _rel(path),
-                "url": None,
-                "bytes": path.stat().st_size if path.exists() else None,
-                "sha256": None,
-                "immutable": role == "raw",
-                "available": path.exists(),
-            }
-        )
-
-    # The video itself has no local file — only a URL. T-114 depends on this.
-    artifacts.append(
-        {
-            "schema_version": "1.0",
-            "id": gid("video"),
-            "source_id": source_id,
-            "kind": "video",
-            "role": "external",
-            "media_type": None,
-            "path": None,
-            "url": metadata["video_url"],
-            "bytes": None,
-            "sha256": None,
-            "immutable": False,
-            "available": True,
-        }
-    )
-
-    source = {
-        "schema_version": "1.0",
-        "id": source_id,
-        "source_type": "youtube",
-        "external_id": external_id,
-        "url": metadata["video_url"],
-        "title": metadata["title"],
-        "author": metadata.get("channel"),
-        "language": metadata.get("language"),
-        "duration_sec": metadata.get("duration_sec"),
-        "imported_at": metadata.get("imported_at"),
-        "extracted_at": metadata.get("extracted_at"),
-        "canonical_dir": _rel(run_dir),
-        "status": {
-            "validation": validation["status"],
-            "coverage": coverage["status"],
-            "overall": validation["status"],
-            "audit_attempts": coverage.get("audit_attempts"),
-            "validation_path": _rel(run_dir / "validation.json"),
-            "coverage_path": _rel(run_dir / "coverage.json"),
-        },
-        "counts": {
-            "knowledge_units": len(units),
-            "source_units": sum(1 for u in units if u["source_class"] == "source"),
-            "derived_units": sum(1 for u in units if u["source_class"] == "derived"),
-            "relationships": len(relationships),
-        },
-        "artifact_ids": [artifact["id"] for artifact in artifacts],
-        "adapter": {"name": "youtube", "version": "1.0"},
-        "adapter_metadata": {
-            key: metadata[key]
-            for key in ("transcript_source", "transcript_hash", "pipeline_version", "extraction")
-            if key in metadata
-        },
-    }
-
-    knowledge_path = _rel(run_dir / "knowledge_units.json")
-    entities = []
-    for unit in units:
-        entity = {
-            "schema_version": "1.0",
-            "global_id": gid(unit["id"]),
-            "source_type": "youtube",
-            "external_id": external_id,
-            "local_id": unit["id"],
-            "library_id": f"{external_id}:{unit['id']}",
-            "source_id": source_id,
-            "entity_type": "knowledge_unit",
-            "provenance_class": unit["source_class"],
-            "kind": unit["kind"],
-            "label": unit.get("normalized_statement") or unit.get("content"),
-            "confidence": unit["confidence"],
-            "canonical_path": knowledge_path,
-        }
-        if unit["source_class"] == "source":
-            provenance = unit["source"]
-            entity["locator"] = {
-                "type": "time_range",
-                "artifact_id": gid("transcript"),
-                "start_sec": provenance["start_sec"],
-                "end_sec": provenance["end_sec"],
-                "segment_id": provenance["segment_id"],
-                "excerpt": provenance["evidence_excerpt"],
-            }
-        else:
-            entity["derived_from"] = [gid(ref) for ref in unit["derived_from"]]
-            entity["derivation_note"] = unit["derivation_note"]
-        entities.append(entity)
-
-    concepts_path = LIBRARY_DIR / "concepts.json"
-    if concepts_path.exists():
-        for concept in _load(concepts_path)["concepts"]:
-            local_id = concept["id"].split(":", 1)[1]
-            entities.append(
-                {
-                    "schema_version": "1.0",
-                    "global_id": f"library:concepts:{local_id}",
-                    "source_type": "library",
-                    "external_id": "concepts",
-                    "local_id": local_id,
-                    "library_id": concept["id"],
-                    "source_id": None,
-                    "entity_type": "concept",
-                    "provenance_class": "derived",
-                    "kind": "canonical_concept",
-                    "label": concept["canonical_label"],
-                    "confidence": None,
-                    "canonical_path": _rel(concepts_path),
-                }
-            )
-
-    relationships_path = _rel(run_dir / "relationships.json")
-    relations = [
-        {
-            "schema_version": "1.0",
-            "id": f"{gid(edge['from'])}|{edge['relation']}|{gid(edge['to'])}",
-            "from_id": gid(edge["from"]),
-            "to_id": gid(edge["to"]),
-            "relation": edge["relation"],
-            "relation_vocabulary": "canonical",
-            "provenance_class": edge["source_class"],
-            "confidence": edge["confidence"],
-            "source_id": source_id,
-            "canonical_path": relationships_path,
-        }
-        for edge in relationships
-    ]
-
-    for unit in units:
-        for ref in unit.get("derived_from", []):
-            relations.append(
-                {
-                    "schema_version": "1.0",
-                    "id": f"{gid(unit['id'])}|derived_from|{gid(ref)}",
-                    "from_id": gid(unit["id"]),
-                    "to_id": gid(ref),
-                    "relation": "derived_from",
-                    "relation_vocabulary": "library_synthetic",
-                    "provenance_class": "derived",
-                    "confidence": unit["confidence"],
-                    "source_id": source_id,
-                    "canonical_path": knowledge_path,
-                }
-            )
-
-    return {
-        "source": [source],
-        "artifact": artifacts,
-        "entity_ref": entities,
-        "indexed_relation": relations,
-    }
+def _adapt_library() -> dict[str, list[dict]]:
+    return adapt_library(LIBRARY_DIR, PROJECT_ROOT).by_model()
 
 
 @pytest.mark.parametrize("run_dir", RUNS, ids=RUN_IDS)
 @pytest.mark.parametrize(
     "model", ["source", "artifact", "entity_ref", "indexed_relation"]
 )
-def test_run_projects_onto_model(
+def test_adapter_records_satisfy_the_model(
     validators: dict[str, Draft202012Validator], model: str, run_dir: Path
 ) -> None:
-    records = _project_run(run_dir)[model]
-    assert records, f"no {model} records projected from {run_dir.name}"
+    records = _adapt(run_dir)[model]
+    assert records, f"the adapter produced no {model} records for {run_dir.name}"
     for record in records:
         errors = _check(validators[model], record)
         assert not errors, f"{model} {record.get('id') or record.get('global_id')}: {errors}"
 
 
 @pytest.mark.parametrize("run_dir", RUNS, ids=RUN_IDS)
-def test_projection_covers_both_provenance_classes(run_dir: Path) -> None:
-    """A projection that only exercised source units would prove little."""
-    entities = _project_run(run_dir)["entity_ref"]
+def test_adapter_covers_both_provenance_classes(run_dir: Path) -> None:
+    """A mapping that only exercised source units would prove little."""
+    entities = _adapt(run_dir)["entity_ref"]
     classes = {entity["provenance_class"] for entity in entities}
     assert {"source", "derived"} <= classes
 
 
-@requires_sample
-def test_sample_projects_canonical_concepts() -> None:
-    """Concepts come from output/library/, which only the real sample has."""
-    entities = _project_run(SAMPLE_DIR)["entity_ref"]
-    assert any(entity["entity_type"] == "concept" for entity in entities)
+@requires_library
+def test_library_adapter_records_satisfy_the_model(
+    validators: dict[str, Draft202012Validator],
+) -> None:
+    """Concepts are cross-source, so they come from output/library/, not a run."""
+    records = _adapt_library()
+    assert records["entity_ref"], "no canonical concepts were mapped"
+    assert not records["source"], "the library is not an ingested source"
+    for model in ("entity_ref", "indexed_relation"):
+        for record in records[model]:
+            errors = _check(validators[model], record)
+            assert not errors, f"{model} {record.get('id') or record.get('global_id')}: {errors}"
+
+
+@requires_library
+def test_canonical_concepts_belong_to_no_single_source() -> None:
+    """D-016: a concept lives in the reserved library:concepts namespace and
+    has no owning source, which is what check_entity_ref_ids enforces."""
+    entities = _adapt_library()["entity_ref"]
+    concepts = [entity for entity in entities if entity["entity_type"] == "concept"]
+    assert concepts
+    for concept in concepts:
+        assert concept["source_type"] == "library"
+        assert concept["external_id"] == "concepts"
+        assert concept["source_id"] is None
+        assert concept["library_id"].startswith("concept:")
 
 
 @pytest.mark.parametrize("run_dir", RUNS, ids=RUN_IDS)
 def test_status_is_copied_not_recomputed(run_dir: Path) -> None:
-    projected = _project_run(run_dir)["source"][0]["status"]
+    projected = _adapt(run_dir)["source"][0]["status"]
     assert projected["validation"] == _load(run_dir / "validation.json")["status"]
     assert projected["coverage"] == _load(run_dir / "coverage.json")["status"]
 
 
-def test_partial_and_fail_runs_are_projected_as_they_are() -> None:
+def test_partial_and_fail_runs_are_mapped_as_they_are() -> None:
     """The whole point of the fixtures: a dishonest status must be impossible
     to produce by accident (ADR 0001 invariant 2, risk R11)."""
     overall = {
-        name: _project_run(FIXTURE_RUNS / f"{name}-run")["source"][0]["status"]
+        name: _adapt(FIXTURE_RUNS / f"{name}-run")["source"][0]["status"]
         for name in ("pass", "partial", "fail")
     }
     assert overall["pass"]["overall"] == "PASS"
@@ -445,8 +280,8 @@ def test_fixture_runs_are_labelled_as_synthetic() -> None:
 
 @pytest.mark.parametrize("run_dir", RUNS, ids=RUN_IDS)
 def test_cross_field_invariants_hold(run_dir: Path) -> None:
-    """Two rules JSON Schema cannot express, so the adapter must carry them."""
-    projected = _project_run(run_dir)
+    """Two rules JSON Schema cannot express, which the adapter must carry."""
+    projected = _adapt(run_dir)
     for entity in projected["entity_ref"]:
         parts = entity["global_id"].split(":", 2)
         assert parts == [entity["source_type"], entity["external_id"], entity["local_id"]]
@@ -458,14 +293,14 @@ def test_cross_field_invariants_hold(run_dir: Path) -> None:
 
 
 @requires_sample
-def test_projection_does_not_touch_canonical_files() -> None:
-    """The probe reads; a regression that made it write would be caught here."""
+def test_adapter_does_not_touch_canonical_files() -> None:
+    """The adapter reads; a regression that made it write would be caught here."""
     before = {
         path: path.stat().st_mtime_ns
         for path in sorted(SAMPLE_DIR.rglob("*"))
         if path.is_file()
     }
-    _project_run(SAMPLE_DIR)
+    _adapt(SAMPLE_DIR)
     after = {
         path: path.stat().st_mtime_ns
         for path in sorted(SAMPLE_DIR.rglob("*"))
