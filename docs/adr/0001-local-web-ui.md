@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-31
-- **Decision ledger:** consolidates D-001 … D-013 (`KNOWLEDGE_CANVAS_PLAN.md` §19)
+- **Decision ledger:** consolidates D-001 … D-013 (`KNOWLEDGE_CANVAS_PLAN.md` §19). D-014 (documentation language) is a project convention recorded in §19 and `docs/adr/README.md`, not an architecture decision.
 - **Supersedes:** none
 - **Superseded by:** none
 

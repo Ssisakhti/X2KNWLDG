@@ -2,6 +2,7 @@
 
 **Status:** active execution tracker
 **Last updated:** 2026-08-31 · Phase 0 in progress, `T-001` complete
+**Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
 
@@ -34,6 +35,8 @@ These come from `AGENTS.md`, `WORKFLOW.md`, and canvas plan §5. They apply to U
 - User content (boards, notes, ink) stays separate from `source` and `derived` knowledge.
 - Adding a new source type must not require a frontend rewrite — adapter + node renderer only.
 - Never install or invoke Whisper/WhisperX.
+
+**Language rule (D-014).** All project documentation is written in **English** — this file, the canvas plan, ADRs, `README.md`, `AGENTS.md`, `WORKFLOW.md`, `CLAUDE.md`, code comments, and commit messages. Persian is used in exactly two places: the **application UI** (switchable, English default — D-012) and **knowledge content extracted for the user** (knowledge units, reports, vault content, and answers delivered to the user, which follow the source material). Code that *supports* Persian content is expected and correct — for example `segmenter.py:7` uses the Arabic question mark for sentence-boundary detection.
 
 ---
 
@@ -148,6 +151,7 @@ New decisions from this session, formatted for the canvas plan §19 table.
 | D-011 | 3-part global entity ID `<source-type>:<external-id>:<local-id>` for index, API, and boards | accepted | Source-neutral; adopted before any board file exists, so no board migration is ever needed |
 | D-012 | UI language switchable, English default; bidi-safe content rendering | accepted | Text direction is architectural, not cosmetic — retrofitting it is expensive |
 | D-013 | Correct canvas plan §4 and its dependent criteria; add labeled test-only `PARTIAL`/`FAIL` fixtures | accepted | Acceptance criteria were resting on a stale fact |
+| D-014 | All project documentation in English; Persian only in the UI and in extracted knowledge content | accepted | One documentation language keeps the repo portable between agents and contributors; Persian stays where it serves the user directly |
 
 ### ⚠️ D-011 is **additive** — do not "clean up" the 2-part ID
 

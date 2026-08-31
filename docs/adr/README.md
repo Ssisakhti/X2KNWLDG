@@ -16,6 +16,10 @@ There are three decision surfaces; they are not redundant.
 
 **Rule:** the §19 table stays the canonical index of *what* was decided. An ADR explains *why* and records what was rejected. When an ADR covers one or more `D-0xx` rows, it lists them under `Decision ledger` in its header, and the §19 rows point back at the ADR file.
 
+## Language
+
+ADRs are written in **English**, like all project documentation (D-014). Persian is reserved for the application UI and for knowledge content extracted for the user.
+
 ## Naming and numbering
 
 ```

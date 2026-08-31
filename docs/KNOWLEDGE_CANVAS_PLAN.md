@@ -1,81 +1,83 @@
-# X2KNWLDG Knowledge Canvas — برنامهٔ محصول و معماری
+# X2KNWLDG Knowledge Canvas — Product and Architecture Plan
 
 ---
 
-**وضعیت سند:** فعال و مرجع ادامهٔ کار  
-**مرحلهٔ فعلی:** تحقیق و تصمیم معماری تکمیل شده؛ برنامهٔ اجرا در `docs/PROJECT_MANAGEMENT.md` ثبت شده؛ پیاده‌سازی آغاز نشده است  
-**آخرین به‌روزرسانی:** 2026-08-31  
-**دامنهٔ فعلی:** اجرای شخصی و کاملاً محلی روی macOS، با اولویت YouTube  
-**مالک داده:** کاربر؛ بدون وابستگی به سرویس پولی یا فضای ابری  
+**Document status:** active; the reference for continuing this work
+**Current stage:** research and architecture decisions complete; execution plan recorded in `docs/PROJECT_MANAGEMENT.md`; implementation not yet started
+**Last updated:** 2026-08-31
+**Current scope:** personal, fully local execution on macOS, YouTube first
+**Data owner:** the user; no dependency on any paid service or cloud storage
 
 ---
 
-## 1. هدف این سند
+## 1. Purpose of this document
 
-این فایل مرجع اصلی برای طراحی و ساخت لایهٔ بصری X2KNWLDG در چند سشن است. هر عامل یا توسعه‌دهنده‌ای که کار را ادامه می‌دهد باید پیش از هر تغییر این فایل، `AGENTS.md` و `WORKFLOW.md` را بخواند.
+This file is the primary reference for designing and building the X2KNWLDG visual layer across multiple sessions. Any agent or developer continuing the work must read `AGENTS.md` and `WORKFLOW.md` before changing anything here.
 
-این سند باید همیشه پاسخ این پرسش‌ها را روشن نگه دارد:
+This document must always keep the answers to these questions clear:
 
-- دقیقاً چه محصولی ساخته می‌شود و چه چیزی خارج از دامنه است؟
-- کدام تصمیم‌ها قطعی‌اند و کدام موارد هنوز باز هستند؟
-- مرز میان شواهد، دانش استخراج‌شده و محتوای شخصی کاربر کجاست؟
-- معماری و قرارداد داده چگونه به YouTube محدود نمی‌ماند؟
-- هر فاز چه خروجی و چه معیار پذیرشی دارد؟
-- سشن بعدی باید از کجا ادامه دهد؟
+- Exactly what product is being built, and what is out of scope?
+- Which decisions are settled, and which remain open?
+- Where is the boundary between evidence, extracted knowledge, and the user's own content?
+- How do the architecture and data contract avoid being locked to YouTube?
+- What does each phase deliver, and what are its acceptance criteria?
+- Where should the next session pick up?
 
-این یک سند زنده است. در پایان هر سشن اجرایی، بخش‌های «وضعیت اجرا»، «تصمیم‌ها»، «ریسک‌ها» و «گام بعدی» باید به‌روزرسانی شوند.
+This is a living document. At the end of each execution session, the "Execution status", "Decisions", "Risks", and "Next step" sections must be updated.
 
-## 2. خلاصهٔ تصمیم نهایی
+**Language:** all project documentation is written in English. Persian is used only in the application UI (see D-012) and in knowledge content extracted for the user. See D-014.
 
-برای X2KNWLDG یک لایهٔ اختصاصی، سبک و local-first ساخته می‌شود. محصول‌های کامل مانند AFFiNE و Logseq fork نخواهند شد؛ از آن‌ها صرفاً برای الگوهای UX و درس‌های معماری استفاده می‌شود.
+## 2. Summary of the final decision
 
-پشتهٔ پیشنهادی:
+X2knwldg gets a dedicated, lightweight, local-first layer. Complete products such as AFFiNE and Logseq will not be forked; they are used only for UX patterns and architectural lessons.
+
+Proposed stack:
 
 - **Frontend:** React + TypeScript + Vite
-- **بوم تعاملی:** React Flow (`@xyflow/react`)
-- **گراف سراسری:** Sigma.js + Graphology
-- **قلم و طراحی آزاد:** Pointer Events + `perfect-freehand` + لایهٔ SVG
-- **سرویس محلی:** FastAPI روی پکیج Python فعلی
-- **جست‌وجو و ایندکس:** SQLite + FTS5
-- **اجرای اولیه:** وب‌اپ محلی روی `localhost`
-- **بسته‌بندی دسکتاپ:** Tauri فقط در صورت اثبات نیاز در فازهای بعدی
+- **Interactive canvas:** React Flow (`@xyflow/react`)
+- **Global graph:** Sigma.js + Graphology
+- **Pen and freeform drawing:** Pointer Events + `perfect-freehand` + an SVG layer
+- **Local service:** FastAPI on top of the existing Python package
+- **Search and index:** SQLite + FTS5
+- **Initial delivery:** a local web app on `localhost`
+- **Desktop packaging:** Tauri only if a need is proven in later phases
 
-اصل کلیدی معماری:
+The key architectural principle:
 
-> Canvas و Knowledge Map دو نمای متفاوت از یک مجموعه داده‌اند و نباید با یک renderer یا یک مدل ذخیره‌سازی پیاده‌سازی شوند.
+> Canvas and Knowledge Map are two different views of one dataset, and they must not be implemented with a single renderer or a single storage model.
 
-- Canvas برای تعداد محدودی آیتم انتخاب‌شده، تعامل عمیق، یادداشت، رسانه و قلم است.
-- Knowledge Map برای مرور سریع گراف سراسری، خوشه‌ها و همسایگی روابط است.
+- Canvas is for a limited number of selected items, deep interaction, notes, media, and the pen.
+- Knowledge Map is for quickly surveying the global graph, its clusters, and relationship neighbourhoods.
 
-## 3. نیازهای قطعی کاربر
+## 3. Firm user requirements
 
-### 3.1. محیط و مالکیت
+### 3.1. Environment and ownership
 
-- فقط استفادهٔ شخصی روی MacBook.
-- همهٔ داده‌ها و پردازش‌ها تا حد ممکن محلی باشند.
-- در این بخش از سرویس پولی استفاده نشود.
-- سیستم از ابتدا برای رشد حجم منابع طراحی شود، اما over-engineering نشود.
-- انتخاب فناوری براساس تناسب مسئله باشد، نه علاقه به وب، Rust یا ابزار خاص.
+- Personal use on a MacBook only.
+- All data and processing local wherever possible.
+- No paid service in this part of the system.
+- Designed from the start for a growing volume of sources, but not over-engineered.
+- Technology chosen for fit to the problem, not out of preference for the web, Rust, or any particular tool.
 
-### 3.2. تجربهٔ محصول
+### 3.2. Product experience
 
-- UI تمیز، مینیمال، حرفه‌ای و کم‌اصطکاک.
-- ترکیب کتابخانهٔ محتوا، reader، گراف دانش و canvas.
-- بازکردن و خواندن سند، transcript، صوت، ویدئو و منابع داخل برنامه.
-- نمایش ارتباط میان منابع، knowledge unitها، conceptها و شواهد.
-- امکان قراردادن آیتم‌های انتخاب‌شده روی بوم و اتصال آن‌ها.
-- امکان نوشتن و طراحی آزاد با قلم نوری.
-- قلم فقط annotation است و قرار نیست به متن یا knowledge unit تبدیل شود.
+- A clean, minimal, professional, low-friction UI.
+- A combination of content library, reader, knowledge graph, and canvas.
+- Opening and reading documents, transcripts, audio, video, and sources inside the application.
+- Showing the relationships between sources, knowledge units, concepts, and evidence.
+- Placing selected items on the canvas and connecting them.
+- Writing and drawing freely with a stylus.
+- The pen is annotation only; it is not meant to become text or a knowledge unit.
 
-### 3.3. منابع
+### 3.3. Sources
 
-- فاز نخست: YouTube.
-- آینده: Twitter/X، Medium، صفحات وب، PDF و انواع دیگر محتوا.
-- هستهٔ UI و مدل ایندکس نباید `video_id` را مفهوم عمومی همهٔ منابع فرض کنند.
+- First phase: YouTube.
+- Later: Twitter/X, Medium, web pages, PDFs, and other content types.
+- Neither the UI core nor the index model may treat `video_id` as a concept common to all sources.
 
-## 4. واقعیت فعلی مخزن
+## 4. Current state of the repository
 
-هستهٔ فعلی X2KNWLDG یک pipeline مبتنی بر provenance است و این فایل‌ها را برای هر ویدئو می‌سازد:
+The current X2KNWLDG core is a provenance-based pipeline that produces these files for each video:
 
 ```text
 output/<video-id>/
@@ -95,94 +97,94 @@ output/<video-id>/
   vault/
 ```
 
-فایل‌های `raw/` شواهد immutable هستند و UI حق ویرایش آن‌ها را ندارد.
+Files under `raw/` are immutable evidence; the UI has no right to modify them.
 
-هسته همچنین در `output/library/` گراف میان‌ویدئویی، conceptهای canonical و فهرست ویدئوها را تولید می‌کند. منطق فعلی در `src/x2knwldg/library.py` قرار دارد و باید به‌جای بازنویسی، تدریجاً عمومی شود.
+The core also produces a cross-video graph, canonical concepts, and a video list under `output/library/`. The current logic lives in `src/x2knwldg/library.py` and should be generalized incrementally rather than rewritten.
 
-نمونهٔ فعلی `pqlWNihgdjI` extraction کامل دارد. وضعیت اندازه‌گیری‌شده در 2026-08-31:
+The current sample `pqlWNihgdjI` has a complete extraction. State measured on 2026-08-31:
 
-- `validation.json` برابر `PASS` است (هر پنج بخش `PASS`).
-- `coverage.json` برابر `PASS` است (۵ پنجره از ۵، `audit_attempts: 1`).
-- `knowledge_units.json` شامل ۶۹ unit است (۶۱ `source` و ۸ `derived`).
-- `relationships.json` شامل ۵۶ relationship است.
-- `graph.json` شامل ۶۹ node و ۵۶ edge است.
-- `output/library/` شامل ۱ ویدئو، ۶۹ knowledge node، ۱۷ canonical concept و ۱۱۸ edge است.
+- `validation.json` is `PASS` (all five sections `PASS`).
+- `coverage.json` is `PASS` (5 of 5 windows, `audit_attempts: 1`).
+- `knowledge_units.json` contains 69 units (61 `source`, 8 `derived`).
+- `relationships.json` contains 56 relationships.
+- `graph.json` contains 69 nodes and 56 edges.
+- `output/library/` contains 1 video, 69 knowledge nodes, 17 canonical concepts, and 118 edges.
 
-> **اصلاح سند:** نسخهٔ پیشین این بخش این فایل‌ها را «خالی» و coverage را `PARTIAL` توصیف می‌کرد. آن توصیف قدیمی بود و اصلاح شد. جزئیات اجرایی در `PROJECT_MANAGEMENT.md` ثبت شده است.
+> **Document correction:** an earlier version of this section described these files as "empty" and coverage as `PARTIAL`. That description was stale and has been corrected. Execution details are recorded in `PROJECT_MANAGEMENT.md`.
 
-بنابراین دادهٔ واقعی و معتبر برای توسعهٔ Knowledge Map موجود است و نیازی به ساخت گراف ساختگی نیست. با این حال قاعدهٔ اصلی تغییر نمی‌کند: UI باید وضعیت را دقیقاً همان‌گونه که `validation.json` و `coverage.json` گزارش می‌کنند نمایش دهد و هرگز گراف، evidence یا محتوای ساختگی تولید نکند.
+Real, valid data is therefore available for developing the Knowledge Map, and there is no need to construct a synthetic graph. The core rule does not change, however: the UI must display status exactly as `validation.json` and `coverage.json` report it, and must never produce a fabricated graph, evidence, or content.
 
-از سوی دیگر، در حال حاضر هیچ منبعی با وضعیت `PARTIAL` یا `FAIL` وجود ندارد؛ بنابراین نمایش صادقانهٔ این دو وضعیت فعلاً قابل تست نیست و به fixture مشخصاً برچسب‌خوردهٔ test-only نیاز دارد.
+On the other hand, no source currently has `PARTIAL` or `FAIL` status, so honest rendering of those two states is not yet testable and requires a clearly labelled test-only fixture.
 
-## 5. اصول تغییرناپذیر
+## 5. Invariant principles
 
-این اصول از `AGENTS.md` و `WORKFLOW.md` به UI نیز تسری پیدا می‌کنند:
+These principles carry over from `AGENTS.md` and `WORKFLOW.md` to the UI as well:
 
-1. شواهد قبل از خلاصه‌سازی و نمایش دانش مشتق‌شده قرار می‌گیرند.
-2. timestamp، quote، evidence، confidence یا coverage هرگز ساخته یا حدس زده نمی‌شود.
-3. وضعیت `PARTIAL` و `FAIL` باید واضح نمایش داده شود و به `PASS` تبدیل نشود.
-4. فایل‌های canonical منبع حقیقت‌اند.
-5. SQLite فقط index/cache قابل بازسازی است.
-6. یادداشت، stroke، موقعیت نود و رابطهٔ دستی کاربر از دانش canonical جدا هستند.
-7. هیچ interaction در UI نباید فایل‌های `raw/` را تغییر دهد.
-8. منبع‌محور و derived بودن دانش باید هم در data model و هم در UI قابل تشخیص باشد.
-9. حذف cache نباید باعث ازدست‌رفتن شواهد، دانش canonical یا محتوای شخصی کاربر شود.
-10. افزودن منبع جدید نباید به بازنویسی frontend نیاز داشته باشد؛ فقط adapter و node renderer لازم است.
+1. Evidence comes before summarization and before displaying derived knowledge.
+2. A timestamp, quote, evidence excerpt, confidence, or coverage value is never fabricated or guessed.
+3. `PARTIAL` and `FAIL` status must be displayed clearly and never converted to `PASS`.
+4. The canonical files are the source of truth.
+5. SQLite is only a rebuildable index/cache.
+6. The user's notes, strokes, node positions, and manual relations are separate from canonical knowledge.
+7. No UI interaction may modify files under `raw/`.
+8. Whether knowledge is source-grounded or derived must be distinguishable in both the data model and the UI.
+9. Deleting the cache must not cause the loss of evidence, canonical knowledge, or the user's own content.
+10. Adding a new source must not require a frontend rewrite; only an adapter and a node renderer.
 
-## 6. مدل محصول
+## 6. Product model
 
-محصول چهار سطح اصلی دارد که selection و navigation مشترک دارند.
+The product has four main surfaces that share selection and navigation.
 
 ### 6.1. Library
 
-کتابخانهٔ قابل جست‌وجو و فیلتر منابع:
+A searchable, filterable library of sources:
 
-- ویدئوها و در آینده مقاله، tweet/thread، PDF، صوت و فایل محلی
-- عنوان، منبع، زبان، تاریخ ورود، مدت و وضعیت pipeline
-- تعداد knowledge unitها، روابط و وضعیت coverage
-- جست‌وجو در transcript، knowledge units، evidence و report
-- فیلتر براساس source type، kind، source class، confidence و validation status
-- حالت‌های list و compact grid
+- Videos, and later articles, tweets/threads, PDFs, audio, and local files
+- Title, source, language, date added, duration, and pipeline status
+- Knowledge unit count, relationship count, and coverage status
+- Search across transcript, knowledge units, evidence, and report
+- Filters by source type, kind, source class, confidence, and validation status
+- List and compact grid modes
 
 ### 6.2. Reader
 
-نمای مطالعه و مشاهدهٔ یک منبع:
+The view for reading and inspecting a single source:
 
-- player ویدئو یا صوت
+- Video or audio player
 - PDF/document viewer
-- transcript زمان‌دار با پرش به timestamp
-- report Markdown
-- knowledge units مرتبط
-- evidence excerpt و locator دقیق
-- روابط ورودی و خروجی
-- وضعیت validation و coverage
-- افزودن آیتم منتخب به Canvas
+- Timed transcript with jump-to-timestamp
+- Markdown report
+- Related knowledge units
+- Evidence excerpt and precise locator
+- Incoming and outgoing relationships
+- Validation and coverage status
+- Adding the selected item to the Canvas
 
-برای YouTube دو حالت پخش وجود دارد:
+For YouTube there are two playback modes:
 
-1. embed آنلاین با استفاده از `video_url` و امکان seek به timestamp؛
-2. پخش فایل محلی فقط اگر فایل رسانه واقعاً در دسترس باشد.
+1. Online embed using `video_url`, with seek to a timestamp;
+2. Local file playback, only if the media file is genuinely available.
 
-وجود فایل ویدئوی محلی نباید فرض شود؛ pipeline فعلی transcript را ذخیره می‌کند، نه الزاماً خود ویدئو را.
+The existence of a local video file must not be assumed; the current pipeline stores the transcript, not necessarily the video itself.
 
 ### 6.3. Knowledge Map
 
-نمای خودکار گراف سراسری:
+The automatic global graph view:
 
-- render با Sigma.js/WebGL
-- نمایش conceptها، knowledge unitها و sourceها
-- فیلتر relationshipها و source classها
-- جست‌وجو و focus روی node
-- نمایش neighborhood به‌جای بارگذاری جزئیات همهٔ nodeها
-- cluster و layout قابل تعویض در صورت نیاز
-- بازکردن جزئیات node در inspector
-- انتقال node یا subgraph انتخاب‌شده به Canvas
+- Rendered with Sigma.js/WebGL
+- Displays concepts, knowledge units, and sources
+- Filters for relationships and source classes
+- Search and focus on a node
+- Shows a neighbourhood rather than loading details for every node
+- Swappable cluster and layout algorithms if needed
+- Opens node details in the inspector
+- Moves a selected node or subgraph to the Canvas
 
-Knowledge Map محیط اصلی ویرایش یا پخش رسانه نیست.
+The Knowledge Map is not the primary environment for editing or media playback.
 
 ### 6.4. Canvas
 
-بوم آزاد و قابل ذخیره برای چیدمان انتخابی کاربر:
+A freeform, saveable board for the user's own arrangement:
 
 - Knowledge Unit node
 - Concept node
@@ -198,11 +200,11 @@ Knowledge Map محیط اصلی ویرایش یا پخش رسانه نیست.
 - Canonical relation reference
 - User-created relation
 
-Canvas نباید کل گراف کتابخانه را یک‌جا render کند. آیتم‌ها صریحاً توسط کاربر یا از یک subgraph محدود به board اضافه می‌شوند.
+The Canvas must not render the entire library graph at once. Items are added to a board explicitly by the user, or from a bounded subgraph.
 
-## 7. طرح کلی UI/UX
+## 7. UI/UX outline
 
-چیدمان پایهٔ پیشنهادی:
+Proposed base layout:
 
 ```text
 ┌───────────────┬─────────────────────────────────┬──────────────────┐
@@ -215,22 +217,22 @@ Canvas نباید کل گراف کتابخانه را یک‌جا render کند.
 └───────────────┴─────────────────────────────────┴──────────────────┘
 ```
 
-اصول UX:
+UX principles:
 
-- تمرکز روی محتوا، نه panelهای دائمی زیاد.
-- inspector قابل جمع‌شدن باشد.
-- command/search palette برای navigation سریع.
-- انتخاب node در Map، Canvas و Reader به یک entity مشترک اشاره کند.
-- جزئیات سنگین فقط هنگام selection بارگذاری شوند.
-- رنگ تنها نشانگر تفاوت provenance نباشد؛ icon، label یا line style نیز استفاده شود.
-- exact visual language بعد از wireframe مشخص می‌شود، اما تمایز این سه دسته اجباری است:
+- Focus on content, not on many permanent panels.
+- The inspector must be collapsible.
+- A command/search palette for fast navigation.
+- Selecting a node in the Map, Canvas, or Reader must refer to one shared entity.
+- Heavy details load only on selection.
+- Colour must not be the only indicator of provenance; icon, label, or line style must also be used.
+- The exact visual language is settled after wireframes, but distinguishing these three categories is mandatory:
   - source-grounded
   - derived
   - user-authored
-- وضعیت coverage و validation همیشه در دسترس باشد، اما مزاحم مطالعه نباشد.
-- برای نمایش فارسی و انگلیسی، layout و typography باید متن دوجهته را درست مدیریت کند.
+- Coverage and validation status must always be available, but must not interfere with reading.
+- Layout and typography must handle bidirectional text correctly for both Persian and English content.
 
-## 8. معماری سیستم
+## 8. System architecture
 
 ```text
 Canonical filesystem
@@ -254,69 +256,69 @@ SQLite FTS5 index/cache ───── FastAPI local API
                            workspace/ user data
 ```
 
-### 8.1. Backend محلی
+### 8.1. Local backend
 
-FastAPI به‌عنوان یک extra اختیاری به پکیج فعلی اضافه می‌شود؛ CLI و pipeline اصلی نباید برای استفادهٔ بدون UI مجبور به نصب dependencyهای frontend/backend شوند.
+FastAPI is added to the existing package as an optional extra; the CLI and the core pipeline must not be forced to install frontend/backend dependencies for headless use.
 
-مسئولیت backend:
+Backend responsibilities:
 
-- scan و index کردن خروجی‌های canonical
-- API جست‌وجو، library، graph و entity detail
-- ارائهٔ transcript/report/metadata
-- ارائهٔ امن فایل‌های محلی و media با پشتیبانی مناسب از range request در صورت نیاز
-- persistence داده‌های workspace
-- rebuild index
-- ارائهٔ health/status و version اطلاعات schema
+- Scanning and indexing the canonical outputs
+- APIs for search, library, graph, and entity detail
+- Serving transcript/report/metadata
+- Serving local files and media safely, with proper range-request support where needed
+- Persisting workspace data
+- Rebuilding the index
+- Exposing health/status and schema version information
 
-backend مسئول استخراج دانش یا تغییر نتیجهٔ validatorها نیست.
+The backend is not responsible for extracting knowledge or for altering validator results.
 
 ### 8.2. Frontend
 
-Frontend به‌صورت یک اپ React/Vite مستقل در پوشهٔ پیشنهادی `web/` قرار می‌گیرد.
+The frontend is a standalone React/Vite app in the proposed `web/` directory.
 
-مسئولیت frontend:
+Frontend responsibilities:
 
-- navigation و search
-- Library و Reader
-- Map renderer و interaction
-- Canvas renderer و persistence interaction
-- قلم و drawing tools
-- inspector و نمایش provenance
-- optimistic UI فقط برای داده‌های workspace، نه canonical output
+- Navigation and search
+- Library and Reader
+- Map renderer and interaction
+- Canvas renderer and persistence interaction
+- Pen and drawing tools
+- Inspector and provenance display
+- Optimistic UI for workspace data only, never for canonical output
 
-### 8.3. اجرای محلی
+### 8.3. Local execution
 
-فرمان نهایی مورد انتظار، پس از پیاده‌سازی:
+The expected final command, once implemented:
 
 ```text
 x2knwldg ui
 ```
 
-این فرمان باید:
+This command must:
 
-1. project root را resolve کند؛
-2. index را در صورت نیاز بررسی یا rebuild کند؛
-3. سرویس local-only را روی loopback اجرا کند؛
-4. مرورگر پیش‌فرض را باز کند؛
-5. مسیرهای خارج از project root را بدون اجازه expose نکند.
+1. Resolve the project root;
+2. Check or rebuild the index if needed;
+3. Run the local-only service on loopback;
+4. Open the default browser;
+5. Not expose paths outside the project root without permission.
 
-پورت دقیق و شیوهٔ انتخاب آن در فاز implementation تعیین می‌شود و نباید hard-code شکننده داشته باشد.
+The exact port and how it is chosen are decided during implementation, and must not rely on a brittle hard-coded value.
 
-## 9. مرزبندی ذخیره‌سازی
+## 9. Storage boundaries
 
-### 9.1. منبع حقیقت موجود
+### 9.1. The existing source of truth
 
 ```text
 output/<source-id>/...
 ```
 
-- توسط pipeline ساخته می‌شود.
-- UI در حالت عادی فقط آن را می‌خواند.
-- validatorها مرجع وضعیت هستند.
+- Produced by the pipeline.
+- Normally read-only to the UI.
+- The validators are the authority on status.
 
-### 9.2. دادهٔ canonical کاربر
+### 9.2. The user's canonical data
 
-ساختار پیشنهادی:
+Proposed structure:
 
 ```text
 workspace/
@@ -327,9 +329,9 @@ workspace/
   attachments/
 ```
 
-این داده‌ها قابل backup، version control و انتقال هستند. ایجاد دقیق پوشه‌ها در فاز persistence انجام می‌شود.
+This data is backup-able, version-controllable, and portable. The exact directories are created during the persistence phase.
 
-### 9.3. cache قابل بازسازی
+### 9.3. Rebuildable cache
 
 ```text
 .x2knwldg/
@@ -338,26 +340,26 @@ workspace/
   cache/
 ```
 
-- حذف این پوشه نباید دادهٔ اصلی را از بین ببرد.
-- این پوشه به‌صورت پیش‌فرض برای version control مناسب نیست.
-- thumbnail و مشتقات رسانه‌ای هرگز جای فایل اصلی را نمی‌گیرند.
+- Deleting this directory must not destroy any primary data.
+- This directory is not suitable for version control by default.
+- Thumbnails and media derivatives never replace the original file.
 
-### 9.4. قواعد SQLite
+### 9.4. SQLite rules
 
-- FTS5 برای جست‌وجوی متن استفاده می‌شود.
-- graph database جدا در فاز اول استفاده نمی‌شود.
-- relationshipها در جدول adjacency معمولی کافی‌اند.
-- schema migration صریح و versioned باشد.
-- در صورت استفاده از WAL باید SQLite دارای fix مربوط به WAL reset باشد؛ نسخه و runtime واقعی پیش از فعال‌سازی بررسی شود.
-- یک writer کنترل‌شده ترجیح دارد؛ concurrency پیچیده برای اپ شخصی لازم نیست.
+- FTS5 is used for text search.
+- A separate graph database is not used in the first phase.
+- A plain adjacency table is sufficient for relationships.
+- Schema migrations must be explicit and versioned.
+- If WAL is used, SQLite must include the WAL-reset fix; verify the actual version and runtime before enabling it. *(Verified 2026-08-31: SQLite 3.53.4 with FTS5 available — well past that fix.)*
+- A single controlled writer is preferred; complex concurrency is unnecessary for a personal app.
 
-## 10. مدل دادهٔ عمومی
+## 10. Generic data model
 
-مدل UI/index باید source-neutral باشد.
+The UI/index model must be source-neutral.
 
 ### 10.1. Source
 
-نمایندهٔ منبع اصلی:
+Represents the primary source:
 
 ```json
 {
@@ -373,7 +375,7 @@ workspace/
 
 ### 10.2. Artifact
 
-یک بازنمایی یا فایل وابسته به Source:
+A representation or file belonging to a Source:
 
 - video
 - audio
@@ -386,7 +388,7 @@ workspace/
 
 ### 10.3. Locator
 
-محل دقیق evidence یا anchor:
+The precise location of evidence or an anchor:
 
 ```json
 {
@@ -396,7 +398,7 @@ workspace/
 }
 ```
 
-انواع آینده:
+Future types:
 
 - `time_range`
 - `page`
@@ -405,27 +407,27 @@ workspace/
 - `post_id`
 - `url_fragment`
 
-Locator نباید بدون دادهٔ canonical ساخته شود.
+A Locator must never be constructed without canonical data.
 
 ### 10.4. KnowledgeUnit
 
-فیلدهای فعلی حفظ می‌شوند:
+The current fields are preserved:
 
 - stable ID
 - kind
 - source class
 - content
 - confidence
-- source/locator برای source-grounded unit
-- derived_from و derivation_note برای derived unit
+- source/locator for a source-grounded unit
+- derived_from and derivation_note for a derived unit
 
-شناسهٔ global پیشنهادی:
+Proposed global identifier:
 
 ```text
 <source-type>:<external-id>:<local-unit-id>
 ```
 
-مثال:
+Examples:
 
 ```text
 youtube:pqlWNihgdjI:KU-001
@@ -433,36 +435,38 @@ twitter:1840000000000000000:KU-001
 medium:article-slug:KU-001
 ```
 
+See D-011: this identifier is **additive**. `library.py` keeps its existing two-part form.
+
 ### 10.5. Relation
 
-هر relation باید کلاس منشأ مشخص داشته باشد:
+Every relation must carry an explicit origin class:
 
-- `source`: مستقیماً قابل پشتیبانی از منبع
-- `derived`: نتیجهٔ synthesis یا inference ثبت‌شده
-- `user`: ارتباط دستی روی workspace
+- `source`: directly supportable from the source
+- `derived`: the result of recorded synthesis or inference
+- `user`: a manual link in the workspace
 
-رابطهٔ user نباید به‌صورت خودکار وارد `relationships.json` شود.
+A user relation must never be written automatically into `relationships.json`.
 
-### 10.6. Board و BoardItem
+### 10.6. Board and BoardItem
 
-Board فقط layout و انتخاب کاربر را نگه می‌دارد:
+A board holds only layout and the user's selection:
 
 - board metadata
 - entity reference
-- position و dimensions
+- position and dimensions
 - collapsed/expanded state
-- per-node view state مانند timestamp یا page فعلی، در صورت نیاز
-- user edgeها
-- ink strokeها
-- frameها و groupها
+- per-node view state such as the current timestamp or page, where needed
+- user edges
+- ink strokes
+- frames and groups
 
-محتوای canonical نباید داخل board duplicate شود، مگر snapshot صریح برای دوام لینک؛ تصمیم snapshot در فاز schema گرفته می‌شود.
+Canonical content must not be duplicated inside a board, except as an explicit snapshot for link durability; the snapshot decision is made during the schema phase.
 
-## 11. قرارداد Source Adapter
+## 11. Source Adapter contract
 
-هر منبع جدید باید به قرارداد مشترک indexer تبدیل شود.
+Every new source must be converted to the shared indexer contract.
 
-حداقل خروجی adapter:
+Minimum adapter output:
 
 - Source record
 - Artifact records
@@ -470,123 +474,123 @@ Board فقط layout و انتخاب کاربر را نگه می‌دارد:
 - Relation records
 - Locator records
 - validation/coverage status
-- مسیر فایل‌های canonical
+- paths to the canonical files
 
-adapterهای برنامه‌ریزی‌شده:
+Planned adapters:
 
-1. YouTube adapter از ساختار فعلی `output/<video-id>`
-2. Twitter/X adapter پس از طراحی pipeline استخراج مربوطه
+1. YouTube adapter, from the current `output/<video-id>` structure
+2. Twitter/X adapter, after the corresponding extraction pipeline is designed
 3. Medium/article adapter
 4. Generic file/PDF adapter
 
-در فاز نخست فقط YouTube adapter پیاده‌سازی می‌شود، ولی interface آن عمومی خواهد بود.
+Only the YouTube adapter is implemented in the first phase, but its interface will be generic.
 
-## 12. انتخاب کتابخانه‌ها و محدودیت‌ها
+## 12. Library choices and constraints
 
 ### 12.1. React Flow
 
-کاربرد:
+Used for:
 
-- custom HTML node
-- اتصال و جابه‌جایی nodeها
-- zoom/pan/selection
-- frame و group
-- ذخیرهٔ layout
+- Custom HTML nodes
+- Connecting and moving nodes
+- Zoom/pan/selection
+- Frames and groups
+- Saving layout
 
-قواعد:
+Rules:
 
-- attribution رایگان React Flow حذف نمی‌شود.
-- نمونه‌های Pro کپی نمی‌شوند.
-- قابلیت قلم با پیاده‌سازی خود پروژه و کتابخانه‌های MIT ساخته می‌شود.
-- componentها و callbackها باید memoized باشند.
-- nodeهای خارج از نیاز board render نشوند.
+- React Flow's free-tier attribution is not removed.
+- Pro examples are not copied.
+- Pen capability is built with the project's own implementation and MIT-licensed libraries.
+- Components and callbacks must be memoized.
+- Nodes not needed by the board must not be rendered.
 
 ### 12.2. Sigma.js + Graphology
 
-کاربرد:
+Used for:
 
-- گراف سراسری و WebGL
-- focus، filtering، neighborhood و cluster visualization
-- الگوریتم‌های graph در memory
+- The global graph and WebGL rendering
+- Focus, filtering, neighbourhood, and cluster visualization
+- In-memory graph algorithms
 
-Map نباید componentهای HTML سنگین در هر node قرار دهد. جزئیات در inspector نمایش داده می‌شوند.
+The Map must not place heavy HTML components on each node. Details are shown in the inspector.
 
 ### 12.3. perfect-freehand
 
-کاربرد:
+Used for:
 
-- smoothing stroke
-- pressure-sensitive drawing
-- تبدیل pointها به SVG path
+- Stroke smoothing
+- Pressure-sensitive drawing
+- Converting points to an SVG path
 
-stroke باید در مختصات world/canvas ذخیره شود، نه مختصات viewport.
+Strokes must be stored in world/canvas coordinates, not viewport coordinates.
 
 ### 12.4. Excalidraw
 
-در هستهٔ Canvas استفاده نمی‌شود. اگر بعداً «سند sketch مستقل» لازم شد، embed یا import/export Excalidraw می‌تواند به‌عنوان feature جدا بررسی شود.
+Not used in the Canvas core. If a standalone "sketch document" is needed later, embedding or Excalidraw import/export can be evaluated as a separate feature.
 
 ### 12.5. BlockSuite
 
-در فاز اول استفاده نمی‌شود. اگر نیاز به document editor و edgeless editor کاملاً یکپارچه از سطح فعلی فراتر رفت، یک spike مستقل برای مقایسهٔ آن با معماری موجود انجام می‌شود.
+Not used in the first phase. If the need for a fully integrated document and edgeless editor exceeds the current scope, an independent spike will compare it against the existing architecture.
 
 ### 12.6. tldraw
 
-به‌دلیل license production و نیاز به license key از انتخاب فعلی حذف شده است.
+Excluded from the current choice because of its production licence and the requirement for a licence key.
 
-### 12.7. Tauri و Electron
+### 12.7. Tauri and Electron
 
-- Electron در معماری فعلی توصیه نمی‌شود؛ runtime و packaging اضافه برای یک اپ شخصی محلی توجیه کافی ندارد.
-- Tauri فقط وقتی بررسی می‌شود که web app محلی در file access، native integration، launch UX یا performance محدودیت اثبات‌شده داشته باشد.
-- مهاجرت احتمالی به Tauri نباید frontend را بازنویسی کند.
+- Electron is not recommended in the current architecture; the extra runtime and packaging burden is not sufficiently justified for a personal local app.
+- Tauri is evaluated only when the local web app shows a proven limitation in file access, native integration, launch UX, or performance.
+- Any eventual migration to Tauri must not require a frontend rewrite.
 
-## 13. راهبرد کارایی
+## 13. Performance strategy
 
-### 13.1. قواعد عمومی
+### 13.1. General rules
 
-- metadata و summary ابتدا؛ متن و رسانهٔ سنگین on demand.
-- transcript بلند virtualized شود.
-- thumbnailها lazy و cacheable باشند.
-- فایل رسانه داخل SQLite ذخیره نشود.
-- index براساس hash/mtime فقط منابع تغییرکرده را بازخوانی کند.
-- index کامل باید قابل rebuild باشد.
-- queryهای UI page-based یا cursor-based باشند.
-- layout گراف در worker اجرا شود اگر اندازهٔ واقعی داده UI thread را مسدود کرد؛ نه زودتر.
+- Metadata and summary first; heavy text and media on demand.
+- Long transcripts must be virtualized.
+- Thumbnails must be lazy and cacheable.
+- Media files are not stored inside SQLite.
+- The index reloads only changed sources, based on hash/mtime.
+- A full index rebuild must always be possible.
+- UI queries must be page-based or cursor-based.
+- Graph layout runs in a worker only if the real data size blocks the UI thread — not sooner.
 
 ### 13.2. Canvas
 
-- board به‌طور طبیعی curated و محدود است.
-- playerهای خارج از viewport متوقف یا سبک شوند.
-- فقط node انتخاب‌شده یا بازشده reader کامل render کند.
-- shadow، blur و animation سنگین روی تعداد زیاد node ممنوع باشد.
-- strokeهای تکمیل‌شده به path بهینه تبدیل شوند؛ raw pointها فقط در صورت نیاز نگه داشته شوند.
+- A board is naturally curated and bounded.
+- Players outside the viewport are paused or made lightweight.
+- Only the selected or expanded node renders a full reader.
+- Heavy shadow, blur, and animation are forbidden across large numbers of nodes.
+- Completed strokes are converted to an optimized path; raw points are kept only when necessary.
 
 ### 13.3. Knowledge Map
 
 - WebGL renderer.
-- label همهٔ nodeها هم‌زمان نمایش داده نشود.
-- edgeها براساس filter و zoom سطح‌بندی شوند.
-- ابتدا overview؛ سپس neighborhood و details.
-- graph کامل و Canvas layout دو state جدا باشند.
+- Labels for all nodes are not displayed simultaneously.
+- Edges are tiered by filter and zoom level.
+- Overview first; then neighbourhood and details.
+- The full graph and the Canvas layout are two separate states.
 
-### 13.4. معیارهای performance
+### 13.4. Performance targets
 
-عددهای قطعی پیش از ساخت dataset واقعی تعیین نمی‌شوند. در فاز performance باید fixtureهای کوچک، متوسط و بزرگ از دادهٔ واقعی/ساختگی معتبر تهیه و targetها روی MacBook کاربر اندازه‌گیری شوند. هیچ threshold دلخواه در این سند به‌عنوان واقعیت ثبت نمی‌شود.
+Firm numbers are not set before a real dataset exists. During the performance phase, small, medium, and large fixtures of real or valid synthetic data must be prepared and targets measured on the user's MacBook. No arbitrary threshold is recorded in this document as fact.
 
-## 14. امنیت و حریم خصوصی
+## 14. Security and privacy
 
-- server فقط روی loopback گوش دهد.
-- هیچ telemetry یا analytics پیش‌فرض وجود نداشته باشد.
-- هیچ فایل یا محتوایی بدون action صریح کاربر upload نشود.
-- مسیر فایل‌ها validate شود و path traversal ممکن نباشد.
-- raw HTML و Markdown untrusted sanitize شوند.
-- embedهای خارجی allowlist داشته باشند.
-- بازکردن URL خارجی action صریح و قابل مشاهده باشد.
-- API نوشتن فقط به `workspace/` و cache مجاز باشد.
-- API canonical در فاز اول read-only باشد.
+- The server must listen on loopback only.
+- There must be no telemetry or analytics by default.
+- No file or content is uploaded without an explicit user action.
+- File paths must be validated and path traversal must be impossible.
+- Untrusted raw HTML and Markdown must be sanitized.
+- External embeds must be allowlisted.
+- Opening an external URL must be an explicit, visible action.
+- Write APIs are permitted only against `workspace/` and the cache.
+- The canonical API is read-only in the first phase.
 
-## 15. API پیشنهادی
+## 15. Proposed API
 
-نام‌ها provisional هستند و در فاز قرارداد API تثبیت می‌شوند.
+Names are provisional and are fixed during the API contract phase.
 
 ```text
 GET  /api/status
@@ -605,311 +609,314 @@ GET  /api/boards/{board_id}
 PUT  /api/boards/{board_id}
 ```
 
-قواعد API:
+API rules:
 
-- IDها opaque و URL-safe شوند.
-- responseها schema version داشته باشند.
-- canonical status از فایل‌های validator خوانده شود.
-- خطای نبودن artifact با placeholder یا دادهٔ جعلی پوشانده نشود.
-- mutationها atomic باشند؛ ابتدا temp و سپس replace امن.
+- IDs must be opaque and URL-safe.
+- Responses must carry a schema version.
+- Canonical status must be read from the validator files.
+- A missing artifact must not be masked with a placeholder or fabricated data.
+- Mutations must be atomic: write to a temp file, then replace safely.
 
-## 16. فازهای اجرا
+## 16. Execution phases
 
-### فاز 0 — قرارداد و scaffolding
+### Phase 0 — Contracts and scaffolding
 
-**هدف:** تثبیت مرزها پیش از UI سنگین.
+**Goal:** fix the boundaries before any heavy UI work.
 
-خروجی‌ها:
+Deliverables:
 
-- ADR کوتاه برای انتخاب معماری
-- schema نسخهٔ اول Source/Artifact/Locator/EntityRef
-- قرارداد YouTube adapter
-- ساختار `web/` و backend اختیاری
-- فرمان development مشخص
-- fixture معتبر برای وضعیت‌های `PASS`، `PARTIAL` و `FAIL`
+- A short ADR for the architecture choice
+- Version 1 schemas for Source/Artifact/Locator/EntityRef
+- The YouTube adapter contract
+- The `web/` structure and the optional backend
+- A defined development command
+- Valid fixtures for `PASS`, `PARTIAL`, and `FAIL` states
 
-معیار پذیرش:
+Acceptance criteria:
 
-- هیچ فایل canonical تغییر نکند.
-- schemaها versioned و validate شوند.
-- یک source فعلی بدون حدس به مدل عمومی تبدیل شود.
-- پروژهٔ Python بدون extra UI همچنان نصب و تست شود.
+- No canonical file is modified.
+- Schemas are versioned and validate.
+- One existing source converts to the generic model with no guessing.
+- The Python project still installs and tests without the UI extra.
 
-### فاز 1 — Read-only Library و Reader
+### Phase 1 — Read-only Library and Reader
 
-**هدف:** ارزش قابل استفاده پیش از Canvas.
+**Goal:** usable value before the Canvas.
 
-خروجی‌ها:
+Deliverables:
 
-- index SQLite/FTS5
-- scan incremental و rebuild
-- API منابع و جست‌وجو
+- SQLite/FTS5 index
+- Incremental scan and rebuild
+- Source and search APIs
 - Library UI
-- Reader برای metadata، transcript، report و knowledge units
-- پرش timestamp به YouTube
-- نمایش validation/coverage
+- Reader for metadata, transcript, report, and knowledge units
+- Timestamp jump to YouTube
+- Validation/coverage display
 
-معیار پذیرش:
+Acceptance criteria:
 
-- جست‌وجوی transcript و knowledge unit کار کند.
-- وضعیت هر منبع دقیقاً همان‌گونه که `validation.json` و `coverage.json` گزارش می‌کنند نمایش داده شود؛ اعتبارسنجی هم با منبع واقعی `PASS` و هم با fixture برچسب‌خوردهٔ test-only در وضعیت `PARTIAL` و `FAIL` انجام شود.
-- حذف index و rebuild نتیجهٔ معادل بسازد.
-- raw و canonical files بدون تغییر باقی بمانند.
+- Transcript and knowledge unit search work.
+- Each source's status is displayed exactly as `validation.json` and `coverage.json` report it; verification uses both the real `PASS` source and a labelled test-only fixture in `PARTIAL` and `FAIL` states.
+- Deleting the index and rebuilding produces an equivalent result.
+- Raw and canonical files remain unchanged.
 
-### فاز 2 — Knowledge Map
+### Phase 2 — Knowledge Map
 
-**هدف:** مرور روابط در سطح منبع و کتابخانه.
+**Goal:** surveying relationships at source and library level.
 
-خروجی‌ها:
+Deliverables:
 
 - Sigma.js view
-- node/edge styles براساس provenance و kind
-- search/focus/filter
-- neighborhood view
-- inspector integration
-- link از Map به Reader
+- Node/edge styles based on provenance and kind
+- Search/focus/filter
+- Neighbourhood view
+- Inspector integration
+- Link from Map to Reader
 
-معیار پذیرش:
+Acceptance criteria:
 
-- empty graph صادقانه نمایش داده شود.
-- روابط canonical و derived قابل تمایز باشند.
-- انتخاب node جزئیات و evidence واقعی نشان دهد.
-- گراف از `output/library/graph.json` یا index معادل تغذیه شود.
+- An empty graph is displayed honestly.
+- Canonical and derived relationships are distinguishable.
+- Selecting a node shows real details and evidence.
+- The graph is fed from `output/library/graph.json` or an equivalent index.
 
-### فاز 3 — Canvas و board persistence
+### Phase 3 — Canvas and board persistence
 
-**هدف:** ساخت workspace شخصی روی دانش موجود.
+**Goal:** building a personal workspace on top of existing knowledge.
 
-خروجی‌ها:
+Deliverables:
 
-- ایجاد/نام‌گذاری/حذف board با رفتار recoverable
-- افزودن entity از Library/Reader/Map
-- custom nodeهای اصلی
-- connection و user relation
-- frame/group
-- autosave و undo/redo
-- persistence portable در `workspace/boards/`
+- Create/rename/delete a board, with recoverable behaviour
+- Adding entities from Library/Reader/Map
+- The core custom nodes
+- Connections and user relations
+- Frames/groups
+- Autosave and undo/redo
+- Portable persistence in `workspace/boards/`
 
-معیار پذیرش:
+Acceptance criteria:
 
-- بستن و بازکردن برنامه layout را حفظ کند.
-- خراب یا ناقص بودن یک node کل board را غیرقابل بازکردن نکند.
-- user relation از canonical relation قابل تشخیص باشد.
-- حذف board نیازمند confirmation و ترجیحاً recoverable باشد.
+- Closing and reopening the application preserves layout.
+- A corrupt or incomplete node does not make the whole board unopenable.
+- A user relation is distinguishable from a canonical relation.
+- Deleting a board requires confirmation and is preferably recoverable.
 
-### فاز 4 — قلم و annotation
+### Phase 4 — Pen and annotation
 
-**هدف:** طراحی روان با قلم نوری روی بوم.
+**Goal:** fluid stylus drawing on the canvas.
 
-خروجی‌ها:
+Deliverables:
 
 - pen/eraser/select
-- pressure در صورت پشتیبانی سخت‌افزار
-- color و width محدود و مینیمال
-- stroke persistence
-- undo/redo
-- hide/show ink layer
+- Pressure, where the hardware supports it
+- A minimal, bounded set of colours and widths
+- Stroke persistence
+- Undo/redo
+- Hide/show the ink layer
 
-معیار پذیرش:
+Acceptance criteria:
 
-- stroke با zoom/pan جابه‌جا نشود.
-- قلم و drag node با هم conflict نداشته باشند.
-- طراحی با mouse نیز fallback داشته باشد.
-- هیچ stroke به دانش canonical تبدیل نشود.
+- Strokes do not shift under zoom/pan.
+- The pen and node dragging do not conflict.
+- Drawing has a mouse fallback.
+- No stroke ever becomes canonical knowledge.
 
-### فاز 5 — رسانه و اسناد غنی‌تر
+### Phase 5 — Richer media and documents
 
-**هدف:** مطالعهٔ چندرسانه‌ای کامل‌تر.
+**Goal:** more complete multimedia reading.
 
-خروجی‌های ممکن براساس اولویت واقعی:
+Possible deliverables, based on real priority:
 
-- PDF.js viewer و page locator
-- audio waveform سبک در صورت نیاز
-- image viewer
-- local media range streaming
-- annotationهای anchorشده به صفحه یا timestamp
+- PDF.js viewer and page locator
+- A lightweight audio waveform, if needed
+- Image viewer
+- Local media range streaming
+- Annotations anchored to a page or timestamp
 
-این فاز فقط پس از مشخص‌شدن فایل‌های واقعی مورد استفاده scope می‌شود.
+This phase is scoped only after the actual files in use are known.
 
-### فاز 6 — منابع جدید
+### Phase 6 — New sources
 
-**هدف:** افزودن Twitter/X و Medium بدون تغییر هستهٔ UI.
+**Goal:** adding Twitter/X and Medium without changing the UI core.
 
-خروجی‌ها:
+Deliverables:
 
-- canonical ingestion contract هر منبع
-- adapter
-- locatorهای مناسب
-- node renderer فقط در صورت نیاز
-- تست coexistence چند source type
+- A canonical ingestion contract per source
+- The adapter
+- Appropriate locators
+- A node renderer, only if needed
+- Coexistence tests across multiple source types
 
-### فاز 7 — بسته‌بندی دسکتاپ، مشروط
+### Phase 7 — Desktop packaging, conditional
 
-فقط اگر شواهد واقعی نشان دهد وب‌اپ local کافی نیست:
+Only if real evidence shows the local web app is insufficient:
 
-- spike Tauri
-- بررسی sidecar یا launch backend
-- file access و signing macOS
-- مقایسهٔ startup، memory و نگهداری
+- Tauri spike
+- Evaluation of a sidecar or backend launch
+- File access and macOS signing
+- Comparison of startup, memory, and maintenance cost
 
-## 17. تست و اعتبارسنجی
+## 17. Testing and validation
 
-### 17.1. backend
+### 17.1. Backend
 
-- unit test برای adapter و IDها
-- schema validation
-- index rebuild test
-- search correctness
-- path traversal و file access tests
-- atomic workspace writes
-- migration tests
+- Unit tests for adapters and IDs
+- Schema validation
+- Index rebuild test
+- Search correctness
+- Path traversal and file access tests
+- Atomic workspace writes
+- Migration tests
 
-### 17.2. frontend
+### 17.2. Frontend
 
-- component tests برای status/provenance
-- interaction tests برای Library/Reader/Map/Canvas
-- board save/restore
-- timestamp navigation
-- keyboard accessibility
+- Component tests for status/provenance
+- Interaction tests for Library/Reader/Map/Canvas
+- Board save/restore
+- Timestamp navigation
+- Keyboard accessibility
 - RTL/LTR mixed content
-- pen coordinate transform tests
+- Pen coordinate transform tests
 
-### 17.3. end-to-end
+### 17.3. End-to-end
 
-سناریوهای ضروری:
+Essential scenarios:
 
-1. بازکردن source با `PARTIAL` و دیدن هشدار واقعی.
-2. جست‌وجوی عبارت transcript و پرش به timestamp.
-3. انتخاب knowledge unit و مشاهدهٔ evidence.
-4. انتقال entity از Map به Canvas.
-5. ایجاد user relation بدون تغییر canonical file.
-6. طراحی با قلم، reload و حفظ stroke.
-7. حذف cache و rebuild بدون ازدست‌رفتن board.
+1. Open a source with `PARTIAL` status and see the real warning.
+2. Search for a transcript phrase and jump to the timestamp.
+3. Select a knowledge unit and inspect its evidence.
+4. Move an entity from Map to Canvas.
+5. Create a user relation without modifying any canonical file.
+6. Draw with the pen, reload, and keep the strokes.
+7. Delete the cache and rebuild without losing a board.
 
-### 17.4. validatorهای موجود
+### 17.4. Existing validators
 
-پیش از ادعای موفقیت pipeline همچنان validatorهای فعلی اجرا می‌شوند. UI حق ندارد completion را مستقل از `validation.json` و `coverage.json` تعریف کند.
+The existing validators still run before any claim of pipeline success. The UI has no right to define completion independently of `validation.json` and `coverage.json`.
 
-## 18. ریسک‌ها و راه کاهش آن‌ها
+## 18. Risks and mitigations
 
-### ریسک 1: مخلوط‌شدن حقیقت و annotation
+### Risk 1: truth and annotation becoming mixed
 
-راهکار: سه namespace و storage جدا برای source، derived و user؛ promotion فقط با workflow صریح آینده.
+Mitigation: three separate namespaces and storage tiers for source, derived, and user content; promotion only through an explicit future workflow.
 
-### ریسک 2: کندشدن Canvas با رشد کتابخانه
+### Risk 2: Canvas slowing down as the library grows
 
-راهکار: Canvas curated؛ گراف کامل در Sigma؛ lazy details و عدم render همهٔ nodeها.
+Mitigation: a curated Canvas; the full graph in Sigma; lazy details and no rendering of every node.
 
-### ریسک 3: وابستگی frontend به YouTube
+### Risk 3: the frontend becoming dependent on YouTube
 
-راهکار: Source/Artifact/Locator عمومی و adapter مستقل.
+Mitigation: generic Source/Artifact/Locator and an independent adapter.
 
-### ریسک 4: از دست رفتن board یا stroke
+### Risk 4: losing a board or strokes
 
-راهکار: فایل portable، write اتمیک، backup/recovery و تست خرابی جزئی.
+Mitigation: portable files, atomic writes, backup/recovery, and a partial-corruption test.
 
-### ریسک 5: پیچیدگی زودهنگام editor
+### Risk 5: premature editor complexity
 
-راهکار: فاز نخست read-only؛ rich text حداقلی؛ BlockSuite/Tiptap فقط پس از نیاز اثبات‌شده.
+Mitigation: read-only first phase; minimal rich text; BlockSuite/Tiptap only after a proven need.
 
-### ریسک 6: محدودیت قلم در مرورگر
+### Risk 6: browser pen limitations
 
-راهکار: Pointer Events spike روی سخت‌افزار واقعی کاربر پیش از تکمیل ابزارها؛ fallback mouse.
+Mitigation: a Pointer Events spike on the user's real hardware before finalizing the tools; mouse fallback.
 
-### ریسک 7: نبود دادهٔ گراف معتبر برای توسعه — رفع شد
+### Risk 7: no valid graph data for development — resolved
 
-وضعیت: **رفع‌شده در 2026-08-31.** نمونهٔ `pqlWNihgdjI` یک extraction کامل و `PASS` با ۶۹ knowledge unit، ۵۶ relationship و ۱۷ canonical concept دارد؛ دادهٔ واقعی برای توسعهٔ Map موجود است.
+Status: **resolved on 2026-08-31.** The `pqlWNihgdjI` sample has a complete, `PASS` extraction with 69 knowledge units, 56 relationships, and 17 canonical concepts; real data is available for Map development.
 
-ریسک باقی‌مانده: هیچ منبع `PARTIAL` یا `FAIL` وجود ندارد، بنابراین نمایش صادقانهٔ این وضعیت‌ها آزمون‌نشده است.
+Residual risk: no `PARTIAL` or `FAIL` source exists, so honest rendering of those states is untested.
 
-راهکار: ساخت fixture schema-valid با برچسب روشن test data برای `PARTIAL` و `FAIL`؛ هرگز جعل آن به‌عنوان evidence واقعی.
+Mitigation: build schema-valid fixtures clearly labelled as test data for `PARTIAL` and `FAIL`; never pass them off as real evidence.
 
-### ریسک 8: تغییرات library و license
+### Risk 8: library and licence changes
 
-راهکار: نسخه‌ها هنگام implementation pin شوند؛ licenseها پیش از هر upgrade عمده بازبینی شوند؛ tldraw در وضعیت فعلی استفاده نشود.
+Mitigation: pin versions at implementation time; review licences before any major upgrade; do not use tldraw in its current state.
 
-## 19. تصمیم‌های ثبت‌شده
+## 19. Recorded decisions
 
-این جدول فهرست canonical تصمیم‌ها است و پاسخ می‌دهد «چه چیزی تصمیم گرفته شد». استدلال، گزینه‌های ردشده و پیامدها در `docs/adr/` ثبت می‌شوند. قرارداد ADR در `docs/adr/README.md` توضیح داده شده است.
+This table is the canonical index of decisions and answers "what was decided". The reasoning, rejected alternatives, and consequences are recorded in `docs/adr/`. The ADR convention is described in `docs/adr/README.md`.
 
-تصمیم‌های D-001 تا D-013 در [ADR 0001](adr/0001-local-web-ui.md) تجمیع و مستند شده‌اند.
+Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/0001-local-web-ui.md).
 
-| ID | تصمیم | وضعیت | دلیل |
+| ID | Decision | Status | Rationale |
 |---|---|---|---|
-| D-001 | ساخت لایهٔ اختصاصی به‌جای fork محصول کامل | پذیرفته | کنترل provenance و کاهش پیچیدگی |
-| D-002 | وب‌اپ محلی در فاز نخست | پذیرفته | سازگاری با هستهٔ Python و کمترین overhead |
-| D-003 | React Flow برای Canvas | پذیرفته | custom HTML node و interaction مناسب |
-| D-004 | Sigma.js برای Knowledge Map | پذیرفته | WebGL و تناسب با گراف بزرگ |
-| D-005 | SQLite FTS5 به‌عنوان index قابل بازسازی | پذیرفته | محلی، ساده و کافی برای تک‌کاربر |
-| D-006 | جداسازی workspace از output | پذیرفته | حفاظت از canonical evidence |
-| D-007 | قلم با Pointer Events و perfect-freehand | پذیرفته برای spike | سبک و بدون license پولی |
-| D-008 | عدم استفاده از tldraw | پذیرفته | محدودیت license production |
-| D-009 | عدم استفادهٔ اولیه از graph database | پذیرفته | نیاز فعلی با SQLite/Graphology پوشش داده می‌شود |
-| D-010 | Tauri فقط پس از اثبات نیاز | پذیرفته | جلوگیری از packaging زودهنگام |
-| D-011 | شناسهٔ سه‌بخشی `<source-type>:<external-id>:<local-id>` برای index، API و board | پذیرفته | source-neutral؛ پیش از ساخت اولین board پذیرفته شد تا migration لازم نشود. **افزودنی است:** `library.py` شناسهٔ دوبخشی خود را حفظ می‌کند تا skill `kg_navigator` نشکند |
-| D-012 | زبان UI قابل انتخاب با پیش‌فرض انگلیسی | پذیرفته | جهت متن معماری است نه ظاهری؛ افزودن آن بعداً پرهزینه است |
-| D-013 | اصلاح §4 و معیارهای وابسته به آن، و افزودن fixture برچسب‌خوردهٔ test-only | پذیرفته | معیارهای پذیرش بر یک واقعیت قدیمی تکیه کرده بودند |
+| D-001 | Build a dedicated layer instead of forking a complete product | accepted | Control over provenance and lower complexity |
+| D-002 | A local web app in the first phase | accepted | Fits the Python core with the least overhead |
+| D-003 | React Flow for the Canvas | accepted | Custom HTML nodes and suitable interaction |
+| D-004 | Sigma.js for the Knowledge Map | accepted | WebGL and a good fit for a large graph |
+| D-005 | SQLite FTS5 as a rebuildable index | accepted | Local, simple, and sufficient for a single user |
+| D-006 | Separate `workspace/` from `output/` | accepted | Protects canonical evidence |
+| D-007 | Pen via Pointer Events and perfect-freehand | accepted for a spike | Lightweight and free of paid licensing |
+| D-008 | Do not use tldraw | accepted | Production licence restriction |
+| D-009 | No graph database initially | accepted | Current need is covered by SQLite/Graphology |
+| D-010 | Tauri only after a proven need | accepted | Avoids premature packaging |
+| D-011 | Three-part identifier `<source-type>:<external-id>:<local-id>` for index, API, and boards | accepted | Source-neutral; adopted before the first board exists so no migration is needed. **Additive:** `library.py` keeps its two-part identifier so the `kg_navigator` skill does not break |
+| D-012 | Switchable UI language, English default | accepted | Text direction is architectural, not cosmetic; adding it later is expensive |
+| D-013 | Correct §4 and its dependent criteria, and add labelled test-only fixtures | accepted | Acceptance criteria were resting on a stale fact |
+| D-014 | All project documentation in English; Persian only in the UI and in extracted knowledge content | accepted | One documentation language keeps the repo portable between agents and contributors; Persian remains available where it serves the user directly |
 
-## 20. پرسش‌های باز
+## 20. Open questions
 
-این موارد مانع شروع فاز 0 و 1 نیستند و باید در زمان مناسب پاسخ داده شوند:
+These do not block the start of Phases 0 and 1, and must be answered at the appropriate time:
 
-- boardها به‌طور پیش‌فرض وارد Git شوند یا فقط backup محلی داشته باشند؟
-- آیا user note به Markdown ساده محدود بماند یا rich text لازم است؟
-- آیا ویدئوها فقط از YouTube پخش می‌شوند یا فایل محلی نیز نگهداری خواهد شد؟
-- PDF و اسناد در چه فازی واقعاً وارد workflow روزانه می‌شوند؟
-- آیا یک entity می‌تواند در چند board view state مستقل داشته باشد؟ احتمالاً بله، ولی schema باید تثبیت شود.
-- آیا snapshot خلاصهٔ node داخل board برای مقاومت در برابر حذف source لازم است؟
-- سیاست حذف board و attachment چه میزان recovery نیاز دارد؟
-- تم بصری نهایی و design tokens پس از wireframe تعیین می‌شود.
+- Should boards enter Git by default, or only have a local backup?
+- Should user notes stay limited to plain Markdown, or is rich text required?
+- Are videos played only from YouTube, or will local files also be kept?
+- At which phase do PDFs and documents genuinely enter the daily workflow?
+- Can one entity have independent view state across multiple boards? Probably yes, but the schema must be fixed.
+- Is a summary snapshot of a node inside a board needed to survive source deletion?
+- How much recovery does the board and attachment deletion policy require?
+- The final visual theme and design tokens are decided after wireframes.
 
-عامل نباید پاسخ این موارد را حدس بزند اگر تصمیم باعث تغییر محسوس در محصول یا schema می‌شود.
+An agent must not guess the answers to these if the decision would cause a noticeable change in the product or the schema.
 
-## 21. پروتکل کار در چند سشن
+## 21. Multi-session working protocol
 
-### آغاز هر سشن
+### At the start of each session
 
-1. `AGENTS.md` را بخوان.
-2. برای هر ingestion/extraction، `WORKFLOW.md` را کامل رعایت کن.
-3. این سند را بخوان.
-4. `git status` و تغییرات موجود را بررسی کن؛ تغییرات کاربر را حفظ کن.
-5. بخش «وضعیت اجرا» و «گام بعدی» را بررسی کن.
-6. فقط یک فاز یا subtask محدود و قابل اعتبارسنجی را در دست بگیر.
+1. Read `AGENTS.md`.
+2. For any ingestion/extraction, follow `WORKFLOW.md` completely.
+3. Read this document.
+4. Check `git status` and existing changes; preserve the user's changes.
+5. Review the "Execution status" and "Next step" sections.
+6. Take on only one bounded, verifiable phase or subtask.
 
-### حین کار
+### While working
 
-- تصمیم معماری جدید را در جدول تصمیم‌ها ثبت کن.
-- اگر تصمیمی فراتر از دامنهٔ پذیرفته‌شده است، از کاربر سؤال کن.
-- canonical output و raw evidence را تغییر نده.
-- تغییرات cache را به‌عنوان دستاورد داده‌ای گزارش نکن.
-- تست متناسب با ریسک بنویس و اجرا کن.
+- Record any new architecture decision in the decision table.
+- If a decision exceeds the accepted scope, ask the user.
+- Do not modify canonical output or raw evidence.
+- Do not report cache changes as data achievements.
+- Write and run tests proportionate to the risk.
 
-### پایان هر سشن
+### At the end of each session
 
-1. تست‌ها و validatorهای مرتبط را اجرا کن.
-2. فایل‌های تغییرکرده را ثبت کن.
-3. معیارهای پذیرش انجام‌شده را علامت بزن.
-4. تصمیم و ریسک جدید را به این سند اضافه کن.
-5. «وضعیت اجرا» و «گام بعدی دقیق» را به‌روزرسانی کن.
-6. اگر چیزی ناقص است، صریحاً `PARTIAL` یا pending ثبت کن.
+1. Run the relevant tests and validators.
+2. Record the changed files.
+3. Mark the acceptance criteria that were met.
+4. Add any new decision and risk to this document.
+5. Update "Execution status" and "Precise next step".
+6. If something is incomplete, record it explicitly as `PARTIAL` or pending.
 
-## 22. وضعیت اجرا
+## 22. Execution status
 
-### تکمیل‌شده
+### Completed
 
-- [x] بررسی ساختار فعلی X2KNWLDG
-- [x] بررسی قراردادهای provenance و canonical output
-- [x] جست‌وجوی چندمرحله‌ای گزینه‌های متن‌باز
-- [x] مقایسهٔ AFFiNE، BlockSuite، Logseq، TubeNotes، Kanvaz و Excalidraw
-- [x] بررسی React Flow، Sigma.js، perfect-freehand، SQLite FTS5 و tldraw license
-- [x] انتخاب معماری پایه
-- [x] ثبت برنامهٔ چندسشن در این سند
-- [x] اعتبارسنجی وضعیت واقعی خروجی‌های canonical و اصلاح §4 (2026-08-31)
-- [x] ساخت فایل مدیریت اجرا در `docs/PROJECT_MANAGEMENT.md` با task breakdown و مدل موازی‌سازی agent
+- [x] Review the current X2KNWLDG structure
+- [x] Review the provenance and canonical output contracts
+- [x] Multi-stage search of open-source options
+- [x] Compare AFFiNE, BlockSuite, Logseq, TubeNotes, Kanvaz, and Excalidraw
+- [x] Review React Flow, Sigma.js, perfect-freehand, SQLite FTS5, and the tldraw licence
+- [x] Choose the base architecture
+- [x] Record the multi-session plan in this document
+- [x] Verify the real state of the canonical outputs and correct §4 (2026-08-31)
+- [x] Create the execution tracker at `docs/PROJECT_MANAGEMENT.md` with a task breakdown and the agent parallelism model
+- [x] Phase 0 / T-001: ADR convention and [ADR 0001](adr/0001-local-web-ui.md)
+- [x] Translate this document to English per D-014
 
-### شروع‌نشده
+### Not started
 
-- [ ] فاز 0: ADR و schema عمومی
+- [ ] Phase 0: generic schemas (T-002 onward)
 - [ ] YouTube adapter
 - [ ] SQLite index
 - [ ] FastAPI local API
@@ -918,29 +925,29 @@ PUT  /api/boards/{board_id}
 - [ ] Knowledge Map
 - [ ] Canvas
 - [ ] Pen annotations
-- [ ] adapterهای منابع آینده
+- [ ] Adapters for future sources
 
-وضعیت لحظه‌ای، شکست task‌ها و مالکیت trackها در `docs/PROJECT_MANAGEMENT.md` نگه‌داری می‌شود. در صورت تناقض، آن فایل مرجع **وضعیت** است و این سند مرجع **طراحی**.
+Live status, task breakdown, and track ownership are maintained in `docs/PROJECT_MANAGEMENT.md`. In case of conflict, that file is the authority on **status** and this document is the authority on **design**.
 
-## 23. گام بعدی دقیق
+## 23. Precise next step
 
-سشن اجرایی بعدی باید فقط فاز 0 را آغاز کند:
+The next execution session must start Phase 0 only:
 
-1. بررسی schemaهای فعلی و IDهای واقعی knowledge unit/source.
-2. ~~نوشتن ADR معماری در `docs/adr/`.~~ انجام شد — [ADR 0001](adr/0001-local-web-ui.md) و قرارداد ADR در `docs/adr/README.md`.
-3. تعریف schema نسخهٔ اول برای:
+1. Review the current schemas and the real knowledge unit/source IDs.
+2. ~~Write the architecture ADR in `docs/adr/`.~~ Done — [ADR 0001](adr/0001-local-web-ui.md), with the ADR convention in `docs/adr/README.md`.
+3. Define version 1 schemas for:
    - Source
    - Artifact
    - Locator
    - EntityRef
    - IndexedRelation
-4. تعریف قرارداد YouTube adapter بدون تغییر خروجی‌های canonical موجود.
-5. ساخت fixtureهای معتبر و مشخصاً برچسب‌خوردهٔ test-only برای وضعیت‌های `PARTIAL` و `FAIL`. گراف واقعی و کامل از نمونهٔ `PASS` موجود در دسترس است و نیازی به ساخت آن نیست.
-6. اجرای تست‌های موجود و افزودن تست schema/adapter.
+4. Define the YouTube adapter contract without changing any existing canonical output.
+5. Build valid, clearly labelled test-only fixtures for the `PARTIAL` and `FAIL` states. A real, complete graph is already available from the existing `PASS` sample and does not need to be constructed.
+6. Run the existing tests and add schema/adapter tests.
 
-تا زمانی که این قراردادها validate نشده‌اند، ساخت Canvas یا طراحی UI production نباید شروع شود.
+Until these contracts are validated, work on the Canvas or on production UI design must not begin.
 
-## 24. منابع تحقیق
+## 24. Research references
 
 - AFFiNE: <https://github.com/toeverything/AFFiNE>
 - BlockSuite Edgeless Editor: <https://blocksuite.io/components/editors/edgeless-editor>
@@ -955,26 +962,32 @@ PUT  /api/boards/{board_id}
 - Sigma.js: <https://github.com/jacomyal/sigma.js>
 - perfect-freehand: <https://github.com/steveruizok/perfect-freehand>
 - PointerEvent pressure: <https://developer.mozilla.org/en-US/docs/Web/API/PointerEvent/pressure>
-- tldraw license: <https://tldraw.dev/community/license>
+- tldraw licence: <https://tldraw.dev/community/license>
 - SQLite FTS5: <https://www.sqlite.org/fts5.html>
 - SQLite WAL: <https://sqlite.org/wal.html>
 - Vite: <https://vite.dev/guide/>
 - FastAPI: <https://fastapi.tiangolo.com/>
 
-## 25. تاریخچهٔ تغییرات سند
+## 25. Document change history
 
-### 2026-08-31
+### 2026-08-31 — initial version
 
-- نسخهٔ نخست سند ایجاد شد.
-- نیازهای کاربر، نتایج تحقیق، تصمیم معماری، مرز داده‌ها و نقشهٔ راه ثبت شد.
-- فاز 0 به‌عنوان گام بعدی تعیین شد.
+- First version of the document created.
+- User requirements, research results, architecture decisions, data boundaries, and the roadmap recorded.
+- Phase 0 identified as the next step.
 
-#### به‌روزرسانی دوم — 2026-08-31
+### 2026-08-31 — second update
 
-- §4 اصلاح شد: نمونهٔ `pqlWNihgdjI` extraction کامل و `PASS` دارد (۶۹ unit، ۵۶ relationship، ۱۷ concept). توصیف پیشین «خالی/`PARTIAL`» قدیمی بود.
-- معیار پذیرش فاز 1 که به `PARTIAL` بودن نمونه تکیه داشت بازنویسی شد.
-- ریسک 7 رفع‌شده علامت خورد؛ ریسک باقی‌مانده (نبود fixture `PARTIAL`/`FAIL`) صریح ثبت شد.
-- تصمیم‌های D-011 (شناسهٔ سه‌بخشی، افزودنی)، D-012 (زبان UI قابل انتخاب با پیش‌فرض انگلیسی) و D-013 (اصلاح سند) ثبت شدند.
-- پرسش باز مربوط به زبان UI حذف شد چون تصمیم گرفته شد.
-- `docs/PROJECT_MANAGEMENT.md` به‌عنوان ردیاب اجرا اضافه شد.
+- §4 corrected: the `pqlWNihgdjI` sample has a complete, `PASS` extraction (69 units, 56 relationships, 17 concepts). The earlier "empty / `PARTIAL`" description was stale.
+- The Phase 1 acceptance criterion that relied on the sample being `PARTIAL` was rewritten.
+- Risk 7 marked resolved; the residual risk (no `PARTIAL`/`FAIL` fixture) recorded explicitly.
+- Decisions D-011 (three-part identifier, additive), D-012 (switchable UI language, English default), and D-013 (document correction) recorded.
+- The open question about UI language removed, since it was decided.
+- `docs/PROJECT_MANAGEMENT.md` added as the execution tracker.
 
+### 2026-08-31 — third update
+
+- Phase 0 / T-001 completed: ADR convention established in `docs/adr/README.md`, with the architecture decision recorded in ADR 0001. §19 and §23 cross-linked to it.
+- **This document translated from Persian to English** per D-014. Content, structure, section numbering, decisions, and diagrams are unchanged; only the language differs.
+- D-014 recorded: all project documentation in English; Persian reserved for the UI and for extracted knowledge content.
+- §9.4 annotated with the verified SQLite version, resolving the open WAL caveat.
