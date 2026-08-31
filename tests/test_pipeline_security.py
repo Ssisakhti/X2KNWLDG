@@ -36,6 +36,7 @@ from pathlib import Path
 import pytest
 
 from x2knwldg import cli
+from x2knwldg.ids import is_id_part
 from x2knwldg.pipeline import (
     PipelineError,
     RunAlreadyExists,
@@ -834,3 +835,39 @@ def test_the_module_docstring_documents_the_exit_codes() -> None:
     assert "Exit codes" in cli.__doc__
     for token in ("PARTIAL", "FAIL", "TRANSCRIPT_REQUIRED", "UI_NOT_IMPLEMENTED"):
         assert token in cli.__doc__
+
+
+# ---------------------------------------------------------------------------
+# The containment check itself, which no test used to reach
+# ---------------------------------------------------------------------------
+
+
+def test_a_symlinked_run_that_leaves_the_output_root_is_refused(tmp_path: Path) -> None:
+    """``resolve_run_dir``'s second guard, exercised for the first time.
+
+    The audit found this branch unreachable by the suite: every hostile input a
+    test supplied died at the earlier ``is_id_part`` gate, so deleting the
+    containment check left the suite green. A symlink is the case that reaches
+    it — the id is a perfectly legal id, and only resolution reveals that the
+    directory it names is somewhere else.
+    """
+    output = tmp_path / "output"
+    output.mkdir()
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "stolen.md").write_text("not ours", encoding="utf-8")
+    (output / "escapee").symlink_to(outside, target_is_directory=True)
+
+    assert is_id_part("escapee"), "the id itself is legal; only the path escapes"
+    with pytest.raises(PipelineError) as caught:
+        resolve_run_dir(output, "escapee")
+    assert "outside the output root" in str(caught.value)
+
+
+def test_a_symlink_that_stays_inside_the_output_root_is_accepted(tmp_path: Path) -> None:
+    """The control: containment is the rule, not a blanket ban on symlinks."""
+    output = tmp_path / "output"
+    real = output / "real-run"
+    real.mkdir(parents=True)
+    (output / "alias").symlink_to(real, target_is_directory=True)
+    assert resolve_run_dir(output, "alias") == real.resolve()
