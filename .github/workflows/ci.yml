@@ -47,7 +47,7 @@ jobs:
           pip install . pytest
       - name: Fail if an optional dependency crept into the core install
         run: |
-          for package in jsonschema openapi-spec-validator networkx pyvis yt-dlp; do
+          for package in jsonschema openapi-spec-validator networkx pyvis yt-dlp fastapi uvicorn; do
             if pip show "$package" > /dev/null 2>&1; then
               echo "$package is installed; it must stay an optional extra" >&2
               exit 1
@@ -79,3 +79,27 @@ jobs:
             git diff -- tests/fixtures/runs/ | head -100
             exit 1
           }
+
+  web-typecheck:
+    # Risk R17: tests/test_api_types.py proves the committed types.d.ts matches
+    # the generator, but only a compiler proves it is valid TypeScript. This job
+    # is the first Node in CI (T-008) and is the whole of that mitigation.
+    #
+    # web/tsconfig.json sets skipLibCheck: false and lists the declarations as a
+    # root file on purpose. With the default skipLibCheck, tsc would skip the one
+    # file this job exists to check and pass without looking.
+    name: web typecheck (tsc --noEmit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install the frontend toolchain
+        working-directory: web
+        run: npm ci
+      - name: Type-check the frozen contract and the frontend
+        working-directory: web
+        run: npm run typecheck

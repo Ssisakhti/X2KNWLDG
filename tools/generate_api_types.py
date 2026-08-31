@@ -9,14 +9,19 @@ the types the frontend compiles against cannot diverge without a red test.
 Why a script here rather than ``openapi-typescript``
 ----------------------------------------------------
 
-``T-005`` runs before ``T-008``, so there is no ``web/``, no ``package.json``,
+``T-005`` ran before ``T-008``, when there was no ``web/``, no ``package.json``,
 and no Node job in CI. Adding an npm toolchain to produce one declaration file
 would put the contract behind a dependency the core package deliberately does
-not have (ADR 0001 invariant 5), and would hand ``T-008`` a scaffold it did not
-choose. Declarations are the whole output, the input is six closed schemas plus
-one OpenAPI document, and the drift guard is a string comparison — so stdlib is
-enough. If the frontend later wants ``openapi-typescript`` as a cross-check it
-can be added without changing the contract, which is the artefact that matters.
+not have (ADR 0001 invariant 5), and would have handed ``T-008`` a scaffold it
+did not choose. Declarations are the whole output, the input is six closed
+schemas plus one OpenAPI document, and the drift guard is a string comparison —
+so stdlib is enough.
+
+``T-008`` has since brought Node into CI, and this stays stdlib-only anyway: the
+``web-typecheck`` job *checks* the committed file with ``tsc --noEmit`` rather
+than producing it, so regenerating still needs nothing but Python. If the
+frontend later wants ``openapi-typescript`` as a cross-check it can be added
+without changing the contract, which is the artefact that matters.
 
 What it will not do
 -------------------

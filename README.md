@@ -105,6 +105,27 @@ Set `X2KNWLDG_PROJECT_ROOT` to the absolute project directory in the MCP server 
 
 For this checkout, a ready-to-copy Claude Desktop configuration is available at `config/claude_desktop_config.local.json`. Copy its `x2knwldg` entry into Claude Desktop's MCP configuration and restart Claude Desktop.
 
+## Local web UI (in progress)
+
+A local-first Knowledge Canvas — library, reader, knowledge map, and board — is being built
+over the canonical outputs. The design is in
+[`docs/KNOWLEDGE_CANVAS_PLAN.md`](docs/KNOWLEDGE_CANVAS_PLAN.md) and
+[ADR 0001](docs/adr/0001-local-web-ui.md); status and task breakdown are in
+[`docs/PROJECT_MANAGEMENT.md`](docs/PROJECT_MANAGEMENT.md).
+
+It is **optional and not yet functional.** The core package stays zero-dependency: nothing
+below is installed by `pip install x2knwldg`.
+
+```bash
+.venv/bin/pip install -e '.[ui]'   # fastapi + uvicorn
+.venv/bin/x2knwldg ui              # reports UI_NOT_IMPLEMENTED and exits 2 today
+```
+
+`x2knwldg ui` currently resolves the project root and refuses any non-loopback bind address,
+then reports that the local server does not exist yet rather than pretending to serve. The
+frontend toolchain lives in [`web/`](web/README.md); the TypeScript types for the frozen HTTP
+contract are generated into [`schemas/api/v1/`](schemas/api/v1/README.md).
+
 ## Tests
 
 Core tests require only Python's standard library:

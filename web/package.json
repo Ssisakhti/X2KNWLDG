@@ -1,0 +1,17 @@
+{
+  "name": "x2knwldg-web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local Knowledge Canvas frontend. T-008 scaffolds the TypeScript toolchain only; T-109 adds Vite, React, routing, and design tokens.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

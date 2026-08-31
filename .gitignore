@@ -155,3 +155,9 @@ config/*.local.json
 
 # Rebuildable local UI/index cache
 .x2knwldg/
+
+# Frontend toolchain (T-008). web/package-lock.json IS committed, so `npm ci`
+# and CI install the same tree.
+node_modules/
+.vite/
+*.tsbuildinfo

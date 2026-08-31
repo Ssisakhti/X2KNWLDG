@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
-from .pipeline import import_transcript, resolve_run_dir, validate_run
+from .pipeline import import_transcript, project_root, resolve_run_dir, validate_run
 from .io import write_json
 
 try:
@@ -14,7 +13,7 @@ except ImportError:  # pragma: no cover - exercised only without optional depend
     MCPServer = None  # type: ignore[assignment]
 
 
-PROJECT_ROOT = Path(os.environ.get("X2KNWLDG_PROJECT_ROOT", Path.cwd())).expanduser().resolve()
+PROJECT_ROOT = project_root()
 
 
 def _output_root() -> Path:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 from datetime import datetime, timezone
@@ -56,6 +57,21 @@ def resolve_run_dir(output_root: Path, video_id: str) -> Path:
     if root not in run_dir.parents:
         raise PipelineError(f"Video ID resolves outside the output root: {video_id!r}")
     return run_dir
+
+
+def project_root(explicit: Path | None = None) -> Path:
+    """Resolve the project root: an explicit path, else ``X2KNWLDG_PROJECT_ROOT``,
+    else the working directory.
+
+    One implementation, because the MCP server and the ``ui`` command must agree
+    on what 'the project' is. Two rules for the same lookup is what D-020 is
+    about: :func:`resolve_run_dir` exists because ``_safe_identifier`` was the
+    second rule for resolving a run. Callers get an absolute path; whether the
+    root actually holds a project is the caller's question, not this function's.
+    """
+    if explicit is not None:
+        return Path(explicit).expanduser().resolve()
+    return Path(os.environ.get("X2KNWLDG_PROJECT_ROOT", Path.cwd())).expanduser().resolve()
 
 
 def _safe_identifier(value: str) -> str:

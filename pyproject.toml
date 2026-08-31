@@ -17,6 +17,13 @@ youtube = [
   "youtube-transcript-api>=0.6.0",
 ]
 mcp = ["mcp>=2,<3"]
+# The local web layer (ADR 0001 decision 6). Imported lazily inside the `ui`
+# CLI branch so the core package stays zero-dependency (invariant 5): nothing
+# here may become an import at module scope anywhere in x2knwldg.
+ui = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+]
 legacy = [
   "networkx>=3.0",
   "pyvis>=0.3.2",

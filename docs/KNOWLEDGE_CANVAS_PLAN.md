@@ -645,16 +645,19 @@ Deliverables:
 - The YouTube adapter contract
 - A frozen API contract (§15), with TypeScript types generated from it
 - The repository interface between the indexer and the API ([ADR 0002](adr/0002-index-repository-seam.md))
-- The `web/` structure and the optional backend
-- A defined development command
+- ~~The `web/` structure and the optional backend~~ — done: [`web/`](../web/README.md) plus the
+  `ui` extra (`T-008`)
+- ~~A defined development command~~ — done: `x2knwldg ui`, scaffolded as a refusing stub that
+  `T-116` wires end to end (D-037)
 - Valid fixtures for `PASS`, `PARTIAL`, and `FAIL` states
 
-Acceptance criteria:
+Acceptance criteria — **all met, 2026-08-31**:
 
-- No canonical file is modified.
-- Schemas are versioned and validate.
-- One existing source converts to the generic model with no guessing.
-- The Python project still installs and tests without the UI extra.
+- No canonical file is modified. ✅
+- Schemas are versioned and validate. ✅
+- One existing source converts to the generic model with no guessing. ✅
+- The Python project still installs and tests without the UI extra. ✅ — `T-009`: 333 passed,
+  4 skipped on a venv holding only `x2knwldg` and `pytest`.
 
 ### Phase 1 — Read-only Library and Reader
 
@@ -893,6 +896,9 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-034 | A relation belongs to a source when that source produced it **or** when either endpoint is an entity of that source | accepted | The 17 `expresses_concept` edges carry `source_id: null` because `adapt_library` produces them and they are cross-source (D-025). They are still the edges linking a source to the concepts it expresses, and a Reader that filtered on `source_id` alone would hide the source's own links. Endpoint membership is read off the three-part global id (D-011) — no join, and no second rule |
 | D-035 | A `/api/graph` page is a page of **nodes** with the edges among them, and an edge is included only when both endpoints pass the node filter and at least one is on the page | accepted | Paging over edges would silently drop an entity that has no relations, so a full walk would lose real records and the Map would never show them. Requiring *both* endpoints keeps a page renderable: an edge to a filtered-out node dangles, and a Map that draws a dangling edge asserts a node it will not show. An edge straddling two pages appears in both; clients dedupe by `id` |
 | D-036 | `MemoryRepository` — the reference implementation over `adapters.adapt_project` — ships with the seam, and D-028's additive search fields move into it | accepted | Track B builds routes against it on day one while Track A builds SQLite behind the same interface, and `T-104` gets a cache-free oracle: where a rebuilt index, an incremental one, and the canonical files disagree, the index is stale (ADR 0001 invariant 3). It closes R18 — `global_id` and `source_id` were a test helper no server would call — and reads the source type from the indexed source rather than assuming `youtube`. It is not an index: it holds every record in memory and re-runs `query.search_knowledge`'s linear scan per search, which is the cost `T-103` exists to remove |
+| D-037 | The `ui` extra is `fastapi` + `uvicorn`, each floor- **and** ceiling-bounded, and `x2knwldg ui` ships as a **refusing stub**: it enforces loopback-only binding (ADR 0001 invariant 9) and resolves the project root, then exits `2` with `UI_NOT_IMPLEMENTED` naming `T-116`. It never prints a URL, and `--port` defaults to unset rather than to a constant | accepted | A scaffolded command that exits `0` claims the project can serve a UI, and one that prints `http://127.0.0.1:8000` claims a socket nobody opened — the same class of dishonesty as coercing `PARTIAL` to `PASS`. The two checks that *are* real here are both refusals, and a refusal is worth having before the thing it guards exists: the host check runs before the dependency probe, so the invariant holds on machines without the extra installed. §8.3's rule that the port must not rest on a brittle constant is met by having no default at all |
+| D-038 | `web/` gets **TypeScript and nothing else** — no Vite, no React, no router, no tokens; `T-109` chooses those. What `T-008` does add is CI: `tsc --noEmit` over `web/` with `skipLibCheck: false` and `schemas/api/v1/types.d.ts` as a *root file*, plus `web/src/api/contract.ts` as the single re-export of the generated declarations | accepted | Same restraint as D-029 — handing `T-109` a framework it did not choose is a cost it pays for the life of the project. `skipLibCheck` is load-bearing: TypeScript's default skips `.d.ts` files, so with it on the Node job would skip the only file it exists to check and pass without looking, leaving risk R17 closed on paper. Verified by breaking `types.d.ts` deliberately and watching `tsc` fail. One import path to the generated file means moving it breaks a test, not a build |
+| D-039 | `pipeline.project_root(explicit=None)` is the single root-resolution rule — explicit path, then `X2KNWLDG_PROJECT_ROOT`, then the working directory. `mcp_server.PROJECT_ROOT` calls it rather than re-reading the env var | accepted | The `ui` command is the second consumer of 'where is the project', and a second implementation of a lookup rule is what D-020 was written about. Behaviour for the MCP server is unchanged — the same three-step fallback, one copy of it — and a test asserts the env var is no longer read in `mcp_server.py` so the duplication cannot quietly return |
 
 ## 20. Open questions
 
@@ -957,11 +963,13 @@ An agent must not guess the answers to these if the decision would cause a notic
 - [x] Phase 0 / T-004: YouTube adapter in [`src/x2knwldg/adapters/`](../src/x2knwldg/adapters/README.md), mapping `output/<id>/` onto the v1 model and changing no canonical output
 - [x] Phase 0 / T-005: frozen v1 HTTP contract in [`schemas/api/v1/`](../schemas/api/v1/README.md) — eleven `GET` endpoints `$ref`-ing `schemas/v1/`, with generated TypeScript types
 - [x] Phase 0 / T-007: the indexer ↔ API seam in [`src/x2knwldg/repository/`](../src/x2knwldg/repository/README.md), with [ADR 0002](adr/0002-index-repository-seam.md) and a reference implementation over the adapters
+- [x] Phase 0 / T-008: the [`web/`](../web/README.md) scaffold, the `ui` extra, the `ui` CLI stub, and the first Node job in CI (`tsc --noEmit`, closing risk R17)
+- [x] Phase 0 / T-009: re-confirmed the zero-dependency install after the `ui` extra existed
+- [x] **Phase 0 complete** — the exit gate in `docs/PROJECT_MANAGEMENT.md` §5 is met; Phase 1 may fan out
 - [x] Translate this document to English per D-014
 
 ### Not started
 
-- [ ] Phase 0: remaining contracts (T-008 scaffolding, T-009 no-extras re-confirmation)
 - [ ] SQLite index
 - [ ] FastAPI local API
 - [ ] React/Vite scaffolding
@@ -998,10 +1006,15 @@ The next execution session must start Phase 0 only:
    [`src/x2knwldg/repository/`](../src/x2knwldg/repository/README.md) and
    [ADR 0002](adr/0002-index-repository-seam.md). `MemoryRepository` answers the whole frozen
    contract from the adapters today, so Track B can start before Track A finishes.
-8. Scaffold `web/` plus the `ui` extra (`T-008`), then re-confirm the no-extras install (`T-009`).
-   Keep the suite green with no UI dependencies installed.
+8. ~~Scaffold `web/` plus the `ui` extra (`T-008`), then re-confirm the no-extras install
+   (`T-009`).~~ Done — [`web/`](../web/README.md) holds the TypeScript toolchain and nothing
+   more (D-038); the `ui` extra is `fastapi` + `uvicorn`; `x2knwldg ui` is a refusing stub
+   that `T-116` wires (D-037); and CI now type-checks the generated declarations, which
+   closes risk R17. The core package still reports 333 passed, 4 skipped with no extras.
 
-Until these contracts are validated, work on the Canvas or on production UI design must not begin.
+**Phase 0 is complete.** The next session opens Phase 1 and is the first that may run more
+than one agent — see `docs/PROJECT_MANAGEMENT.md` §8.2 for the four tracks and §11 for the
+suggested fan-out. Phase 3 Canvas and Phase 4 pen work stay out of scope until their phases.
 
 ## 24. Research references
 
