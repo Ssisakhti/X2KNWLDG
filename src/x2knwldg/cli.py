@@ -56,6 +56,7 @@ from .pipeline import (
     project_root,
     validate_run,
 )
+from .query import UnsearchableRun
 from .transcripts import TranscriptError
 
 # ADR 0001 invariant 9: the local service binds loopback only. Enforced here, at
@@ -89,7 +90,14 @@ VERDICT_EXIT_CODES = {"PASS": EXIT_OK, "PARTIAL": EXIT_PARTIAL, "FAIL": EXIT_FAI
 # a VTT with no timings — exiting on a raw traceback, because `parse_transcript_file`
 # raises `TranscriptError`. `IdError` arrives the same way from `ids.py`, and
 # `OSError` from an unreadable file or directory.
-USER_FACING_ERRORS = (PipelineError, TranscriptError, IdError, OSError, json.JSONDecodeError)
+USER_FACING_ERRORS = (
+    PipelineError,
+    TranscriptError,
+    IdError,
+    UnsearchableRun,
+    OSError,
+    json.JSONDecodeError,
+)
 
 
 def verdict_exit_code(status: str) -> int:
