@@ -159,11 +159,12 @@ def test_read_status_has_no_path_to_pass() -> None:
 
 
 def test_counts_are_omitted_rather_than_zeroed_when_unknown(run: Path) -> None:
-    """Reporting 0 units for an unreadable file states something false."""
-    (run / "knowledge_units.json").write_text("{not json", encoding="utf-8")
+    """Reporting 0 captions for an unreadable file states something false."""
+    (run / "transcript.json").write_text("{not json", encoding="utf-8")
     counts = adapt_run(run, run.parents[1]).sources[0]["counts"]
-    assert "knowledge_units" not in counts
+    assert "captions" not in counts
     assert counts["relationships"] == 1, "the files that are readable are still counted"
+    assert counts["knowledge_units"] == 2
 
 
 # --------------------------------------------------------------------------
@@ -334,9 +335,12 @@ def test_a_locator_addresses_the_segments_artifact(run: Path) -> None:
 
 
 def test_an_inverted_time_range_is_refused(run: Path) -> None:
+    # A plain swap, so the range is inverted and both ends stay inside the
+    # bounds a timestamp has: this is invariant 3 under test, not the
+    # separate refusal of a negative second (tests/test_adapters_hardening.py).
     def invert(document):
         source = document["units"][0]["source"]
-        source["start_sec"], source["end_sec"] = source["end_sec"], source["start_sec"] - 1
+        source["start_sec"], source["end_sec"] = source["end_sec"], source["start_sec"]
 
     _edit(run / "knowledge_units.json", invert)
     with pytest.raises(AdapterError, match="before it starts"):

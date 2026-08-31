@@ -22,7 +22,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from .base import (
+    CANONICAL_PROVENANCE_CLASSES,
+    CANONICAL_RELATION_TYPES,
+    KNOWLEDGE_KINDS,
+    LIBRARY_SYNTHETIC_RELATION_TYPES,
     MEDIA_TYPES,
+    PROVENANCE_CLASSES,
     RUN_STATUSES,
     SCHEMA_VERSION,
     UNKNOWN_STATUS,
@@ -30,11 +35,18 @@ from .base import (
     IndexRecords,
     SourceAdapter,
     check_records,
+    copied_choice,
+    copied_confidence,
+    copied_number,
+    copied_text,
+    copied_timestamp,
     declared_source_type,
     media_type_for,
     project_relative,
     read_optional_json,
+    read_optional_json_or_reason,
     read_status,
+    refuse,
 )
 from .youtube import LIBRARY_DIR_NAME, YouTubeAdapter, adapt_library
 
@@ -46,7 +58,12 @@ ADAPTERS: dict[str, type[SourceAdapter]] = {
 
 __all__ = [
     "ADAPTERS",
+    "CANONICAL_PROVENANCE_CLASSES",
+    "CANONICAL_RELATION_TYPES",
+    "KNOWLEDGE_KINDS",
+    "LIBRARY_SYNTHETIC_RELATION_TYPES",
     "MEDIA_TYPES",
+    "PROVENANCE_CLASSES",
     "RUN_STATUSES",
     "SCHEMA_VERSION",
     "UNKNOWN_STATUS",
@@ -58,12 +75,19 @@ __all__ = [
     "adapt_project",
     "adapt_run",
     "check_records",
+    "copied_choice",
+    "copied_confidence",
+    "copied_number",
+    "copied_text",
+    "copied_timestamp",
     "declared_source_type",
     "get_adapter",
     "media_type_for",
     "project_relative",
     "read_optional_json",
+    "read_optional_json_or_reason",
     "read_status",
+    "refuse",
 ]
 
 
@@ -99,6 +123,13 @@ def adapt_project(
     The scan is what ``T-102`` will make incremental: sorted for determinism,
     skipping dotfiles and the ``library/`` directory, which is not an ingested
     source but the cross-source index over all of them.
+
+    Every run is checked as it is mapped, and the union is checked again before
+    it is returned. Per-run uniqueness is not project-wide uniqueness: two
+    directories are free to declare the same ``video_id``, and every id they
+    produce then collides. An index keyed by id keeps whichever record it wrote
+    last, so without this check the second run's knowledge silently replaces the
+    first's and nothing anywhere reports a loss.
     """
     project_root = project_root.expanduser().resolve()
     output_root = project_root / output_dir
@@ -111,4 +142,4 @@ def adapt_project(
             run_dir, project_root, hash_artifacts=hash_artifacts
         )
     records = records + adapt_library(output_root / LIBRARY_DIR_NAME, project_root)
-    return records
+    return check_records(records)

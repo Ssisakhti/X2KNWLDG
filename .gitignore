@@ -123,9 +123,15 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# youtube-to-knowledge: personal vault data
-vault/content/
-vault/graphs/
+# youtube-to-knowledge: personal vault data.
+# Ignore the contents, not the directories: `vault/content/` as a directory pattern
+# also ignored `vault/content/.gitkeep`, so the placeholder that exists to make the
+# directory survive a clone was itself never committed. Match the children and
+# re-include the placeholders instead.
+vault/content/*
+!vault/content/.gitkeep
+vault/graphs/*
+!vault/graphs/.gitkeep
 vault/processed_videos.md
 
 # Runtime inputs, immutable evidence, and generated knowledge outputs

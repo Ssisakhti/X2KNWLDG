@@ -10,6 +10,11 @@
       "adjacent_duplicate_count": 0
     }
   },
+  "evidence": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
   "knowledge_units": {
     "status": "PASS",
     "errors": [],

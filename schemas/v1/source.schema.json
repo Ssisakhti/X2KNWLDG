@@ -82,9 +82,10 @@
           "description": "The top-level 'status' of validation.json, which already aggregates all five sections including coverage. Copied, not derived."
         },
         "audit_attempts": {
+          "$comment": "The floor is 0, not 1. coverage.py writes audit_attempts: 0 into every freshly imported run, and WORKFLOW.md \u00a74 calls 0 the honest never-audited state; validators.py accepts it while the document does not claim PASS (an unaudited PASS is 'unaudited_coverage_pass'). A floor of 1 made the Source record of every scaffolded run schema-invalid, which nothing caught because nothing validated a scaffolded run's record. The cap of 3 is constants.MAX_AUDIT_ATTEMPTS and stays.",
           "description": "coverage.json audit_attempts, verbatim. Capped at 3 by WORKFLOW.md.",
           "type": ["integer", "null"],
-          "minimum": 1,
+          "minimum": 0,
           "maximum": 3
         },
         "validation_path": {

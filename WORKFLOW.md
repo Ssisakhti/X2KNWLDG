@@ -19,7 +19,7 @@ x2knwldg process "<youtube-url>"
 x2knwldg import-transcript "<file>" --video-id "<id>" --video-url "<url>"
 ```
 
-If native captions are unavailable, `process` creates `inbox/<video-id>/README.md`. Ask the user to put a timestamped transcript there.
+If native captions are unavailable, `process` creates `inbox/<video-id>/README.md` and exits `5` (`TRANSCRIPT_REQUIRED`). Ask the user to put a timestamped transcript there.
 
 ## 2. Inspect canonical inputs
 
@@ -28,6 +28,12 @@ Use only these files as extraction inputs:
 - `output/<video-id>/metadata.json`
 - `output/<video-id>/transcript.json`
 - `output/<video-id>/segments.json`
+
+Some captions in `transcript.json` carry `"non_speech": true` with `"text": ""` — a cue
+like `[music]` whose text cleaned away. They keep their timing on purpose, because dropping
+them shortens the run's reported duration and the coverage windows with it. Treat them as
+data, not as a gap: never quote one, never extract from one, and never leave one out when
+counting captions or computing a duration.
 
 The file under `raw/` is immutable evidence. Never edit it.
 
@@ -50,7 +56,7 @@ When the coverage audit finds missing meaningful content:
 1. Create the missing source-grounded units.
 2. Normalize and deduplicate again.
 3. Re-audit only the affected windows.
-4. Stop after three total audit attempts.
+4. Stop after three total audit attempts. `MAX_AUDIT_ATTEMPTS` in `src/x2knwldg/constants.py` is the number, and the coverage document must report how many it took: `audit_attempts` is **required**, an integer, and never above the cap. The validator accepts `0` only while the document does not claim `PASS`, which is the honest state of a scaffolded, never-audited run.
 5. If important content remains unresolved, use `PARTIAL`, never `PASS`.
 
 ## 5. Apply and finalize
@@ -62,5 +68,8 @@ x2knwldg apply-bundle output/<video-id> extraction_bundle.json
 x2knwldg finalize output/<video-id>
 ```
 
-Completion may be claimed only when validation and coverage both report `PASS`.
+Completion may be claimed only when validation and coverage both report `PASS` — which is
+exactly **exit code `0`**. `PARTIAL` exits `3` and `FAIL` exits `4`: both are real results to
+report, and neither is completion. The full table is in
+[`README.md` § Exit codes](README.md#exit-codes), and `x2knwldg --help` prints it.
 

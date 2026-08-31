@@ -11,6 +11,7 @@ Rules:
 - Keep distinct claims and experiments separate.
 - Every unit must use an exact source span within this segment.
 - `evidence_excerpt` must be copied from the transcript; never invent a quote.
+- Captions marked `"non_speech": true` carry `"text": ""` and exist to hold their timing. They are data, not a gap: never quote one, never extract a unit from one, and never treat the empty text as a transcription failure to work around.
 - Use `evidence_status: unsupported_in_video` when an asserted claim has no support in the segment or adjacent supplied context.
 - Return JSON only: `{ "units": [...] }`.
 

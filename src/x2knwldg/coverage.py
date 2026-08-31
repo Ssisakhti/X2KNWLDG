@@ -3,20 +3,39 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from .constants import COVERAGE_WINDOW_SEC
+
+
+def caption_in_window(caption: dict[str, Any], start: float, end: float, is_last: bool) -> bool:
+    """Does this caption belong to the window ``[start, end)``?
+
+    A zero-length caption — which a json3 event with no ``dDurationMs`` used to
+    mint — satisfies no strict overlap at all, so ``end_sec > start`` orphaned it
+    from every window and its content was never audited. Zero-length captions are
+    placed by position instead; the final window owns its own right edge so
+    nothing falls off the end.
+    """
+    caption_start = caption["start_sec"]
+    caption_end = caption["end_sec"]
+    if caption_end <= caption_start:
+        return start <= caption_start < end or (is_last and caption_start == end)
+    return caption_end > start and caption_start < end
+
 
 def create_pending_coverage(
-    captions: list[dict[str, Any]], video_id: str, window_sec: float = 300
+    captions: list[dict[str, Any]], video_id: str, window_sec: float = COVERAGE_WINDOW_SEC
 ) -> dict[str, Any]:
     duration = max((caption["end_sec"] for caption in captions), default=0)
     window_count = max(1, math.ceil(duration / window_sec))
     windows: list[dict[str, Any]] = []
     for index in range(window_count):
         start = index * window_sec
-        end = duration if index == window_count - 1 else min(duration, (index + 1) * window_sec)
+        is_last = index == window_count - 1
+        end = duration if is_last else min(duration, (index + 1) * window_sec)
         caption_ids = [
             caption["segment_id"]
             for caption in captions
-            if caption["end_sec"] > start and caption["start_sec"] < end
+            if caption_in_window(caption, start, end, is_last)
         ]
         windows.append(
             {
@@ -39,6 +58,10 @@ def create_pending_coverage(
         "schema_version": "1.0",
         "video_id": video_id,
         "status": "PARTIAL",
+        # No audit has run yet. validators.py requires the count and accepts 0
+        # only while the document does not claim PASS, so a fresh run is
+        # honest rather than silently unaudited.
+        "audit_attempts": 0,
         "window_size_sec": window_sec,
         "windows": windows,
         "summary": {

@@ -94,6 +94,21 @@ def test_bundle_schema_agrees_with_the_helper_on_what_an_id_may_be() -> None:
     assert relationship["to"]["pattern"] == expected
 
 
+@pytest.mark.parametrize("candidate", ["KU-1\n", "youtube\n", "KU-1\r", "KU-1\n\n"])
+def test_a_trailing_newline_is_not_a_valid_id_part(candidate: str) -> None:
+    """Python's ``$`` matches before a trailing newline; ECMA-262's does not.
+
+    The pattern strings are mirrored verbatim into
+    ``schemas/v1/common.schema.json``, where a TypeScript consumer reads them as
+    ECMA-262. Anchoring the compiled patterns with ``^...$`` therefore accepted
+    ids the declared contract rejects — and ``validators.py`` and
+    ``pipeline.resolve_run_dir`` share this gate, so such an id passed canonical
+    validation and named a run directory. The drift tests compare pattern
+    *strings*, so they cannot see the anchor.
+    """
+    assert not ids.is_id_part(candidate)
+
+
 @pytest.mark.parametrize(
     "candidate",
     ["KU-000001", "KU-D-0001", "KU_1", "_leading", "-leading", "a.b", "KU 1", "KU:1", "..", ".hidden"],
@@ -220,6 +235,103 @@ def test_a_source_type_named_library_is_not_a_concept_unless_the_external_id_mat
     assert not ids.make_global_id("library", "somethingelse", "x").is_library_concept
 
 
+# The source types D-015 names: youtube is implemented, the rest are planned,
+# and library is reserved. The conversion has to be exact for all of them —
+# assuming youtube is what made it lossy.
+SOURCE_TYPES = ["youtube", "twitter", "medium", "article", "pdf", "file", "library"]
+
+
+ROUND_TRIP_IDS = [
+    ("pqlWNihgdjI", "KU-000001"),
+    (LEADING_HYPHEN_VIDEO_ID, "KU-D-0001"),
+    ("concepts", "1f4a9c2b7e01"),
+    ("concept", "1f4a9c2b7e01"),  # an external id that spells the reserved prefix
+    ("a.b", "_x"),
+]
+
+#: Every combination except the single one that has no library form at all,
+#: which ``test_the_one_global_id_with_no_library_form_is_refused_not_mangled``
+#: owns. Excluded from the product rather than skipped inside it, so the count
+#: this file reports is the count it actually checks.
+ROUND_TRIP_CASES = [
+    (source_type, external_id, local_id)
+    for source_type in SOURCE_TYPES
+    for external_id, local_id in ROUND_TRIP_IDS
+    if not (
+        source_type == ids.LIBRARY_SOURCE_TYPE
+        and external_id == ids.CONCEPT_LIBRARY_PREFIX
+    )
+]
+
+
+@pytest.mark.parametrize(("source_type", "external_id", "local_id"), ROUND_TRIP_CASES)
+def test_the_round_trip_is_total_for_every_source_type(
+    source_type: str, external_id: str, local_id: str
+) -> None:
+    """REGRESSION: global -> library -> global used to lose every source type
+    but ``youtube``, because the reverse conversion defaulted to it and the
+    ``concept`` prefix captured the id whatever the caller said.
+
+    The library form states two parts and the global form needs three, so the
+    third is supplied by the caller — the ``source_type`` every library node
+    already carries (D-011). Given it back, the round trip is exact.
+    """
+    global_id = ids.make_global_id(source_type, external_id, local_id)
+    library_id = ids.library_id_from_global_id(global_id)
+    assert (
+        ids.global_id_from_library_id(library_id, source_type=global_id.source_type)
+        == global_id
+    )
+
+
+@pytest.mark.parametrize("source_type", SOURCE_TYPES)
+def test_a_library_id_read_as_the_wrong_source_type_is_the_callers_statement(
+    source_type: str,
+) -> None:
+    """A library id carries no source type. Whatever the caller states is what
+    the entity is; nothing is inferred behind their back."""
+    global_id = ids.global_id_from_library_id("pqlWNihgdjI:KU-000001", source_type=source_type)
+    assert global_id.source_type == source_type
+    assert global_id.value == f"{source_type}:pqlWNihgdjI:KU-000001"
+
+
+def test_an_unstated_source_type_still_reads_as_the_legacy_youtube_one() -> None:
+    """Every library id written before D-011 is a YouTube one, so the unstated
+    case must keep meaning what it always meant."""
+    assert ids.global_id_from_library_id("pqlWNihgdjI:KU-000001").source_type == "youtube"
+    assert ids.global_id_from_library_id("concept:1f4a9c2b7e01").value == "library:concepts:1f4a9c2b7e01"
+
+
+def test_a_source_whose_external_id_is_concept_is_not_captured_by_the_namespace() -> None:
+    """REGRESSION: namespace capture.
+
+    ``concept:<x>`` used to mean the reserved D-016 namespace no matter what
+    the caller said, so a source whose external id is literally ``concept``
+    was silently re-addressed as a cross-source canonical concept — a
+    different record, in a namespace it does not belong to.
+    """
+    captured = ids.global_id_from_library_id("concept:1f4a9c2b7e01", source_type="youtube")
+    assert captured.value == "youtube:concept:1f4a9c2b7e01"
+    assert not captured.is_library_concept
+    assert ids.global_id_from_library_id(
+        "concept:1f4a9c2b7e01", source_type=ids.LIBRARY_SOURCE_TYPE
+    ).value == "library:concepts:1f4a9c2b7e01"
+
+
+def test_the_one_global_id_with_no_library_form_is_refused_not_mangled() -> None:
+    """REGRESSION: ``library:concept:<x>`` used to be written as ``concept:<x>``,
+    which reads back as ``library:concepts:<x>`` — a different record in the
+    namespace D-016 reserves. There is no honest two-part spelling for it, so
+    the conversion refuses instead of producing one."""
+    global_id = ids.make_global_id(
+        ids.LIBRARY_SOURCE_TYPE, ids.CONCEPT_LIBRARY_PREFIX, "1f4a9c2b7e01"
+    )
+    with pytest.raises(ids.IdError):
+        ids.library_id_from_global_id(global_id)
+    with pytest.raises(ids.IdError):
+        _ = global_id.library_id
+
+
 # --------------------------------------------------------------------------
 # 4. Invariant 1 — an EntityRef's global_id equals its three parts
 # --------------------------------------------------------------------------
@@ -335,6 +447,67 @@ def test_locator_artifact_id_must_be_a_global_id() -> None:
 def test_non_time_locator_is_not_second_guessed() -> None:
     """Reserved locator types carry no time bound to compare."""
     ids.check_locator({"type": "page", "page": 3})
+
+
+@pytest.mark.parametrize(
+    ("reason", "locator"),
+    [
+        # REGRESSION: `end_sec < start_sec` on None raised a bare TypeError,
+        # which no caller catching IdError could see.
+        ("null start", {"type": "time_range", "start_sec": None, "end_sec": 2.0}),
+        ("null end", {"type": "time_range", "start_sec": 1.0, "end_sec": None}),
+        ("both null", {"type": "time_range", "start_sec": None, "end_sec": None}),
+        # REGRESSION: strings compare to strings, so this ordered fine and a
+        # locator that no arithmetic can use reached the index.
+        ("string timings", {"type": "time_range", "start_sec": "12", "end_sec": "48"}),
+        ("string timings out of order", {"type": "time_range", "start_sec": "9", "end_sec": "48"}),
+        # REGRESSION: bool is an int in Python, and False < True holds.
+        ("boolean timings", {"type": "time_range", "start_sec": False, "end_sec": True}),
+        # REGRESSION: every comparison against NaN is False, so `end < start`
+        # said nothing and an unorderable locator passed.
+        ("NaN end", {"type": "time_range", "start_sec": 1.0, "end_sec": float("nan")}),
+        ("NaN start", {"type": "time_range", "start_sec": float("nan"), "end_sec": 2.0}),
+        ("infinite end", {"type": "time_range", "start_sec": 1.0, "end_sec": float("inf")}),
+        # REGRESSION: timestampSec has minimum 0 in the schema; the code did
+        # not, so a negative second passed here and failed only at the schema.
+        ("negative start", {"type": "time_range", "start_sec": -1.0, "end_sec": 2.0}),
+        ("negative range", {"type": "time_range", "start_sec": -5.0, "end_sec": -1.0}),
+        # REGRESSION: a missing key raised KeyError, not IdError.
+        ("missing end", {"type": "time_range", "start_sec": 1.0}),
+        ("missing start", {"type": "time_range", "end_sec": 2.0}),
+        ("no timings at all", {"type": "time_range"}),
+    ],
+)
+def test_a_time_range_that_is_not_two_real_seconds_is_an_id_error(
+    reason: str, locator: dict
+) -> None:
+    """Invariant 3 is about ordering, but ordering only means something once
+    both operands are finite, non-negative numbers. ``IdError`` for all of it:
+    the caller has one exception type to catch, which is the point of having
+    one."""
+    with pytest.raises(ids.IdError):
+        ids.check_locator(locator)
+
+
+@pytest.mark.parametrize("locator", [None, "time_range", 3, ["time_range"]])
+def test_a_locator_that_is_not_a_mapping_is_an_id_error(locator: object) -> None:
+    """REGRESSION: ``.get`` on a non-mapping raised AttributeError."""
+    with pytest.raises(ids.IdError):
+        ids.check_locator(locator)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "locator",
+    [
+        {"type": "time_range", "start_sec": 0, "end_sec": 0},
+        {"type": "time_range", "start_sec": 0, "end_sec": 1257},
+        {"type": "time_range", "start_sec": 12.5, "end_sec": 12.5},
+    ],
+)
+def test_integer_and_zero_seconds_are_still_real_timings(locator: dict) -> None:
+    """Guards against a check so strict the negative cases pass vacuously:
+    ``0`` is a legitimate start and ``int`` is a legitimate number."""
+    ids.check_locator(locator)
 
 
 # --------------------------------------------------------------------------

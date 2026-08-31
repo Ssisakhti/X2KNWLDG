@@ -1,7 +1,20 @@
 # Dependencies are declared in pyproject.toml; this file only forwards to them
 # so that `pip install -r requirements.txt` keeps working.
 #
-#   pip install -e '.[youtube,dev]'   # the usual development install
+# The line below is the usual development install: the `youtube` extra for
+# caption fetching, and `dev` for pytest and the schema validators. Keep the
+# comment and the line in agreement — a forward that omits `dev` leaves a
+# follower with no pytest.
+#
+# The extras, as declared in pyproject.toml:
+#   youtube  yt-dlp + youtube-transcript-api   caption fetching
+#   dev      pytest, jsonschema, openapi-spec-validator
+#   legacy   networkx + pyvis                  unskips the legacy/upstream tests
+#   mcp      the MCP server adapter
+#   ui       fastapi + uvicorn                 the local web layer (not functional yet)
+#
+# CI's test job installs `.[dev,legacy]`; add `legacy` here too if you want the
+# four legacy/upstream tests to run rather than skip.
 #
 # The core package itself has no runtime dependencies.
-.[youtube,legacy]
+.[youtube,dev]

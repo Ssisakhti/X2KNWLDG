@@ -4,7 +4,7 @@
 - **Date:** 2026-08-31
 - **Decision ledger:** D-031 … D-036 (`KNOWLEDGE_CANVAS_PLAN.md` §19)
 - **Supersedes:** none
-- **Superseded by:** none
+- **Superseded by:** none as a whole. **[ADR 0004](0004-graph-membership-and-search-corpus.md)** completes decision 6 with the node-membership rule left implicit here, and replaces two *Consequences* and one *Alternatives* row marked ⚠️ below. Decisions 1–5 and 7 stand.
 
 ## Context
 
@@ -71,7 +71,11 @@ shape *reachable* without making anything reach it.
 5. **A relation belongs to a source when the source produced it, or when either
    endpoint is an entity of that source.** *(D-034)*
 6. **A graph page is a page of nodes, with the edges among them** — not a page
-   of edges. *(D-035)*
+   of edges. *(D-035)* **Which nodes** a source's graph is drawn over is settled by
+   [ADR 0004](0004-graph-membership-and-search-corpus.md) (D-041), which this decision left
+   implicit and the first implementation got wrong: it is `relation_belongs_to_source`, the
+   same rule decision 5 gives `/api/sources/{id}/relations`. The **edge** rule below is
+   unchanged.
 7. **`MemoryRepository` ships with the seam** as the reference implementation
    over `adapters.adapt_project`, and D-028's additive search fields move into
    it, closing R18. *(D-036)*
@@ -91,7 +95,7 @@ shape *reachable* without making anything reach it.
 | Page the graph over edges | An entity with no relations would never appear on any page, so a full walk of `/api/graph` would silently lose real records — and the Map would never show them |
 | Include an edge when *either* endpoint passes the node filter | The edge would dangle to a node the filter excluded, and a Map that draws a dangling edge asserts a node it will not show |
 | Ship the interface with no implementation | Track B would have nothing to run against until `T-101`–`T-104` land, and `T-104` would have no cache-free oracle to prove equivalence against |
-| Make `MemoryRepository` the production index | It re-reads every run on construction and re-runs `query.search_knowledge`'s linear scan per search. That is exactly the cost `T-103` exists to remove |
+| Make `MemoryRepository` the production index | ⚠️ *Stale as written; the conclusion stands.* Original: "It re-reads every run on construction and **re-runs `query.search_knowledge`'s linear scan per search**. That is exactly the cost `T-103` exists to remove". The construction pass is still true. The per-search scan is not: it no longer calls `search_knowledge`, and its corpus is built once per instance ([ADR 0004](0004-graph-membership-and-search-corpus.md), D-042). Still not the production index, and `T-103` still exists to remove the linear scan |
 
 ## Consequences
 
@@ -102,6 +106,9 @@ shape *reachable* without making anything reach it.
 - `T-104` gets an oracle with no cache at all. A rebuilt index, an incrementally
   updated one, and the canonical files must all produce the same pages; where
   they differ, the index is stale (ADR 0001 invariant 3).
+  ⚠️ **Narrowed by [ADR 0004](0004-graph-membership-and-search-corpus.md) (D-042):** search
+  now holds a corpus, so the oracle is cache-free **per instance**. `T-104` must construct a
+  fresh `MemoryRepository` for each comparison rather than reuse one across a rebuild.
 - D-030 stops being prose. `InvalidId.http_status == 400` is a test, not a
   convention a route can forget.
 - R18 closes: the additive search fields are served by the code the tests
@@ -117,8 +124,11 @@ shape *reachable* without making anything reach it.
   frozen first, and it is paid once.
 - `MemoryRepository` holds every record in memory. Fine at 86 entities;
   not a library-scale strategy, and it says so.
-- Search pagination is offset-based, so a run finalised between two pages can
-  shift the ranking under the cursor. Stated in the docstring rather than
+- Search pagination is offset-based. ⚠️ **The rest of this line is superseded by
+  [ADR 0004](0004-graph-membership-and-search-corpus.md) (D-042).** Original: "so a run
+  finalised between two pages can shift the ranking under the cursor." It cannot, within one
+  repository — the corpus is fixed at the first search. What survives is narrower: the
+  ranking a cursor indexes belongs to the snapshot that issued it. Still stated rather than
   designed around, because the cursor is opaque and `T-103` can change it.
 - A graph edge that straddles two node pages appears on both. Clients dedupe by
   `id`.

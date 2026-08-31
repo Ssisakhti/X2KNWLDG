@@ -6,7 +6,7 @@ here and nowhere else: Track B calls :class:`IndexRepository` and never opens a
 database, a canonical file, or a run directory; Track A implements it and never
 imports a route.
 
-Five rules shape the seam, and each is enforced in this module rather than left
+Six rules shape the seam, and each is enforced in this module rather than left
 to an implementation:
 
 **The repository owes pages of v1 records, not rows.** Every list method returns
@@ -16,9 +16,20 @@ and there are already two identifier vocabularies to keep honest (risk R12).
 
 **The cursor encoding belongs to the repository alone.** The contract declares
 it opaque, so the API passes it through unparsed and the frontend cannot depend
-on it. :func:`encode_cursor` and :func:`decode_cursor` are that encoding —
-shared so that two implementations page identically, which is what lets
-``T-104`` compare them page for page.
+on it. :func:`encode_cursor` and :func:`decode_cursor` are that encoding, and
+:func:`page_from_window` is the arithmetic around it — shared so that two
+implementations page identically, which is what lets ``T-104`` compare them page
+for page. A token is authenticated with a key random to this process: the
+position it names reaches real work, so it is proved to be one this repository
+issued rather than merely parsed.
+
+**The order every page walks is total.** :func:`order_key` appends a content
+digest to the id in ``ORDER_KEYS``, and :func:`check_index_integrity` refuses a
+record set in which an id repeats or an edge names an endpoint no entity record
+has. A tie at a page boundary deletes a record from the paged output while
+``total`` goes on counting it, and a dangling edge makes the graph and the
+relations list disagree about one fact; neither is something a page can be
+honest about after the fact.
 
 **A cursor is bound to the query that issued it.** Presenting one against
 different filters is refused, not silently re-anchored onto a different
@@ -43,8 +54,11 @@ recomputes a status, and never invents a value the canonical files do not carry.
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
+import hmac
 import json
+import secrets
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Protocol, Sequence, runtime_checkable
 
@@ -93,14 +107,25 @@ FILTERABLE_STATUSES = tuple(sorted(RUN_STATUSES)) + (UNKNOWN_STATUS,)
 #: drift test that guards ``schemas/v1/common.schema.json`` guards this too.
 ENTITY_KINDS = frozenset(KNOWLEDGE_KINDS | {"canonical_concept"})
 
-#: The field each record family is ordered and paged by. The order is total and
-#: lexicographic, so a keyset cursor is a record id and nothing else.
+#: The field each record family is identified and paged by. The order is
+#: lexicographic over this field; it is *total* only because :func:`order_key`
+#: appends a tiebreak to it, and because :func:`check_index_integrity` refuses
+#: an index in which the field repeats.
 ORDER_KEYS = {
     "source": "id",
     "artifact": "id",
     "entity_ref": "global_id",
     "indexed_relation": "id",
 }
+
+#: Separates an order key's identity from its tiebreak. NUL sorts below every
+#: character an identifier may contain (``ids.ID_PART_PATTERN`` admits none
+#: below ``-``), so appending it can never reorder two distinct ids.
+ORDER_KEY_SEPARATOR = "\x00"
+
+#: How much of an over-long order key a cursor carries verbatim. The rest is
+#: represented by a digest of the whole key; see :class:`Cursor`.
+CURSOR_PREFIX_LENGTH = 200
 
 
 # --------------------------------------------------------------------------
@@ -163,6 +188,27 @@ class IndexUnavailable(RepositoryError):
 # --------------------------------------------------------------------------
 
 
+#: The key every cursor this process issues is authenticated with.
+#:
+#: A cursor used to be an unkeyed hash: anything that could base64-encode a JSON
+#: object could mint one, and a forged token handed the repository an arbitrary
+#: position — for search, an arbitrary offset. The contract only says the token
+#: is opaque and at most 512 characters, so a MAC fits inside it without
+#: touching the wire format.
+#:
+#: The key is random per process and never leaves it. Two implementations in one
+#: process therefore still mint identical tokens for identical positions, which
+#: is what ``T-104``'s page-for-page comparison needs; a cursor does not survive
+#: a restart, and is refused as ``invalid_request`` afterwards rather than
+#: honoured. That is the right answer for a token that names a position in an
+#: index the restart may have rebuilt.
+_CURSOR_KEY = secrets.token_bytes(32)
+
+#: Bytes of the MAC carried in a token. 128 bits is far past what forging a
+#: local, per-process key is worth, and it costs 32 characters of the 512.
+_CURSOR_MAC_BYTES = 16
+
+
 def query_fingerprint(parts: Mapping[str, Any]) -> str:
     """A short, stable digest of the filters a query applies.
 
@@ -174,47 +220,145 @@ def query_fingerprint(parts: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
+def key_digest(key: str) -> str:
+    """The digest by which a cursor names an order key it cannot carry whole."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def _authenticate(payload: str) -> str:
+    return hmac.new(_CURSOR_KEY, payload.encode("utf-8"), hashlib.sha256).hexdigest()[
+        : _CURSOR_MAC_BYTES * 2
+    ]
+
+
+@dataclass(frozen=True)
+class Cursor:
+    """A position in the total order, in a form that always fits the contract.
+
+    ``PageInfo.next_cursor`` is capped at 512 characters; an order key is not.
+    ``IndexedRelation.id`` is a 1300-character field by schema — two 600-byte
+    global ids and a relation name — so a record the schema permits used to
+    raise ``500`` the moment it landed on a page boundary. A key that does not
+    fit is therefore carried as a bounded *prefix* plus a digest of the whole.
+
+    Resuming from the short form is exact, not approximate. Every key in
+    ``(prefix, position]`` begins with ``prefix`` — a lexicographic fact: a key
+    that differs from ``prefix`` before ``prefix`` ends is either below it or
+    above every key that extends it. So the tail of the collection starts right
+    after the single row whose key digests to :attr:`digest`, and no row is
+    skipped or repeated.
+    """
+
+    #: The key itself when it fits, otherwise its first
+    #: :data:`CURSOR_PREFIX_LENGTH` characters.
+    prefix: str
+    #: ``None`` when :attr:`prefix` is the whole key.
+    digest: str | None = None
+
+    @property
+    def key(self) -> str | None:
+        """The whole order key, or ``None`` when only a prefix was carried."""
+        return self.prefix if self.digest is None else None
+
+    @property
+    def identity_bound(self) -> str:
+        """The value a SQL backend seeks on: ``WHERE <id column> >= this``.
+
+        An order key is ``<id><NUL><digest>`` (see :func:`order_key`) and the id
+        is the part a database has an index on. Seeking ``>=`` this returns a
+        superset of the tail — at most the rows sharing the boundary id, which
+        is exactly one under a ``UNIQUE`` constraint — and :meth:`tail` trims it
+        to the exact position.
+        """
+        return self.prefix.split(ORDER_KEY_SEPARATOR, 1)[0]
+
+    def tail(self, ordered: Sequence[Any], key_of) -> list[Any]:
+        """The part of *ordered* that follows this position."""
+        after = [row for row in ordered if key_of(row) > self.prefix]
+        if self.digest is None:
+            return after
+        for index, row in enumerate(after):
+            if key_digest(key_of(row)) == self.digest:
+                return after[index + 1 :]
+        raise InvalidQuery(
+            "the record this cursor names is no longer in the collection; "
+            "start the collection again rather than resuming from a gap"
+        )
+
+
 def encode_cursor(fingerprint: str, key: str) -> str:
     """Encode the position *key*, bound to the query that produced it.
 
-    The token is base64url of compact JSON. It is opaque by contract, not by
-    obfuscation: the API must not parse it, and the encoding may change without
-    a contract change — which is precisely why it lives here and not in a route.
+    The token is base64url of compact JSON, followed by a MAC over it. It is
+    opaque by contract, not by obfuscation: the API must not parse it, and the
+    encoding may change without a contract change — which is precisely why it
+    lives here and not in a route.
     """
-    payload = json.dumps({"f": fingerprint, "k": key}, separators=(",", ":"))
-    token = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
-    if len(token) > MAX_CURSOR_LENGTH:
+    token = _token({"f": fingerprint, "k": key})
+    if len(token) <= MAX_CURSOR_LENGTH:
+        return token
+    # Too long to carry whole. A key that long is legal — the schema allows a
+    # 1300-character relation id — so it is paged, not refused.
+    token = _token(
+        {
+            "f": fingerprint,
+            "p": key[:CURSOR_PREFIX_LENGTH],
+            "d": key_digest(key),
+        }
+    )
+    if len(token) > MAX_CURSOR_LENGTH:  # pragma: no cover - the budget is fixed
         raise RepositoryError(
-            f"cursor for key {key!r} is {len(token)} characters, over the "
-            f"{MAX_CURSOR_LENGTH} the contract allows"
+            f"cursor is {len(token)} characters, over the {MAX_CURSOR_LENGTH} "
+            "the contract allows"
         )
     return token
 
 
-def decode_cursor(token: str, fingerprint: str) -> str:
-    """The position key *token* carries, or a refusal.
+def _token(body: Mapping[str, Any]) -> str:
+    payload = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    encoded = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+    return f"{encoded}.{_authenticate(payload)}"
 
-    A cursor issued for different filters is refused rather than re-anchored:
-    re-anchoring would return a page of a collection the client never asked
-    for, and it would look like data rather than like an error.
+
+def decode_cursor(token: str, fingerprint: str) -> Cursor:
+    """The position *token* names, or a refusal.
+
+    Three ways to be refused, and they are different refusals of the same kind.
+    A token this process did not sign was not issued here. A token issued for
+    different filters is refused rather than re-anchored: re-anchoring would
+    return a page of a collection the client never asked for, and it would look
+    like data rather than like an error. A token naming a position the
+    collection no longer holds is refused by :meth:`Cursor.tail`.
     """
     if not isinstance(token, str) or not token:
         raise InvalidQuery("cursor must be a non-empty string")
     if len(token) > MAX_CURSOR_LENGTH:
         raise InvalidQuery(f"cursor is longer than {MAX_CURSOR_LENGTH} characters")
-    padding = "=" * (-len(token) % 4)
+    encoded, _, mac = token.rpartition(".")
+    if not encoded or not mac:
+        raise InvalidQuery("cursor is not a cursor this repository issued")
+    padding = "=" * (-len(encoded) % 4)
     try:
-        payload = json.loads(base64.urlsafe_b64decode(token + padding).decode("utf-8"))
+        raw = base64.urlsafe_b64decode(encoded + padding).decode("utf-8")
+        payload = json.loads(raw)
     except (ValueError, UnicodeDecodeError) as exc:
         raise InvalidQuery("cursor is not a cursor this repository issued") from exc
-    if not isinstance(payload, dict) or not isinstance(payload.get("k"), str):
+    if not hmac.compare_digest(mac, _authenticate(raw)):
+        # Unsigned or tampered with. The offset a search cursor carries reaches
+        # real work, so it is authenticated rather than merely parsed.
+        raise InvalidQuery("cursor is not a cursor this repository issued")
+    if not isinstance(payload, dict):
         raise InvalidQuery("cursor is not a cursor this repository issued")
     if payload.get("f") != fingerprint:
         raise InvalidQuery(
             "cursor was issued for a different query; start the collection again "
             "rather than paging one collection with another's cursor"
         )
-    return payload["k"]
+    if isinstance(payload.get("k"), str):
+        return Cursor(prefix=payload["k"])
+    if isinstance(payload.get("p"), str) and isinstance(payload.get("d"), str):
+        return Cursor(prefix=payload["p"], digest=payload["d"])
+    raise InvalidQuery("cursor is not a cursor this repository issued")
 
 
 # --------------------------------------------------------------------------
@@ -304,8 +448,8 @@ class PagedQuery:
     def fingerprint(self) -> str:
         return query_fingerprint({"query": type(self).__name__, **self.filters()})
 
-    def start_key(self) -> str | None:
-        """The exclusive lower bound this page starts after, or ``None``."""
+    def start(self) -> Cursor | None:
+        """The position this page starts after, or ``None`` for the first page."""
         if self.cursor is None:
             return None
         return decode_cursor(self.cursor, self.fingerprint)
@@ -452,12 +596,16 @@ class GraphQuery(PagedQuery):
             "relation_vocabulary": self.relation_vocabulary,
         }
 
-    def node_query(self) -> EntityQuery:
-        """The node page this graph page is built on. One filter rule, one place."""
+    def node_filter(self) -> EntityQuery:
+        """The non-membership node filters, as an :class:`EntityQuery`.
+
+        Membership is *not* in here. Which entities a source's graph is drawn
+        over is decided by :func:`graph_nodes`, because it is the same question
+        ``/api/sources/{id}/relations`` answers and there is one rule for it.
+        """
         return EntityQuery(
             limit=self.limit,
             cursor=None,
-            source_id=self.source_id,
             provenance_class=self.provenance_class,
         )
 
@@ -687,6 +835,59 @@ def matches_relation(relation: Mapping[str, Any], query: RelationQuery | GraphQu
     return True
 
 
+def graph_nodes(
+    entities: Iterable[Mapping[str, Any]],
+    relations: Iterable[Mapping[str, Any]],
+    query: GraphQuery,
+) -> list[Mapping[str, Any]]:
+    """Every entity this graph is drawn over, in the order it was given.
+
+    One fact, one home. ``/api/sources/{id}/relations`` answers "which relations
+    are this source's" with :func:`relation_belongs_to_source`, and that rule
+    counts the ``expresses_concept`` edges a source makes to the cross-source
+    concepts it expresses even though those edges name no run (D-025, D-034).
+    ``/api/graph?source_id=…`` used to answer the same question with a different
+    rule — an edge counted only if *both* endpoints were entities **of that
+    source** — and a concept belongs to no source (D-016). So the graph dropped
+    every one of those edges, and the two views disagreed about one fact: over
+    the sample, 101 edges against 118, with none of the 17 ``expresses_concept``
+    edges in the graph at all.
+
+    The graph now takes the relations rule as given and draws the nodes those
+    relations need. A node belongs to a source's graph when it is an entity of
+    that source, **or** when a relation of that source names it as an endpoint.
+    Nothing dangles — ADR 0002 is emphatic that an edge to a node the page will
+    not show asserts a node that does not exist — because the far endpoint is
+    now a node of the graph rather than an excluded one.
+
+    The other filters are unchanged and still apply to every node, membership or
+    not: a client that asks for ``provenance_class=source`` gets the graph it
+    asked for, and the edges to what it excluded go with it.
+    """
+    relations = list(relations)
+    reachable: set[str] = set()
+    if query.source_id is not None:
+        for relation in relations:
+            if not matches_relation(relation, query):
+                continue
+            for endpoint in (relation.get("from_id"), relation.get("to_id")):
+                if isinstance(endpoint, str):
+                    reachable.add(endpoint)
+
+    node_filter = query.node_filter()
+    selected: list[Mapping[str, Any]] = []
+    for entity in entities:
+        if not matches_entity(entity, node_filter):
+            continue
+        if query.source_id is not None and not (
+            entity_belongs_to_source(entity, query.source_id)
+            or entity.get("global_id") in reachable
+        ):
+            continue
+        selected.append(entity)
+    return selected
+
+
 def matches_source(source: Mapping[str, Any], query: SourceQuery) -> bool:
     """Every ``Source`` filter the frozen contract exposes.
 
@@ -703,14 +904,150 @@ def matches_source(source: Mapping[str, Any], query: SourceQuery) -> bool:
     return True
 
 
-def order_key(record: Mapping[str, Any], model: str) -> str:
-    """The total-order key *record* pages by."""
+def record_copy(record: Mapping[str, Any]) -> dict[str, Any]:
+    """An independent copy of *record*, safe to hand outside the repository.
+
+    Deep, not shallow. ``dict(record)`` duplicates only the top level, so
+    ``status``, ``artifact_ids``, ``locator`` and ``derived_from`` stayed shared
+    references into the index — and a caller that edited one edited the stored
+    record. That defeated two invariants at once: ADR 0002 invariant 6 (records
+    handed out are copies) and, worse, ADR 0001 invariant 2, because writing
+    ``status["overall"] = "PASS"`` on a returned ``FAIL`` source coerced the
+    index and every later status tally with it.
+
+    Every hand-out boundary goes through here so there is one place to get this
+    right, and so ``T-101``'s SQLite implementation — which will build fresh
+    dicts per row and needs no copy at all — has a named seam to opt out of.
+    """
+    return copy.deepcopy(dict(record))
+
+
+def content_digest(record: Mapping[str, Any]) -> str:
+    """A short, stable digest of everything *record* says."""
+    canonical = json.dumps(record, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def identity(record: Mapping[str, Any], model: str) -> str:
+    """The id *record* is addressed by — ``ORDER_KEYS[model]``, and nothing else."""
     return str(record.get(ORDER_KEYS[model], ""))
+
+
+def order_key(record: Mapping[str, Any], model: str) -> str:
+    """The **total** order key *record* pages by.
+
+    ``ORDER_KEYS`` names the id each family is ordered by, and the seam calls
+    that order total and lexicographic. It was total only while the id was
+    unique, and nothing enforced that: two records sharing an id sort equal, and
+    a tie that straddles a page boundary is a record silently *deleted* from the
+    paged output while ``total`` goes on counting it.
+
+    So the key carries a second component — a digest of the record's own content
+    — behind a separator that sorts below every character an id may contain. Two
+    records that differ at all now sort in a defined, implementation-independent
+    order and both survive a full walk. Two that differ in nothing are one
+    record filed twice, which :func:`check_index_integrity` refuses at
+    construction rather than letting a page swallow it.
+
+    A SQL implementation reproduces this with a stored digest column, or omits
+    it entirely under a ``UNIQUE`` constraint on the id, which buys the same
+    guarantee a different way.
+    """
+    return f"{identity(record, model)}{ORDER_KEY_SEPARATOR}{content_digest(record)}"
 
 
 def sort_records(records: Iterable[Mapping[str, Any]], model: str) -> list[dict[str, Any]]:
     """*records* in the one order every implementation must page in."""
-    return sorted((dict(record) for record in records), key=lambda item: order_key(item, model))
+    return sorted(
+        (record_copy(record) for record in records), key=lambda item: order_key(item, model)
+    )
+
+
+def check_index_integrity(by_model: Mapping[str, Sequence[Mapping[str, Any]]]) -> None:
+    """Refuse a record set that cannot be paged or drawn honestly.
+
+    Two conditions, and both were previously invisible until they had already
+    corrupted an answer:
+
+    **No two records may claim the same id.** A duplicate makes the order
+    non-total, and a tie across a page boundary drops a record from the paged
+    output while ``total`` keeps counting it — a silent deletion, which is worse
+    than a refusal. Artifacts and entities share one global-id namespace, so
+    they are checked together.
+
+    **No edge may name an endpoint no entity record has.** A dangling edge
+    cannot be drawn — the graph excludes it, because an edge to a node the page
+    will not show asserts a node that does not exist — while
+    ``/api/sources/{id}/relations`` still lists it. The two views then disagree
+    about one fact, which is precisely what the graph rule exists to prevent.
+
+    Raised as :class:`RepositoryError` (``internal``, ``500``): the request is
+    fine, the index is not. ``adapters.check_records`` should refuse the same
+    two conditions where the records are *produced*; this is the seam's own
+    guard, so that no implementation can hand the API a set it cannot page.
+    """
+    problems: list[str] = []
+
+    claimed: dict[str, str] = {}
+    for model in ("source", "artifact", "entity_ref", "indexed_relation"):
+        # Artifacts and entities are addressed out of one namespace, so they
+        # cannot be checked separately; sources and relations have their own.
+        namespace = claimed if model in ("artifact", "entity_ref") else {}
+        for record in by_model.get(model, ()):
+            key = identity(record, model)
+            previous = namespace.get(key)
+            if previous is not None:
+                problems.append(
+                    f"{model} {key!r} is claimed twice (also by {previous}); "
+                    "one record, one id"
+                )
+            namespace[key] = model
+
+    entities = {identity(entity, "entity_ref") for entity in by_model.get("entity_ref", ())}
+    for relation in by_model.get("indexed_relation", ()):
+        for side in ("from_id", "to_id"):
+            endpoint = relation.get(side)
+            if endpoint not in entities:
+                problems.append(
+                    f"relation {identity(relation, 'indexed_relation')!r} names "
+                    f"{side} {endpoint!r}, which no entity record has"
+                )
+
+    if problems:
+        shown = problems[:10]
+        if len(problems) > len(shown):
+            shown.append(f"… and {len(problems) - len(shown)} more")
+        raise RepositoryError(
+            "the index cannot be served: " + "; ".join(shown)
+        )
+
+
+def page_from_window(
+    window: Sequence[Mapping[str, Any]],
+    query: PagedQuery,
+    model: str,
+    *,
+    total: int | None = None,
+) -> Page:
+    """Assemble a page from at most ``limit + 1`` rows already in key order.
+
+    This is the half of paging two implementations have to share, and the reason
+    it takes a *window* rather than a whole collection. ``T-101``'s SQL does the
+    seek itself — ``WHERE key > :prefix ORDER BY key LIMIT :limit + 1``, the
+    bound coming from :attr:`Cursor.prefix` — and hands the rows here. The extra
+    row is the probe that decides whether a next cursor exists; it is never
+    returned. So the cursor arithmetic is one piece of code rather than two, and
+    ``T-104``'s rebuild-equivalence test compares pages instead of comparing a
+    re-implementation with the thing it re-implements.
+    """
+    rows = [record_copy(row) for row in window[: query.limit]]
+    exhausted = len(window) <= query.limit
+    next_cursor = (
+        None
+        if exhausted or not rows
+        else encode_cursor(query.fingerprint, order_key(rows[-1], model))
+    )
+    return Page(items=rows, limit=query.limit, next_cursor=next_cursor, total=total)
 
 
 def keyset_page(
@@ -720,31 +1057,23 @@ def keyset_page(
     *,
     total: int | None = None,
 ) -> Page:
-    """One page of an already-filtered, already-sorted sequence.
+    """One page of an already-filtered, already-sorted, materialised sequence.
 
-    A keyset page, not an offset one: the cursor is the last key returned, so a
-    record inserted before the cursor cannot shift a later page and cause a
-    record to be skipped. ``T-101``'s SQL does the same with ``WHERE id > ?``,
-    and because both use :func:`encode_cursor` the two produce the same tokens
-    for the same position — which is what makes ``T-104``'s rebuild-equivalence
-    test a page-for-page comparison rather than a re-implementation.
+    A keyset page, not an offset one: the cursor names the last key returned, so
+    a record inserted before it cannot shift a later page and cause a record to
+    be skipped. The seek is the part an in-memory sequence and a ``SELECT`` do
+    differently; :func:`page_from_window` is the part they must do identically.
     """
-    start = query.start_key()
-    if start is not None:
-        remaining = [row for row in ordered if order_key(row, model) > start]
-    else:
-        remaining = list(ordered)
-    window = [dict(row) for row in remaining[: query.limit]]
-    exhausted = len(remaining) <= query.limit
-    next_cursor = (
-        None
-        if exhausted or not window
-        else encode_cursor(query.fingerprint, order_key(window[-1], model))
+    start = query.start()
+    remaining = (
+        list(ordered)
+        if start is None
+        else start.tail(ordered, lambda row: order_key(row, model))
     )
-    return Page(
-        items=window,
-        limit=query.limit,
-        next_cursor=next_cursor,
+    return page_from_window(
+        remaining[: query.limit + 1],
+        query,
+        model,
         total=len(ordered) if total is None else total,
     )
 

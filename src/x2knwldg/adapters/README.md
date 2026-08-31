@@ -41,7 +41,7 @@ and `output/<id>/raw/` — immutable evidence — is only stat-ed and hashed.
    `PARTIAL` or a `FAIL` into anything else (ADR 0001 invariant 2).
 4. **A guess is a refusal.** A media type is stated only when it is IANA
    registered — `.srt` has none, so it is `null`. `raw/source.<ext>` is
-   discovered, because `pipeline.py:203` names it after the imported file. What
+   discovered, because `pipeline.import_transcript` names it after the imported file. What
    cannot be mapped without inventing a value raises `AdapterError` instead.
 
 ## What v1 maps, and what it deliberately does not

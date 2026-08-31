@@ -1,0 +1,646 @@
+"""Tests for ``x2knwldg.mcp_server`` — the MCP tool surface.
+
+Before this file the module was 350 lines, ten tools, three resources, one
+prompt, and not one import from any test: the only thing referring to it read
+the file as text and grepped for a string. Every defect in it was found by
+reading, which is exactly the position a test suite exists to get out of.
+
+Rules this file keeps:
+
+* **No network, no clock, no randomness.** Nothing in here reaches outside the
+  process, and nothing is timing- or ordering-dependent.
+* **``output/`` is never touched.** Every test builds a throwaway project in
+  ``tmp_path`` from the committed fixtures in ``tests/fixtures/runs/``, which are
+  copied and never written to — ``test_repository.py`` and ``test_adapters.py``
+  assert those trees' mtimes are unchanged.
+* **It runs everywhere.** The tools are plain functions, so nothing here needs
+  the ``mcp`` extra installed. Only the handful of tests that assert the
+  *registration* skip without it.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from x2knwldg import mcp_server
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+FIXTURE_RUNS = PROJECT_ROOT / "tests" / "fixtures" / "runs"
+
+#: The fixture whose canonical files are complete enough to read segments,
+#: coverage windows and captions out of.
+PASS_RUN = "pass-run"
+
+
+# ---------------------------------------------------------------------------
+# A throwaway project
+# ---------------------------------------------------------------------------
+
+
+def _make_project(tmp_path: Path, runs: tuple[str, ...] = (PASS_RUN,)) -> Path:
+    """A directory that looks like this project, holding copies of *runs*.
+
+    Copies, so the committed fixtures keep their content *and* their mtimes.
+    """
+    root = tmp_path / "project"
+    (root / "output").mkdir(parents=True)
+    (root / "WORKFLOW.md").write_text("# workflow\n", encoding="utf-8")
+    (root / "prompts").mkdir()
+    for name in mcp_server.EXTRACTION_PROMPTS:
+        (root / "prompts" / f"{name}.md").write_text(f"# {name}\n", encoding="utf-8")
+    (root / "schemas").mkdir()
+    (root / "schemas" / "extraction_bundle.schema.json").write_text("{}\n", encoding="utf-8")
+    for run in runs:
+        shutil.copytree(FIXTURE_RUNS / run, root / "output" / run)
+    return root
+
+
+@pytest.fixture
+def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point the server at a throwaway project and return its root."""
+    root = _make_project(tmp_path)
+    monkeypatch.setattr(mcp_server, "PROJECT_ROOT", root.resolve())
+    return root.resolve()
+
+
+@pytest.fixture
+def not_a_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point the server at a directory that is not a project at all."""
+    root = tmp_path / "somewhere-else"
+    (root / "output").mkdir(parents=True)
+    monkeypatch.setattr(mcp_server, "PROJECT_ROOT", root.resolve())
+    return root.resolve()
+
+
+def _segment_ids(root: Path, run: str) -> list[str]:
+    document = json.loads((root / "output" / run / "segments.json").read_text(encoding="utf-8"))
+    return [segment["segment_id"] for segment in document["segments"]]
+
+
+def _window_ids(root: Path, run: str) -> list[str]:
+    document = json.loads((root / "output" / run / "coverage.json").read_text(encoding="utf-8"))
+    return [window["window_id"] for window in document.get("windows", [])]
+
+
+# ---------------------------------------------------------------------------
+# The surface exists and is wired
+# ---------------------------------------------------------------------------
+
+
+def test_the_module_imports_without_the_mcp_extra() -> None:
+    """The tools are behaviour; the decorators are only registration.
+
+    When the tools lived inside ``if MCPServer is not None:`` they could not be
+    tested at all on a bare core install, which is one of the two CI jobs.
+    """
+    assert mcp_server.TOOLS
+    assert callable(mcp_server.list_ingested_videos)
+
+
+def test_every_tool_resource_and_prompt_is_reachable_by_name() -> None:
+    """Nothing in the surface may be registered and then unreachable."""
+    exported = list(mcp_server.TOOLS) + [fn for _, fn in mcp_server.RESOURCES]
+    exported += list(mcp_server.PROMPTS)
+    assert len(exported) == 14, [fn.__name__ for fn in exported]
+    for function in exported:
+        assert getattr(mcp_server, function.__name__) is function
+        assert function.__doc__, f"{function.__name__} has no description for the client"
+
+
+def test_the_registered_server_exposes_exactly_the_declared_surface() -> None:
+    if mcp_server.mcp is None:
+        pytest.skip("the mcp extra is not installed")
+    import asyncio
+
+    names = {tool.name for tool in asyncio.run(mcp_server.mcp.list_tools())}
+    assert names == {function.__name__ for function in mcp_server.TOOLS}
+    prompts = {prompt.name for prompt in asyncio.run(mcp_server.mcp.list_prompts())}
+    assert prompts == {function.__name__ for function in mcp_server.PROMPTS}
+
+
+def test_every_error_code_the_server_raises_is_in_the_d030_taxonomy() -> None:
+    assert "invalid_id" in mcp_server.ERROR_CODES
+    assert "not_found" in mcp_server.ERROR_CODES
+    assert "index_unavailable" in mcp_server.ERROR_CODES
+
+
+# ---------------------------------------------------------------------------
+# The root is proven, never assumed
+# ---------------------------------------------------------------------------
+
+
+def test_a_root_that_is_not_a_project_is_refused_not_answered_empty(
+    not_a_project: Path,
+) -> None:
+    """The defect: a misconfigured root reported "you have no videos".
+
+    An empty library is a claim about the user's data. "I am looking in the
+    wrong directory" is a claim about the server. Reporting the second as the
+    first is the same dishonesty as coercing PARTIAL to PASS.
+    """
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.list_ingested_videos()
+    assert caught.value.code == "index_unavailable"
+    assert "not an X2KNWLDG project" in caught.value.message
+
+
+@pytest.mark.parametrize("marker", mcp_server.PROJECT_MARKERS)
+def test_each_project_marker_is_load_bearing(
+    marker: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Removing any one of them must be enough to make the root refuse."""
+    root = _make_project(tmp_path)
+    target = root / marker
+    shutil.rmtree(target) if target.is_dir() else target.unlink()
+    monkeypatch.setattr(mcp_server, "PROJECT_ROOT", root.resolve())
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server._checked_project_root()
+    assert caught.value.code == "index_unavailable"
+    assert marker in caught.value.message
+
+
+def test_a_good_root_is_accepted(project: Path) -> None:
+    assert mcp_server._checked_project_root() == project
+    assert mcp_server._output_root() == project / "output"
+
+
+def test_main_refuses_to_start_on_a_root_that_is_not_a_project(
+    not_a_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Refuse to start, rather than come up and answer every question wrongly."""
+
+    class _Server:
+        def run(self) -> None:  # pragma: no cover - must not be reached
+            raise AssertionError("the server started on a root that is not a project")
+
+    monkeypatch.setattr(mcp_server, "mcp", _Server())
+    with pytest.raises(SystemExit) as caught:
+        mcp_server.main()
+    assert "not an X2KNWLDG project" in str(caught.value)
+
+
+def test_main_starts_on_a_real_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    started: list[bool] = []
+
+    class _Server:
+        def run(self) -> None:
+            started.append(True)
+
+    monkeypatch.setattr(mcp_server, "mcp", _Server())
+    mcp_server.main()
+    assert started == [True]
+
+
+def test_main_without_the_extra_names_the_install_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mcp_server, "mcp", None)
+    with pytest.raises(SystemExit) as caught:
+        mcp_server.main()
+    assert ".[mcp]" in str(caught.value)
+
+
+# ---------------------------------------------------------------------------
+# ADR 0003 — an id is resolved, never joined
+# ---------------------------------------------------------------------------
+
+
+HOSTILE_IDS = [
+    "../escape",
+    "../../etc",
+    "a/../../b",
+    "/etc/passwd",
+    "..",
+    ".",
+    "",
+    ".hidden",
+    "with space",
+    "null\x00byte",
+]
+
+#: Every tool whose first positional argument names a run.
+ID_TOOLS = [
+    (mcp_server.get_extraction_segment, ("SEG-0001",)),
+    (mcp_server.get_coverage_window, ("W-0001",)),
+    (mcp_server.validate_video_output, ()),
+    (mcp_server.apply_extraction_bundle, ("work/extraction_bundle.json",)),
+    (mcp_server.finalize_video, ()),
+]
+
+
+@pytest.mark.parametrize("video_id", HOSTILE_IDS)
+@pytest.mark.parametrize("tool,rest", ID_TOOLS, ids=[fn.__name__ for fn, _ in ID_TOOLS])
+def test_a_hostile_id_is_refused_by_every_tool_that_takes_one(
+    tool: Any, rest: tuple[Any, ...], video_id: str, project: Path
+) -> None:
+    """ADR 0003: refused, reported, nothing read — and never rewritten."""
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        tool(video_id, *rest)
+    assert caught.value.code == "invalid_id", caught.value.message
+
+
+def test_apply_extraction_data_refuses_a_hostile_id_too(project: Path) -> None:
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.apply_extraction_data("../escape", {"knowledge_units": []})
+    assert caught.value.code == "invalid_id"
+
+
+def test_a_refused_id_is_not_reported_as_absence(project: Path) -> None:
+    """D-030: ``invalid_id`` and ``not_found`` are different answers.
+
+    Collapsing them hides a traversal attempt behind an ordinary "no such
+    video", which is exactly the report an attacker wants.
+    """
+    with pytest.raises(mcp_server.McpToolError) as refused:
+        mcp_server.validate_video_output("../escape")
+    with pytest.raises(mcp_server.McpToolError) as absent:
+        mcp_server.validate_video_output("no-such-run")
+    assert refused.value.code == "invalid_id"
+    assert absent.value.code == "not_found"
+
+
+def test_a_traversal_never_reads_a_file_outside_the_output_root(
+    project: Path, tmp_path: Path
+) -> None:
+    secret = tmp_path / "secret.json"
+    secret.write_text('{"segments": [{"segment_id": "SEG-0001"}]}', encoding="utf-8")
+    with pytest.raises(mcp_server.McpToolError):
+        mcp_server.get_extraction_segment("../secret", "SEG-0001")
+
+
+# ---------------------------------------------------------------------------
+# The two filesystem-path parameters
+# ---------------------------------------------------------------------------
+
+
+def test_a_transcript_path_outside_the_project_is_refused(
+    project: Path, tmp_path: Path
+) -> None:
+    outside = tmp_path / "elsewhere.srt"
+    outside.write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n", encoding="utf-8")
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.import_timestamped_transcript(str(outside), "new-run")
+    assert caught.value.code == "invalid_request"
+    assert not (project / "output" / "new-run").exists(), "a refused import created a run"
+
+
+@pytest.mark.parametrize(
+    "value", ["/etc/passwd", "../../etc/passwd", "~/.ssh/id_rsa", "", "a\x00b"]
+)
+def test_a_hostile_bundle_path_is_refused(value: str, project: Path) -> None:
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.apply_extraction_bundle(PASS_RUN, value)
+    assert caught.value.code in {"invalid_request", "not_found"}
+
+
+def test_a_project_relative_path_is_accepted(project: Path) -> None:
+    resolved = mcp_server._checked_input_path(
+        f"output/{PASS_RUN}/metadata.json", what="bundle_path"
+    )
+    assert resolved == project / "output" / PASS_RUN / "metadata.json"
+
+
+def test_an_absolute_path_inside_the_project_is_accepted(project: Path) -> None:
+    inside = project / "output" / PASS_RUN / "metadata.json"
+    assert mcp_server._checked_input_path(str(inside), what="bundle_path") == inside
+
+
+def test_a_path_naming_a_directory_is_refused(project: Path) -> None:
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server._checked_input_path(f"output/{PASS_RUN}", what="bundle_path")
+    assert caught.value.code == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# apply_extraction_data writes nothing on the way to an error
+# ---------------------------------------------------------------------------
+
+
+def test_apply_extraction_data_leaves_no_phantom_run_behind(project: Path) -> None:
+    """The defect: it wrote ``<run>/work/mcp_extraction_bundle.json`` *first*.
+
+    A typo'd id therefore minted a run-shaped directory that no import had
+    created, and the next listing had it to trip over.
+    """
+    before = sorted(path.name for path in (project / "output").iterdir())
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.apply_extraction_data("typo-run", {"knowledge_units": []})
+    assert caught.value.code == "not_found"
+    assert sorted(path.name for path in (project / "output").iterdir()) == before
+    assert not (project / "output" / "typo-run").exists()
+
+
+def test_apply_extraction_data_refuses_a_run_with_no_transcript(project: Path) -> None:
+    """A directory is not an ingested run."""
+    (project / "output" / "empty-run").mkdir()
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.apply_extraction_data("empty-run", {"knowledge_units": []})
+    assert caught.value.code == "not_found"
+    assert not (project / "output" / "empty-run" / "work").exists()
+
+
+# ---------------------------------------------------------------------------
+# Nothing raw crosses the boundary
+# ---------------------------------------------------------------------------
+
+
+def test_redaction_removes_the_project_root(project: Path) -> None:
+    text = f"could not read {project}/output/{PASS_RUN}/coverage.json"
+    assert str(project) not in mcp_server._redact(text)
+    assert "<project>" in mcp_server._redact(text)
+
+
+def test_redaction_removes_the_home_directory(project: Path) -> None:
+    assert str(Path.home()) not in mcp_server._redact(f"opened {Path.home()}/.ssh/config")
+
+
+def test_redaction_reduces_an_unanticipated_absolute_path_to_its_name(
+    project: Path,
+) -> None:
+    assert mcp_server._redact("failed on /usr/local/lib/thing.json").endswith("thing.json")
+    assert "/usr/local/lib" not in mcp_server._redact("failed on /usr/local/lib/thing.json")
+
+
+def test_a_corrupt_canonical_file_does_not_leak_its_absolute_path(project: Path) -> None:
+    """A ``JSONDecodeError`` used to reach the client naming the host path."""
+    (project / "output" / PASS_RUN / "segments.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.get_extraction_segment(PASS_RUN, "SEG-0001")
+    assert caught.value.code == "unavailable"
+    assert str(project) not in str(caught.value)
+
+
+def test_a_missing_canonical_file_names_the_file_and_not_the_machine(
+    project: Path,
+) -> None:
+    (project / "output" / PASS_RUN / "coverage.json").unlink()
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.get_coverage_window(PASS_RUN, "W-0001")
+    assert caught.value.code == "not_found"
+    assert "coverage.json" in caught.value.message
+    assert str(project) not in str(caught.value)
+
+
+def test_an_unexpected_exception_becomes_a_coded_error_not_a_traceback(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def explode(*args: object, **kwargs: object) -> None:
+        raise RuntimeError(f"boom in {project}/output")
+
+    monkeypatch.setattr(mcp_server, "validate_run", explode)
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.validate_video_output(PASS_RUN)
+    assert caught.value.code == "internal_error"
+    assert str(project) not in str(caught.value)
+
+
+def test_no_successful_reply_carries_an_absolute_host_path(project: Path) -> None:
+    """A client is told a run's id and its project-relative path, never where
+    the project sits on this machine."""
+    rows = mcp_server.list_ingested_videos()
+    assert rows
+    for row in rows:
+        assert not str(row["path"]).startswith("/"), row
+        assert str(row["path"]).startswith("output/"), row
+        assert str(project) not in json.dumps(row)
+
+
+# ---------------------------------------------------------------------------
+# The tools do their job
+# ---------------------------------------------------------------------------
+
+
+def test_list_ingested_videos_reports_every_run(tmp_path: Path, monkeypatch) -> None:
+    root = _make_project(tmp_path, runs=("pass-run", "partial-run", "fail-run"))
+    monkeypatch.setattr(mcp_server, "PROJECT_ROOT", root.resolve())
+    rows = {row["video_id"]: row for row in mcp_server.list_ingested_videos()}
+    assert len(rows) == 3
+    # Read off the fixtures rather than hard-coded: `fail-run` fails
+    # *validation*, and its coverage document honestly says PASS.
+    for run in ("pass-run", "partial-run", "fail-run"):
+        coverage = json.loads(
+            (root / "output" / run / "coverage.json").read_text(encoding="utf-8")
+        )
+        row = rows[coverage["video_id"]]
+        assert row["coverage"] == coverage["status"]
+        assert row["path"] == f"output/{run}"
+
+
+def test_list_ingested_videos_is_empty_only_when_the_project_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _make_project(tmp_path, runs=())
+    monkeypatch.setattr(mcp_server, "PROJECT_ROOT", root.resolve())
+    assert mcp_server.list_ingested_videos() == []
+
+
+def test_one_unreadable_run_does_not_hide_the_others(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A single corrupt ``metadata.json`` must not make every other video
+    invisible, and must not be reported as covered either."""
+    root = _make_project(tmp_path, runs=("pass-run", "fail-run"))
+    (root / "output" / "fail-run" / "metadata.json").write_text("{oops", encoding="utf-8")
+    monkeypatch.setattr(mcp_server, "PROJECT_ROOT", root.resolve())
+    rows = {row["video_id"]: row for row in mcp_server.list_ingested_videos()}
+    assert len(rows) == 2
+    assert rows["fail-run"]["coverage"] == "UNREADABLE"
+    assert "error" in rows["fail-run"]
+
+
+def test_get_extraction_segment_returns_the_named_segment(project: Path) -> None:
+    segment_id = _segment_ids(project, PASS_RUN)[0]
+    segment = mcp_server.get_extraction_segment(PASS_RUN, segment_id)
+    assert segment["segment_id"] == segment_id
+    assert "captions" in segment or "start_sec" in segment
+
+
+def test_get_extraction_segment_refuses_an_unknown_segment(project: Path) -> None:
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.get_extraction_segment(PASS_RUN, "SEG-999999")
+    assert caught.value.code == "not_found"
+    assert "SEG-999999" in caught.value.message
+
+
+def test_get_coverage_window_returns_the_window_and_its_captions(project: Path) -> None:
+    window_id = _window_ids(project, PASS_RUN)[0]
+    result = mcp_server.get_coverage_window(PASS_RUN, window_id)
+    assert result["window"]["window_id"] == window_id
+    assert isinstance(result["captions"], list)
+
+
+def test_get_coverage_window_uses_the_same_membership_rule_as_the_auditor(
+    project: Path,
+) -> None:
+    """Every caption in the run must land in at least one window, or a caption
+    is audited-but-invisible here (the non-speech cue case in WORKFLOW.md §2)."""
+    transcript = json.loads(
+        (project / "output" / PASS_RUN / "transcript.json").read_text(encoding="utf-8")
+    )
+    seen: set[float] = set()
+    for window_id in _window_ids(project, PASS_RUN):
+        for caption in mcp_server.get_coverage_window(PASS_RUN, window_id)["captions"]:
+            seen.add(caption["start_sec"])
+    assert seen == {caption["start_sec"] for caption in transcript["captions"]}
+
+
+def test_get_coverage_window_refuses_an_unknown_window(project: Path) -> None:
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.get_coverage_window(PASS_RUN, "W-999999")
+    assert caught.value.code == "not_found"
+
+
+def test_validate_video_output_reports_the_fixture_verdict(project: Path) -> None:
+    result = mcp_server.validate_video_output(PASS_RUN)
+    assert result["status"] == "PASS"
+
+
+def test_validate_video_output_never_coerces_a_partial_to_a_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _make_project(tmp_path, runs=("partial-run",))
+    monkeypatch.setattr(mcp_server, "PROJECT_ROOT", root.resolve())
+    assert mcp_server.validate_video_output("partial-run")["status"] == "PARTIAL"
+
+
+def test_import_timestamped_transcript_creates_a_run(project: Path) -> None:
+    source = project / "incoming.srt"
+    source.write_text(
+        "1\n00:00:00,000 --> 00:00:02,000\nhello there\n\n"
+        "2\n00:00:02,000 --> 00:00:04,000\nsecond cue\n",
+        encoding="utf-8",
+    )
+    result = mcp_server.import_timestamped_transcript("incoming.srt", "imported-run")
+    assert result["status"] == "IMPORTED"
+    assert result["video_id"] == "imported-run"
+    assert result["path"] == "output/imported-run"
+    assert (project / "output" / "imported-run" / "transcript.json").is_file()
+
+
+def test_import_timestamped_transcript_refuses_a_hostile_id(project: Path) -> None:
+    source = project / "incoming.srt"
+    source.write_text("1\n00:00:00,000 --> 00:00:02,000\nhi\n", encoding="utf-8")
+    with pytest.raises(mcp_server.McpToolError):
+        mcp_server.import_timestamped_transcript("incoming.srt", "../escape")
+    assert not (project.parent / "escape").exists()
+
+
+def test_apply_extraction_bundle_applies_a_bundle_from_the_project(project: Path) -> None:
+    bundle = json.loads(
+        (FIXTURE_RUNS / PASS_RUN / "work" / "extraction_bundle.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    target = project / "bundle.json"
+    target.write_text(json.dumps(bundle), encoding="utf-8")
+    result = mcp_server.apply_extraction_bundle(PASS_RUN, "bundle.json")
+    assert result["status"] in {"PASS", "PARTIAL", "FAIL"}
+
+
+def test_apply_extraction_data_applies_an_inline_bundle(project: Path) -> None:
+    bundle = json.loads(
+        (FIXTURE_RUNS / PASS_RUN / "work" / "extraction_bundle.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    result = mcp_server.apply_extraction_data(PASS_RUN, bundle)
+    assert result["status"] in {"PASS", "PARTIAL", "FAIL"}
+    assert (project / "output" / PASS_RUN / "work" / "mcp_extraction_bundle.json").is_file()
+
+
+def test_finalize_video_writes_the_artifacts(project: Path) -> None:
+    result = mcp_server.finalize_video(PASS_RUN)
+    assert result["status"] in {"PASS", "PARTIAL", "FAIL"}
+    assert (project / "output" / PASS_RUN / "report.md").is_file()
+
+
+def test_search_video_knowledge_finds_a_unit(project: Path) -> None:
+    units = json.loads(
+        (project / "output" / PASS_RUN / "knowledge_units.json").read_text(encoding="utf-8")
+    )
+    unit = units["units"][0]
+    term = unit["normalized_statement"].split()[2]
+    answer = mcp_server.search_video_knowledge(term, video_id=PASS_RUN, limit=5)
+    assert answer["results"], f"no hit for {term!r} in a run that contains it"
+    assert all(isinstance(hit, dict) for hit in answer["results"])
+    # An agent must be able to tell "nothing matched" from "could not look".
+    assert answer["unreadable"] == []
+
+
+def test_search_video_knowledge_refuses_a_hostile_video_id(project: Path) -> None:
+    with pytest.raises(mcp_server.McpToolError):
+        mcp_server.search_video_knowledge("anything", video_id="../escape")
+
+
+def test_rebuild_cross_video_library_rebuilds(project: Path) -> None:
+    result = mcp_server.rebuild_cross_video_library()
+    assert isinstance(result, dict)
+
+
+# ---------------------------------------------------------------------------
+# Resources and the prompt
+# ---------------------------------------------------------------------------
+
+
+def test_the_workflow_resource_reads_the_projects_workflow(project: Path) -> None:
+    assert mcp_server.workflow_resource() == "# workflow\n"
+
+
+def test_the_schema_resource_reads_the_projects_schema(project: Path) -> None:
+    assert mcp_server.extraction_schema_resource() == "{}\n"
+
+
+@pytest.mark.parametrize("name", mcp_server.EXTRACTION_PROMPTS)
+def test_every_numbered_prompt_is_served(name: str, project: Path) -> None:
+    assert mcp_server.extraction_prompt_resource(name) == f"# {name}\n"
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["../../etc/passwd", "06_invented_pass", "01_segment_extraction.md", "", "."],
+)
+def test_a_prompt_name_outside_the_allow_list_is_refused(name: str, project: Path) -> None:
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.extraction_prompt_resource(name)
+    assert caught.value.code == "invalid_id"
+
+
+def test_a_bad_root_is_index_unavailable_and_not_an_internal_error(
+    not_a_project: Path,
+) -> None:
+    """The refusal must keep its own code all the way out.
+
+    Every helper that wraps a broad ``except Exception`` is a chance to relabel
+    "this root is not a project" as "something went wrong", which is the
+    unhelpful half of the same answer.
+    """
+    for call in (
+        mcp_server.list_ingested_videos,
+        lambda: mcp_server.validate_video_output("pass-run"),
+        lambda: mcp_server.search_video_knowledge("x"),
+        mcp_server.rebuild_cross_video_library,
+        lambda: mcp_server.extraction_prompt_resource("01_segment_extraction"),
+    ):
+        with pytest.raises(mcp_server.McpToolError) as caught:
+            call()
+        assert caught.value.code == "index_unavailable", caught.value.message
+
+
+def test_the_resources_refuse_a_root_that_is_not_a_project(not_a_project: Path) -> None:
+    for function in (mcp_server.workflow_resource, mcp_server.extraction_schema_resource):
+        with pytest.raises(mcp_server.McpToolError) as caught:
+            function()
+        assert caught.value.code == "index_unavailable"
+
+
+def test_the_prompt_never_authorises_claiming_a_pass() -> None:
+    """WORKFLOW.md §5 and D-040: completion is exit 0, and nothing else."""
+    text = mcp_server.extract_video_knowledge("pass-run")
+    assert "pass-run" in text
+    assert "Never report complete unless" in text
+    assert "PASS" in text

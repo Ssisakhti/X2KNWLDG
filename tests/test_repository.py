@@ -12,6 +12,7 @@ install (ADR 0001 invariant 5) and these tests run there.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Callable
 
@@ -64,6 +65,25 @@ requires_sample = pytest.mark.skipif(
 def repo() -> MemoryRepository:
     """The committed fixture runs — a PASS, a PARTIAL and a FAIL (``T-006``)."""
     return MemoryRepository.from_project(PROJECT_ROOT, output_dir=FIXTURE_OUTPUT_DIR)
+
+
+def _fixture_json(path: Path) -> dict:
+    """A committed canonical file, read directly rather than through an adapter."""
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _source_record(source_id: str, *, canonical_dir: str | None) -> dict[str, Any]:
+    """A minimal ``Source``, for the cases no committed run can express."""
+    source_type, external_id = source_id.split(":", 1)
+    return {
+        "schema_version": "1.0",
+        "id": source_id,
+        "source_type": source_type,
+        "external_id": external_id,
+        "canonical_dir": canonical_dir,
+        "status": {"overall": "UNKNOWN"},
+        "adapter": {"name": source_type, "version": "0"},
+    }
 
 
 def walk(method: Callable[[Any], Page], query_type, *, limit: int = 2, **filters) -> list[dict]:
@@ -126,16 +146,39 @@ def test_media_is_served_from_the_artifact_record_not_a_second_method() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_status_counts_what_the_adapters_produced(repo: MemoryRepository) -> None:
-    """A count is a cache convenience, reproducible from the canonical files."""
-    records = adapt_project(PROJECT_ROOT, output_dir=FIXTURE_OUTPUT_DIR).by_model()
-    assert repo.status().payload()["counts"] == {
-        "sources": len(records["source"]),
-        "artifacts": len(records["artifact"]),
-        "entities": len(records["entity_ref"]),
-        "relations": len(records["indexed_relation"]),
-    }
-    assert len(records["source"]) == 3
+def test_status_counts_what_the_canonical_fixture_files_hold(repo: MemoryRepository) -> None:
+    """A count is a cache convenience, reproducible from the canonical files.
+
+    Reproducible *from the files* — this used to compute its expectation by
+    calling the same ``adapt_project`` the repository was built from, so the two
+    sides could only ever agree and the assertion could not fail. The counts
+    below are read out of the committed fixture JSON instead.
+    """
+    counts = repo.status().payload()["counts"]
+
+    runs = sorted(FIXTURE_RUNS.glob("*/metadata.json"))
+    units = [
+        unit
+        for path in runs
+        for unit in _fixture_json(path.parent / "knowledge_units.json")["units"]
+    ]
+    stated = [
+        edge
+        for path in runs
+        for edge in _fixture_json(path.parent / "relationships.json")["relationships"]
+    ]
+    derived = [unit for unit in units if unit.get("derived_from")]
+
+    assert counts["sources"] == len(runs) == 3
+    assert counts["entities"] == len(units) == 6, "one entity per canonical knowledge unit"
+    assert counts["relations"] == len(stated) + len(derived) == 6, (
+        "every stated relationship, plus the derived_from edge each derived unit "
+        "carries (D-025)"
+    )
+    # An artifact per file the run holds, plus the one external artifact — the
+    # video itself, which has a URL and no local path.
+    on_disk = sum(1 for path in runs for f in path.parent.rglob("*") if f.is_file())
+    assert counts["artifacts"] == on_disk + len(runs) == 54
 
 
 def test_status_tallies_the_copied_statuses_and_never_invents_one(repo: MemoryRepository) -> None:
@@ -360,7 +403,7 @@ def test_a_cursor_this_repository_did_not_issue_is_refused(token: str) -> None:
 
 def test_a_cursor_round_trips_only_under_its_own_fingerprint() -> None:
     token = encode_cursor("abc", "youtube:x:KU-1")
-    assert decode_cursor(token, "abc") == "youtube:x:KU-1"
+    assert decode_cursor(token, "abc").key == "youtube:x:KU-1"
     with pytest.raises(InvalidQuery):
         decode_cursor(token, "def")
 
@@ -560,11 +603,30 @@ def test_search_pages_without_repeating_a_hit(repo: MemoryRepository) -> None:
     assert paged == everything
 
 
-def test_search_reports_an_unknown_total_rather_than_a_wrong_one(
-    repo: MemoryRepository,
+def test_search_counts_what_it_ranked_and_says_unknown_when_it_could_not(
+    tmp_path: Path, repo: MemoryRepository
 ) -> None:
-    """Null means unknown; the contract says it never means zero."""
-    assert repo.search(SearchQuery(q="the")).total is None
+    """Null means unknown; the contract says it never means zero.
+
+    Now that the corpus is the index's own, the count is a real one — and the
+    two ways of having no hits stay distinguishable: a source that was searched
+    and matched nothing is ``0``, and a source that could not be read at all is
+    ``None``.
+    """
+    page = repo.search(SearchQuery(q="the", limit=MAX_LIMIT))
+    assert page.total == len(page.items) > 0
+
+    assert repo.search(SearchQuery(q="zqxjkvwphgb")).total == 0
+    assert repo.search(SearchQuery(q="the", source_id="youtube:no-such-run")).total == 0
+
+    unreadable = MemoryRepository(
+        IndexRecords(sources=[_source_record("youtube:unreadable", canonical_dir=None)]),
+        project_root=tmp_path,
+    )
+    assert unreadable.search(SearchQuery(q="the")).total is None, (
+        "a source whose canonical files could not be read has an unknown hit "
+        "count, not a count of zero"
+    )
 
 
 def test_a_search_cursor_is_bound_to_its_query(repo: MemoryRepository) -> None:
@@ -711,6 +773,33 @@ def test_a_returned_record_cannot_be_edited_back_into_the_repository(
     page.items[0]["confidence"] = 1.0
     assert repo.list_entities(EntityQuery(limit=1)).items[0]["confidence"] != 1.0
 
+    # Nested values too, which is the case this test used to miss: dict(record)
+    # is shallow, so status, artifact_ids, locator and derived_from stayed live
+    # references into the index. Mutating only top-level scalars, as the
+    # assertions above do, cannot detect that. Coercing a stored FAIL upward
+    # through a returned record is precisely what ADR 0001 invariant 2 forbids.
+    failing = repo.get_source(FAIL_SOURCE)
+    assert failing is not None
+    failing.source["status"]["overall"] = "PASS"
+    failing.source["artifact_ids"].clear()
+
+    reread = repo.get_source(FAIL_SOURCE)
+    assert reread is not None
+    assert reread.source["status"]["overall"] == "FAIL", "a returned record coerced a stored status"
+    assert reread.source["artifact_ids"], "a returned record emptied a stored list"
+    assert repo.status().payload()["sources_by_status"]["FAIL"] == 1
+
+    located = next(
+        (item for item in repo.list_entities(EntityQuery(limit=MAX_LIMIT)).items
+         if isinstance(item.get("locator"), dict)),
+        None,
+    )
+    if located is not None:
+        target = located["global_id"]
+        located["locator"]["start_sec"] = 999_999
+        again = repo.get_entity(target)
+        assert again is not None and again["locator"].get("start_sec") != 999_999
+
 
 def test_an_empty_project_is_an_empty_index_not_a_broken_one(tmp_path: Path) -> None:
     (tmp_path / "output").mkdir()
@@ -727,39 +816,123 @@ def test_records_can_be_supplied_without_a_project_at_all() -> None:
 
 
 # --------------------------------------------------------------------------
-# 11. The same seam over the real sample, when it is on disk
+# 11. The cross-source library, over records every machine has
 # --------------------------------------------------------------------------
+#
+# ``output/library/`` is written by ``finalize_run`` and gitignored, so these
+# used to be ``@requires_sample`` and asserted counts read off one developer's
+# ingested video — 17 concepts, 118 relations. They never ran in CI, which is
+# exactly where a regression in cross-source behaviour would land. The concept
+# records below are written out here instead: the repository is the code under
+# test, and hand-written records are an input to it, not a second opinion from
+# it.
+
+
+def _concept(local_id: str, label: str) -> dict[str, Any]:
+    """A canonical concept, shaped as ``adapt_library`` shapes one (D-016)."""
+    return {
+        "schema_version": "1.0",
+        "global_id": f"library:concepts:{local_id}",
+        "source_type": "library",
+        "external_id": "concepts",
+        "local_id": local_id,
+        "library_id": f"concept:{local_id}",
+        "source_id": None,
+        "entity_type": "concept",
+        "provenance_class": "derived",
+        "kind": "canonical_concept",
+        "label": label,
+        "confidence": None,
+        "canonical_path": "output/library/concepts.json",
+    }
+
+
+def _expresses(unit_global_id: str, concept_local_id: str) -> dict[str, Any]:
+    """An ``expresses_concept`` edge: cross-source, so it names no run (D-025)."""
+    concept = f"library:concepts:{concept_local_id}"
+    return {
+        "schema_version": "1.0",
+        "id": f"{unit_global_id}|expresses_concept|{concept}",
+        "from_id": unit_global_id,
+        "to_id": concept,
+        "relation": "expresses_concept",
+        "relation_vocabulary": "library_synthetic",
+        "provenance_class": "derived",
+        "confidence": 1.0,
+        "source_id": None,
+        "canonical_path": "output/library/graph.json",
+    }
+
+
+#: One concept per fixture run, each expressed by that run's source-class unit,
+#: plus one concept two runs share — which is the case a single-source sample
+#: cannot exercise at all.
+LIBRARY_CONCEPTS = [
+    _concept("aaaa00000001", "A concept the pass run expresses"),
+    _concept("bbbb00000002", "A concept the partial run expresses"),
+    _concept("cccc00000003", "A concept two runs share"),
+]
+LIBRARY_EDGES = [
+    _expresses(f"{PASS_SOURCE}:KU-000001", "aaaa00000001"),
+    _expresses(f"{PARTIAL_SOURCE}:KU-000001", "bbbb00000002"),
+    _expresses(f"{PASS_SOURCE}:KU-D-0001", "cccc00000003"),
+    _expresses(f"{FAIL_SOURCE}:KU-D-0001", "cccc00000003"),
+]
+
+
+@pytest.fixture(scope="module")
+def library_repo() -> MemoryRepository:
+    """The fixture runs plus the cross-source concepts a built library adds."""
+    records = adapt_project(PROJECT_ROOT, output_dir=FIXTURE_OUTPUT_DIR) + IndexRecords(
+        entities=list(LIBRARY_CONCEPTS), relations=list(LIBRARY_EDGES)
+    )
+    return MemoryRepository(
+        records, project_root=PROJECT_ROOT, output_dir=FIXTURE_OUTPUT_DIR
+    )
+
+
+def test_every_record_walks_through_the_seam_intact(library_repo: MemoryRepository) -> None:
+    counts = library_repo.status().payload()["counts"]
+    assert counts["entities"] == 6 + len(LIBRARY_CONCEPTS)
+    assert counts["relations"] == 6 + len(LIBRARY_EDGES)
+    assert len(walk(library_repo.list_entities, EntityQuery, limit=3)) == counts["entities"]
+    assert len(walk(library_repo.list_relations, RelationQuery, limit=3)) == counts["relations"]
+
+
+def test_a_concept_belongs_to_no_source_but_is_still_reachable(
+    library_repo: MemoryRepository,
+) -> None:
+    """D-016: a cross-source concept has no owning source, and needs none."""
+    concepts = walk(library_repo.list_entities, EntityQuery, kind="canonical_concept")
+    assert len(concepts) == len(LIBRARY_CONCEPTS)
+    assert all(concept["source_id"] is None for concept in concepts)
+    assert library_repo.get_entity(concepts[0]["global_id"]) == concepts[0]
+    owned = {
+        e["global_id"]
+        for e in walk(library_repo.list_entities, EntityQuery, source_id=PASS_SOURCE)
+    }
+    assert owned, "the fixture source owns entities of its own"
+    assert owned.isdisjoint({c["global_id"] for c in concepts})
+
+
+def test_the_cross_source_edges_stay_visible_from_the_source_that_makes_them(
+    library_repo: MemoryRepository,
+) -> None:
+    relations = walk(library_repo.list_relations, RelationQuery, source_id=PASS_SOURCE)
+    expresses = [r for r in relations if r["relation"] == "expresses_concept"]
+    assert len(expresses) == 2
+    assert all(r["source_id"] is None for r in expresses), "they name no run, and still belong"
 
 
 @requires_sample
 def test_the_real_sample_walks_through_the_seam_intact() -> None:
+    """The same invariants over a real ingested run, where one is on disk.
+
+    No counts read off one machine's library: what has to hold is that a full
+    walk loses nothing and that the seam's own tally agrees with it.
+    """
     repo = MemoryRepository.from_project(PROJECT_ROOT)
     counts = repo.status().payload()["counts"]
-    assert counts == {"sources": 1, "artifacts": 85, "entities": 86, "relations": 118}
-    assert len(walk(repo.list_entities, EntityQuery, limit=25)) == 86
-    assert len(walk(repo.list_relations, RelationQuery, limit=25)) == 118
-
-
-@requires_sample
-def test_a_concept_belongs_to_no_source_but_is_still_reachable() -> None:
-    """D-016: a cross-source concept has no owning source, and needs none."""
-    repo = MemoryRepository.from_project(PROJECT_ROOT)
-    concepts = walk(repo.list_entities, EntityQuery, limit=25, kind="canonical_concept")
-    assert len(concepts) == 17
-    assert all(concept["source_id"] is None for concept in concepts)
-    assert repo.get_entity(concepts[0]["global_id"]) == concepts[0]
-    owned = {
-        e["global_id"]
-        for e in walk(repo.list_entities, EntityQuery, limit=25, source_id="youtube:pqlWNihgdjI")
-    }
-    assert owned, "the sample source owns entities of its own"
-    assert owned.isdisjoint({c["global_id"] for c in concepts})
-
-
-@requires_sample
-def test_the_cross_source_edges_stay_visible_from_the_source_that_makes_them() -> None:
-    repo = MemoryRepository.from_project(PROJECT_ROOT)
-    relations = walk(repo.list_relations, RelationQuery, limit=50, source_id="youtube:pqlWNihgdjI")
-    expresses = [r for r in relations if r["relation"] == "expresses_concept"]
-    assert len(expresses) == 17
-    assert all(r["source_id"] is None for r in expresses), "they name no run, and still belong"
+    assert counts["sources"] >= 1
+    assert len(walk(repo.list_entities, EntityQuery, limit=25)) == counts["entities"]
+    assert len(walk(repo.list_relations, RelationQuery, limit=25)) == counts["relations"]

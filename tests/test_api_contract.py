@@ -33,7 +33,7 @@ from referencing import Registry, Resource  # noqa: E402
 from referencing.jsonschema import DRAFT202012  # noqa: E402
 
 from x2knwldg import ids  # noqa: E402
-from x2knwldg.adapters import adapt_library, adapt_run  # noqa: E402
+from x2knwldg.adapters import IndexRecords, adapt_library, adapt_project, adapt_run  # noqa: E402
 from x2knwldg.query import search_knowledge  # noqa: E402
 from x2knwldg.repository import (  # noqa: E402
     EntityQuery,
@@ -140,9 +140,47 @@ RUN_IDS = [run.name for run in RUNS]
 #: returns fits the endpoints; section 3 uses it for the additive search fields.
 FIXTURE_REPO = MemoryRepository.from_project(PROJECT_ROOT, output_dir="tests/fixtures/runs")
 
-#: The same seam over the whole project, so the cross-source concepts of
-#: ``output/library/`` are in scope where the real sample exists.
-PROJECT_REPO = MemoryRepository.from_project(PROJECT_ROOT)
+#: A canonical concept, and the cross-source edge that reaches it, written out
+#: rather than read from ``output/library/`` — which ``finalize_run`` builds and
+#: ``.gitignore`` excludes, so a seam test that depended on it never ran in CI.
+#: ``adapt_library``'s own output is still validated against the schemas by
+#: ``test_cross_source_concepts_fit_the_same_endpoints`` where the sample exists.
+LIBRARY_CONCEPT = {
+    "schema_version": "1.0",
+    "global_id": "library:concepts:aaaa00000001",
+    "source_type": "library",
+    "external_id": "concepts",
+    "local_id": "aaaa00000001",
+    "library_id": "concept:aaaa00000001",
+    "source_id": None,
+    "entity_type": "concept",
+    "provenance_class": "derived",
+    "kind": "canonical_concept",
+    "label": "A concept the fixture runs express",
+    "confidence": None,
+    "canonical_path": "output/library/concepts.json",
+}
+LIBRARY_EDGE = {
+    "schema_version": "1.0",
+    "id": "youtube:fixture-pass:KU-000001|expresses_concept|library:concepts:aaaa00000001",
+    "from_id": "youtube:fixture-pass:KU-000001",
+    "to_id": "library:concepts:aaaa00000001",
+    "relation": "expresses_concept",
+    "relation_vocabulary": "library_synthetic",
+    "provenance_class": "derived",
+    "confidence": 1.0,
+    "source_id": None,
+    "canonical_path": "output/library/graph.json",
+}
+
+#: The same seam with the cross-source library records in scope, on every
+#: machine rather than only on one that has ingested a video.
+LIBRARY_REPO = MemoryRepository(
+    adapt_project(PROJECT_ROOT, output_dir="tests/fixtures/runs")
+    + IndexRecords(entities=[dict(LIBRARY_CONCEPT)], relations=[dict(LIBRARY_EDGE)]),
+    project_root=PROJECT_ROOT,
+    output_dir="tests/fixtures/runs",
+)
 
 requires_library = pytest.mark.skipif(
     not (LIBRARY_DIR / "concepts.json").exists(),
@@ -727,9 +765,26 @@ def test_every_repository_refusal_has_a_frozen_error_code(validate, error, code:
     assert not validate("ErrorResponse", body)
 
 
-@requires_library
 def test_the_seam_serves_the_cross_source_concepts_too(validate) -> None:
-    page = PROJECT_REPO.list_entities(EntityQuery(kind="canonical_concept", limit=500))
+    page = LIBRARY_REPO.list_entities(EntityQuery(kind="canonical_concept", limit=500))
     assert page.items
     assert not validate("EntityListResponse", _envelope(data=page.items, page=page.page_info()))
     assert all(concept["source_id"] is None for concept in page.items)
+
+
+def test_the_seam_serves_a_cross_source_edge_from_the_source_that_makes_it(validate) -> None:
+    """D-034 over the wire: the edge names no run, and is still the source's."""
+    page = LIBRARY_REPO.list_relations(
+        RelationQuery(source_id="youtube:fixture-pass", limit=500)
+    )
+    expresses = [edge for edge in page.items if edge["relation"] == "expresses_concept"]
+    assert expresses and all(edge["source_id"] is None for edge in expresses)
+    assert not validate(
+        "RelationListResponse", _envelope(data=page.items, page=page.page_info())
+    )
+
+    graph = LIBRARY_REPO.graph(GraphQuery(source_id="youtube:fixture-pass", limit=500))
+    assert not validate("GraphPayload", graph.payload())
+    assert {edge["id"] for edge in graph.edges} == {edge["id"] for edge in page.items}, (
+        "the graph and the relations list are two views of one fact"
+    )

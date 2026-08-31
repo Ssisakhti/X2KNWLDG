@@ -54,7 +54,13 @@ repository that streamed files would put path safety in two places (risk R14).
 2. **The cursor encoding is the repository's alone.** The contract calls it
    opaque, so the API passes it through unparsed and the frontend cannot depend
    on it. `encode_cursor` / `decode_cursor` in `base.py` are that encoding, and
-   both implementations share it.
+   both implementations share it. A token carries a MAC over a key random to
+   this process: a cursor names a position that reaches real work, so it is
+   authenticated rather than merely parsed, and a cursor does not survive a
+   restart. An order key too long for the contract's 512 characters — a
+   `IndexedRelation.id` is 1300 by schema — is carried as a bounded prefix plus
+   a digest of the whole (`Cursor`), so a record the schema permits is always
+   pageable.
 3. **A cursor is bound to the query that issued it.** Change a filter and the
    cursor is refused; change only `limit` and it still works, because a keyset
    position does not depend on page size. Re-anchoring a cursor onto a different
@@ -97,12 +103,24 @@ dangle, and a Map that draws a dangling edge asserts a node it will not show. An
 edge straddling two pages appears in both; a client accumulating pages dedupes
 by `id`.
 
+Which nodes a *source's* graph is drawn over follows from the rule above rather
+than restating it: `graph_nodes` takes an entity of the source, **or** an entity
+a relation of that source names as an endpoint. Restating it — both endpoints
+must be entities *of that source* — is what made `/api/graph?source_id=X` and
+`/api/sources/X/relations` disagree about one fact, 101 edges against 118, with
+every `expresses_concept` edge missing from the graph because a concept belongs
+to no source (D-016).
+
+`truncated` is about the graph, not about the cursor. The last page of a paged
+walk has no `next_cursor` and is still a slice; reporting it as whole would let
+the Map present the tail of the library as the library.
+
 ## `MemoryRepository` is a reference, not an index
 
 It reads every run through `adapters.adapt_project`, holds the records in
-memory, and re-runs the linear scan of `query.search_knowledge` for every
-search — which is the cost `T-103`'s FTS5 tables exist to remove. Do not serve a
-growing library from it. It exists so that:
+memory, and ranks every searchable document in the library on every search —
+which is the cost `T-103`'s FTS5 tables exist to remove. Do not serve a growing
+library from it. It exists so that:
 
 - **Track B can start on day one.** `T-105`–`T-108` build routes against it
   while `T-101`–`T-104` build SQLite behind the same interface.
@@ -120,13 +138,26 @@ growing library from it. It exists so that:
 
 - Implement the `IndexRepository` protocol; do not widen it. An endpoint that
   needs something this interface cannot express is a contract change first.
-- Page with `WHERE <order key> > ?`, and issue the cursor through
-  `encode_cursor`. Both implementations then produce the same token for the same
-  position, which makes rebuild-equivalence a page-for-page comparison rather
-  than a second implementation of the comparison.
+- Page with `WHERE <id column> >= :bound ORDER BY <id column> LIMIT :limit + 1`,
+  taking the bound from `Cursor.identity_bound`, trimming the result with
+  `Cursor.tail`, and handing the rows to `page_from_window`. That function is the cursor arithmetic — the probe row,
+  the cut, and the next token — so both implementations produce the same page
+  and the same token for the same position, and rebuild-equivalence stays a
+  page-for-page comparison rather than a second implementation of the
+  comparison. `keyset_page` is the in-memory wrapper around it and is *not* what
+  SQLite should call; it materialises the whole collection.
+  Where `Cursor.digest` is set the prefix is only part of the key, and the rows
+  sharing that prefix are skipped up to and including the one that digests to
+  it — `Cursor.tail` does this, and there are at most a handful of such rows.
 - Order by the keys in `ORDER_KEYS`: `Source.id`, `Artifact.id`,
-  `EntityRef.global_id`, `IndexedRelation.id`. The order is total and
-  lexicographic, so nothing else needs to be stored to page by it.
+  `EntityRef.global_id`, `IndexedRelation.id` — and keep them unique, with a
+  `UNIQUE` constraint or a stored content digest to break a tie (`order_key`).
+  The order is total only while the key is: two records sharing an id sort
+  equal, and a tie across a page boundary deletes one of them from the paged
+  output while `total` goes on counting it.
+- Refuse a record set `check_index_integrity` refuses. A duplicate id and an
+  edge naming an endpoint no entity record has are both conditions under which
+  no honest page exists.
 - Reuse `matches_entity`, `matches_relation`, `matches_source`, and
   `relation_belongs_to_source` as the definition of each filter, even where SQL
   expresses them as a `WHERE` clause. Where SQL and these disagree, these are
@@ -141,4 +172,5 @@ growing library from it. It exists so that:
 | File | Asks |
 |---|---|
 | `tests/test_repository.py` | What does the seam refuse, and what must stay true of a second implementation? (stdlib only — runs on a bare core install) |
+| `tests/test_repository_hardening.py` | The audited defects, one test each: the total order, the graph/relations agreement, search resolving against the index, `truncated`, an over-long order key, and cursor integrity (stdlib only) |
 | `tests/test_api_contract.py` §5 | Does what the repository returns validate as the response body of the endpoint it serves? (needs `jsonschema`, a `dev` extra) |

@@ -14,7 +14,7 @@ dependencies = []
 [project.optional-dependencies]
 youtube = [
   "yt-dlp>=2024.1.0",
-  "youtube-transcript-api>=0.6.0",
+  "youtube-transcript-api>=1.0",  # 1.x instance API: youtube.py calls api.fetch()/api.list()
 ]
 mcp = ["mcp>=2,<3"]
 # The local web layer (ADR 0001 decision 6). Imported lazily inside the `ui`

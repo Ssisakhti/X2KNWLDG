@@ -103,7 +103,7 @@ def test_the_browser_opens_by_default() -> None:
 @pytest.mark.parametrize("host", sorted(cli.LOOPBACK_HOSTS))
 def test_every_loopback_host_is_accepted(host: str, ui_extra_present: None) -> None:
     code, output = run_cli(["ui", "--host", host])
-    assert code == 2, output
+    assert code == cli.EXIT_UI_NOT_IMPLEMENTED, output
     assert json.loads(output)["host"] == host
 
 
@@ -151,7 +151,7 @@ def test_a_port_outside_the_valid_range_is_refused(port: str, ui_extra_present: 
 
 def test_the_stub_reports_that_it_is_not_implemented(ui_extra_present: None) -> None:
     code, output = run_cli(["ui"])
-    assert code == 2, "a command that cannot serve must not exit 0"
+    assert code == cli.EXIT_UI_NOT_IMPLEMENTED, "a command that cannot serve must not exit 0"
     payload = json.loads(output)
     assert payload["status"] == "UI_NOT_IMPLEMENTED"
     assert payload["blocked_on"] == ["T-105", "T-106", "T-107", "T-108", "T-116"]
@@ -202,10 +202,25 @@ def test_the_real_dependency_probe_names_an_absent_package(
     assert cli._missing_ui_dependencies() == ["x2knwldg_not_installed"]
 
 
-def test_the_real_dependency_probe_does_not_raise_on_the_declared_extra() -> None:
-    """Whatever is installed on this machine, the probe answers rather than throws."""
-    missing = cli._missing_ui_dependencies()
-    assert set(missing) <= set(cli.UI_DEPENDENCIES)
+def test_the_real_dependency_probe_agrees_with_an_actual_import() -> None:
+    """The probe must answer *correctly*, on whatever this machine has installed.
+
+    Asserting only ``set(missing) <= set(UI_DEPENDENCIES)`` could not fail: a
+    probe hard-wired to return ``[]`` — reporting a fully installed extra on a
+    bare core install, which is how the ``ui`` command would then die on an
+    ``ImportError`` instead of naming the missing package — satisfied it. So the
+    oracle here is an independent one: importing each package for real. Whatever
+    the probe says, that has to be the truth about this interpreter.
+    """
+    import importlib
+
+    unimportable = []
+    for name in cli.UI_DEPENDENCIES:
+        try:
+            importlib.import_module(name)
+        except Exception:
+            unimportable.append(name)
+    assert cli._missing_ui_dependencies() == unimportable
 
 
 # ---------------------------------------------------------------------------
@@ -236,13 +251,51 @@ def test_the_working_directory_is_the_last_resort(
     assert project_root() == tmp_path.resolve()
 
 
-def test_the_mcp_server_and_the_ui_resolve_the_root_the_same_way() -> None:
-    """One implementation. Two rules for "the project" is the D-020 mistake."""
+def test_the_mcp_server_does_not_re_read_the_root_environment_variable() -> None:
+    """D-039: ``pipeline.project_root`` reads the env var, and nothing else does.
+
+    A text check, because "no second reader" is a property of the whole file
+    rather than of any one call. The behavioural half is the test below.
+    """
     source = (PROJECT_ROOT / "src" / "x2knwldg" / "mcp_server.py").read_text(encoding="utf-8")
     assert "PROJECT_ROOT = project_root()" in source
-    assert "X2KNWLDG_PROJECT_ROOT" not in source, (
-        "the env var is read by pipeline.project_root, not re-read here"
+    # Naming the variable in a refusal message is fine and useful; *reading* it
+    # here would be the second implementation D-039 removed.
+    for reader in ("os.environ", "os.getenv", "getenv("):
+        assert reader not in source, f"mcp_server.py reads the environment itself: {reader}"
+
+
+def test_the_mcp_server_and_the_ui_resolve_the_root_the_same_way(tmp_path: Path) -> None:
+    """One implementation. Two rules for "the project" is the D-020 mistake.
+
+    Run in a subprocess with the env var set, because ``mcp_server`` resolves
+    its root at import: grepping the source for the assignment proved the line
+    existed, not that it produced the same answer the ``ui`` command produces.
+    """
+    root = tmp_path / "elsewhere"
+    root.mkdir()
+    probe = (
+        "import json;"
+        "from x2knwldg import cli;"
+        "from x2knwldg import mcp_server;"
+        "args=cli.build_parser().parse_args(['ui']);"
+        "from x2knwldg.pipeline import project_root;"
+        "print(json.dumps([str(mcp_server.PROJECT_ROOT), str(project_root(args.root))]))"
     )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        cwd=PROJECT_ROOT,
+        env={
+            "PYTHONPATH": str(PROJECT_ROOT / "src"),
+            "PATH": "/usr/bin:/bin",
+            "X2KNWLDG_PROJECT_ROOT": str(root),
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    server_root, ui_root = json.loads(result.stdout)
+    assert server_root == ui_root == str(root.resolve())
 
 
 # ---------------------------------------------------------------------------
@@ -470,3 +523,112 @@ def test_ci_refuses_a_ui_dependency_in_the_bare_core_install() -> None:
     )
     for name in cli.UI_DEPENDENCIES:
         assert name in creep_check, f"{name} may creep into the core install unnoticed"
+
+
+def _declared_extras() -> set[str]:
+    """The extras pyproject declares, read as text so this runs on 3.10 too."""
+    section = _pyproject_text().split("[project.optional-dependencies]", 1)[1]
+    section = section.split("\n[", 1)[0]
+    return set(re.findall(r"^([A-Za-z][\w.-]*) = \[", section, re.MULTILINE))
+
+
+def test_ci_installs_every_declared_extra() -> None:
+    """Three of the five extras were never installed by any job.
+
+    An extra nobody installs is an extra nobody has proved installable: a
+    yanked release, an impossible pin, or a package that no longer builds on a
+    supported Python would all pass CI silently, and the failure would land on
+    whoever ran ``pip install 'x2knwldg[youtube]'`` first.
+    """
+    rows = set(re.findall(r"^\s+- extra: (\S+)\s*$", _workflow(), re.MULTILINE))
+    declared = _declared_extras()
+    assert declared, "no extras parsed out of pyproject.toml"
+    assert declared <= rows, f"declared but never installed in CI: {sorted(declared - rows)}"
+
+
+def test_ci_imports_what_each_extra_unlocks() -> None:
+    """Installing is not importing. Every matrix row must name modules to load."""
+    rows = re.findall(r"- extra: (\S+)\s*\n\s+imports: \"([^\"]+)\"", _workflow())
+    assert {extra for extra, _ in rows} == _declared_extras()
+    for extra, imports in rows:
+        assert imports.strip(), extra
+
+
+def _ci_python_versions() -> list[tuple[int, ...]]:
+    matrix = re.search(r"python-version: \[([^\]]+)\]", _workflow())
+    assert matrix, "no python-version matrix in ci.yml"
+    return [
+        tuple(int(part) for part in version.split("."))
+        for version in re.findall(r'"([\d.]+)"', matrix.group(1))
+    ]
+
+
+def test_ci_runs_the_python_floor_pyproject_declares() -> None:
+    match = re.search(r'requires-python = ">=([\d.]+)"', _pyproject_text())
+    assert match, "no requires-python in pyproject.toml"
+    floor = tuple(int(part) for part in match.group(1).split("."))
+    assert floor in _ci_python_versions(), (
+        f"pyproject claims support from {match.group(1)}, and CI never runs it"
+    )
+
+
+def test_ci_runs_an_interpreter_at_least_as_new_as_this_one() -> None:
+    """CI tested 3.10/3.12/3.13 while every number measured here came from 3.14.
+
+    A version nobody in CI runs is a version nobody has evidence about, and the
+    developer's daily interpreter is the worst one to have no evidence about.
+    """
+    assert max(_ci_python_versions()) >= sys.version_info[:2], (
+        f"this suite runs on {sys.version_info.major}.{sys.version_info.minor}, "
+        "which is newer than anything CI tests"
+    )
+
+
+@pytest.mark.parametrize("escape", ["|| true", "continue-on-error", "exit 0 #"])
+def test_ci_has_no_way_to_pass_silently(escape: str) -> None:
+    """A job that cannot fail is a job that proves nothing."""
+    assert escape not in _workflow()
+
+
+# ---------------------------------------------------------------------------
+# `import-transcript` and `process` share their options
+# ---------------------------------------------------------------------------
+
+
+SHARED_IMPORT_OPTIONS = ("video_id", "video_url", "title", "channel", "language", "output")
+
+
+def test_process_and_import_transcript_agree_on_every_shared_option() -> None:
+    """``process`` re-declared all six by hand beside ``_add_import_options``.
+
+    ``_run_process`` hands a local file straight to ``_run_import``, so a
+    default that drifted between the two declarations — ``--language``,
+    ``--output`` — would silently change what a documented invocation does.
+    One declaration is the fix; this is the guard.
+    """
+    parser = cli.build_parser()
+    process = vars(parser.parse_args(["process", "some-source"]))
+    imported = vars(parser.parse_args(["import-transcript", "some.srt"]))
+    for option in SHARED_IMPORT_OPTIONS:
+        assert process[option] == imported[option], option
+
+
+def test_both_parsers_take_the_shared_options_from_one_helper() -> None:
+    """Both commands must be *built* from the one declaration, not merely
+    happen to agree today."""
+    seen: list[str] = []
+    real = cli._add_shared_import_options
+
+    def recording(parser: object) -> None:
+        seen.append(getattr(parser, "prog", "?"))
+        real(parser)  # type: ignore[arg-type]
+
+    original = cli._add_shared_import_options
+    try:
+        cli._add_shared_import_options = recording  # type: ignore[assignment]
+        cli.build_parser()
+    finally:
+        cli._add_shared_import_options = original  # type: ignore[assignment]
+    assert len(seen) == 2, seen
+    assert any("import-transcript" in name for name in seen), seen
+    assert any("process" in name for name in seen), seen

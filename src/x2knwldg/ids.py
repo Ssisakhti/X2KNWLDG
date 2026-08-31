@@ -26,6 +26,7 @@ listed in ``schemas/v1/README.md``:
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -44,8 +45,13 @@ SOURCE_ID_MAX_LENGTH = 300
 GLOBAL_ID_MAX_LENGTH = 600
 LIBRARY_ID_MAX_LENGTH = 600
 
-_SOURCE_TYPE_RE = re.compile(f"^{SOURCE_TYPE_PATTERN}$")
-_ID_PART_RE = re.compile(f"^{ID_PART_PATTERN}$")
+# Anchored with ``\Z``, not ``$``. The pattern *strings* above are mirrored
+# verbatim into ``schemas/v1/common.schema.json``, where they are read as
+# ECMA-262 and ``$`` does not match before a trailing newline. Python's
+# ``$`` does, so ``^...$`` here would accept ``"KU-1\n"`` — an id the schema
+# rejects, and one that reaches a TypeScript consumer as unaddressable.
+_SOURCE_TYPE_RE = re.compile(f"^{SOURCE_TYPE_PATTERN}\\Z")
+_ID_PART_RE = re.compile(f"^{ID_PART_PATTERN}\\Z")
 
 #: Reserved namespace for cross-source library entities (D-016). A canonical
 #: concept belongs to no single source, so ``concept:<hash>`` becomes
@@ -74,6 +80,31 @@ def _require_text(value: Any, label: str) -> str:
     if not isinstance(value, str):
         raise IdError(f"{label} must be a string, got {type(value).__name__}")
     return value
+
+
+def _require_mapping(value: Any, label: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise IdError(f"{label} must be a mapping, got {type(value).__name__}")
+    return value
+
+
+def _require_seconds(value: Any, label: str) -> float:
+    """Return *value* as a timestamp in seconds, or raise ``IdError``.
+
+    Mirrors ``timestampSec`` in ``schemas/v1/common.schema.json``: a number,
+    and not a negative one. ``bool`` is excluded because it is an ``int`` in
+    Python and ``True`` is not a time. ``NaN`` is excluded because every
+    comparison against it is ``False``, so a ``NaN`` end time would slip past
+    an ``end < start`` test and land in an index as an unorderable locator.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise IdError(f"{label} must be a number, got {type(value).__name__}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise IdError(f"{label} must be a finite number of seconds, got {value!r}")
+    if number < 0:
+        raise IdError(f"{label} must not be negative, got {value!r}")
+    return number
 
 
 def validate_source_type(value: Any) -> str:
@@ -264,25 +295,70 @@ def parse_library_id(value: str) -> tuple[str, str]:
 
 
 def global_id_from_library_id(
-    value: str, *, source_type: str = DEFAULT_SOURCE_TYPE
+    value: str, *, source_type: str | None = None
 ) -> GlobalId:
     """Convert a library id to its global form.
 
-    ``concept:<hash>`` maps into the reserved ``library:concepts`` namespace
-    (D-016); every other library id is ``<external-id>:<local-id>`` inside
-    *source_type*.
+    The library form states two parts and the global form needs three, so the
+    missing part — the source type — is supplied by the caller. Pass the
+    ``source_type`` the record carries (``library.py`` writes it beside every
+    node, D-011) and the conversion is exact for **every** source type. Omit it
+    and the id is read as a legacy YouTube one, which is what every library id
+    written before D-011 is.
+
+    ``concept:<hash>`` is the one prefix with a reserved meaning: a canonical
+    concept in the ``library:concepts`` namespace (D-016). That reading applies
+    only when the caller states no source type, or states ``library``. An
+    ingested source whose external id is literally ``concept`` therefore keeps
+    its own namespace — passing ``source_type="youtube"`` yields
+    ``youtube:concept:<hash>``, not the library concept it used to be silently
+    captured into. A stated source type is always taken literally; only the
+    unstated case falls back to the reserved reading.
     """
     prefix, suffix = parse_library_id(value)
     if prefix == CONCEPT_LIBRARY_PREFIX:
-        return concept_global_id(suffix)
-    return make_global_id(source_type, prefix, suffix)
+        if source_type is None or source_type == LIBRARY_SOURCE_TYPE:
+            return concept_global_id(suffix)
+        return make_global_id(source_type, prefix, suffix)
+    return make_global_id(
+        DEFAULT_SOURCE_TYPE if source_type is None else source_type, prefix, suffix
+    )
 
 
 def library_id_from_global_id(value: GlobalId | str) -> str:
-    """Convert a global id back to the library form. Inverse of the above."""
+    """Convert a global id back to the library form.
+
+    Left inverse of :func:`global_id_from_library_id` for every source type,
+    given the source type back::
+
+        library = library_id_from_global_id(g)
+        global_id_from_library_id(library, source_type=g.source_type) == g
+
+    That round trip is total — it holds for ``library:concepts:<hash>``, for a
+    source whose external id happens to be ``concept``, and for every source
+    type, not only ``youtube``. The source type is not recoverable from the
+    library string alone; it never was, and pretending otherwise is what made
+    the conversion lossy.
+
+    Exactly one global id has no library form: ``library:concept:<local>``,
+    whose two-part spelling ``concept:<local>`` is the reserved concept
+    encoding of D-016 inside the very namespace that reserves it. It is
+    refused rather than written down as an id that reads back as a different
+    record.
+    """
     global_id = value if isinstance(value, GlobalId) else parse_global_id(value)
     if global_id.is_library_concept:
         return make_concept_library_id(global_id.local_id)
+    if (
+        global_id.source_type == LIBRARY_SOURCE_TYPE
+        and global_id.external_id == CONCEPT_LIBRARY_PREFIX
+    ):
+        raise IdError(
+            f"{global_id.value!r} has no library form: "
+            f"{CONCEPT_LIBRARY_PREFIX}:{global_id.local_id} is the reserved spelling of "
+            f"{LIBRARY_SOURCE_TYPE}:{LIBRARY_CONCEPTS_EXTERNAL_ID}:{global_id.local_id} "
+            "(D-016), so the two would be indistinguishable"
+        )
     return make_library_id(global_id.external_id, global_id.local_id)
 
 
@@ -345,14 +421,25 @@ def check_locator(locator: Mapping[str, Any]) -> None:
     """Invariant 3 — a ``time_range`` locator has ``end_sec >= start_sec``.
 
     Any ``artifact_id`` present must also be a well-formed global id.
+
+    A ``time_range`` must actually state two timings, and each must be a
+    finite, non-negative number of seconds — the ``timestampSec`` contract.
+    Before this checked, a locator carrying ``None``, a string, or a negative
+    second passed the ordering test or crashed out of it with a bare
+    ``TypeError``/``KeyError``, neither of which a caller catching ``IdError``
+    could see. Every failure here is an ``IdError``.
     """
+    _require_mapping(locator, "locator")
     artifact_id = locator.get("artifact_id")
     if artifact_id is not None:
         parse_global_id(artifact_id)
     if locator.get("type") != "time_range":
         return
-    start_sec = locator["start_sec"]
-    end_sec = locator["end_sec"]
+    for field in ("start_sec", "end_sec"):
+        if field not in locator:
+            raise IdError(f"time_range locator is missing {field}")
+    start_sec = _require_seconds(locator["start_sec"], "start_sec")
+    end_sec = _require_seconds(locator["end_sec"], "end_sec")
     if end_sec < start_sec:
         raise IdError(
             f"time_range locator ends at {end_sec} before it starts at {start_sec}"
