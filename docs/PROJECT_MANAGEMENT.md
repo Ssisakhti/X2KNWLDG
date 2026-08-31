@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-08-31 · Phase 0 in progress, `T-001` complete
+**Last updated:** 2026-08-31 · Phase 0 in progress, `T-001` and `T-002` complete
 **Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
@@ -53,7 +53,7 @@ Measured from disk on **2026-08-31**. Re-verify with the commands in §7.3.
 | `coverage.json` status | **`PASS`** (5/5 windows covered, `audit_attempts: 1`) |
 | `validation.json` status | **`PASS`** (all 5 sections) |
 | `output/library/` | 1 video, 69 knowledge nodes, **17 canonical concepts**, 118 edges |
-| Test baseline | **37 passed** (`.venv/bin/python -m pytest -q`) |
+| Test baseline | **95 passed** (`.venv/bin/python -m pytest -q`) — 37 pipeline + 58 schema contract tests. Without `jsonschema`: **37 passed, 1 skipped** |
 | Toolchain | Node 26.5.0 · npm 11.17.0 · Python 3.14.6 · SQLite 3.53.4 with **FTS5 available** |
 
 > **Correction of record.** Canvas plan §4 previously stated the sample had empty
@@ -65,7 +65,8 @@ Measured from disk on **2026-08-31**. Re-verify with the commands in §7.3.
 > - The inverse gap is now open: **no `PARTIAL`/`FAIL` fixture exists**, so those UI
 >   states are currently untestable. See `T-006`.
 
-**Nothing of the UI has been built yet.** No `web/`, no `package.json`, no FastAPI code, no SQLite index, no `docs/adr/`.
+**Nothing of the UI has been built yet.** No `web/`, no `package.json`, no FastAPI code, no SQLite index.
+Phase 0 contracts exist on disk: `docs/adr/` (`T-001`) and `schemas/v1/` (`T-002`).
 
 ---
 
@@ -95,7 +96,7 @@ Flags: **`S`** = serialized (single owner) · **`P`** = parallel-safe once depen
 | ID | Task | Flag | Depends on |
 |---|---|---|---|
 | ~~`T-001`~~ | ✅ **done** — ADR convention (`docs/adr/README.md` + `0000-template.md`), [ADR 0001](adr/0001-local-web-ui.md) consolidating D-001…D-013, canvas plan §19 cross-linked | `S` | — |
-| `T-002` | Define v1 schemas: `Source`, `Artifact`, `Locator`, `EntityRef`, `IndexedRelation`. Versioned + machine-validatable | `S` | `T-001` |
+| ~~`T-002`~~ | ✅ **done** — v1 index model in [`schemas/v1/`](../schemas/v1/README.md): `common`, `Source`, `Artifact`, `Locator`, `EntityRef`, `IndexedRelation`. JSON Schema 2020-12, versioned by directory, 58 contract tests in `tests/test_index_schemas.py` | `S` | `T-001` |
 | `T-003` | Implement the 3-part global ID helper (**D-011**) — additive only, see §6 warning | `S` | `T-002` |
 | `T-004` | Write the YouTube adapter contract mapping `output/<id>/` → the generic model, changing **no** canonical output | `S` | `T-002` |
 | `T-005` | Freeze the API contract (canvas plan §15) as a written schema; set up TypeScript type generation from it | `S` | `T-002` |
@@ -152,6 +153,8 @@ New decisions from this session, formatted for the canvas plan §19 table.
 | D-012 | UI language switchable, English default; bidi-safe content rendering | accepted | Text direction is architectural, not cosmetic — retrofitting it is expensive |
 | D-013 | Correct canvas plan §4 and its dependent criteria; add labeled test-only `PARTIAL`/`FAIL` fixtures | accepted | Acceptance criteria were resting on a stale fact |
 | D-014 | All project documentation in English; Persian only in the UI and in extracted knowledge content | accepted | One documentation language keeps the repo portable between agents and contributors; Persian stays where it serves the user directly |
+| D-015 | Index model versioned by directory (`schemas/v1/`), JSON Schema 2020-12; controlled vocabularies mirrored from `constants.py` and drift-tested; `jsonschema` is a `dev`-extra dependency only | accepted | A breaking change becomes `schemas/v2/` rather than a silent reinterpretation of stored records; mirroring lets the schemas stand alone for TypeScript generation without letting them drift from the Python vocabulary |
+| D-016 | Cross-source canonical concepts use the reserved source type `library` with external id `concepts` — `library:concepts:<hash>` | accepted | Gives `concept:<hash>` a well-formed three-part global id without touching what `library.py` emits, so D-011 covers every entity and not just per-source ones |
 
 ### ⚠️ D-011 is **additive** — do not "clean up" the 2-part ID
 
@@ -180,7 +183,7 @@ A future session must not consolidate these into one form without also updating 
 
 ### 7.2 Regression baseline
 ```bash
-.venv/bin/python -m pytest -q          # expect: 37 passed (plus new tests)
+.venv/bin/python -m pytest -q          # expect: 95 passed (plus new tests)
 git diff --stat -- output/             # expect: empty, always
 ```
 
@@ -282,8 +285,22 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 
 ## 11. Next step
 
-**Start `T-002`** — define the v1 schemas for `Source`, `Artifact`, `Locator`, `EntityRef`, and `IndexedRelation`, versioned and machine-validatable.
+**Start `T-003`** — the three-part global ID helper (D-011), additive only.
 
-`T-001` is complete: the ADR convention is established in [`adr/README.md`](adr/README.md) and the architecture decision is recorded in [ADR 0001](adr/0001-local-web-ui.md), which consolidates D-001…D-013 and lists the ten invariants the build must preserve. Read ADR 0001 §Invariants before writing schema code — invariant 4 (`library.py`'s 2-part ID is load-bearing for `kg_navigator`) and invariant 6 (source-neutrality belongs in the adapter layer, not the canonical files) both constrain `T-002` directly.
+`T-002` is complete: the v1 index model is in [`schemas/v1/`](../schemas/v1/README.md), with
+`tests/test_index_schemas.py` proving that the real sample source projects onto it with no guessed
+field, that the mirrored vocabularies still match `constants.py`, and that 34 dishonest records —
+invented statuses, absolute paths, source units without a locator, user relations with a
+confidence — are rejected.
 
-Phase 0 remains **one agent, no fan-out**. Do not begin Canvas or production UI design until the Phase 0 gate in §5 passes.
+`T-003` should implement in code the three invariants the schemas cannot express, listed in
+[`schemas/v1/README.md`](../schemas/v1/README.md#what-the-schemas-cannot-say): `global_id` equals
+its three parts, `Source.id` equals its two, and a `time_range` locator has `end_sec >= start_sec`.
+Read the §6 warning first — `library.py` keeps its two-part id, and the helper must *add* the
+three-part form rather than replace it.
+
+`T-006` (`PARTIAL`/`FAIL` fixtures) is now unblocked and is the one Phase 0 task flagged `P`; it can
+be picked up by the same agent at any point.
+
+Phase 0 remains **one agent, no fan-out**. Do not begin Canvas or production UI design until the
+Phase 0 gate in §5 passes.

@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x2knwldg.local/schemas/v1/locator.schema.json",
+  "title": "Locator (v1)",
+  "description": "The precise location of evidence or an anchor inside an artifact. Canvas plan §10.3. A Locator must never be constructed without canonical data: every branch requires its coordinates outright, nulls are not accepted, no field has a default, and each branch is closed so a coordinate belonging to another locator type cannot ride along. In v1 only 'time_range' is produced — the remaining types are reserved so that adding PDFs, articles, or posts needs no schema version bump. 'type' is the discriminator: the branches are written as if/then rather than oneOf so a failure names the real cause instead of reporting that six alternatives all failed. TypeScript generation (T-005) should treat 'type' as the discriminated-union tag. Each branch repeats 'type' and 'artifact_id' rather than sharing them by reference, because 'additionalProperties' does not see through a $ref.",
+  "type": "object",
+  "required": [
+    "type"
+  ],
+  "properties": {
+    "type": {
+      "description": "Locator discriminator.",
+      "enum": [
+        "time_range",
+        "page",
+        "page_bbox",
+        "text_span",
+        "post_id",
+        "url_fragment"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "title": "time_range — implemented in v1",
+      "description": "Seconds into a time-based medium. end_sec must be greater than or equal to start_sec; JSON Schema cannot compare two fields, so that bound is asserted in tests/test_index_schemas.py and must be enforced by the adapter.",
+      "if": {
+        "properties": {
+          "type": {
+            "const": "time_range"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "type",
+          "start_sec",
+          "end_sec"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "time_range"
+          },
+          "artifact_id": {
+            "$ref": "common.schema.json#/$defs/globalId"
+          },
+          "start_sec": {
+            "$ref": "common.schema.json#/$defs/timestampSec"
+          },
+          "end_sec": {
+            "$ref": "common.schema.json#/$defs/timestampSec"
+          },
+          "segment_id": {
+            "description": "Canonical segment id (segments.json) or caption id (transcript.json) the range came from.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "excerpt": {
+            "description": "Verbatim evidence excerpt from the canonical source object. Never paraphrased, never empty.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "title": "page — reserved",
+      "if": {
+        "properties": {
+          "type": {
+            "const": "page"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "type",
+          "page"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "page"
+          },
+          "artifact_id": {
+            "$ref": "common.schema.json#/$defs/globalId"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "title": "page_bbox — reserved",
+      "description": "bbox is [x0, y0, x1, y1] in the page coordinate system of the document.",
+      "if": {
+        "properties": {
+          "type": {
+            "const": "page_bbox"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "type",
+          "page",
+          "bbox"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "page_bbox"
+          },
+          "artifact_id": {
+            "$ref": "common.schema.json#/$defs/globalId"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          }
+        }
+      }
+    },
+    {
+      "title": "text_span — reserved",
+      "description": "Half-open character range [start_char, end_char) into the addressed artifact's text.",
+      "if": {
+        "properties": {
+          "type": {
+            "const": "text_span"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "type",
+          "artifact_id",
+          "start_char",
+          "end_char"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "text_span"
+          },
+          "artifact_id": {
+            "$ref": "common.schema.json#/$defs/globalId"
+          },
+          "start_char": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end_char": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "excerpt": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "title": "post_id — reserved",
+      "if": {
+        "properties": {
+          "type": {
+            "const": "post_id"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "type",
+          "post_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "post_id"
+          },
+          "artifact_id": {
+            "$ref": "common.schema.json#/$defs/globalId"
+          },
+          "post_id": {
+            "$ref": "common.schema.json#/$defs/idPart"
+          }
+        }
+      }
+    },
+    {
+      "title": "url_fragment — reserved",
+      "if": {
+        "properties": {
+          "type": {
+            "const": "url_fragment"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "type",
+          "url",
+          "fragment"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "url_fragment"
+          },
+          "artifact_id": {
+            "$ref": "common.schema.json#/$defs/globalId"
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "fragment": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      }
+    }
+  ]
+}

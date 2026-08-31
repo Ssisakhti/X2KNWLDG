@@ -21,7 +21,11 @@ legacy = [
   "networkx>=3.0",
   "pyvis>=0.3.2",
 ]
-dev = ["pytest>=8.0"]
+dev = [
+  "pytest>=8.0",
+  # Validates schemas/v1/ in tests only; the core package stays zero-dependency.
+  "jsonschema>=4.18",
+]
 
 [project.scripts]
 x2knwldg = "x2knwldg.cli:main"

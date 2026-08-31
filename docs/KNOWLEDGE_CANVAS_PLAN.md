@@ -854,6 +854,8 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-012 | Switchable UI language, English default | accepted | Text direction is architectural, not cosmetic; adding it later is expensive |
 | D-013 | Correct §4 and its dependent criteria, and add labelled test-only fixtures | accepted | Acceptance criteria were resting on a stale fact |
 | D-014 | All project documentation in English; Persian only in the UI and in extracted knowledge content | accepted | One documentation language keeps the repo portable between agents and contributors; Persian remains available where it serves the user directly |
+| D-015 | The index model is versioned by directory — `schemas/v1/`, JSON Schema 2020-12. Controlled vocabularies are mirrored from `constants.py` and drift-tested; `jsonschema` stays a `dev`-extra dependency | accepted | A breaking change becomes `schemas/v2/` instead of a silent reinterpretation of stored records; mirroring lets the schemas stand alone for TypeScript generation without drifting from the Python vocabulary. Operates inside [ADR 0001](adr/0001-local-web-ui.md); see [`schemas/v1/README.md`](../schemas/v1/README.md) |
+| D-016 | Cross-source canonical concepts use the reserved source type `library` with external id `concepts`, giving `library:concepts:<hash>` | accepted | Extends D-011 to entities that belong to no single source, without changing what `library.py` emits |
 
 ## 20. Open questions
 
@@ -912,12 +914,13 @@ An agent must not guess the answers to these if the decision would cause a notic
 - [x] Verify the real state of the canonical outputs and correct §4 (2026-08-31)
 - [x] Create the execution tracker at `docs/PROJECT_MANAGEMENT.md` with a task breakdown and the agent parallelism model
 - [x] Phase 0 / T-001: ADR convention and [ADR 0001](adr/0001-local-web-ui.md)
+- [x] Phase 0 / T-002: v1 index model in [`schemas/v1/`](../schemas/v1/README.md) — Source, Artifact, Locator, EntityRef, IndexedRelation — with contract tests that project the real sample onto it
 - [x] Translate this document to English per D-014
 
 ### Not started
 
-- [ ] Phase 0: generic schemas (T-002 onward)
-- [ ] YouTube adapter
+- [ ] Phase 0: remaining contracts (T-003 ID helper, T-005 API freeze, T-006 fixtures, T-007 repository seam, T-008 scaffolding)
+- [ ] YouTube adapter (T-004)
 - [ ] SQLite index
 - [ ] FastAPI local API
 - [ ] React/Vite scaffolding
@@ -935,13 +938,14 @@ The next execution session must start Phase 0 only:
 
 1. Review the current schemas and the real knowledge unit/source IDs.
 2. ~~Write the architecture ADR in `docs/adr/`.~~ Done — [ADR 0001](adr/0001-local-web-ui.md), with the ADR convention in `docs/adr/README.md`.
-3. Define version 1 schemas for:
-   - Source
-   - Artifact
-   - Locator
-   - EntityRef
-   - IndexedRelation
-4. Define the YouTube adapter contract without changing any existing canonical output.
+3. ~~Define version 1 schemas for Source, Artifact, Locator, EntityRef, and IndexedRelation.~~
+   Done — [`schemas/v1/`](../schemas/v1/README.md), validated by `tests/test_index_schemas.py`.
+   Three invariants are beyond JSON Schema and remain the adapter's obligation: a global id equals
+   its three parts, a source id equals its two, and a `time_range` locator has
+   `end_sec >= start_sec`.
+4. Define the YouTube adapter contract without changing any existing canonical output. The shape
+   probe in `tests/test_index_schemas.py::_project_sample` shows the mapping and should be replaced
+   by a call into the real adapter.
 5. Build valid, clearly labelled test-only fixtures for the `PARTIAL` and `FAIL` states. A real, complete graph is already available from the existing `PASS` sample and does not need to be constructed.
 6. Run the existing tests and add schema/adapter tests.
 

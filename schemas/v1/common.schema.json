@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x2knwldg.local/schemas/v1/common.schema.json",
+  "title": "X2KNWLDG index model — shared primitives (v1)",
+  "description": "Reusable definitions for the source-neutral index/API model. These definitions describe the DERIVED index and API layer only. No canonical file under output/<source-id>/ is described, constrained, or changed by this schema.",
+  "$defs": {
+    "schemaVersion": {
+      "description": "Version of the index model this record conforms to. Bumped only by a new schemas/<version>/ directory.",
+      "const": "1.0"
+    },
+    "sourceType": {
+      "description": "Adapter namespace. Lowercase, snake_case. Open by design: adding a source type must not require a schema change. Known values in v1: youtube (implemented); twitter, medium, article, pdf, file (planned); library (reserved for cross-source library entities such as canonical concepts).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 32,
+      "examples": ["youtube", "twitter", "medium", "library"]
+    },
+    "idPart": {
+      "description": "One URL-safe segment of an identifier. Colons are excluded so identifiers split unambiguously.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "sourceId": {
+      "description": "Two-part source identifier: <source-type>:<external-id>. Identifies a Source, not an entity inside it.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*:[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "maxLength": 300,
+      "examples": ["youtube:pqlWNihgdjI"]
+    },
+    "globalId": {
+      "description": "Three-part global entity identifier (D-011): <source-type>:<external-id>:<local-id>. Identity for the index, the API, and board files. Parse with a two-limit split on ':'.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*:[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "maxLength": 600,
+      "examples": ["youtube:pqlWNihgdjI:KU-000001", "youtube:pqlWNihgdjI:KU-D-0001", "library:concepts:1f4a9c2b7e01"]
+    },
+    "libraryId": {
+      "description": "Identifier exactly as it appears in output/library/graph.json. Two-part <video-id>:<knowledge-unit-id> for knowledge units, or concept:<hash> for canonical concepts. Mandated by .claude/commands/kg_navigator.md and emitted by library.py:49. Carried alongside globalId so the two vocabularies cannot drift (ADR 0001 invariant 4).",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "maxLength": 600,
+      "examples": ["pqlWNihgdjI:KU-000001", "concept:1f4a9c2b7e01"]
+    },
+    "provenanceClass": {
+      "description": "Origin of an entity or relation. 'source' is directly supportable from the source, 'derived' is recorded synthesis, 'user' is manual workspace content. Never signalled by colour alone in the UI (ADR 0001 invariant 10). A 'user' record is never written into a canonical file.",
+      "enum": ["source", "derived", "user"]
+    },
+    "runStatus": {
+      "description": "Run status as reported by the canonical validator files. UNKNOWN means the file is absent or unreadable — it must never be substituted with PASS, and PARTIAL/FAIL must never be coerced upward (ADR 0001 invariant 2).",
+      "enum": ["PASS", "PARTIAL", "FAIL", "UNKNOWN"]
+    },
+    "confidence": {
+      "description": "Confidence copied verbatim from canonical data. Never invented, never defaulted.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "timestampSec": {
+      "description": "Seconds from the start of the media.",
+      "type": "number",
+      "minimum": 0
+    },
+    "projectRelativePath": {
+      "description": "Path relative to the project root, using forward slashes. Absolute paths and parent traversal are rejected: output/library/status.json and videos.json contain absolute host paths, which the index must never store or trust (risk R15).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "isoTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "minLength": 1
+    },
+    "adapterRef": {
+      "description": "Which adapter produced this record, so a stale record can be traced to the code that wrote it.",
+      "type": "object",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "canonicalRelationType": {
+      "description": "The 16 relation types of src/x2knwldg/constants.py RELATION_TYPES. Mirrored here deliberately; tests/test_index_schemas.py asserts the two stay identical.",
+      "enum": [
+        "supports",
+        "contradicts",
+        "causes",
+        "contributes_to",
+        "depends_on",
+        "enables",
+        "inhibits",
+        "exemplifies",
+        "is_example_of",
+        "is_evidence_for",
+        "refines",
+        "qualifies",
+        "is_part_of",
+        "precedes",
+        "results_in",
+        "related_to"
+      ]
+    },
+    "librarySyntheticRelationType": {
+      "description": "Edges synthesised by library.py that are deliberately NOT in RELATION_TYPES. In the current data they are the two most common edges in output/library/graph.json (45 derived_from, 17 expresses_concept of 118).",
+      "enum": ["derived_from", "expresses_concept"]
+    },
+    "knowledgeKind": {
+      "description": "The 22 source kinds plus the 8 derived kinds of constants.py, plus canonical_concept as emitted by library.py for concept nodes. Drift-tested against constants.py.",
+      "enum": [
+        "claim",
+        "evidence",
+        "fact",
+        "statistic",
+        "concept",
+        "definition",
+        "framework",
+        "principle",
+        "process",
+        "instruction",
+        "recommendation",
+        "example",
+        "case_study",
+        "analogy",
+        "caveat",
+        "limitation",
+        "assumption",
+        "counterargument",
+        "question",
+        "open_problem",
+        "reference",
+        "quote",
+        "relationship",
+        "implication",
+        "generalized_rule",
+        "mental_model",
+        "diagnostic_model",
+        "actionable_experiment",
+        "hypothesis",
+        "synthesis",
+        "canonical_concept"
+      ]
+    }
+  }
+}

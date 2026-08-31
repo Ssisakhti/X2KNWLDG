@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x2knwldg.local/schemas/v1/entity_ref.schema.json",
+  "title": "EntityRef (v1)",
+  "description": "The addressable handle for anything the index, the API, or a board can point at — a knowledge unit, a canonical concept, a source, an artifact, a transcript segment, or a piece of user content. It is a projection for addressing and display; the canonical files stay authoritative for content. Canvas plan §10.4.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "global_id",
+    "source_type",
+    "external_id",
+    "local_id",
+    "entity_type",
+    "provenance_class"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "global_id": {
+      "$ref": "common.schema.json#/$defs/globalId",
+      "description": "Identity across index, API, and boards (D-011). Must equal source_type + ':' + external_id + ':' + local_id; the equality is asserted in tests, being beyond what JSON Schema can express."
+    },
+    "source_type": { "$ref": "common.schema.json#/$defs/sourceType" },
+    "external_id": { "$ref": "common.schema.json#/$defs/idPart" },
+    "local_id": {
+      "$ref": "common.schema.json#/$defs/idPart",
+      "description": "The id inside the source — a canonical knowledge unit id such as KU-000001 or KU-D-0001, an artifact name, a segment id, or a workspace-generated id for user content."
+    },
+    "library_id": {
+      "description": "The identifier as output/library/graph.json spells it. Required for knowledge units and canonical concepts, because the kg_navigator skill addresses those nodes by this form and library.py must keep emitting it (ADR 0001 invariant 4, risk R12).",
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/libraryId" },
+        { "type": "null" }
+      ]
+    },
+    "source_id": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/sourceId" },
+        { "type": "null" }
+      ]
+    },
+    "entity_type": {
+      "enum": [
+        "source",
+        "artifact",
+        "knowledge_unit",
+        "concept",
+        "caption",
+        "segment",
+        "coverage_window",
+        "board",
+        "board_item",
+        "user_note",
+        "user_relation"
+      ]
+    },
+    "provenance_class": { "$ref": "common.schema.json#/$defs/provenanceClass" },
+    "kind": {
+      "description": "Knowledge kind for knowledge units and concepts; null for everything else.",
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/knowledgeKind" },
+        { "type": "null" }
+      ]
+    },
+    "label": {
+      "description": "Display text. For a knowledge unit this is normalized_statement or content, exactly as library.py:52 already chooses it — never a new summary.",
+      "type": ["string", "null"],
+      "maxLength": 4096
+    },
+    "confidence": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/confidence" },
+        { "type": "null" }
+      ]
+    },
+    "locator": {
+      "description": "Where the evidence sits in an artifact. Required for a source-class knowledge unit, mirroring the provenance that validators.py:50 already enforces.",
+      "oneOf": [
+        { "$ref": "locator.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "derived_from": {
+      "description": "Global ids this unit was synthesised from. Required for a derived-class knowledge unit.",
+      "type": ["array", "null"],
+      "items": { "$ref": "common.schema.json#/$defs/globalId" },
+      "uniqueItems": true
+    },
+    "derivation_note": {
+      "description": "The recorded reasoning behind a derived unit, copied verbatim.",
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "canonical_path": {
+      "description": "Project-relative path of the canonical file this projection was read from. Null for user content, which has no canonical file.",
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/projectRelativePath" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "description": "Knowledge units and canonical concepts must carry the library id form as well as the global id.",
+      "if": {
+        "properties": { "entity_type": { "enum": ["knowledge_unit", "concept"] } },
+        "required": ["entity_type"]
+      },
+      "then": {
+        "required": ["library_id", "kind"],
+        "properties": {
+          "library_id": { "type": "string" },
+          "kind": { "type": "string" }
+        }
+      }
+    },
+    {
+      "description": "A source-class knowledge unit is grounded in the medium; without a locator it is not source-class.",
+      "if": {
+        "properties": {
+          "entity_type": { "const": "knowledge_unit" },
+          "provenance_class": { "const": "source" }
+        },
+        "required": ["entity_type", "provenance_class"]
+      },
+      "then": {
+        "required": ["locator"],
+        "properties": { "locator": { "type": "object" } }
+      }
+    },
+    {
+      "description": "A derived-class knowledge unit must show its work.",
+      "if": {
+        "properties": {
+          "entity_type": { "const": "knowledge_unit" },
+          "provenance_class": { "const": "derived" }
+        },
+        "required": ["entity_type", "provenance_class"]
+      },
+      "then": {
+        "required": ["derived_from", "derivation_note"],
+        "properties": {
+          "derived_from": { "type": "array", "minItems": 1 },
+          "derivation_note": { "type": "string" }
+        }
+      }
+    },
+    {
+      "description": "User content never claims a canonical file (three-tier storage boundary, D-006).",
+      "if": {
+        "properties": { "provenance_class": { "const": "user" } },
+        "required": ["provenance_class"]
+      },
+      "then": { "properties": { "canonical_path": { "type": "null" } } }
+    }
+  ]
+}

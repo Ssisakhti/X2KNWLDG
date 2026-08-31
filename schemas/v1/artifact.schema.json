@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x2knwldg.local/schemas/v1/artifact.schema.json",
+  "title": "Artifact (v1)",
+  "description": "One representation or file belonging to a Source — a canonical pipeline file, an immutable raw evidence file, or a remote medium such as a YouTube video. Canvas plan §10.2. An artifact that does not exist locally is reported as unavailable; a missing artifact is never masked with a placeholder or fabricated data (canvas plan §15).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "source_id",
+    "kind",
+    "role",
+    "immutable",
+    "available"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "id": {
+      "$ref": "common.schema.json#/$defs/globalId",
+      "description": "Three-part global id, local part naming the artifact — e.g. youtube:pqlWNihgdjI:transcript."
+    },
+    "source_id": { "$ref": "common.schema.json#/$defs/sourceId" },
+    "kind": {
+      "description": "What the artifact is. Grounded in the files the pipeline actually writes plus the media types planned for later phases.",
+      "enum": [
+        "metadata",
+        "raw_source",
+        "raw_transcript",
+        "transcript",
+        "segments",
+        "knowledge_units",
+        "relationships",
+        "graph",
+        "coverage",
+        "validation",
+        "report",
+        "extraction_bundle",
+        "vault_note",
+        "video",
+        "audio",
+        "image",
+        "pdf",
+        "article"
+      ]
+    },
+    "role": {
+      "description": "Storage tier and mutability class. 'raw' is immutable evidence under output/<id>/raw/. 'canonical' is pipeline output under output/<id>/. 'work' is intermediate pipeline scratch. 'export' is a generated view such as a vault note. 'external' has no local file — it lives at a URL.",
+      "enum": ["raw", "canonical", "work", "export", "external"]
+    },
+    "media_type": {
+      "description": "IANA media type when known; null rather than a guess.",
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "path": {
+      "description": "Project-relative path, or null for an external artifact. Never an absolute host path (risk R15).",
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/projectRelativePath" },
+        { "type": "null" }
+      ]
+    },
+    "url": {
+      "description": "Remote location, or null. For a YouTube video this is the watch URL: there is no local media file and the UI must never assume one exists.",
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "bytes": { "type": ["integer", "null"], "minimum": 0 },
+    "sha256": {
+      "description": "Content hash from io.sha256_file, used for incremental indexing. Null when not hashed or not local.",
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "immutable": {
+      "description": "True for every artifact with role 'raw'. Nothing in the UI or API may write to an immutable artifact (ADR 0001 invariant 1).",
+      "type": "boolean"
+    },
+    "available": {
+      "description": "Whether the artifact was present at index time. False is displayed honestly as missing.",
+      "type": "boolean"
+    },
+    "indexed_at": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/isoTimestamp" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "description": "An artifact must be locatable: a local path, a remote URL, or both.",
+      "anyOf": [
+        { "required": ["path"], "properties": { "path": { "type": "string" } } },
+        { "required": ["url"], "properties": { "url": { "type": "string" } } }
+      ]
+    },
+    {
+      "description": "role 'raw' implies immutable.",
+      "if": { "properties": { "role": { "const": "raw" } }, "required": ["role"] },
+      "then": { "properties": { "immutable": { "const": true } } }
+    },
+    {
+      "description": "role 'external' has no local path.",
+      "if": { "properties": { "role": { "const": "external" } }, "required": ["role"] },
+      "then": {
+        "required": ["url"],
+        "properties": { "path": { "type": "null" }, "url": { "type": "string" } }
+      }
+    }
+  ]
+}

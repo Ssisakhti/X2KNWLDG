@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x2knwldg.local/schemas/v1/source.schema.json",
+  "title": "Source (v1)",
+  "description": "A primary source that has been ingested by the pipeline: one output/<source-id>/ directory viewed through an adapter. Canvas plan §10.1. This record is a derived index projection; the canonical directory remains the source of truth.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "source_type",
+    "external_id",
+    "canonical_dir",
+    "status",
+    "adapter"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "id": {
+      "$ref": "common.schema.json#/$defs/sourceId",
+      "description": "Two-part <source_type>:<external_id>. Must equal the join of those two fields; enforced by test, not expressible in JSON Schema."
+    },
+    "source_type": { "$ref": "common.schema.json#/$defs/sourceType" },
+    "external_id": {
+      "$ref": "common.schema.json#/$defs/idPart",
+      "description": "The id in the source system. For YouTube this is metadata.json video_id, which stays named video_id in every canonical file (ADR 0001 invariant 6)."
+    },
+    "url": {
+      "description": "Canonical URL of the source, or null when the source has none. Never fabricated.",
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "title": { "type": ["string", "null"], "maxLength": 1024 },
+    "author": {
+      "description": "Publisher or author as recorded by the adapter — YouTube channel, Twitter/X handle, Medium author. Null when the canonical metadata does not carry one.",
+      "type": ["string", "null"],
+      "maxLength": 512
+    },
+    "language": {
+      "description": "Language tag copied from canonical metadata. Not normalised, not guessed.",
+      "type": ["string", "null"],
+      "maxLength": 32
+    },
+    "duration_sec": {
+      "description": "Media duration for time-based sources; null for text sources.",
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "imported_at": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/isoTimestamp" },
+        { "type": "null" }
+      ]
+    },
+    "extracted_at": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/isoTimestamp" },
+        { "type": "null" }
+      ]
+    },
+    "canonical_dir": {
+      "$ref": "common.schema.json#/$defs/projectRelativePath",
+      "description": "Project-relative path of output/<source-id>/. Read-only to the UI; raw/ inside it is immutable evidence (ADR 0001 invariant 1)."
+    },
+    "status": {
+      "description": "Run status, read from the canonical validator files only. Never recomputed, never inferred, never coerced toward PASS (ADR 0001 invariant 2).",
+      "type": "object",
+      "required": ["validation", "coverage", "overall"],
+      "additionalProperties": false,
+      "properties": {
+        "validation": {
+          "$ref": "common.schema.json#/$defs/runStatus",
+          "description": "The 'status' field of validation.json, verbatim. UNKNOWN when the file is missing or unreadable."
+        },
+        "coverage": {
+          "$ref": "common.schema.json#/$defs/runStatus",
+          "description": "The 'status' field of coverage.json, verbatim."
+        },
+        "overall": {
+          "$ref": "common.schema.json#/$defs/runStatus",
+          "description": "The top-level 'status' of validation.json, which already aggregates all five sections including coverage. Copied, not derived."
+        },
+        "audit_attempts": {
+          "description": "coverage.json audit_attempts, verbatim. Capped at 3 by WORKFLOW.md.",
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 3
+        },
+        "validation_path": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/projectRelativePath" },
+            { "type": "null" }
+          ]
+        },
+        "coverage_path": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/projectRelativePath" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "counts": {
+      "description": "Cached counts for list rendering. A cache convenience only: every count must be reproducible from the canonical files, and a stale count is a bug, never a data achievement.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "knowledge_units": { "type": "integer", "minimum": 0 },
+        "source_units": { "type": "integer", "minimum": 0 },
+        "derived_units": { "type": "integer", "minimum": 0 },
+        "relationships": { "type": "integer", "minimum": 0 },
+        "captions": { "type": "integer", "minimum": 0 },
+        "segments": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "artifact_ids": {
+      "description": "Global ids of the artifacts belonging to this source.",
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/globalId" },
+      "uniqueItems": true
+    },
+    "adapter": { "$ref": "common.schema.json#/$defs/adapterRef" },
+    "adapter_metadata": {
+      "description": "Source-specific fields the generic model does not model — for YouTube: transcript_source, transcript_hash, pipeline_version, extraction. Free-form on purpose: an adapter must never be forced to drop canonical metadata, and must never be tempted to smuggle it into a typed field where it does not belong.",
+      "type": "object"
+    }
+  }
+}
