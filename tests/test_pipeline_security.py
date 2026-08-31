@@ -871,3 +871,84 @@ def test_a_symlink_that_stays_inside_the_output_root_is_accepted(tmp_path: Path)
     real.mkdir(parents=True)
     (output / "alias").symlink_to(real, target_is_directory=True)
     assert resolve_run_dir(output, "alias") == real.resolve()
+
+
+# ---------------------------------------------------------------------------
+# "Immutable evidence" now has a detection story
+# ---------------------------------------------------------------------------
+
+
+def _pass_run(tmp_path: Path) -> Path:
+    run_dir = tmp_path / "pass-run"
+    shutil.copytree(FIXTURES / "runs" / "pass-run", run_dir)
+    return run_dir
+
+
+def test_an_untouched_run_passes_the_evidence_check(tmp_path: Path) -> None:
+    result = validate_run(_pass_run(tmp_path))
+    assert result["evidence"]["status"] == "PASS"
+    assert result["status"] == "PASS"
+
+
+def test_editing_the_preserved_original_is_detected(tmp_path: Path) -> None:
+    """``transcript_hash`` was written once and never read back.
+
+    No write path targets ``raw/`` — that held up under audit — but nothing
+    would have noticed if something else did, which is a policy without a
+    detection story.
+    """
+    run_dir = _pass_run(tmp_path)
+    raw = run_dir / "raw" / "source.srt"
+    raw.write_text(raw.read_text(encoding="utf-8") + "\nforged\n", encoding="utf-8")
+
+    result = validate_run(run_dir)
+    assert result["evidence"]["status"] == "FAIL"
+    codes = {error["code"] for error in result["evidence"]["errors"]}
+    assert codes == {"transcript_hash_mismatch"}
+    assert result["status"] == "FAIL"
+
+
+def test_a_run_whose_evidence_was_edited_cannot_be_finalized(tmp_path: Path) -> None:
+    """The verdict has to reach the gate, or detection changes nothing."""
+    from x2knwldg.artifacts import finalize_run
+
+    run_dir = _pass_run(tmp_path)
+    raw = run_dir / "raw" / "source.srt"
+    raw.write_text(raw.read_text(encoding="utf-8") + "\nforged\n", encoding="utf-8")
+    with pytest.raises(PipelineError):
+        finalize_run(run_dir)
+
+
+def test_deleting_the_preserved_original_is_detected(tmp_path: Path) -> None:
+    run_dir = _pass_run(tmp_path)
+    (run_dir / "raw" / "source.srt").unlink()
+    result = validate_run(run_dir)
+    assert {e["code"] for e in result["evidence"]["errors"]} == {"raw_source_missing"}
+
+
+def test_two_candidate_originals_are_not_evidence(tmp_path: Path) -> None:
+    run_dir = _pass_run(tmp_path)
+    shutil.copy2(run_dir / "raw" / "source.srt", run_dir / "raw" / "source.vtt")
+    result = validate_run(run_dir)
+    assert {e["code"] for e in result["evidence"]["errors"]} == {"raw_source_ambiguous"}
+
+
+def test_a_run_that_records_no_hash_is_refused(tmp_path: Path) -> None:
+    run_dir = _pass_run(tmp_path)
+    metadata = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))
+    del metadata["transcript_hash"]
+    (run_dir / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    result = validate_run(run_dir)
+    assert "transcript_hash_missing" in {e["code"] for e in result["evidence"]["errors"]}
+
+
+def test_the_two_canonical_files_must_agree_about_the_hash(tmp_path: Path) -> None:
+    """``metadata.json`` and ``transcript.json`` both carry it; one fact, one value."""
+    run_dir = _pass_run(tmp_path)
+    transcript = json.loads((run_dir / "transcript.json").read_text(encoding="utf-8"))
+    transcript["transcript_hash"] = "0" * 64
+    (run_dir / "transcript.json").write_text(json.dumps(transcript), encoding="utf-8")
+    result = validate_run(run_dir)
+    assert "transcript_hash_disagreement" in {
+        e["code"] for e in result["evidence"]["errors"]
+    }

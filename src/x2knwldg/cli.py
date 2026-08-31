@@ -468,10 +468,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "search":
             from .query import search_knowledge
 
+            unreadable: list[dict[str, str]] = []
             results = search_knowledge(
-                args.output, args.query, video_id=args.video_id, limit=args.limit
+                args.output,
+                args.query,
+                video_id=args.video_id,
+                limit=args.limit,
+                unreadable=unreadable,
             )
-            print(json.dumps({"results": results}, ensure_ascii=False, indent=2))
+            # A run this could not read is named, never absorbed: a short result
+            # list and a damaged library must not look the same.
+            print(
+                json.dumps(
+                    {"results": results, "unreadable": unreadable},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
             return EXIT_OK
         if args.command == "rebuild-library":
             from .library import rebuild_library

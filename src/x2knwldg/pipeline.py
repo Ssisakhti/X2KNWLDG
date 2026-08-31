@@ -354,6 +354,7 @@ def import_transcript(
         run_dir / "validation.json",
         {
             "transcript": integrity,
+            "evidence": _evidence_integrity(run_dir, metadata, transcript_document),
             "knowledge_units": validate_knowledge_units(knowledge_document),
             "relationships": validate_relationships(relationship_document, set()),
             "coverage": validate_coverage(coverage, metadata["duration_sec"]),
@@ -462,6 +463,51 @@ def _read_canonical(path: Path) -> dict[str, Any]:
     return document
 
 
+def _evidence_integrity(run_dir: Path, metadata: Any, transcript: Any) -> dict[str, Any]:
+    """Does the preserved evidence still hash to what the run recorded?
+
+    ``metadata.transcript_hash`` was written once, at import, over the file the
+    caller supplied — the file preserved as ``raw/source.<ext>``. Nothing ever
+    read it back, so "immutable evidence" was a policy with no detection story:
+    no write path targets ``raw/`` (that held up under audit), but nothing
+    would have noticed if something else did.
+
+    Recomputing it is the whole check. A run whose evidence no longer matches
+    its own record cannot be finalized, because every downstream artifact would
+    cite a transcript the repository can no longer produce.
+    """
+    errors: list[dict[str, Any]] = []
+    recorded = metadata.get("transcript_hash") if isinstance(metadata, dict) else None
+    sources = sorted((run_dir / "raw").glob("source.*")) if (run_dir / "raw").is_dir() else []
+    if not isinstance(recorded, str) or not recorded:
+        errors.append({"code": "transcript_hash_missing"})
+    if not sources:
+        errors.append({"code": "raw_source_missing", "expected": "raw/source.<ext>"})
+    elif len(sources) > 1:
+        # Two candidate originals is not evidence; it is a question.
+        errors.append(
+            {"code": "raw_source_ambiguous", "files": [path.name for path in sources]}
+        )
+    elif isinstance(recorded, str) and recorded:
+        actual = sha256_file(sources[0])
+        if actual != recorded:
+            errors.append(
+                {
+                    "code": "transcript_hash_mismatch",
+                    "file": f"raw/{sources[0].name}",
+                    "recorded": recorded,
+                    "actual": actual,
+                }
+            )
+    stated = transcript.get("transcript_hash") if isinstance(transcript, dict) else None
+    if isinstance(stated, str) and isinstance(recorded, str) and stated != recorded:
+        # The two canonical files disagree about the same fact.
+        errors.append(
+            {"code": "transcript_hash_disagreement", "metadata": recorded, "transcript": stated}
+        )
+    return {"status": "PASS" if not errors else "FAIL", "errors": errors, "warnings": []}
+
+
 def validate_run(run_dir: Path) -> dict[str, Any]:
     run_dir = run_dir.expanduser().resolve()
     transcript = _read_canonical(run_dir / "transcript.json")
@@ -476,6 +522,7 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
     unit_ids = {unit.get("id") for unit in units if isinstance(unit, dict) and unit.get("id")}
     result = {
         "transcript": integrity,
+        "evidence": _evidence_integrity(run_dir, metadata, transcript),
         "knowledge_units": validate_knowledge_units(knowledge),
         "provenance": validate_provenance(
             knowledge, transcript, segments, metadata.get("video_id", "")

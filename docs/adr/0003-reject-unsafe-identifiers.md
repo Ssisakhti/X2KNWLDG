@@ -40,7 +40,7 @@ Every clause of that is now wrong, and the middle one was wrong when it was writ
    Risk R14 is recorded as mitigated on exactly this basis, with traversal cases in
    `tests/test_core_pipeline.py::RunLookupTests`. An implementer told those call sites are
    unguarded and must not be copied would avoid the one pattern that is right.
-3. **Its line citation had rotted.** It cited `pipeline.py:42`; by the commit where this was
+3. **Its line citation had rotted.** It cited `pipeline.py:42`; by the commit where this was <!-- citation:history -->
    audited (`441fe9f`) that line was blank and `_safe_identifier` had moved well down the
    file. A reader who followed the citation found nothing and had no way to tell whether the
    function or the number was wrong. See the note on citations at the end.
@@ -154,7 +154,7 @@ file's status line only."* This ADR is that.
 ## A note on citations in this file
 
 This ADR cites **symbol names, not line numbers**. ADR 0001 invariant 8 pointed at
-`pipeline.py:42` and, by the time anyone read it, that was a blank line — the fact was
+`pipeline.py:42` and, by the time anyone read it, that was a blank line — the fact was <!-- citation:history -->
 stale before the rule was. A symbol name survives every edit that does not rename or delete
 the thing being cited, and when it *is* renamed, a grep finds nothing and the reader knows
 the citation is stale instead of being sent to the wrong line with full confidence.

@@ -604,3 +604,42 @@ def test_a_scaffolded_run_produces_a_valid_source_record(
         for record in model_records:
             errors = _check(validators[model], record)
             assert not errors, f"{model} {record.get('id') or record.get('global_id')}: {errors}"
+
+
+# ---------------------------------------------------------------------------
+# The window vocabulary has one home
+# ---------------------------------------------------------------------------
+
+
+def test_the_bundle_window_statuses_are_the_shared_vocabulary() -> None:
+    """``pending`` was missing from the schema while the code wrote it.
+
+    ``coverage.create_pending_coverage`` puts ``pending`` in every window of a
+    fresh run, and ``constants.COVERAGE_STATUSES`` has always included it — the
+    bundle schema was the one place that did not, so it described a document
+    the pipeline does not produce. Tying the two together here means the next
+    status to be added cannot land in only one of them.
+    """
+    import json as _json
+
+    from x2knwldg.constants import COVERAGE_STATUSES
+
+    schema = _json.loads(
+        (PROJECT_ROOT / "schemas" / "extraction_bundle.schema.json").read_text(encoding="utf-8")
+    )
+    window = schema["properties"]["coverage"]["properties"]["windows"]["items"]
+    assert set(window["properties"]["status"]["enum"]) == COVERAGE_STATUSES
+
+
+def test_a_fresh_run_writes_windows_the_bundle_schema_accepts() -> None:
+    """The check the missing enum value would have failed."""
+    from x2knwldg.constants import COVERAGE_STATUSES
+    from x2knwldg.coverage import create_pending_coverage
+
+    captions = [
+        {"segment_id": "cap_000001", "start_sec": 0.0, "end_sec": 12.0, "text": "hello"}
+    ]
+    coverage = create_pending_coverage(captions, "vid1")
+    written = {window["status"] for window in coverage["windows"]}
+    assert written == {"pending"}
+    assert written <= COVERAGE_STATUSES

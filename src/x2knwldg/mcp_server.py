@@ -365,13 +365,21 @@ def finalize_video(video_id: str) -> dict[str, Any]:
 @_boundary
 def search_video_knowledge(
     query: str, video_id: str = "", limit: int = 10
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Search canonical knowledge first and raw captions second, preserving source links."""
     from .query import search_knowledge
 
-    return search_knowledge(
-        _output_root(), query, video_id=video_id or None, limit=limit
+    unreadable: list[dict[str, str]] = []
+    results = search_knowledge(
+        _output_root(),
+        query,
+        video_id=video_id or None,
+        limit=limit,
+        unreadable=unreadable,
     )
+    # `unreadable` names the runs a scan could not read. An agent reading these
+    # results has to be able to tell "no such knowledge" from "could not look".
+    return {"results": results, "unreadable": unreadable}
 
 
 @_boundary

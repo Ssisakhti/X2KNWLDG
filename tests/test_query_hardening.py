@@ -247,3 +247,48 @@ def test_a_limit_larger_than_the_corpus_returns_the_corpus(tmp_path: Path) -> No
     """There is no arbitrary ceiling here; the data is the bound."""
     write_run(tmp_path, content="coverage windows", text="coverage windows")
     assert len(search_knowledge(tmp_path, "coverage", limit=10_000)) == 2
+
+
+# ---------------------------------------------------------------------------
+# One damaged run used to take the whole search with it
+# ---------------------------------------------------------------------------
+
+
+def test_a_scan_skips_the_run_it_cannot_read_and_searches_the_rest(tmp_path: Path) -> None:
+    write_run(tmp_path, video_id="good", content="coverage windows", text="coverage windows")
+    damaged = write_run(tmp_path, video_id="broken", content="coverage windows")
+    (damaged / "metadata.json").write_text("{not json", encoding="utf-8")
+
+    unreadable: list[dict[str, str]] = []
+    hits = search_knowledge(tmp_path, "coverage", unreadable=unreadable)
+
+    assert hits, "one damaged run took the whole search down"
+    assert {hit["video_id"] for hit in hits} == {"good"}
+    assert [entry["video_id"] for entry in unreadable] == ["broken"]
+    assert unreadable[0]["reason"]
+
+
+def test_a_damaged_caption_only_costs_its_own_run(tmp_path: Path) -> None:
+    write_run(tmp_path, video_id="good", content="coverage windows", text="coverage windows")
+    write_run(tmp_path, video_id="broken", include_caption_start=False)
+    unreadable: list[dict[str, str]] = []
+    hits = search_knowledge(tmp_path, "coverage", unreadable=unreadable)
+    assert {hit["video_id"] for hit in hits} == {"good"}
+    assert [entry["video_id"] for entry in unreadable] == ["broken"]
+
+
+def test_asking_about_one_damaged_run_by_name_still_raises(tmp_path: Path) -> None:
+    """A scan degrades; a question about one run must not answer a different one."""
+    damaged = write_run(tmp_path, video_id="broken")
+    (damaged / "metadata.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(ValueError):
+        search_knowledge(tmp_path, "coverage", video_id="broken")
+
+
+def test_a_scan_of_healthy_runs_reports_nothing_unreadable(tmp_path: Path) -> None:
+    write_run(tmp_path, video_id="a", content="coverage windows", text="coverage windows")
+    write_run(tmp_path, video_id="b", content="coverage windows", text="coverage windows")
+    unreadable: list[dict[str, str]] = []
+    hits = search_knowledge(tmp_path, "coverage", unreadable=unreadable)
+    assert {hit["video_id"] for hit in hits} == {"a", "b"}
+    assert unreadable == []

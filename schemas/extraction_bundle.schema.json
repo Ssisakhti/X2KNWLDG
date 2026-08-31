@@ -30,7 +30,10 @@
               "window_id": { "type": "string" },
               "start_sec": { "type": "number", "minimum": 0 },
               "end_sec": { "type": "number", "minimum": 0 },
-              "status": { "enum": ["covered", "uncovered", "omitted", "partial"] },
+              "status": {
+                "$comment": "The window vocabulary is constants.COVERAGE_STATUSES. `pending` was missing while coverage.py wrote it into every window of a fresh run, so the schema described a document the code does not produce.",
+                "enum": ["pending", "covered", "uncovered", "omitted", "partial"]
+              },
               "knowledge_units": { "type": "array", "items": { "type": "string" } },
               "omitted_items": { "type": "array", "items": { "type": "object" } },
               "unresolved_items": { "type": "array", "items": { "type": "object" } }

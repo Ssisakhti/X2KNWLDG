@@ -243,7 +243,17 @@ def search_knowledge(
     video_id: str | None = None,
     limit: int = 10,
     include_transcript_fallback: bool = True,
+    unreadable: list[dict[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
+    """Ranked hits across every run under *output_root*, or one named run.
+
+    One damaged run used to take the whole search down with it: the scan raised
+    on the first unreadable file and every other video went unsearched. A scan
+    now skips the run it cannot read and records it — pass *unreadable* to see
+    which, as the CLI and the MCP tool both do, so the loss is reported rather
+    than absorbed. Asking about **one** named run still raises: the caller asked
+    about that run, and an empty result would answer a different question.
+    """
     if isinstance(limit, bool) or not isinstance(limit, int):
         raise PipelineError(f"limit must be an integer, got {type(limit).__name__}")
     if limit < 1:
@@ -261,7 +271,13 @@ def search_knowledge(
     )
     documents: list[SearchDocument] = []
     for run_dir in run_dirs:
-        documents.extend(
-            run_documents(run_dir, include_transcript=include_transcript_fallback)
-        )
+        try:
+            documents.extend(
+                run_documents(run_dir, include_transcript=include_transcript_fallback)
+            )
+        except (OSError, ValueError) as exc:
+            if video_id is not None:
+                raise
+            if unreadable is not None:
+                unreadable.append({"video_id": run_dir.name, "reason": str(exc)})
     return [dict(hit) for hit in rank_documents(documents, query, limit=limit)]

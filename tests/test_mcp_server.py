@@ -565,9 +565,11 @@ def test_search_video_knowledge_finds_a_unit(project: Path) -> None:
     )
     unit = units["units"][0]
     term = unit["normalized_statement"].split()[2]
-    results = mcp_server.search_video_knowledge(term, video_id=PASS_RUN, limit=5)
-    assert results, f"no hit for {term!r} in a run that contains it"
-    assert all(isinstance(hit, dict) for hit in results)
+    answer = mcp_server.search_video_knowledge(term, video_id=PASS_RUN, limit=5)
+    assert answer["results"], f"no hit for {term!r} in a run that contains it"
+    assert all(isinstance(hit, dict) for hit in answer["results"])
+    # An agent must be able to tell "nothing matched" from "could not look".
+    assert answer["unreadable"] == []
 
 
 def test_search_video_knowledge_refuses_a_hostile_video_id(project: Path) -> None:
