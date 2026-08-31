@@ -1,0 +1,12 @@
+1
+00:00:00,000 --> 00:00:04,500
+This is the first claim.
+
+2
+00:00:04,500 --> 00:00:09,000
+This is supporting evidence.
+
+3
+00:02:10,000 --> 00:02:15,250
+This comes after a long gap.
+

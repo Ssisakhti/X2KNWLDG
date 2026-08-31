@@ -1,0 +1,172 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from x2knwldg.pipeline import PipelineError, import_transcript
+from x2knwldg.artifacts import apply_extraction_bundle, finalize_run
+from x2knwldg.segmenter import create_segments
+from x2knwldg.transcripts import TranscriptError, parse_transcript_file, transcript_integrity
+from x2knwldg.validators import validate_knowledge_units
+from x2knwldg.query import search_knowledge
+
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+class TranscriptTests(unittest.TestCase):
+    def test_srt_preserves_timing(self):
+        captions = parse_transcript_file(FIXTURES / "sample.srt", language="en")
+        self.assertEqual(len(captions), 3)
+        self.assertEqual(captions[0]["start_sec"], 0)
+        self.assertEqual(captions[0]["end_sec"], 4.5)
+        self.assertEqual(captions[0]["source"], "imported_srt")
+
+    def test_vtt_cleans_markup_and_entities(self):
+        captions = parse_transcript_file(FIXTURES / "sample.vtt", language="en")
+        self.assertEqual(captions[0]["text"], "First caption.")
+        self.assertEqual(captions[1]["text"], "Second & final caption.")
+        self.assertEqual(captions[1]["original_id"], "cue-b")
+
+    def test_plain_text_without_timestamps_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "transcript.txt"
+            path.write_text("Plain transcript without timing", encoding="utf-8")
+            with self.assertRaises(TranscriptError):
+                parse_transcript_file(path)
+
+    def test_integrity_surfaces_long_gap(self):
+        captions = parse_transcript_file(FIXTURES / "sample.srt")
+        result = transcript_integrity(captions, max_gap_sec=60)
+        self.assertEqual(result["status"], "PASS")
+        self.assertTrue(any(item["code"] == "large_gap" for item in result["warnings"]))
+
+
+class SegmentTests(unittest.TestCase):
+    def test_segments_preserve_caption_ids_and_overlap(self):
+        captions = [
+            {
+                "segment_id": f"cap_{index:06d}",
+                "start_sec": index * 30,
+                "end_sec": (index + 1) * 30,
+                "text": f"Caption {index}.",
+            }
+            for index in range(20)
+        ]
+        segments = create_segments(captions, target_sec=180, min_sec=120, max_sec=240, overlap_sec=30)
+        self.assertGreater(len(segments), 1)
+        self.assertTrue(set(segments[0]["caption_ids"]) & set(segments[1]["caption_ids"]))
+
+
+class PipelineTests(unittest.TestCase):
+    def test_import_creates_canonical_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = import_transcript(
+                FIXTURES / "sample.vtt",
+                Path(directory),
+                video_id="abc123def45",
+                video_url="https://www.youtube.com/watch?v=abc123def45",
+                language="en",
+            )
+            expected = {
+                "metadata.json",
+                "transcript.json",
+                "segments.json",
+                "knowledge_units.json",
+                "relationships.json",
+                "coverage.json",
+                "report.md",
+                "graph.json",
+                "validation.json",
+            }
+            self.assertTrue(expected.issubset({path.name for path in run_dir.iterdir()}))
+            transcript = json.loads((run_dir / "transcript.json").read_text(encoding="utf-8"))
+            self.assertEqual(transcript["captions"][1]["end_sec"], 5.5)
+            coverage = json.loads((run_dir / "coverage.json").read_text(encoding="utf-8"))
+            self.assertEqual(coverage["status"], "PARTIAL")
+            self.assertEqual(coverage["windows"][0]["status"], "pending")
+
+    def test_import_never_overwrites_existing_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            import_transcript(FIXTURES / "sample.vtt", output, video_id="abc123def45")
+            with self.assertRaises(PipelineError):
+                import_transcript(FIXTURES / "sample.vtt", output, video_id="abc123def45")
+
+    def test_valid_bundle_finalizes_report_graph_and_obsidian(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = import_transcript(
+                FIXTURES / "sample.vtt", root / "output", video_id="abc123def45", language="en"
+            )
+            bundle = {
+                "knowledge_units": [
+                    {
+                        "id": "KU-000001",
+                        "kind": "claim",
+                        "source_class": "source",
+                        "content": "This is the first claim.",
+                        "confidence": 0.99,
+                        "source": {
+                            "video_id": "abc123def45",
+                            "segment_id": "seg_0001",
+                            "start_sec": 0,
+                            "end_sec": 2,
+                            "evidence_excerpt": "First caption.",
+                        },
+                    }
+                ],
+                "relationships": [],
+                "coverage": {
+                    "status": "PASS",
+                    "windows": [
+                        {
+                            "window_id": "CW-0001",
+                            "start_sec": 0,
+                            "end_sec": 5.5,
+                            "status": "covered",
+                            "knowledge_units": ["KU-000001"],
+                            "omitted_items": [],
+                            "unresolved_items": [],
+                        }
+                    ],
+                },
+            }
+            bundle_path = root / "bundle.json"
+            bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+            validation = apply_extraction_bundle(run_dir, bundle_path)
+            self.assertEqual(validation["status"], "PASS")
+            result = finalize_run(run_dir)
+            self.assertEqual(result["status"], "PASS")
+            self.assertTrue((run_dir / "vault" / "videos" / "abc123def45.md").exists())
+            graph = json.loads((run_dir / "graph.json").read_text(encoding="utf-8"))
+            self.assertEqual(graph["nodes"][0]["id"], "KU-000001")
+            self.assertIn("KU-000001", (run_dir / "report.md").read_text(encoding="utf-8"))
+            results = search_knowledge(root / "output", "first claim", video_id="abc123def45")
+            self.assertEqual(results[0]["type"], "knowledge_unit")
+            self.assertEqual(results[0]["id"], "KU-000001")
+            self.assertIn("&t=0s", results[0]["source_url"])
+
+
+class ValidatorTests(unittest.TestCase):
+    def test_derived_unit_requires_sources_and_note(self):
+        result = validate_knowledge_units(
+            {
+                "units": [
+                    {
+                        "id": "KU-D-1",
+                        "kind": "synthesis",
+                        "source_class": "derived",
+                        "content": "A synthesis",
+                        "confidence": 0.8,
+                    }
+                ]
+            }
+        )
+        codes = {error["code"] for error in result["errors"]}
+        self.assertIn("missing_derived_from", codes)
+        self.assertIn("missing_derivation_note", codes)
+
+
+if __name__ == "__main__":
+    unittest.main()

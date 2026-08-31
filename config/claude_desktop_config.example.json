@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "x2knwldg": {
+      "command": "/absolute/path/to/X2KNWLDG/.venv/bin/x2knwldg-mcp",
+      "env": {
+        "X2KNWLDG_PROJECT_ROOT": "/absolute/path/to/X2KNWLDG"
+      }
+    }
+  }
+}
+

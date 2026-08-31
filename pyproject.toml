@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "x2knwldg"
+version = "0.1.0"
+description = "Auditable YouTube-to-knowledge extraction with transcript provenance"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+youtube = [
+  "yt-dlp>=2024.1.0",
+  "youtube-transcript-api>=0.6.0",
+]
+mcp = ["mcp>=2,<3"]
+legacy = [
+  "networkx>=3.0",
+  "pyvis>=0.3.2",
+]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+x2knwldg = "x2knwldg.cli:main"
+x2knwldg-mcp = "x2knwldg.mcp_server:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x2knwldg.local/schemas/extraction_bundle.schema.json",
+  "title": "X2KNWLDG extraction bundle",
+  "type": "object",
+  "required": ["knowledge_units", "relationships", "coverage"],
+  "properties": {
+    "extraction_metadata": { "type": "object" },
+    "knowledge_units": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/knowledgeUnit" }
+    },
+    "relationships": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/relationship" }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["status", "windows"],
+      "properties": {
+        "status": { "enum": ["PASS", "PARTIAL", "FAIL"] },
+        "audit_attempts": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "windows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["window_id", "start_sec", "end_sec", "status", "knowledge_units", "omitted_items", "unresolved_items"],
+            "properties": {
+              "window_id": { "type": "string" },
+              "start_sec": { "type": "number", "minimum": 0 },
+              "end_sec": { "type": "number", "minimum": 0 },
+              "status": { "enum": ["covered", "uncovered", "omitted", "partial"] },
+              "knowledge_units": { "type": "array", "items": { "type": "string" } },
+              "omitted_items": { "type": "array", "items": { "type": "object" } },
+              "unresolved_items": { "type": "array", "items": { "type": "object" } }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "knowledgeUnit": {
+      "type": "object",
+      "required": ["id", "kind", "source_class", "content", "confidence"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "source_class": { "enum": ["source", "derived"] },
+        "content": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "source": { "type": "object" },
+        "derived_from": { "type": "array", "items": { "type": "string" } },
+        "derivation_note": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "relationship": {
+      "type": "object",
+      "required": ["from", "relation", "to", "confidence", "source_class"],
+      "properties": {
+        "from": { "type": "string" },
+        "relation": { "type": "string" },
+        "to": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "source_class": { "enum": ["source", "derived"] }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
