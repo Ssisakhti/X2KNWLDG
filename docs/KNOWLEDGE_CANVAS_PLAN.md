@@ -120,11 +120,19 @@ The current sample `pqlWNihgdjI` has a complete extraction. State measured on 20
 - `graph.json` contains 69 nodes and 56 edges.
 - `output/library/` contains 1 video, 69 knowledge nodes, 17 canonical concepts, and 118 edges.
 
-> ⚠️ **The committed `output/library/` predates D-043 and has not been regenerated.** Its
-> `expresses_concept` edges still carry the fabricated `confidence: 1.0` (verified by reading
-> the adapter's output over the tree on 2026-08-31), and its `status.json` has none of the new
-> honesty fields. The next `x2knwldg rebuild-library` will change these files. Nobody has run
-> it, so do not read the sample as showing current behaviour.
+> **`output/library/` was regenerated under D-043 on 2026-08-31** (`x2knwldg rebuild-library`,
+> exit 0), so the sample on disk now shows current behaviour. What moved: the 17
+> `expresses_concept` edges went from the fabricated `confidence: 1.0` to `null`;
+> `videos.json` gained `problems: []`; `status.json` gained `runs_discovered: 1`,
+> `runs_indexed: 1`, `runs_skipped: 0`, `skipped_runs: []`, `incomplete_runs: []`.
+> `concepts.json` came back byte-identical, and the totals did not move — 118 edges over 86
+> nodes, before and after. The 45 `derived_from` edges kept their real confidences (0.88–0.97):
+> every unit in this sample states one, so the fabricated `0` D-043 removed was a default this
+> data never reached.
+>
+> ⚠️ `output/` is gitignored, so this regeneration is **not** in version control. The tree on
+> one machine can differ from another's, and nothing in the repository records which state a
+> given clone holds — re-run `rebuild-library` rather than assuming.
 
 > **Document correction:** an earlier version of this section described these files as "empty" and coverage as `PARTIAL`. That description was stale and has been corrected. Execution details are recorded in `PROJECT_MANAGEMENT.md`.
 
