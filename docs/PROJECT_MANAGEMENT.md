@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-08-31
+**Last updated:** 2026-08-31 · Phase 0 in progress, `T-001` complete
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
 
@@ -72,7 +72,7 @@ Exit criteria live in canvas plan §16; this table tracks state only.
 
 | Phase | Name | Status | Parallelizable | Gate to next phase |
 |---|---|---|---|---|
-| **0** | Contracts & scaffolding | `not started` | ❌ **No — serialization point** | Schemas validate; contract frozen |
+| **0** | Contracts & scaffolding | `in progress` | ❌ **No — serialization point** | Schemas validate; contract frozen |
 | **1** | Read-only Library & Reader | `not started` | ✅ Tracks A/B/C/D | Search works; status honest; rebuild is equivalent |
 | **2** | Knowledge Map | `not started` | ✅ Partial (renderer vs inspector) | Provenance distinguishable; empty graph honest |
 | **3** | Canvas & board persistence | `not started` | ⚠️ Sequential with Phase 4 | Layout survives restart; partial corruption tolerated |
@@ -91,7 +91,7 @@ Flags: **`S`** = serialized (single owner) · **`P`** = parallel-safe once depen
 
 | ID | Task | Flag | Depends on |
 |---|---|---|---|
-| `T-001` | Write architecture ADR in `docs/adr/0001-local-web-ui.md`; adopt an ADR convention and cross-link the §19 decision table | `S` | — |
+| ~~`T-001`~~ | ✅ **done** — ADR convention (`docs/adr/README.md` + `0000-template.md`), [ADR 0001](adr/0001-local-web-ui.md) consolidating D-001…D-013, canvas plan §19 cross-linked | `S` | — |
 | `T-002` | Define v1 schemas: `Source`, `Artifact`, `Locator`, `EntityRef`, `IndexedRelation`. Versioned + machine-validatable | `S` | `T-001` |
 | `T-003` | Implement the 3-part global ID helper (**D-011**) — additive only, see §6 warning | `S` | `T-002` |
 | `T-004` | Write the YouTube adapter contract mapping `output/<id>/` → the generic model, changing **no** canonical output | `S` | `T-002` |
@@ -278,4 +278,8 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 
 ## 11. Next step
 
-**Start `T-001`.** Phase 0 only, one agent, no fan-out. Do not begin Canvas or production UI design until the Phase 0 gate in §5 passes.
+**Start `T-002`** — define the v1 schemas for `Source`, `Artifact`, `Locator`, `EntityRef`, and `IndexedRelation`, versioned and machine-validatable.
+
+`T-001` is complete: the ADR convention is established in [`adr/README.md`](adr/README.md) and the architecture decision is recorded in [ADR 0001](adr/0001-local-web-ui.md), which consolidates D-001…D-013 and lists the ten invariants the build must preserve. Read ADR 0001 §Invariants before writing schema code — invariant 4 (`library.py`'s 2-part ID is load-bearing for `kg_navigator`) and invariant 6 (source-neutrality belongs in the adapter layer, not the canonical files) both constrain `T-002` directly.
+
+Phase 0 remains **one agent, no fan-out**. Do not begin Canvas or production UI design until the Phase 0 gate in §5 passes.
