@@ -627,6 +627,28 @@ def _process_argv(tmp_path: Path) -> list[str]:
     ]
 
 
+def _pretend_the_youtube_extra_is_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Satisfy the dependency probe so the test reaches the branch it names.
+
+    `process` checks `YOUTUBE_DEPENDENCIES` *before* it calls
+    `process_youtube_url`, and refuses outright when none of them import — the
+    right behaviour, and the subject of
+    `test_a_missing_youtube_extra_is_not_reported_as_transcript_required`. But it
+    means a test that monkeypatches the fetch is silently unreachable on an
+    install without the `youtube` extra, which is exactly the install
+    ADR 0001 invariant 5 requires the suite to pass on. Pinning the probe to a
+    module that is certainly importable keeps the two questions separate: this
+    one is about what `process` does once the fetch has run.
+
+    Found by running the suite in the bare core venv of PROJECT_MANAGEMENT
+    §7.2, where `test_no_captions_asks_for_a_transcript` failed on empty
+    stdout and the collision test passed for the wrong reason — the
+    missing-extra error satisfies all four of its assertions without ever
+    reaching the collision.
+    """
+    monkeypatch.setattr(cli, "YOUTUBE_DEPENDENCIES", ("x2knwldg",))
+
+
 def test_no_captions_asks_for_a_transcript(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -635,6 +657,7 @@ def test_no_captions_asks_for_a_transcript(
     def no_captions(*args: object, **kwargs: object) -> Path:
         raise PipelineError("No YouTube captions are available")
 
+    _pretend_the_youtube_extra_is_installed(monkeypatch)
     monkeypatch.setattr(youtube, "process_youtube_url", no_captions)
     code, out, _ = run_cli(_process_argv(tmp_path), capsys)
     payload = json.loads(out)
@@ -657,11 +680,16 @@ def test_a_name_collision_is_not_reported_as_transcript_required(
     def collision(*args: object, **kwargs: object) -> Path:
         raise RunAlreadyExists("Output already exists for dQw4w9WgXcQ")
 
+    _pretend_the_youtube_extra_is_installed(monkeypatch)
     monkeypatch.setattr(youtube, "process_youtube_url", collision)
     code, out, err = run_cli(_process_argv(tmp_path), capsys)
     assert code == cli.EXIT_ERROR
     assert out == ""
+    message = json.loads(err)["message"]
     assert json.loads(err)["status"] == "ERROR"
+    # Naming the collision is what separates this from the missing-extra
+    # refusal, whose four assertions are otherwise identical.
+    assert "x2knwldg[youtube]" not in message
     assert not (tmp_path / "inbox").exists(), "a collision created a pointless inbox"
 
 

@@ -51,13 +51,13 @@ Measured from disk on **2026-08-31**. Re-verify with the commands in §7.3.
 | Relationships | **56** |
 | Per-video `graph.json` | 69 nodes, 56 edges |
 | `coverage.json` status | **`PASS`** (5/5 windows covered, `audit_attempts: 1`) |
-| `validation.json` status | **`PASS`** (all 5 sections) |
+| `validation.json` status | **`PASS`** (all **6** sections: `transcript`, `evidence`, `knowledge_units`, `provenance`, `relationships`, `coverage`). `evidence` is the newest and is **additive** — it recomputes the SHA-256 of the preserved `raw/` original and compares it with what `metadata.json` and `transcript.json` each recorded, so tampering with evidence is now a `FAIL` that `finalize` refuses. No schema constrains this file and the adapter copies only its top-level `status`, so nothing downstream had to change |
 | `output/library/` | 1 video, 69 knowledge nodes, **17 canonical concepts**, 118 edges — unchanged by the `T-003` rebuild, which only added fields. **Regenerated under D-043 on 2026-08-31** (`x2knwldg rebuild-library`, exit 0): the 17 `expresses_concept` edges now carry `confidence: null` rather than a fabricated `1.0`, `videos.json` entries carry `problems: []`, and `status.json` carries `runs_discovered: 1` / `runs_indexed: 1` / `runs_skipped: 0` / `skipped_runs: []` / `incomplete_runs: []`. `concepts.json` was byte-identical and the totals did not move; the 45 `derived_from` edges kept their real 0.88–0.97 confidences, since every unit here states one. ⚠️ `output/` is gitignored, so this is not in version control and a given clone's state cannot be read off the repository |
 | Index projection (`T-004`) | The adapter maps the sample to **1 source, 85 artifacts, 86 entities, 118 relations** — 69 knowledge units + 17 concepts, and 56 canonical + 62 synthetic edges |
 | API contract (`T-005`) | **11 endpoints, all `GET`**, frozen in [`schemas/api/v1/openapi.json`](../schemas/api/v1/README.md); 24 components, every response body a `$ref` into `schemas/v1/`. Valid against the OpenAPI 3.1 meta-schema, external `$ref`s resolving from disk. **925 lines** of generated, committed TypeScript in `types.d.ts`, checked against `tsc --strict` |
 | Repository seam (`T-007`) | [`src/x2knwldg/repository/`](../src/x2knwldg/repository/README.md): `IndexRepository`, **10 methods** serving the 11 frozen endpoints, plus `MemoryRepository` over `adapt_project`. Stdlib-only. Fixed by [ADR 0002](adr/0002-index-repository-seam.md) |
 | Scaffold (`T-008`) | [`web/`](../web/README.md) holds TypeScript only — `package.json`, `package-lock.json`, `tsconfig.json`, `src/api/contract.ts`. `npm run typecheck` (`tsc --noEmit`) passes and is a CI job. The `ui` extra is `fastapi` + `uvicorn`; `x2knwldg ui` exists as a refusing stub |
-| Test baseline | **1287 passed, 0 failed, 36 subtests** (`.venv/bin/python -m pytest -q`, all extras installed) — reported 2026-08-31 by the coordinator after the five-agent second wave; 765 before it, 515 before that. Core package with no extras at all: **333 passed, 4 skipped** (not re-measured since; re-run the bare-venv check below before quoting it) — the `jsonschema` and `legacy` tests skip cleanly, and the stdlib-only `tests/test_api_types.py`, `tests/test_repository.py`, and `tests/test_ui_scaffold.py` all run |
+| Test baseline | **1348 passed, 0 failed, 0 skipped, 36 subtests** (`.venv/bin/python -m pytest -q`, all extras installed) — measured 2026-08-31 after the audit remediation; 1287 after the five-agent second wave, 765 before it, 515 before that. Core package with no extras at all: **1139 passed, 5 skipped** — re-measured 2026-08-31 by the §7.2 bare-venv procedure, and it was **not** a formality: it failed. See the note under §7.2 |
 | Toolchain | Node 26.5.0 · npm 11.17.0 · Python 3.14.6 · SQLite 3.53.4 with **FTS5 available** |
 
 > **Correction of record.** Canvas plan §4 previously stated the sample had empty
@@ -230,7 +230,7 @@ A future session must not consolidate these into one form without also updating 
 
 ### 7.2 Regression baseline
 ```bash
-.venv/bin/python -m pytest -q               # expect: 1287 passed, 0 failed, 36 subtests (plus new tests)
+.venv/bin/python -m pytest -q               # expect: 1348 passed, 0 failed, 36 subtests (plus new tests)
 git diff --stat -- output/                  # expect: empty, always
 .venv/bin/python tests/fixtures/runs/build_fixtures.py
 git diff --stat -- tests/fixtures/runs/     # expect: empty — regeneration is byte-identical
@@ -276,12 +276,28 @@ python3 -m venv /tmp/bare && /tmp/bare/bin/pip install . pytest
 for p in jsonschema openapi-spec-validator networkx pyvis yt-dlp fastapi uvicorn; do
   /tmp/bare/bin/pip show "$p" >/dev/null 2>&1 && echo "LEAKED: $p"
 done                                        # expect: no output
-/tmp/bare/bin/python -m pytest -q           # expect: 333 passed, 4 skipped, 16 subtests
+/tmp/bare/bin/python -m pytest -q           # expect: 1139 passed, 5 skipped, 36 subtests
 ```
 
-The 4 skips are the `jsonschema` and `legacy` tests, which skip by design. Every
+The 5 skips are the `jsonschema` and `legacy` tests, which skip by design. Every
 `tests/test_ui_scaffold.py` test runs here — the scaffold's own guards must hold
 on the install they are about.
+
+> **Run this one. It is not a formality.** Re-measured 2026-08-31 for the first time
+> since the suite was 515, it **failed** — and the failure was in the suite, not the
+> package. `test_no_captions_asks_for_a_transcript` monkeypatched
+> `youtube.process_youtube_url`, but `process` probes `YOUTUBE_DEPENDENCIES` *before* it
+> calls the fetch and refuses outright when none of them import — correct behaviour, and
+> the subject of its own test. So on the install ADR 0001 invariant 5 is *about*, the test
+> never reached the branch it names: stdout was empty and `json.loads` raised. Its
+> neighbour `test_a_name_collision_is_not_reported_as_transcript_required` was worse — it
+> **passed for the wrong reason**, because the missing-extra error satisfies all four of
+> its assertions without ever reaching the collision. Both now pin the probe through
+> `_pretend_the_youtube_extra_is_installed`, and the collision test asserts the message is
+> *not* the missing-extra one. The lesson generalises: **a test that monkeypatches past a
+> dependency probe must pin the probe**, or it silently tests nothing on the install with
+> no extras. The full-extras suite cannot see this class of defect — it was green at 1348
+> throughout.
 
 ### 7.3 Re-verify the numbers in §3
 ```bash
@@ -479,3 +495,32 @@ stub: it enforces loopback-only binding and resolves the project root, then exit
 - Do not begin Phase 3 Canvas or Phase 4 pen work. They are sequential with each other
   (§8.4) and belong to a later phase.
 - `web/tsconfig.json` keeps `skipLibCheck: false`. Turning it on reopens R17 in silence.
+
+**Three things Phase 1 inherits from the audit remediation:**
+
+- **`T-104` must construct a fresh `MemoryRepository` per comparison.** The search corpus
+  is a per-instance cache built once on first search and never invalidated (D-042,
+  [ADR 0004](adr/0004-graph-membership-and-search-corpus.md)). An oracle that reuses one
+  instance would compare the incremental index against a snapshot, not against the tree.
+- **Cursors do not survive a restart.** `repository.encode_cursor` signs with a
+  per-process key, so a token issued before a restart is rejected after it. Deliberate,
+  and the wire format is unchanged — but `T-106` must not write a test that persists a
+  cursor across processes, and the UI must treat an expired cursor as "start again"
+  rather than as an error.
+- **[`CODEOWNERS`](../.github/CODEOWNERS) resolves every track to `@Ssisakhti`.** It is the
+  only GitHub identity this repository can verify, so the four-way split of §8.2 exists in
+  prose and in that file's `TODO` block but not yet in GitHub. Correct for a single
+  maintainer; fill the handles in per track when accounts exist, and do not invent one — an
+  owner GitHub cannot resolve is dropped silently, leaving the boundary unowned.
+
+**One known limitation, closed as a consequence rather than a defect.** A single-caption
+segment gets no overlap and cannot: overlap is re-emitted captions, and a segment holding
+one caption has only itself to re-emit, so re-emitting it would start the next segment
+where this one started and the walk would not advance. The alternative is a boundary
+inside a caption, which would mint a caption id no transcript states. It is in
+`segmenter`'s module docstring and pinned by
+`tests/test_segmenter_hardening.test_a_single_caption_segment_carries_no_overlap`,
+alongside the related fact nobody had written down — `overlap_sec` is a **floor**,
+quantised up to one caption length. The one honest improvement left is to record the
+*realised* overlap in each segment record, which changes `segments.json` and is therefore a
+decision for whoever owns that schema, not a repair.
