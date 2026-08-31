@@ -588,34 +588,49 @@ Firm numbers are not set before a real dataset exists. During the performance ph
 - Write APIs are permitted only against `workspace/` and the cache.
 - The canonical API is read-only in the first phase.
 
-## 15. Proposed API
+## 15. API
 
-Names are provisional and are fixed during the API contract phase.
+**Frozen by `T-005`.** The names below are no longer provisional: the contract is
+[`schemas/api/v1/openapi.json`](../schemas/api/v1/README.md), and that document — not this
+section — is what `T-105`–`T-108` implement and `T-115` tests.
 
 ```text
 GET  /api/status
 GET  /api/sources
 GET  /api/sources/{source_id}
+GET  /api/sources/{source_id}/entities      # added by T-005: the Reader needs them
+GET  /api/sources/{source_id}/relations     # added by T-005
 GET  /api/entities/{entity_id}
+GET  /api/artifacts/{artifact_id}
+GET  /api/media/{artifact_id}
 GET  /api/search?q=...
 GET  /api/graph
 GET  /api/graph/neighborhood/{entity_id}
-GET  /api/artifacts/{artifact_id}
-GET  /api/media/{artifact_id}
-
-GET  /api/boards
-POST /api/boards
-GET  /api/boards/{board_id}
-PUT  /api/boards/{board_id}
 ```
+
+Eleven endpoints, all `GET`. **v1 is read-only** — nothing writes to `output/`, and nothing
+at all to `output/<id>/raw/`.
+
+The board endpoints are **reserved and deliberately not frozen** (D-027): boards are
+Phase 3 and have no record schema yet, and a contract written for a shape that does not
+exist would be rewritten by `T-301`. They return here, additively, once `Board` exists.
 
 API rules:
 
-- IDs must be opaque and URL-safe.
-- Responses must carry a schema version.
-- Canonical status must be read from the validator files.
-- A missing artifact must not be masked with a placeholder or fabricated data.
-- Mutations must be atomic: write to a temp file, then replace safely.
+- IDs are opaque and URL-safe: the two-part `<source_type>:<external_id>` and the
+  three-part global id (D-011). A colon is a legal path character and needs no escaping.
+- Every response carries `api_version` and `schema_version`.
+- The API defines **no response shape of its own**. Bodies are the records the adapters
+  already produce, `$ref`-ed from `schemas/v1/` (D-026). The two exceptions are
+  `/api/search`, which preserves what `query.search_knowledge` returns (D-028), and
+  `/api/status`, which describes the index rather than a source.
+- Canonical status is read from the validator files, copied verbatim, `UNKNOWN` included.
+- A missing artifact is reported — `available: false`, and `404 unavailable` from
+  `/api/media` — never masked with a placeholder (D-030).
+- An id is resolved by `pipeline.resolve_run_dir` and **rejected** when unsafe, never
+  sanitised (D-020). A malformed id is `400 invalid_id`, not `404`.
+- Mutations, when Phase 3 introduces them, must be atomic: write to a temp file, then
+  replace safely. `io.write_json` already is.
 
 ## 16. Execution phases
 
@@ -628,6 +643,7 @@ Deliverables:
 - A short ADR for the architecture choice
 - Version 1 schemas for Source/Artifact/Locator/EntityRef
 - The YouTube adapter contract
+- A frozen API contract (§15), with TypeScript types generated from it
 - The `web/` structure and the optional backend
 - A defined development command
 - Valid fixtures for `PASS`, `PARTIAL`, and `FAIL` states
@@ -865,6 +881,11 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-023 | In v1 the adapter emits entities for knowledge units and canonical concepts only. `caption`, `segment`, and `coverage_window` stay reserved in the `EntityRef` vocabulary and unemitted | accepted | Each already has a canonical representation the Reader and the indexer read directly, and none has a consumer needing a global handle yet. 500-odd caption entities per source, or a segment entity whose only honest `label` is `null`, would have to be undone later. The reserved names mean adding them when a consumer exists needs no `schemas/v2/` |
 | D-024 | A source-class locator addresses the **segments** artifact, not the transcript. When a unit's provenance names a different video, `artifact_id` is omitted rather than pointed anywhere | accepted | `validators.py:166` resolves a unit's `segment_id` against `segments.json` and requires the excerpt to appear in that segment's text, so that is where the evidence sits — the shape probe addressed the transcript, which does not hold the segment ids at all. A mis-attributed unit is a canonical error already reported in `validation.json`; the run stays indexable and honest, and the locator stays unaddressed rather than wrong |
 | D-025 | A `derived_from` edge carries `confidence: null`. `expresses_concept` edges are read from `library/graph.json` by `adapt_library`; `derived_from` edges come only from the run that owns them | accepted | A unit's confidence is about the unit — no confidence about the edge exists in any canonical file, and copying one across would put a number on a claim nothing made. Splitting the two synthetic vocabularies by producer keeps a run indexable before `rebuild_library` has ever run, and stops the 45 `derived_from` edges being counted twice |
+| D-026 | The API contract is frozen as OpenAPI 3.1 in [`schemas/api/v1/openapi.json`](../schemas/api/v1/README.md), `$ref`-ing `schemas/v1/` rather than restating it. Every response body is an adapter record inside an envelope carrying `api_version` and `schema_version`, and the version is the directory as in D-015 | accepted | The API is a reader, so a response shape of its own would only be a third place for the same fact to drift. `adapt_project(root).by_model()` is what an endpoint returns a page of, and the contract tests validate the endpoints against records the real adapters produce — so the document cannot agree with the schemas while disagreeing with the code |
+| D-027 | Only the read-only surface is frozen in v1: eleven endpoints, all `GET`. The board endpoints of §15 stay reserved and unfrozen until Phase 3 gives boards a record schema | accepted | Freezing a contract for a shape that does not exist is inventing one, and `T-301` would rewrite it. The same restraint as D-023 — reserving a name costs nothing, guessing its shape costs a migration |
+| D-028 | `/api/search` preserves the two result shapes `query.search_knowledge` already returns and adds `global_id`/`source_id` additively; a `transcript_caption` hit carries no `global_id` | accepted | Those shapes are the de-facto contract the CLI and the MCP tools ship today, and FTS5 is an implementation change, not a contract change. A caption has no global id because v1 emits no caption entities (D-023); minting one would create an address that resolves to nothing |
+| D-029 | TypeScript declarations are generated by a stdlib-only script into a committed `types.d.ts`, drift-guarded by a byte-identity test rather than by an npm toolchain | accepted | `T-005` runs before `T-008`, so no `web/`, no `package.json`, and no Node in CI yet; putting the frontend's types behind a dependency the core package does not have cuts against ADR 0001 invariant 5. The generator refuses a construct it does not understand rather than emitting `unknown`, because a declaration that has quietly stopped describing the contract still compiles |
+| D-030 | Error taxonomy: a rejected id is `400 invalid_id`, a well-formed id naming nothing is `404 not_found`, a record whose file is absent is `available: false` and `404 unavailable`, and an unbuilt index is `503 index_unavailable` | accepted | D-020 over HTTP: a malformed id is refused before anything is read and is never dressed up as absence. The `503` exists so the UI can tell an empty index from an absent one — otherwise 'no sources yet' is presented as a fact about the user's data |
 
 ## 20. Open questions
 

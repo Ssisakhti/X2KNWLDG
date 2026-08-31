@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-08-31 · Phase 0 in progress; `T-001`, `T-002`, `T-003`, `T-004`, and `T-006` complete
+**Last updated:** 2026-08-31 · Phase 0 in progress; `T-001`–`T-006` complete. Remaining: `T-007`, `T-008`, `T-009`
 **Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
@@ -54,7 +54,8 @@ Measured from disk on **2026-08-31**. Re-verify with the commands in §7.3.
 | `validation.json` status | **`PASS`** (all 5 sections) |
 | `output/library/` | 1 video, 69 knowledge nodes, **17 canonical concepts**, 118 edges — unchanged by the `T-003` rebuild, which only added fields |
 | Index projection (`T-004`) | The adapter maps the sample to **1 source, 85 artifacts, 86 entities, 118 relations** — 69 knowledge units + 17 concepts, and 56 canonical + 62 synthetic edges |
-| Test baseline | **231 passed, 16 subtests** (`.venv/bin/python -m pytest -q`, all extras installed). Core package with no extras at all: **142 passed, 3 skipped** — the `jsonschema` and `legacy` tests skip cleanly |
+| API contract (`T-005`) | **11 endpoints, all `GET`**, frozen in [`schemas/api/v1/openapi.json`](../schemas/api/v1/README.md); 24 components, every response body a `$ref` into `schemas/v1/`. Valid against the OpenAPI 3.1 meta-schema, external `$ref`s resolving from disk. **925 lines** of generated, committed TypeScript in `types.d.ts`, checked against `tsc --strict` |
+| Test baseline | **337 passed, 16 subtests** (`.venv/bin/python -m pytest -q`, all extras installed). Core package with no extras at all: **168 passed, 4 skipped** — the `jsonschema` and `legacy` tests skip cleanly, and the stdlib-only `tests/test_api_types.py` runs |
 | Toolchain | Node 26.5.0 · npm 11.17.0 · Python 3.14.6 · SQLite 3.53.4 with **FTS5 available** |
 
 > **Correction of record.** Canvas plan §4 previously stated the sample had empty
@@ -68,8 +69,9 @@ Measured from disk on **2026-08-31**. Re-verify with the commands in §7.3.
 
 **Nothing of the UI has been built yet.** No `web/`, no `package.json`, no FastAPI code, no SQLite index.
 Phase 0 contracts exist on disk: `docs/adr/` (`T-001`), `schemas/v1/` (`T-002`),
-`src/x2knwldg/ids.py` (`T-003`), `src/x2knwldg/adapters/` (`T-004`), and the labelled run fixtures
-in `tests/fixtures/runs/` (`T-006`).
+`src/x2knwldg/ids.py` (`T-003`), `src/x2knwldg/adapters/` (`T-004`), `schemas/api/v1/` plus
+`tools/generate_api_types.py` (`T-005`), and the labelled run fixtures in `tests/fixtures/runs/`
+(`T-006`).
 
 > **Independent cross-check.** The adapter reaches 86 entities and 118 relations for the sample by
 > reading `output/pqlWNihgdjI/` and `output/library/graph.json`; `library/status.json` independently
@@ -106,13 +108,13 @@ Flags: **`S`** = serialized (single owner) · **`P`** = parallel-safe once depen
 | ~~`T-002`~~ | ✅ **done** — v1 index model in [`schemas/v1/`](../schemas/v1/README.md): `common`, `Source`, `Artifact`, `Locator`, `EntityRef`, `IndexedRelation`. JSON Schema 2020-12, versioned by directory, 58 contract tests in `tests/test_index_schemas.py` | `S` | `T-001` |
 | ~~`T-003`~~ | ✅ **done** — [`src/x2knwldg/ids.py`](../src/x2knwldg/ids.py): `GlobalId`/`SourceId`, both-way conversion to the library form, and the three cross-field invariants as `check_entity_ref_ids` / `check_source_ids` / `check_locator`. `library.py` nodes **gained** `source_type` + `global_id` and kept their two-part `id`. Stdlib-only; 51 tests in `tests/test_ids.py` | `S` | `T-002` |
 | ~~`T-004`~~ | ✅ **done** — [`src/x2knwldg/adapters/`](../src/x2knwldg/adapters/README.md): `SourceAdapter` contract in `base.py`, `YouTubeAdapter` + `adapt_library` in `youtube.py`, `ADAPTERS`/`adapt_run`/`adapt_project` in `__init__.py`. Stdlib-only. The shape probe is deleted: `tests/test_index_schemas.py` validates the real adapter's records, and 43 new tests in `tests/test_adapters.py` cover what it refuses and never invents. No canonical file changed | `S` | `T-002` |
-| `T-005` | Freeze the API contract (canvas plan §15) as a written schema; set up TypeScript type generation from it | `S` | `T-002` |
+| ~~`T-005`~~ | ✅ **done** — [`schemas/api/v1/`](../schemas/api/v1/README.md): 11 `GET` endpoints in OpenAPI 3.1, `$ref`-ing `schemas/v1/` so the API defines no second shape. `tools/generate_api_types.py` (stdlib-only) generates the committed `types.d.ts`, verified under `tsc --strict`. 80 tests in `tests/test_api_contract.py` validate the endpoints against records from the **real** adapters and real `query.search_knowledge` output over the fixture runs; 26 in `tests/test_api_types.py` guard the generator and its drift. `openapi-spec-validator` joins the `dev` extra and validates the document against the OpenAPI 3.1 meta-schema. Board endpoints deliberately **not** frozen (D-027) | `S` | `T-002` |
 | ~~`T-006`~~ | ✅ **done** — [`tests/fixtures/runs/`](../tests/fixtures/runs/README.md): `pass-run`, `partial-run`, `fail-run`, generated by driving the real pipeline and regenerable byte-identically. Every `metadata.json` carries `"fixture": true`. The projection contract tests now run over them **always**, and over the real sample additionally | `P` | `T-002` |
 | `T-007` | Decide the repository interface between indexer and API (Track A ↔ Track B seam) | `S` | `T-002` |
 | `T-008` | Scaffold: `web/` dir, `ui` optional extra in `pyproject.toml`, `ui` CLI subcommand stub, `.gitignore` entries (`node_modules/`, `.vite/`, `*.tsbuildinfo`) | `S` | `T-005` |
-| `T-009` | Confirm the core package still installs and tests with **no** UI extras once `T-008` adds the `ui` extra. Adapter tests landed with `T-004`; the CI `zero-dependency` job already proves the current state (142 passed, 3 skipped) | `S` | `T-004`, `T-008` |
+| `T-009` | Confirm the core package still installs and tests with **no** UI extras once `T-008` adds the `ui` extra. Adapter tests landed with `T-004`; the CI `zero-dependency` job already proves the current state (168 passed, 4 skipped) | `S` | `T-004`, `T-008` |
 
-**Phase 0 exit gate:** schemas validate, the sample source converts to the generic model with zero guessed fields, the API contract is frozen, and `pytest` is green without UI dependencies installed. **Do not fan out before this gate.**
+**Phase 0 exit gate:** schemas validate ✅, the sample source converts to the generic model with zero guessed fields ✅, the API contract is frozen ✅, and `pytest` is green without UI dependencies installed — re-confirm once `T-008` adds the `ui` extra (`T-009`). **Do not fan out before this gate.**
 
 ### Phase 1 — Read-only Library & Reader · fan out to 4 tracks
 
@@ -163,7 +165,6 @@ New decisions from this session, formatted for the canvas plan §19 table.
 | D-015 | Index model versioned by directory (`schemas/v1/`), JSON Schema 2020-12; controlled vocabularies mirrored from `constants.py` and drift-tested; `jsonschema` is a `dev`-extra dependency only | accepted | A breaking change becomes `schemas/v2/` rather than a silent reinterpretation of stored records; mirroring lets the schemas stand alone for TypeScript generation without letting them drift from the Python vocabulary |
 | D-016 | Cross-source canonical concepts use the reserved source type `library` with external id `concepts` — `library:concepts:<hash>` | accepted | Gives `concept:<hash>` a well-formed three-part global id without touching what `library.py` emits, so D-011 covers every entity and not just per-source ones |
 | D-017 | An identifier segment may begin with `-` or `_`; only a leading dot stays barred. `ids.py` is the single implementation of the identifier rules, and the v1 `idPart` pattern was widened to match | accepted | A YouTube id is base64url and legitimately starts with either — `pipeline.py:39` already accepts `[0-9A-Za-z_-]{11}`, so the narrower pattern would have made a real source unaddressable by the index. Widening accepts strictly more, so no stored record is invalidated and no `schemas/v2/` is needed; barring a leading dot keeps `.` and `..` out of every identifier |
-
 | D-018 | A canonical knowledge unit id must be usable as one segment of a global id. `validators.py` reports `invalid_id`, and `extraction_bundle.schema.json` carries the same pattern | accepted | Otherwise an id that passes validation can still be unaddressable by the index, which is how a validator-`PASS` run came to crash `rebuild_library`. The rule now lives in one place — `ids.py` — and is enforced where the id first appears rather than where it first breaks |
 | D-019 | Labelled, synthetic `PASS`/`PARTIAL`/`FAIL` run fixtures are committed under `tests/fixtures/runs/`, and the projection contract tests run over them unconditionally | accepted | `output/` is gitignored, so those tests skipped on every machine but the one holding the sample — a green suite that proved nothing. The fixtures also give `PARTIAL` and `FAIL` an on-disk existence for the first time (R11). They are generated by driving the real pipeline, so they cannot drift from what it writes, and regeneration is byte-identical so CI can prove it |
 | D-020 | A run directory is resolved by `pipeline.resolve_run_dir`, which **rejects** an unsafe id rather than sanitising it | accepted | `_safe_identifier` rewrites `../other` into `_other`, which is right when creating a run and wrong when looking one up — a lookup must fail, not silently read a different run. Every externally supplied id goes through the resolver (R14); `T-108` must use it rather than inventing a second rule |
@@ -172,6 +173,11 @@ New decisions from this session, formatted for the canvas plan §19 table.
 | D-023 | In v1 the adapter emits entities for knowledge units and canonical concepts only. `caption`, `segment`, and `coverage_window` stay reserved in the `EntityRef` vocabulary and unemitted | accepted | Each already has a canonical representation the Reader and the indexer read directly — `T-103` indexes caption and segment text out of their artifacts — and none has a consumer needing a global handle yet. 500-odd caption entities per source, or a segment entity whose only honest `label` is `null` because the real text does not fit the field, would have to be undone later. The reserved names mean adding them costs no `schemas/v2/`. Coverage-window membership is likewise not an `IndexedRelation`: expressing it needs a fourth relation vocabulary, which is a schema change |
 | D-024 | A source-class locator addresses the **segments** artifact, not the transcript. When a unit's provenance names a different video, `artifact_id` is omitted rather than pointed anywhere | accepted | `validators.py:166` resolves `segment_id` against `segments.json` and requires the excerpt to appear in that segment's text, so that is where the evidence sits; the shape probe addressed `transcript.json`, which does not carry segment ids at all. A mis-attributed unit is a canonical error already reported in `validation.json` — the run stays indexable and honestly displayed, and its locator stays unaddressed rather than wrong |
 | D-025 | A `derived_from` edge carries `confidence: null`. `expresses_concept` edges come from `library/graph.json` via `adapt_library`; `derived_from` edges come only from the run that owns them | accepted | A unit's confidence is about the unit — no confidence about the edge exists in any canonical file, and copying one across would put a number on a claim nothing made (`library.py:70` writes its own value into its own graph for its own reasons). Splitting the two synthetic vocabularies by producer keeps a run indexable before `rebuild_library` has ever run, and stops the 45 `derived_from` edges being counted twice |
+| D-026 | The API contract is frozen as OpenAPI 3.1 in [`schemas/api/v1/openapi.json`](../schemas/api/v1/README.md), which `$ref`s `schemas/v1/` instead of restating it. Every response body is an adapter record inside an envelope carrying `api_version` and `schema_version`. Versioned by directory like D-015: a breaking change becomes `schemas/api/v2/` and a `/api/v2/` prefix, leaving these paths answering v1 | accepted | The API is a reader. A response shape of its own would be a third place for the same fact to drift, and there are already two identifier vocabularies to keep honest (R12). `adapt_project(root).by_model()` is literally what an endpoint returns a page of — the contract tests validate the endpoints against records the **real** adapters produce, so the document cannot agree with the schemas while disagreeing with the code |
+| D-027 | Only the read-only surface is frozen in v1 — 11 endpoints, all `GET`. The board endpoints of canvas plan §15 stay **reserved and unfrozen** until Phase 3 gives boards a record schema | accepted | Freezing a contract for a shape that does not exist is inventing one, and a board contract written before `T-301` would be rewritten by it. The same restraint as D-023: reserving a name costs nothing, guessing its shape costs a migration |
+| D-028 | `/api/search` preserves the two result shapes `query.search_knowledge` already returns, discriminated by `type`, and adds `global_id` and `source_id` **additively**. A `transcript_caption` hit carries no `global_id` | accepted | Those shapes are the de-facto contract the CLI and the MCP tools ship today; FTS5 (`T-103`) is an implementation change and must not be a contract change. The caption hit has no global id because v1 emits no caption entities (D-023) — minting one for the response would create an address that resolves to nothing. A hit whose canonical metadata states no `video_id` gets `global_id: null` rather than a plausible string |
+| D-029 | TypeScript types are generated by `tools/generate_api_types.py` — stdlib-only — into a **committed** `types.d.ts`, drift-guarded by a byte-identity test rather than by an npm toolchain | accepted | `T-005` runs before `T-008`, so there is no `web/`, no `package.json`, and no Node job in CI. Putting the frontend's types behind a dependency the core package does not have would cut against ADR 0001 invariant 5 and hand `T-008` a scaffold it did not choose. The generator **refuses** a construct it does not understand instead of emitting `unknown`, because a declaration that has quietly stopped describing the contract still compiles. `openapi-typescript` can be added later as a cross-check without touching the contract |
+| D-030 | Error taxonomy: an id rejected by `ids.py`/`resolve_run_dir` is `400 invalid_id`; a well-formed id naming nothing is `404 not_found`; a record whose file is absent is `available: false` and `404 unavailable` from `/api/media`; an unbuilt index is `503 index_unavailable` | accepted | D-020 says a lookup must fail rather than silently read a different run — over HTTP that means a malformed id is reported as malformed, refused before anything is read, and never dressed up as absence. `503` exists so the UI can distinguish an empty index from an absent one; without it, 'no sources yet' would be presented as a fact about the user's data |
 
 ### ⚠️ D-011 is **additive** — do not "clean up" the 2-part ID
 
@@ -200,11 +206,15 @@ A future session must not consolidate these into one form without also updating 
 
 ### 7.2 Regression baseline
 ```bash
-.venv/bin/python -m pytest -q               # expect: 231 passed, 16 subtests (plus new tests)
+.venv/bin/python -m pytest -q               # expect: 337 passed, 16 subtests (plus new tests)
 git diff --stat -- output/                  # expect: empty, always
 .venv/bin/python tests/fixtures/runs/build_fixtures.py
 git diff --stat -- tests/fixtures/runs/     # expect: empty — regeneration is byte-identical
+.venv/bin/python tools/generate_api_types.py --check   # expect: types.d.ts is up to date
 ```
+
+`--check` duplicates `tests/test_api_types.py::test_the_committed_declarations_are_current`;
+it is listed because it names the fix in its own error message.
 
 CI runs all three, plus an install of the core package with **no** extras, on
 every push and pull request: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
@@ -215,6 +225,12 @@ python3 -c "import json;print(len(json.load(open('output/pqlWNihgdjI/knowledge_u
 python3 -c "import json;print(json.load(open('output/pqlWNihgdjI/coverage.json'))['status'])"
 python3 -c "import json;print(json.load(open('output/pqlWNihgdjI/validation.json'))['status'])"
 cat output/library/status.json
+
+# The frozen API surface (T-005): 11 GET endpoints, and every payload a $ref into schemas/v1/.
+python3 -c "
+import json; d = json.load(open('schemas/api/v1/openapi.json'))
+print(len(d['paths']), 'paths;', len(d['components']['schemas']), 'components')
+print(sorted({m for ops in d['paths'].values() for m in ops}))"
 
 # The same numbers, reached independently through the adapter (T-004).
 .venv/bin/python -c "
@@ -286,6 +302,8 @@ These files are small, shared, and merge-hostile. **No track agent edits them.**
 | **R14** No path-traversal guard in existing `query.py` / `mcp_server.py` joins | 🟢 **Mitigated** | Every join now goes through `pipeline.resolve_run_dir`, which rejects rather than sanitises (D-020), with traversal tests in `tests/test_core_pipeline.py::RunLookupTests`. `T-108` must use the same resolver for HTTP path parameters |
 | **R15** Absolute host paths baked into `library/status.json` and `library/videos.json` | 🟢 **Mitigated** | `library.py` emits an additive `relative_path` beside each absolute `path`, and `T-004` closed the reading side structurally: every path in an index record goes through `adapters.project_relative`, which **refuses** a path outside the project root rather than storing it. `adapt_library` does not read `status.json` or `videos.json` at all. Tested by `test_no_record_carries_an_absolute_path` and `test_a_run_outside_the_project_root_is_refused` |
 | **R16** `value` field on statistic units is polymorphic (`int` \| `list[float]`) | 🟡 Watch | Cannot map to one SQL column — store as JSON text, keep the canonical file authoritative. `EntityRef` has no `value` field and `additionalProperties: false`, so the adapter cannot carry it into the index by accident |
+| **R17** Nothing in CI proves the generated `types.d.ts` is *valid* TypeScript | 🟡 Watch | `tests/test_api_types.py` proves the committed file matches the generator, and the generator refuses constructs it does not understand — but neither proves the emitted text compiles. It was checked once by hand under `tsc --strict` during `T-005`. **`T-008` must add `tsc --noEmit` to CI** when it brings Node in; until then a generator change could ship a file only a human would catch |
+| **R18** D-028's additive search fields exist only as a test helper | 🟡 Watch | `_as_api_hit` in `tests/test_api_contract.py` is the reference implementation of how `global_id` and `source_id` are attached to a search hit, `None` case included. It proves the frozen shape is *reachable* from real `query.search_knowledge` output; it does not force `T-106` to reach it the same way. `T-106` should move that logic into the server and point the test at it rather than writing a second one |
 
 Risks 1–6 and 8 from canvas plan §18 remain as written.
 
@@ -306,6 +324,8 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 | `ids.py` (`T-003`) | Every identifier operation: build, parse, convert between the global and library forms, and enforce the three cross-field invariants. Never assemble an id with an f-string |
 | `adapters/` (`T-004`) | The **only** way to turn a canonical run into index records. `adapt_run` for one run, `adapt_library` for the cross-source concepts, `adapt_project` for everything — the scan `T-102` makes incremental. Pass `hash_artifacts=True` for `io.sha256_file` digests. Do not re-read canonical files into ad-hoc dicts elsewhere |
 | `adapters.project_relative` | Every path that reaches an index record or an API response. It refuses a path outside the project root, which is what keeps risk R15 closed |
+| `schemas/api/v1/openapi.json` (`T-005`) | The **specification** for `T-105`–`T-108`, not a suggestion. Eleven `GET` endpoints, response bodies `$ref`-ing `schemas/v1/`. Do not add an endpoint, a field, or a status code without editing this document and its tests first |
+| `schemas/api/v1/types.d.ts` (`T-005`) | The frontend's types. Import it; never hand-edit it. Regenerate with `python tools/generate_api_types.py` |
 | `constants.py` | The real controlled vocabulary: 22 source kinds, 8 derived kinds, 16 relation types, 10 omission reasons |
 | `artifacts.SECTION_ORDER` (`artifacts.py:20`) | A ready-made 12-section UI grouping taxonomy for knowledge kinds |
 
@@ -317,29 +337,34 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 
 ## 11. Next step
 
-**Start `T-005`** — freeze the API contract of canvas plan §15 as a written schema, and set up
-TypeScript type generation from it.
+**Start `T-007`** — decide the repository interface between the indexer (Track A) and the
+API (Track B), then `T-008` (scaffolding) and `T-009` (re-confirm the no-extras install).
 
-Phase 0 now has five of its nine tasks done: `T-001` (ADRs), `T-002` ([`schemas/v1/`](../schemas/v1/README.md)),
-`T-003` ([`ids.py`](../src/x2knwldg/ids.py)), `T-004` ([`adapters/`](../src/x2knwldg/adapters/README.md)),
-and `T-006` ([run fixtures](../tests/fixtures/runs/README.md)). Remaining: `T-005`, `T-007`, `T-008`,
-`T-009`.
+Phase 0 now has six of its nine tasks done: `T-001` (ADRs), `T-002`
+([`schemas/v1/`](../schemas/v1/README.md)), `T-003` ([`ids.py`](../src/x2knwldg/ids.py)),
+`T-004` ([`adapters/`](../src/x2knwldg/adapters/README.md)), `T-005`
+([`schemas/api/v1/`](../schemas/api/v1/README.md)), and `T-006`
+([run fixtures](../tests/fixtures/runs/README.md)).
 
-`T-005` is the gate that makes Tracks B and C genuinely concurrent (§8.2), so it is the highest-value
-remaining item. Ground it in what already exists rather than in a fresh design:
+`T-007` is now the last real design decision in Phase 0, and the frozen contract has
+already fixed most of its edges. Ground it in those rather than in a fresh design:
 
-- The response bodies are the v1 records the adapter already produces. Do not invent a second shape —
-  `adapt_project(root).by_model()` is what an endpoint returns a page of.
-- `Locator` uses `type` as its discriminated-union tag; generate it as such.
-- `query.search_knowledge`'s two result shapes are the de-facto contract for `/api/search` (§10).
-- Path parameters that name a run go through `pipeline.resolve_run_dir` (D-020, R14) — `T-108` must
-  not invent a second rule.
-- Statuses in a response are the `Source.status` block verbatim, `UNKNOWN` included. The API has no
-  more right to compute a status than the UI does.
+- The repository owes the API **pages of v1 records**, not rows. `IndexRecords.by_model()`
+  is the shape on both sides of the seam already; a translation layer between them would
+  be a third vocabulary (D-026).
+- **The cursor encoding is the repository's alone.** The contract declares it opaque, so
+  the API must pass it through without parsing it, and the frontend cannot depend on it.
+- The repository must be able to say *absent*, *building*, *ready*, or *error* — `/api/status`
+  and every `503 index_unavailable` depend on it (D-030). An empty index and an unbuilt one
+  are different answers.
+- Every filter the contract exposes has to be expressible: `source_type`, validation
+  `status`, `provenance_class`, `kind`, `min_confidence`, and `relation_vocabulary`.
+- Run lookups go through `pipeline.resolve_run_dir` (D-020). One resolver, one rule.
 
-Then `T-007` (the indexer ↔ API repository seam) and `T-008` (scaffolding). `T-009` shrank to
-confirming the no-extras install still passes once `T-008` adds the `ui` extra — the adapter tests
-landed with `T-004`, and CI's `zero-dependency` job already proves the current state.
+Then `T-008` scaffolds `web/`, the `ui` extra, the `ui` CLI stub, and the `.gitignore`
+entries — and `types.d.ts` is already waiting for it, so Track C has types on day one.
+`T-009` shrank to confirming the no-extras install still passes once the `ui` extra exists;
+it currently reports **168 passed, 4 skipped**.
 
-Phase 0 remains **one agent, no fan-out**. Do not begin Canvas or production UI design until the
-Phase 0 gate in §5 passes.
+Phase 0 remains **one agent, no fan-out**. Do not begin Canvas or production UI design
+until the Phase 0 gate in §5 passes.

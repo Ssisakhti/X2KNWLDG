@@ -106,8 +106,9 @@ When you add a kind or a relation type, edit `constants.py` **and** `common.sche
 - `T-004` — YouTube adapter, the first producer of these records. The projection in
   `tests/test_index_schemas.py::_project_sample` is a shape probe standing in until it
   exists, and should be deleted in favour of a call into the real adapter.
-- `T-005` — the frozen API contract, and TypeScript types generated from it. `Locator`
-  uses `type` as its discriminator.
+- `T-005` — the frozen API contract in [`schemas/api/v1/`](../api/v1/README.md). Every
+  response body is a `$ref` into this directory rather than a restatement of it, and
+  `types.d.ts` declares `Locator` as a discriminated union tagged by `type`.
 - `T-101`–`T-103` — the SQLite index. Note that the canonical `value` field on statistic
   units is polymorphic (`int` or `list[float]`), which is why no numeric column for it
   appears here (risk R16).

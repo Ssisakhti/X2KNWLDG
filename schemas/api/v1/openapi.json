@@ -1,0 +1,1456 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "X2KNWLDG local API — v1",
+    "version": "1.0.0",
+    "summary": "The frozen read-only HTTP contract of the Knowledge Canvas local web layer.",
+    "description": "Freezes canvas plan §15 (T-005). The API is a **reader**. Every response body is a record the adapters in `src/x2knwldg/adapters/` already produce from canonical files under `output/<source-id>/`, wrapped in a versioned envelope — this document defines no second shape for anything the index model already describes, and `$ref`s `schemas/v1/` rather than restating it.\n\nFour rules the server may not break:\n\n1. **Status is copied, never computed.** Every status in a response is the `Source.status` block verbatim, `UNKNOWN` included. The API has no more right to compute a run status than the UI does (ADR 0001 invariant 2).\n2. **A missing artifact is reported, never masked.** An artifact absent at index time carries `available: false`, and `/api/media` answers `404 unavailable`. No placeholder, no fabricated bytes (canvas plan §15).\n3. **An externally supplied id is resolved, never sanitised.** Every path parameter that names a run goes through `pipeline.resolve_run_dir`, which rejects rather than rewrites (D-020, risk R14). A malformed id is `400 invalid_id`; a well-formed id with nothing behind it is `404 not_found`.\n4. **v1 is read-only.** There is no endpoint that writes to `output/`, and none at all that writes to `output/<id>/raw/`, which is immutable evidence (ADR 0001 invariant 1). Board persistence is Phase 3 and is deliberately not frozen here (D-027).\n\nLoopback-only binding, path-traversal hardening, and range requests are `T-108`; they are operational obligations that this document states but cannot enforce.",
+    "license": {
+      "name": "MIT"
+    }
+  },
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "servers": [
+    {
+      "url": "http://127.0.0.1:{port}",
+      "description": "Loopback only. The server must not bind a non-loopback interface (T-108). The port is an operational default that T-116 settles; it is not part of the frozen contract.",
+      "variables": {
+        "port": {
+          "default": "8765"
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "status",
+      "description": "What the index holds right now."
+    },
+    {
+      "name": "sources",
+      "description": "Ingested sources and their artifacts, entities, and relations."
+    },
+    {
+      "name": "artifacts",
+      "description": "Files and remote representations, and the byte channel for them."
+    },
+    {
+      "name": "entities",
+      "description": "Addressable knowledge units and canonical concepts."
+    },
+    {
+      "name": "search",
+      "description": "Full-text search preserving the shapes query.search_knowledge already returns."
+    },
+    {
+      "name": "graph",
+      "description": "The Knowledge Map's nodes and edges."
+    }
+  ],
+  "paths": {
+    "/api/status": {
+      "get": {
+        "operationId": "getStatus",
+        "tags": [
+          "status"
+        ],
+        "summary": "Index state and honest tallies",
+        "description": "Reports what the index contains and when it was built. `sources_by_status` counts copied statuses; it never re-derives one, and a source whose validator file is missing is counted under `UNKNOWN` rather than folded into `PASS`.",
+        "responses": {
+          "200": {
+            "description": "Index state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/sources": {
+      "get": {
+        "operationId": "listSources",
+        "tags": [
+          "sources"
+        ],
+        "summary": "List ingested sources",
+        "description": "One page of `Source` records. `status` filters on the copied validation status, so filtering for `PASS` cannot silently include a `PARTIAL` run.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/SourceTypeQuery"
+          },
+          {
+            "$ref": "#/components/parameters/RunStatusQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of sources.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/sources/{source_id}": {
+      "get": {
+        "operationId": "getSource",
+        "tags": [
+          "sources"
+        ],
+        "summary": "One source with its artifacts",
+        "description": "The `Source` record together with the `Artifact` records it names in `artifact_ids`. The artifacts are embedded because the Reader needs them on first paint, not because they are a different shape from `/api/artifacts/{artifact_id}` — they are the same records.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The source and its artifacts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/sources/{source_id}/entities": {
+      "get": {
+        "operationId": "listSourceEntities",
+        "tags": [
+          "sources",
+          "entities"
+        ],
+        "summary": "The knowledge units of one source",
+        "description": "One page of `EntityRef` records belonging to *source_id*. In v1 these are knowledge units only: captions, segments, and coverage windows are reserved in the vocabulary and deliberately unemitted (D-023).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceIdPath"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/ProvenanceClassQuery"
+          },
+          {
+            "$ref": "#/components/parameters/KindQuery"
+          },
+          {
+            "$ref": "#/components/parameters/MinConfidenceQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of entities.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/sources/{source_id}/relations": {
+      "get": {
+        "operationId": "listSourceRelations",
+        "tags": [
+          "sources",
+          "graph"
+        ],
+        "summary": "The relations of one source",
+        "description": "One page of `IndexedRelation` records whose `source_id` is *source_id*. Cross-source `expresses_concept` edges have a null `source_id` and are therefore reached through `/api/graph`, not here.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceIdPath"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/RelationVocabularyQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of relations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelationListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/entities/{entity_id}": {
+      "get": {
+        "operationId": "getEntity",
+        "tags": [
+          "entities"
+        ],
+        "summary": "One entity by global id",
+        "description": "An `EntityRef` addressed by its three-part global id (D-011). A canonical concept is addressed as `library:concepts:<hash>` (D-016).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/artifacts/{artifact_id}": {
+      "get": {
+        "operationId": "getArtifact",
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "One artifact record",
+        "description": "The `Artifact` record — what the file is, where it sits, whether it was present at index time. It is metadata about the file, never the file. Bytes come from `/api/media/{artifact_id}`. An artifact that was absent at index time is returned with `available: false` and a `200`: its record exists and the honest answer is that the file does not.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ArtifactIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The artifact record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/media/{artifact_id}": {
+      "get": {
+        "operationId": "getArtifactMedia",
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "The bytes of one artifact",
+        "description": "The byte channel for every artifact, canonical JSON and the Markdown report included — the API serves the file as written and never reinterprets, reformats, or summarises canonical content.\n\nRead-only in every case. `raw/` artifacts are served but carry `immutable: true` and have no write endpoint in any version (ADR 0001 invariant 1). An `external` artifact — a YouTube video — has no bytes here: it answers `404 unavailable`, and the client uses `Artifact.url` (canvas plan §15: never assume a local media file exists).\n\nRange requests are supported (T-108).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ArtifactIdPath"
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "required": false,
+            "description": "Byte range, per RFC 9110. Answered with 206 and a Content-Range header.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The whole artifact. `Content-Type` is `Artifact.media_type` when one is registered, and `application/octet-stream` when it is not — a media type is stated, never guessed.",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`bytes`."
+              }
+            },
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The requested byte range.",
+            "headers": {
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "416": {
+            "description": "The requested range is not satisfiable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "operationId": "search",
+        "tags": [
+          "search"
+        ],
+        "summary": "Search knowledge units and transcript text",
+        "description": "Preserves the two result shapes `query.search_knowledge` already returns, discriminated by `type` (D-028). FTS5 (T-103) replaces the linear scan behind this endpoint without changing the shapes.\n\nA knowledge-unit hit gains `global_id` and `source_id` additively so the client can navigate; a transcript-caption hit carries no `global_id`, because v1 emits no caption entities (D-023) — it addresses its source and its timestamp instead.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "description": "The query. An empty or whitespace-only query is `400 invalid_request`, not an empty result set.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/SourceIdQuery"
+          },
+          {
+            "name": "include_transcript",
+            "in": "query",
+            "required": false,
+            "description": "Whether transcript captions are searched as well as knowledge units. Mirrors `include_transcript_fallback`.",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of hits, most relevant first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/graph": {
+      "get": {
+        "operationId": "getGraph",
+        "tags": [
+          "graph"
+        ],
+        "summary": "Nodes and edges for the Knowledge Map",
+        "description": "`EntityRef` nodes and `IndexedRelation` edges, bounded by `limit`. Every edge states its `relation_vocabulary`, so the Map can style the two library-synthetic edge types — `derived_from` and `expresses_concept`, the most common edges in the current data — without presenting them as canonical relations.\n\n`truncated` is stated rather than implied: a Map that has silently received part of a graph would draw a false picture of what is connected.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/SourceIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/ProvenanceClassQuery"
+          },
+          {
+            "$ref": "#/components/parameters/RelationVocabularyQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A bounded slice of the graph.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/graph/neighborhood/{entity_id}": {
+      "get": {
+        "operationId": "getNeighborhood",
+        "tags": [
+          "graph"
+        ],
+        "summary": "The neighborhood of one entity",
+        "description": "Nodes and edges within `depth` hops of *entity_id*, for the Map's incremental loading. The centre is echoed back so a client that batches requests cannot mis-attribute a response.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityIdPath"
+          },
+          {
+            "name": "depth",
+            "in": "query",
+            "required": false,
+            "description": "Hops from the centre.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3,
+              "default": 1
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/RelationVocabularyQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The neighborhood.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NeighborhoodResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Maximum records in the page.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 50
+        }
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "description": "Opaque continuation token from a previous `page.next_cursor`. Opaque on purpose: the encoding belongs to the index (T-007), and a client that parses it has coupled itself to a private detail. A cursor the server cannot read is `400 invalid_request`.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "SourceIdPath": {
+        "name": "source_id",
+        "in": "path",
+        "required": true,
+        "description": "Two-part source id, `<source_type>:<external_id>`. A colon is a legal path character (RFC 3986 `pchar`) and needs no escaping. Resolved through `pipeline.resolve_run_dir`, which rejects rather than sanitises (D-020).",
+        "schema": {
+          "$ref": "../../v1/common.schema.json#/$defs/sourceId"
+        }
+      },
+      "EntityIdPath": {
+        "name": "entity_id",
+        "in": "path",
+        "required": true,
+        "description": "Three-part global id, `<source_type>:<external_id>:<local_id>`.",
+        "schema": {
+          "$ref": "../../v1/common.schema.json#/$defs/globalId"
+        }
+      },
+      "ArtifactIdPath": {
+        "name": "artifact_id",
+        "in": "path",
+        "required": true,
+        "description": "Three-part global id of an artifact, e.g. `youtube:pqlWNihgdjI:transcript`.",
+        "schema": {
+          "$ref": "../../v1/common.schema.json#/$defs/globalId"
+        }
+      },
+      "SourceIdQuery": {
+        "name": "source_id",
+        "in": "query",
+        "required": false,
+        "description": "Restrict to one source.",
+        "schema": {
+          "$ref": "../../v1/common.schema.json#/$defs/sourceId"
+        }
+      },
+      "SourceTypeQuery": {
+        "name": "source_type",
+        "in": "query",
+        "required": false,
+        "description": "Restrict to one adapter namespace.",
+        "schema": {
+          "$ref": "../../v1/common.schema.json#/$defs/sourceType"
+        }
+      },
+      "RunStatusQuery": {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "description": "Filter on the copied validation status. `UNKNOWN` is selectable, so a run with a missing validator file can be found rather than disappearing.",
+        "schema": {
+          "$ref": "../../v1/common.schema.json#/$defs/runStatus"
+        }
+      },
+      "ProvenanceClassQuery": {
+        "name": "provenance_class",
+        "in": "query",
+        "required": false,
+        "description": "Filter on origin: source evidence, recorded synthesis, or user content.",
+        "schema": {
+          "$ref": "../../v1/common.schema.json#/$defs/provenanceClass"
+        }
+      },
+      "KindQuery": {
+        "name": "kind",
+        "in": "query",
+        "required": false,
+        "description": "Filter on knowledge kind.",
+        "schema": {
+          "$ref": "../../v1/common.schema.json#/$defs/knowledgeKind"
+        }
+      },
+      "MinConfidenceQuery": {
+        "name": "min_confidence",
+        "in": "query",
+        "required": false,
+        "description": "Keep only entities whose copied confidence is at least this value. An entity with a null confidence is excluded, because no canonical file states a number for it and a default would be invented.",
+        "schema": {
+          "$ref": "../../v1/common.schema.json#/$defs/confidence"
+        }
+      },
+      "RelationVocabularyQuery": {
+        "name": "relation_vocabulary",
+        "in": "query",
+        "required": false,
+        "description": "Filter on which of the three edge vocabularies an edge belongs to.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "canonical",
+            "library_synthetic",
+            "user"
+          ]
+        }
+      }
+    },
+    "schemas": {
+      "ApiVersion": {
+        "description": "The API surface version. Fixed for the life of `schemas/api/v1/`. A breaking change becomes `schemas/api/v2/` and a `/api/v2/` path prefix, leaving these paths answering v1 (D-026).",
+        "const": "v1"
+      },
+      "PageInfo": {
+        "description": "Where a page sits in a collection.",
+        "type": "object",
+        "required": [
+          "limit",
+          "next_cursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "next_cursor": {
+            "description": "Token for the next page, or null at the end of the collection.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "total": {
+            "description": "Total matching records, or null when the server did not count them. Null means unknown — it never means zero.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      },
+      "ErrorCode": {
+        "description": "Closed error vocabulary. `invalid_id` is D-020 surfaced over HTTP: an id that fails `ids.py` or `resolve_run_dir` is refused before anything is read, and is reported as malformed rather than as absent. `unavailable` is the honest answer for an artifact whose record exists but whose file does not — the alternative, a placeholder, is forbidden by canvas plan §15.",
+        "type": "string",
+        "enum": [
+          "invalid_id",
+          "invalid_request",
+          "not_found",
+          "unavailable",
+          "index_unavailable",
+          "internal"
+        ]
+      },
+      "ErrorBody": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "description": "Human-readable, and safe to show. It names what was wrong with the request, never a host path.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "detail": {
+            "description": "Structured context, or null. Never carries an absolute host path (risk R15).",
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        }
+      },
+      "IndexState": {
+        "description": "What the index can answer with. `absent` and `building` are reported plainly: a UI that cannot tell an empty index from an unbuilt one will present 'no sources' as a fact.",
+        "type": "string",
+        "enum": [
+          "absent",
+          "building",
+          "ready",
+          "error"
+        ]
+      },
+      "RunStatusTally": {
+        "description": "Sources per copied status. Counting is the only operation performed on a status.",
+        "type": "object",
+        "required": [
+          "PASS",
+          "PARTIAL",
+          "FAIL",
+          "UNKNOWN"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "PASS": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "PARTIAL": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "FAIL": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "UNKNOWN": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "StatusPayload": {
+        "type": "object",
+        "required": [
+          "index",
+          "counts",
+          "sources_by_status",
+          "adapters"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "type": "object",
+            "required": [
+              "state",
+              "built_at"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "state": {
+                "$ref": "#/components/schemas/IndexState"
+              },
+              "built_at": {
+                "description": "When the index last finished a build, or null if it never has.",
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "index_version": {
+                "description": "Migration version of the SQLite schema (T-101), or null when no index exists.",
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            }
+          },
+          "counts": {
+            "description": "Records the index holds. A cache convenience, reproducible from the canonical files; a stale count is a bug, never a data achievement.",
+            "type": "object",
+            "required": [
+              "sources",
+              "artifacts",
+              "entities",
+              "relations"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "sources": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "artifacts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "entities": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "relations": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "sources_by_status": {
+            "$ref": "#/components/schemas/RunStatusTally"
+          },
+          "adapters": {
+            "description": "The registered adapters, so a stale record can be traced to the code that wrote it.",
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/common.schema.json#/$defs/adapterRef"
+            }
+          }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "$ref": "#/components/schemas/StatusPayload"
+          }
+        }
+      },
+      "SourceListResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data",
+          "page"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/source.schema.json"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "SourceDetail": {
+        "type": "object",
+        "required": [
+          "source",
+          "artifacts"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "$ref": "../../v1/source.schema.json"
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/artifact.schema.json"
+            }
+          }
+        }
+      },
+      "SourceDetailResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SourceDetail"
+          }
+        }
+      },
+      "ArtifactResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "$ref": "../../v1/artifact.schema.json"
+          }
+        }
+      },
+      "EntityResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "$ref": "../../v1/entity_ref.schema.json"
+          }
+        }
+      },
+      "EntityListResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data",
+          "page"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/entity_ref.schema.json"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "RelationListResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data",
+          "page"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/indexed_relation.schema.json"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "SearchHitKnowledgeUnit": {
+        "description": "A knowledge-unit hit, field for field as `query.search_knowledge` returns it, plus `global_id` and `source_id`. The canonical field names are kept — `video_id` stays `video_id` (ADR 0001 invariant 6) and `id` stays the canonical unit id — so the shape the MCP tools and the CLI already return is the shape the API returns.",
+        "type": "object",
+        "required": [
+          "type",
+          "video_id",
+          "title",
+          "id",
+          "kind",
+          "source_class",
+          "content",
+          "confidence",
+          "global_id",
+          "source_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "knowledge_unit"
+          },
+          "video_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "The canonical knowledge unit id, e.g. `KU-000001`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_class": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "start_sec": {
+            "description": "Present only when the canonical unit states a numeric start. Absent, not zero, when it does not.",
+            "$ref": "../../v1/common.schema.json#/$defs/timestampSec"
+          },
+          "source_url": {
+            "description": "Deep link built by `io.timestamp_url`. Present only alongside `start_sec`.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "derived_from": {
+            "description": "Present only for a derived-class unit, in the canonical id form the unit itself carries.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "global_id": {
+            "description": "Additive. Null when the canonical data cannot form one — a run whose metadata states no `video_id` has no addressable entity, and a fabricated id would be worse than none.",
+            "oneOf": [
+              {
+                "$ref": "../../v1/common.schema.json#/$defs/globalId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_id": {
+            "description": "Additive.",
+            "oneOf": [
+              {
+                "$ref": "../../v1/common.schema.json#/$defs/sourceId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SearchHitTranscriptCaption": {
+        "description": "A transcript-caption hit, field for field as `query.search_knowledge` returns it, plus `source_id`. It carries no `global_id`: v1 emits no caption entities (D-023), so there is no entity to address. The client navigates by source and timestamp instead.",
+        "type": "object",
+        "required": [
+          "type",
+          "video_id",
+          "title",
+          "caption_id",
+          "content",
+          "start_sec",
+          "end_sec",
+          "source_url",
+          "source_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "transcript_caption"
+          },
+          "video_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "caption_id": {
+            "description": "The canonical caption's `segment_id`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_sec": {
+            "$ref": "../../v1/common.schema.json#/$defs/timestampSec"
+          },
+          "end_sec": {
+            "oneOf": [
+              {
+                "$ref": "../../v1/common.schema.json#/$defs/timestampSec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "source_id": {
+            "oneOf": [
+              {
+                "$ref": "../../v1/common.schema.json#/$defs/sourceId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SearchHit": {
+        "description": "One result. `type` is the discriminator.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchHitKnowledgeUnit"
+          },
+          {
+            "$ref": "#/components/schemas/SearchHitTranscriptCaption"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "knowledge_unit": "#/components/schemas/SearchHitKnowledgeUnit",
+            "transcript_caption": "#/components/schemas/SearchHitTranscriptCaption"
+          }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "query",
+          "data",
+          "page"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "query": {
+            "description": "The query as executed, echoed so a client batching requests cannot mis-attribute a response.",
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "GraphPayload": {
+        "type": "object",
+        "required": [
+          "nodes",
+          "edges",
+          "truncated"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/entity_ref.schema.json"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/indexed_relation.schema.json"
+            }
+          },
+          "truncated": {
+            "description": "True when `limit` cut the result short. Stated rather than implied, so the Map never presents a partial graph as the whole one.",
+            "type": "boolean"
+          }
+        }
+      },
+      "GraphResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data",
+          "page"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "NeighborhoodPayload": {
+        "type": "object",
+        "required": [
+          "center_id",
+          "depth",
+          "nodes",
+          "edges",
+          "truncated"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "center_id": {
+            "$ref": "../../v1/common.schema.json#/$defs/globalId"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/entity_ref.schema.json"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/indexed_relation.schema.json"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NeighborhoodResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "$ref": "#/components/schemas/NeighborhoodPayload"
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "The request is malformed: a rejected id (`invalid_id`), or a bad parameter or unreadable cursor (`invalid_request`).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "The id is well-formed but names nothing (`not_found`), or names an artifact whose file is absent (`unavailable`).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "IndexUnavailable": {
+        "description": "The index is absent, building, or in error, so no honest answer can be given yet (`index_unavailable`).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  }
+}

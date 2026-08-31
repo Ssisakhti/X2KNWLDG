@@ -25,6 +25,9 @@ dev = [
   "pytest>=8.0",
   # Validates schemas/v1/ in tests only; the core package stays zero-dependency.
   "jsonschema>=4.18",
+  # Validates schemas/api/v1/openapi.json against the OpenAPI 3.1 meta-schema.
+  # Tests only, and skipped when absent, for the same reason.
+  "openapi-spec-validator>=0.7",
 ]
 
 [project.scripts]
@@ -34,8 +37,9 @@ x2knwldg-mcp = "x2knwldg.mcp_server:main"
 [tool.pytest.ini_options]
 # Explicit, so the suite does not silently depend on an editable install having
 # put src/ on sys.path. legacy/upstream/ holds the unmaintained upstream
-# scripts that three test modules still cover.
-pythonpath = ["src", "legacy/upstream"]
+# scripts that three test modules still cover; tools/ holds the API type
+# generator, whose drift guard is a test.
+pythonpath = ["src", "legacy/upstream", "tools"]
 testpaths = ["tests"]
 
 [tool.setuptools]
