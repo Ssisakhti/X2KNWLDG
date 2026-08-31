@@ -142,5 +142,8 @@ one in. The drift test proves the file matches the generator, not that it compil
 - `T-109`–`T-114` — the frontend, compiling against `types.d.ts` while the server is built.
 - `T-115` — contract tests against the frozen schema; `tests/test_api_contract.py` is their
   starting point.
-- `T-007` — the repository interface behind the API. It owes these endpoints their pages;
-  the cursor encoding is its business alone.
+- `T-007` — ✅ delivered: [`src/x2knwldg/repository/`](../../../src/x2knwldg/repository/README.md)
+  is the interface behind the API. Ten methods serve these eleven endpoints, returning pages of
+  the same v1 records; the cursor encoding is its business alone, and the API passes the token
+  through unparsed. `MemoryRepository` already answers the whole document from the adapters, and
+  §5 of `tests/test_api_contract.py` validates what it returns against these components.

@@ -53,3 +53,4 @@ An accepted ADR is **never edited to change its decision**. Write a new ADR that
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-local-web-ui.md) | Local-first web layer for the Knowledge Canvas | Accepted |
+| [0002](0002-index-repository-seam.md) | The index repository, and the seam between the indexer and the API | Accepted |

@@ -35,6 +35,18 @@ from referencing.jsonschema import DRAFT202012  # noqa: E402
 from x2knwldg import ids  # noqa: E402
 from x2knwldg.adapters import adapt_library, adapt_run  # noqa: E402
 from x2knwldg.query import search_knowledge  # noqa: E402
+from x2knwldg.repository import (  # noqa: E402
+    EntityQuery,
+    GraphQuery,
+    IndexUnavailable,
+    InvalidId,
+    InvalidQuery,
+    MemoryRepository,
+    NeighborhoodQuery,
+    RelationQuery,
+    SearchQuery,
+    SourceQuery,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 V1_DIR = PROJECT_ROOT / "schemas" / "v1"
@@ -123,6 +135,14 @@ def _runs() -> list[Path]:
 
 RUNS = _runs()
 RUN_IDS = [run.name for run in RUNS]
+
+#: The T-007 seam over the committed fixtures. Section 5 asks whether what it
+#: returns fits the endpoints; section 3 uses it for the additive search fields.
+FIXTURE_REPO = MemoryRepository.from_project(PROJECT_ROOT, output_dir="tests/fixtures/runs")
+
+#: The same seam over the whole project, so the cross-source concepts of
+#: ``output/library/`` are in scope where the real sample exists.
+PROJECT_REPO = MemoryRepository.from_project(PROJECT_ROOT)
 
 requires_library = pytest.mark.skipif(
     not (LIBRARY_DIR / "concepts.json").exists(),
@@ -462,25 +482,15 @@ def test_the_partial_and_fail_fixtures_reach_the_api_as_themselves(validate) -> 
 
 
 def _as_api_hit(result: dict[str, Any]) -> dict[str, Any]:
-    """The additive fields ``T-106`` must attach, and no others.
+    """The additive fields of D-028, attached by the code that will attach them.
 
-    This is the reference implementation of D-028: every other field passes
-    through from ``query.search_knowledge`` untouched, and an id that cannot be
-    built honestly becomes ``None`` rather than a plausible string.
+    This used to be a reference implementation living here, which is what risk
+    R18 described: the frozen shape was proved *reachable* from real
+    ``query.search_knowledge`` output, by a helper no server would ever call.
+    ``T-007`` moved it into ``repository/memory.py``, so these tests now check
+    the same code path ``T-106`` serves — one implementation, not two.
     """
-    hit = dict(result)
-    video_id = result.get("video_id")
-    try:
-        source_id = ids.make_source_id("youtube", video_id).value
-    except (ids.IdError, TypeError):
-        source_id = None
-    hit["source_id"] = source_id
-    if result["type"] == "knowledge_unit":
-        try:
-            hit["global_id"] = ids.make_global_id("youtube", video_id, result["id"]).value
-        except (ids.IdError, TypeError):
-            hit["global_id"] = None
-    return hit
+    return FIXTURE_REPO.as_api_hit(result)
 
 
 def _search(query: str, **kwargs: Any) -> list[dict[str, Any]]:
@@ -616,3 +626,110 @@ def test_a_user_relation_may_not_carry_a_confidence(validate) -> None:
         "confidence": 0.9,
     }
     assert validate("RelationListResponse", _envelope(data=[relation], page=_page()))
+
+
+# --------------------------------------------------------------------------
+# 5. The repository serves these endpoints (T-007)
+# --------------------------------------------------------------------------
+#
+# Sections 2 and 3 ask whether *records* fit the contract. This section asks the
+# question that actually decides whether ``T-105``–``T-108`` can be written
+# against the seam: does what ``IndexRepository`` returns — payload and page
+# alike — validate as the response body of the endpoint it serves, with the
+# route adding nothing but the envelope?
+
+
+def test_the_status_payload_is_served_whole(validate) -> None:
+    payload = FIXTURE_REPO.status().payload()
+    assert not validate("StatusPayload", payload)
+    assert not validate("StatusResponse", _envelope(data=payload))
+
+
+def test_an_unbuilt_index_still_answers_status(validate) -> None:
+    """D-030: ``503`` exists so the UI can tell an empty index from an absent one."""
+    payload = MemoryRepository.unavailable("absent").status().payload()
+    assert not validate("StatusResponse", _envelope(data=payload))
+    assert payload["index"]["state"] == "absent"
+    assert payload["counts"]["sources"] == 0
+
+
+def test_list_sources_is_served_as_a_page(validate) -> None:
+    page = FIXTURE_REPO.list_sources(SourceQuery(limit=2))
+    assert not validate("PageInfo", page.page_info())
+    assert not validate("SourceListResponse", _envelope(data=page.items, page=page.page_info()))
+    assert page.next_cursor, "three fixture runs do not fit in a page of two"
+
+
+def test_get_source_is_served_whole(validate) -> None:
+    detail = FIXTURE_REPO.get_source("youtube:fixture-pass")
+    assert detail is not None
+    assert not validate("SourceDetail", detail.payload())
+    assert not validate("SourceDetailResponse", _envelope(data=detail.payload()))
+
+
+def test_list_entities_and_relations_are_served_as_pages(validate) -> None:
+    entities = FIXTURE_REPO.list_entities(EntityQuery(source_id="youtube:fixture-pass"))
+    relations = FIXTURE_REPO.list_relations(RelationQuery(source_id="youtube:fixture-pass"))
+    assert entities.items and relations.items
+    assert not validate(
+        "EntityListResponse", _envelope(data=entities.items, page=entities.page_info())
+    )
+    assert not validate(
+        "RelationListResponse", _envelope(data=relations.items, page=relations.page_info())
+    )
+
+
+def test_single_records_are_served_whole(validate) -> None:
+    entity = FIXTURE_REPO.list_entities(EntityQuery(limit=1)).items[0]
+    assert not validate("EntityResponse", _envelope(data=FIXTURE_REPO.get_entity(entity["global_id"])))
+    artifact_id = FIXTURE_REPO.get_source("youtube:fixture-pass").artifacts[0]["id"]
+    assert not validate("ArtifactResponse", _envelope(data=FIXTURE_REPO.get_artifact(artifact_id)))
+
+
+def test_search_is_served_as_a_page(validate) -> None:
+    page = FIXTURE_REPO.search(SearchQuery(q="the", limit=5))
+    assert page.items
+    assert not validate(
+        "SearchResponse", _envelope(query="the", data=page.items, page=page.page_info())
+    )
+
+
+def test_graph_and_neighborhood_are_served_whole(validate) -> None:
+    graph = FIXTURE_REPO.graph(GraphQuery(limit=2))
+    assert not validate("GraphPayload", graph.payload())
+    assert not validate("GraphResponse", _envelope(data=graph.payload(), page=graph.page_info()))
+
+    center = graph.nodes[0]["global_id"]
+    hood = FIXTURE_REPO.neighborhood(NeighborhoodQuery(entity_id=center, depth=2))
+    assert hood is not None
+    assert not validate("NeighborhoodPayload", hood.payload())
+    assert not validate("NeighborhoodResponse", _envelope(data=hood.payload()))
+
+
+def test_a_cursor_fits_the_length_the_contract_allows(validate) -> None:
+    page = FIXTURE_REPO.list_entities(EntityQuery(limit=1))
+    assert not validate("PageInfo", page.page_info())
+    assert page.next_cursor and len(page.next_cursor) <= 512
+
+
+@pytest.mark.parametrize(
+    "error,code",
+    [
+        (InvalidId("bad id"), "invalid_id"),
+        (InvalidQuery("bad limit"), "invalid_request"),
+        (IndexUnavailable("not built"), "index_unavailable"),
+    ],
+)
+def test_every_repository_refusal_has_a_frozen_error_code(validate, error, code: str) -> None:
+    """The taxonomy the repository raises is the taxonomy the contract declares."""
+    body = _envelope(error={"code": error.code, "message": str(error)})
+    assert error.code == code
+    assert not validate("ErrorResponse", body)
+
+
+@requires_library
+def test_the_seam_serves_the_cross_source_concepts_too(validate) -> None:
+    page = PROJECT_REPO.list_entities(EntityQuery(kind="canonical_concept", limit=500))
+    assert page.items
+    assert not validate("EntityListResponse", _envelope(data=page.items, page=page.page_info()))
+    assert all(concept["source_id"] is None for concept in page.items)
