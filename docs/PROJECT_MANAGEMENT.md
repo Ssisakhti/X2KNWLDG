@@ -53,7 +53,7 @@ Measured from disk on **2026-08-31**. Re-verify with the commands in §7.3.
 | `coverage.json` status | **`PASS`** (5/5 windows covered, `audit_attempts: 1`) |
 | `validation.json` status | **`PASS`** (all 5 sections) |
 | `output/library/` | 1 video, 69 knowledge nodes, **17 canonical concepts**, 118 edges — unchanged by the `T-003` rebuild, which only added fields |
-| Test baseline | **187 passed, 16 subtests** (`.venv/bin/python -m pytest -q`). Without `jsonschema`: **104 passed, 2 skipped** |
+| Test baseline | **187 passed, 16 subtests** (`.venv/bin/python -m pytest -q`, all extras installed). Core package with no extras at all: **99 passed, 3 skipped** — the `jsonschema` and `legacy` tests skip cleanly |
 | Toolchain | Node 26.5.0 · npm 11.17.0 · Python 3.14.6 · SQLite 3.53.4 with **FTS5 available** |
 
 > **Correction of record.** Canvas plan §4 previously stated the sample had empty

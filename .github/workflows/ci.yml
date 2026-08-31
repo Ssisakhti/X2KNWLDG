@@ -21,10 +21,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install with dev extras
+      - name: Install with dev and legacy extras
+        # legacy brings networkx/pyvis, which the upstream scripts in
+        # legacy/upstream/ need. Without it their tests skip rather than run.
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev]'
+          pip install -e '.[dev,legacy]'
       - name: Run the suite
         run: pytest -q
 
@@ -45,10 +47,12 @@ jobs:
           pip install . pytest
       - name: Fail if an optional dependency crept into the core install
         run: |
-          if pip show jsonschema > /dev/null 2>&1; then
-            echo "jsonschema is installed; it must stay a dev extra" >&2
-            exit 1
-          fi
+          for package in jsonschema networkx pyvis yt-dlp; do
+            if pip show "$package" > /dev/null 2>&1; then
+              echo "$package is installed; it must stay an optional extra" >&2
+              exit 1
+            fi
+          done
       - name: Run the suite
         run: pytest -q
 

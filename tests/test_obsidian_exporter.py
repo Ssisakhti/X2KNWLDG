@@ -1,8 +1,7 @@
 import pytest
 from pathlib import Path
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
+# These cover the unmaintained upstream scripts in legacy/upstream/, which
+# pytest reaches through the pythonpath entry in pyproject.toml (D-021).
 from obsidian_exporter import ObsidianExporter, slugify, _build_filename_map
 
 
