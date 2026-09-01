@@ -143,6 +143,23 @@ class MemoryRepository:
     # Construction
     # ------------------------------------------------------------------
 
+    @property
+    def project_root(self) -> Path:
+        """The project these records describe.
+
+        Public because ``SqliteRepository.project_root`` is, and the two are
+        meant to be interchangeable — ``T-104`` proves they answer the ten
+        protocol methods identically, but the equivalence harness compares only
+        those, so an attribute one exposes and the other hides slips through it.
+        The byte channel is what found the gap: it resolves an artifact's
+        project-relative path against this, and worked over SQLite while
+        answering ``500`` over the oracle.
+
+        Recorded, never joined onto by this class: no id reaches a path here.
+        """
+        return self._project_root
+
+
     @classmethod
     def from_project(
         cls,

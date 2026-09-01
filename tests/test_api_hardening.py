@@ -27,40 +27,54 @@ import api_harness as h
 pytestmark = [h.requires_fastapi]
 
 
-#: Ids that must never reach a filesystem read. Each is a real technique rather
-#: than a variation on one: parent traversal, an absolute path, percent- and
-#: double-percent-encoding, a backslash, a NUL, a newline, a URL, and length.
-HOSTILE_IDS = [
-    "..",
-    "../..",
-    "../../etc/passwd",
+#: Ids a client can actually put on the wire, each a real technique rather than
+#: a variation on one: percent- and double-percent-encoded traversal, an
+#: absolute path, a Windows path, a scheme, an encoded NUL, and length.
+#:
+#: Raw ``..`` and raw control bytes are **not** here, and that is a statement
+#: about httpx rather than about the server: it resolves dot-segments and
+#: rejects control characters before a request is made, so a test that sent
+#: them would be testing the client. They are covered against the real boundary
+#: by :func:`test_a_raw_hostile_id_is_refused_at_the_boundary` below, and their
+#: encoded forms — which *do* reach the server — are here.
+WIRE_HOSTILE_IDS = [
     "..%2f..%2fetc%2fpasswd",
     "..%252f..%252fetc%252fpasswd",
     "%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+    "%2e%2e/%2e%2e/etc/passwd",
     "....//....//etc/passwd",
-    "/etc/passwd",
-    "/Users/saeid/.ssh/id_rsa",
+    "%2Fetc%2Fpasswd",
     "C:\\Windows\\System32\\config\\SAM",
     "..\\..\\windows\\win.ini",
-    "youtube:../../etc:passwd",
-    "youtube:pass-run:../../../etc/passwd",
+    "youtube:%2e%2e%2f%2e%2e:passwd",
+    "youtube:pass-run:%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+    "%00",
+    "%2e",
+    "youtube:pass%00run:metadata",
+    "youtube:pass%0arun:metadata",
+    "file:%2f%2f%2fetc%2fpasswd",
+    "a" * 4096,
+    " ",
+    "~",
+    "~%2f.ssh%2fid_rsa",
+    "$HOME",
+]
+
+#: Ids that never survive a URL parser, checked one layer in — at the repository
+#: boundary, which is where they would arrive if any client did send them.
+RAW_HOSTILE_IDS = [
+    "..",
+    "../../etc/passwd",
+    "/etc/passwd",
     "\x00",
     "youtube:pass\x00run:metadata",
     "youtube:pass\nrun:metadata",
-    "file:///etc/passwd",
-    "http://example.com/",
-    "a" * 4096,
     "",
-    " ",
-    ".",
-    "~",
-    "~/.ssh/id_rsa",
-    "$HOME",
-    "%00",
+    "..\\..\\windows\\win.ini",
+    "a" * 4096,
 ]
 
-#: Every route that takes an id in its path, and the response that route gives
-#: for an id that is well-formed but matches nothing.
+#: Every route that takes an id in its path.
 ID_ROUTES = [
     "/api/sources/{id}",
     "/api/sources/{id}/entities",
@@ -83,7 +97,7 @@ def served(tmp_path_factory) -> Path:
 
 
 @pytest.mark.parametrize("template", ID_ROUTES)
-@pytest.mark.parametrize("hostile", HOSTILE_IDS)
+@pytest.mark.parametrize("hostile", WIRE_HOSTILE_IDS)
 def test_a_hostile_id_is_refused_and_never_read(served: Path, template: str, hostile: str) -> None:
     """Refused, never served, and never a crash.
 
@@ -105,7 +119,7 @@ def test_a_hostile_id_is_refused_and_never_read(served: Path, template: str, hos
                 h.assert_contract("ErrorResponse", body)
 
 
-@pytest.mark.parametrize("hostile", HOSTILE_IDS)
+@pytest.mark.parametrize("hostile", WIRE_HOSTILE_IDS)
 def test_no_hostile_id_ever_returns_file_bytes(served: Path, hostile: str) -> None:
     """The byte channel specifically: nothing outside the project is ever served."""
     with h.client(h.memory_repository(served)) as client:
@@ -113,6 +127,74 @@ def test_no_hostile_id_ever_returns_file_bytes(served: Path, hostile: str) -> No
         assert response.status_code != 200, f"{hostile!r} was served bytes"
         assert b"root:" not in response.content, "a passwd file was served"
         assert b"PRIVATE KEY" not in response.content
+
+
+@pytest.mark.parametrize("hostile", RAW_HOSTILE_IDS)
+def test_a_raw_hostile_id_is_refused_at_the_boundary(served: Path, hostile: str) -> None:
+    """The ids a URL parser eats, checked where they would actually land.
+
+    httpx resolves ``..`` and rejects control bytes client-side, so these never
+    reach the app over HTTP from *this* client — but "our test client cannot
+    express it" is not a security property. The repository is the boundary every
+    id crosses, so the refusal is asserted there directly: malformed in, refused
+    out, and never a lookup.
+    """
+    from x2knwldg.repository.base import RepositoryError
+
+    repo = h.memory_repository(served)
+    for lookup in (repo.get_entity, repo.get_artifact):
+        try:
+            result = lookup(hostile)
+        except RepositoryError as exc:
+            assert exc.code in ("invalid_id", "invalid_request"), exc.code
+            assert exc.http_status == 400
+        else:
+            assert result is None, f"{hostile!r} resolved to {result!r}"
+
+
+def test_a_dot_segment_is_never_resolved_by_the_server(served: Path) -> None:
+    """``..`` must not traverse — checked without letting the client rewrite it.
+
+    httpx normalises ``/api/media/..`` to ``/api`` before sending, so asserting
+    on the response would grade the client. The raw path is handed to the ASGI
+    app directly instead, which is what a hand-written HTTP client could do.
+    """
+    from x2knwldg.repository import MemoryRepository
+    from x2knwldg.server.app import create_app
+
+    app = create_app(repository=MemoryRepository.from_project(served))
+    seen: dict[str, object] = {}
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            seen["status"] = message["status"]
+        elif message["type"] == "http.response.body":
+            seen["body"] = seen.get("body", b"") + message.get("body", b"")
+
+    import asyncio
+
+    for raw in ("/api/media/../../etc/passwd", "/api/entities/..", "/api/media/.."):
+        seen.clear()
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.1"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": raw,
+            "raw_path": raw.encode(),
+            "root_path": "",
+            "query_string": b"",
+            "headers": [(b"host", b"testserver")],
+            "client": ("127.0.0.1", 12345),
+            "server": ("testserver", 80),
+        }
+        asyncio.run(app(scope, receive, send))
+        assert seen["status"] in (400, 404, 405), f"{raw} answered {seen['status']}"
+        assert b"root:" not in seen.get("body", b"")
 
 
 def test_an_indexed_path_pointing_outside_the_root_is_refused(tmp_path: Path) -> None:
@@ -293,14 +375,35 @@ def test_the_served_surface_is_exactly_the_frozen_one(served: Path) -> None:
 
     frozen = set(json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))["paths"])
     app = create_app(repository=MemoryRepository.from_project(served))
-    served_paths = {
-        route.path
-        for route in app.routes
-        if hasattr(route, "path") and route.path.startswith("/api/")
-    } - {"/api/openapi.json"}
+
+    # Read from the schema FastAPI generates, not by walking `app.routes`:
+    # this version wraps an included router in an `_IncludedRouter` that
+    # carries no `.path`, so walking the list found nothing and the test
+    # passed vacuously in the direction that mattered — it would have reported
+    # every endpoint missing, or, with a laxer assertion, missed a stray one.
+    # The generated document is also the right thing to compare: it is what the
+    # app says it serves.
+    served_paths = set(app.openapi()["paths"])
     assert served_paths == frozen, (
         f"missing: {sorted(frozen - served_paths)}; extra: {sorted(served_paths - frozen)}"
     )
+
+
+def test_an_empty_id_is_refused_rather_than_serving_the_collection(served: Path) -> None:
+    """``/api/sources/`` must not answer with every source.
+
+    Starlette redirects a trailing slash to the collection by default, so a
+    request naming *no* source was served *all* of them — the failure mode is a
+    200 with real data, which no status-code assertion elsewhere would catch.
+    ``/api/sources`` is the only prefix here that is both a collection and the
+    parent of item paths, which is why it is the only one that was wrong.
+    """
+    with h.client(h.memory_repository(served)) as client:
+        for path in ("/api/sources/", "/api/entities/", "/api/artifacts/", "/api/media/"):
+            response = client.get(path)
+            assert response.status_code == 404, f"{path} answered {response.status_code}"
+            assert "data" not in response.json()
+        assert client.get("/api/sources").status_code == 200
 
 
 def test_v1_is_read_only(served: Path) -> None:

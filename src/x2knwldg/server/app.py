@@ -52,6 +52,14 @@ def create_app(
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        # Starlette redirects `/api/sources/` to `/api/sources` by default, so
+        # an **empty** source id answered 200 with a page of every source — a
+        # request that names no source being served all of them. `/api/sources`
+        # is the one prefix here that is both a collection and the parent of
+        # item paths, so it is the one place the default is wrong; an empty id
+        # is now a 404. Set on the app because `include_router` nests the
+        # router's own setting and ignores it (FastAPI 0.141).
+        redirect_slashes=False,
     )
     app.state.repository = repository if repository is not None else build_repository(Path(project_root))
     app.state.project_root = Path(project_root) if project_root is not None else None

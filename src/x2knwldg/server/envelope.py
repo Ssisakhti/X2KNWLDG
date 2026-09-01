@@ -38,6 +38,31 @@ ERROR_CODES = (
     "internal",
 )
 
+#: ``ErrorBody.message`` is ``maxLength: 1024`` in the frozen document.
+MAX_MESSAGE = 1024
+
+#: What replaces the tail of a message that would exceed it. Counted against
+#: the limit, so the result is never 1024 *plus* a marker.
+_ELLIPSIS = "… (truncated)"
+
+
+def _fit(message: str) -> str:
+    """Bound a message to what ``ErrorBody`` allows.
+
+    The refusals that need this are the ones that quote the input back: an id
+    of a few thousand characters is correctly refused, and the repository names
+    it in the message, so the *body* then violated the very contract the refusal
+    was enforcing. Found by the traversal battery's over-long id, which is the
+    only hostile input whose damage is to the response rather than to the read.
+
+    Truncated here rather than in the repository: its message is also a log line
+    and a CLI string, where the full id is worth having. 1024 characters is an
+    HTTP concern, so it is enforced at the HTTP boundary.
+    """
+    if len(message) <= MAX_MESSAGE:
+        return message
+    return message[: MAX_MESSAGE - len(_ELLIPSIS)] + _ELLIPSIS
+
 
 def envelope(data: Any, **extra: Any) -> dict[str, Any]:
     """``{api_version, schema_version, data}``, plus whatever the shape adds.
@@ -79,7 +104,7 @@ def error_body(code: str, message: str, detail: Any = None) -> dict[str, Any]:
     """
     if code not in ERROR_CODES:
         raise ValueError(f"error code must be one of {', '.join(ERROR_CODES)}, got {code!r}")
-    error: dict[str, Any] = {"code": code, "message": message}
+    error: dict[str, Any] = {"code": code, "message": _fit(message)}
     if detail is not None:
         error["detail"] = detail
     return {
