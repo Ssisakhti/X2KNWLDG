@@ -21,6 +21,7 @@ found a route bug, not an implementation difference.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import sqlite3
@@ -53,7 +54,7 @@ ALL_FIXTURES = ("pass-run", "partial-run", "fail-run")
 #: not run at all, which is the point of `T-009`: the core package must stay
 #: importable and testable without `fastapi`.
 requires_fastapi = pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("fastapi") is None,
+    importlib.util.find_spec("fastapi") is None,
     reason="the API layer is the `ui` extra; the core package stays zero-dependency",
 )
 
@@ -111,8 +112,8 @@ def sqlite_repository(root: Path, *, build: bool = True) -> Any:
     the state a UI must be able to tell apart from "indexed and empty".
     """
     from x2knwldg.index.repository import SqliteRepository
-    from x2knwldg.index.scanner import build_index, document_indexer
-    from x2knwldg.index.search import search_retrieval
+    from x2knwldg.index.scanner import build_index
+    from x2knwldg.index.search import document_indexer, search_retrieval
 
     if build:
         build_index(root, index_documents=document_indexer(root))
@@ -146,12 +147,17 @@ def client(repository: Any) -> Iterator[Any]:
                 close()
 
 
-@contextmanager
 def both_clients(root: Path) -> Iterator[tuple[str, Any]]:
     """Yield ``(label, client)`` for each implementation in turn.
 
-    Use it to assert a route behaves the same on both. The label is what a
-    failure message needs in order to say *which* one diverged.
+    A generator rather than a context manager, because it yields twice: each
+    client is opened, handed over, and closed before the next one is built. The
+    label is what a failure message needs in order to say *which* implementation
+    diverged.
+
+    Use it as ``for label, client in both_clients(root):``. `T-104` proved the
+    two answer identically, so a route that behaves differently on one of them
+    has found a route bug, not an implementation difference.
     """
     with client(memory_repository(root)) as memory:
         yield "memory", memory
