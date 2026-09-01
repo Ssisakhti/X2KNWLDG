@@ -276,11 +276,23 @@ def require_fts5(connection: sqlite3.Connection) -> None:
         )
 
 
-def connect(path: Path, *, create: bool = True) -> sqlite3.Connection:
+def connect(
+    path: Path, *, create: bool = True, multithreaded: bool = False
+) -> sqlite3.Connection:
     """Open the index at *path* with the settings the whole package assumes.
 
     ``create=False`` refuses to bring a database into existence, which is how a
     reader distinguishes "no index yet" from "an index I just made empty".
+
+    ``multithreaded=True`` lifts ``sqlite3``'s same-thread check. It exists for
+    one caller — :class:`~x2knwldg.index.repository.SqliteRepository`, which a
+    web server reaches from a thread pool — and it is **not** a claim that the
+    connection is safe to share. The driver's check is the only thing stopping
+    two threads from interleaving on one connection, so whoever lifts it takes
+    on serialising access; ``SqliteRepository`` does that with a lock around
+    every one of its ten methods. A writer must leave this alone: builds are
+    single-threaded, and a lifted check with no lock is a corrupt index waiting
+    for a second thread.
 
     ``isolation_level`` is left at the classic default and transactions are
     explicit. ``Connection.autocommit`` would read better and arrived in Python
@@ -293,7 +305,7 @@ def connect(path: Path, *, create: bool = True) -> sqlite3.Connection:
         raise FileNotFoundError(f"no index at {path}")
     if create:
         path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path)
+    connection = sqlite3.connect(path, check_same_thread=not multithreaded)
     connection.row_factory = sqlite3.Row
     # Referential integrity is checked in Python against the same predicates the
     # seam uses, but the pragma costs nothing and closes the gap where a future

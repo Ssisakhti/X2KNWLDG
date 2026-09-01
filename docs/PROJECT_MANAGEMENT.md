@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-09-01 · **Phase 0 complete**; **Phase 1 Track A complete** — `T-101`–`T-104` done, the SQLite index serves the whole `IndexRepository`. Tracks B/C/D may fan out
+**Last updated:** 2026-09-01 · **Phase 0 complete**; **Phase 1 Tracks A and B complete** — the SQLite index serves the whole `IndexRepository` (`T-101`–`T-104`) and all **eleven** frozen endpoints are served over it (`T-105`–`T-108`). Tracks C and D may fan out
 **Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
@@ -54,11 +54,12 @@ Measured from disk on **2026-08-31**. Re-verify with the commands in §7.3.
 | `validation.json` status | **`PASS`** (all **6** sections: `transcript`, `evidence`, `knowledge_units`, `provenance`, `relationships`, `coverage`). `evidence` is the newest and is **additive** — it recomputes the SHA-256 of the preserved `raw/` original and compares it with what `metadata.json` and `transcript.json` each recorded, so tampering with evidence is now a `FAIL` that `finalize` refuses. No schema constrains this file and the adapter copies only its top-level `status`, so nothing downstream had to change |
 | `output/library/` | 1 video, 69 knowledge nodes, **17 canonical concepts**, 118 edges — unchanged by the `T-003` rebuild, which only added fields. **Regenerated under D-043 on 2026-08-31** (`x2knwldg rebuild-library`, exit 0): the 17 `expresses_concept` edges now carry `confidence: null` rather than a fabricated `1.0`, `videos.json` entries carry `problems: []`, and `status.json` carries `runs_discovered: 1` / `runs_indexed: 1` / `runs_skipped: 0` / `skipped_runs: []` / `incomplete_runs: []`. `concepts.json` was byte-identical and the totals did not move; the 45 `derived_from` edges kept their real 0.88–0.97 confidences, since every unit here states one. ⚠️ `output/` is gitignored, so this is not in version control and a given clone's state cannot be read off the repository |
 | Index projection (`T-004`) | The adapter maps the sample to **1 source, 85 artifacts, 86 entities, 118 relations** — 69 knowledge units + 17 concepts, and 56 canonical + 62 synthetic edges |
-| API contract (`T-005`) | **11 endpoints, all `GET`**, frozen in [`schemas/api/v1/openapi.json`](../schemas/api/v1/README.md); **25** components (the 25th is `SkippedRun`, added additively by D-050), every response body a `$ref` into `schemas/v1/`. Valid against the OpenAPI 3.1 meta-schema, external `$ref`s resolving from disk. **956 lines** of generated, committed TypeScript in `types.d.ts`, checked against `tsc --strict` |
+| API contract (`T-005`) | **11 endpoints, all `GET`**, frozen in [`schemas/api/v1/openapi.json`](../schemas/api/v1/README.md); **25** components (the 25th is `SkippedRun`, added additively by D-050), every response body a `$ref` into `schemas/v1/`. Valid against the OpenAPI 3.1 meta-schema, external `$ref`s resolving from disk. **956 lines** of generated, committed TypeScript in `types.d.ts`, checked against `tsc --strict`. **All eleven are now served** by `src/x2knwldg/server/` (Track B); `test_the_served_surface_is_exactly_the_frozen_one` compares the app's generated document against the frozen one, so the two cannot drift apart |
 | Repository seam (`T-007`) | [`src/x2knwldg/repository/`](../src/x2knwldg/repository/README.md): `IndexRepository`, **10 methods** serving the 11 frozen endpoints, plus `MemoryRepository` over `adapt_project`. Stdlib-only. Fixed by [ADR 0002](adr/0002-index-repository-seam.md) |
 | Scaffold (`T-008`) | [`web/`](../web/README.md) holds TypeScript only — `package.json`, `package-lock.json`, `tsconfig.json`, `src/api/contract.ts`. `npm run typecheck` (`tsc --noEmit`) passes and is a CI job. The `ui` extra is `fastapi` + `uvicorn`; `x2knwldg ui` exists as a refusing stub |
-| Test baseline | **1647 passed, 0 failed, 0 skipped, 36 subtests** (2026-09-01, after Track A and D-050: +299 in the five `tests/test_sqlite_*.py` files). Core package with no extras: **1438 passed, 5 skipped**. Previously **1348 passed** (`.venv/bin/python -m pytest -q`, all extras installed) — measured 2026-08-31 after the audit remediation; 1287 after the five-agent second wave, 765 before it, 515 before that, with **1139 passed, 5 skipped** on the bare venv. That bare-venv run was **not** a formality: it failed. See the note under §7.2 |
+| Test baseline | **2047 passed, 0 failed, 0 skipped, 36 subtests** (2026-09-01, after Track B: +400 across the seven `tests/test_api_*.py` route files). Core package with no extras: **1440 passed, 403 skipped** — the API layer skips cleanly and no optional dependency crept in (re-verified on a throwaway venv holding only `x2knwldg` + `pytest`). Previously **1647 passed** after Track A and D-050; **1348** after the audit remediation on 2026-08-31; 1287 after the five-agent second wave, 765 before it, 515 before that. The bare-venv run is **not** a formality: it has failed before. See the note under §7.2 |
 | SQLite index (Track A) | [`src/x2knwldg/index/`](../src/x2knwldg/index/README.md): `schema.py` (DDL + forward-only migrations), `scanner.py` (discovery, whole-subtree digests, incremental change detection, build lifecycle), `search.py` (FTS5 retrieval behind `query.rank_documents`), `repository.py` (`SqliteRepository`, all **ten** protocol methods, widening nothing). Stdlib-only, so it runs on a bare core install; `packages.find` auto-discovers it, so `pyproject.toml` is untouched. The index lives at `.x2knwldg/index.sqlite`, already gitignored. On the real sample it reaches **1 source, 85 artifacts, 86 entities, 118 relations** and a graph of **86 nodes / 118 edges** — the same figures `adapt_project` and `MemoryRepository` reach, now by a third independent path |
+| HTTP API (Track B) | [`src/x2knwldg/server/`](../src/x2knwldg/server/): `envelope.py` (the frozen envelope, stdlib-only), `errors.py` (`RepositoryError` → HTTP by the status the repository chose, D-030), `app.py`, `deps.py`, `params.py`, and one module per endpoint group under `routes/`. **1263 lines**, **398 tests** across seven `tests/test_api_*.py` files. Talks to `IndexRepository` and nothing else — it never reads `output/`, never opens the SQLite file, never imports the adapters. Serves `SqliteRepository` in production and is tested against `MemoryRepository` as the oracle **and** SQLite, because the thread bug of D-052 was invisible to the oracle |
 | Toolchain | Node 26.5.0 · npm 11.17.0 · Python 3.14.6 · SQLite 3.53.4 with **FTS5 available** |
 
 > **Correction of record.** Canvas plan §4 previously stated the sample had empty
@@ -92,7 +93,7 @@ Exit criteria live in canvas plan §16; this table tracks state only.
 | Phase | Name | Status | Parallelizable | Gate to next phase |
 |---|---|---|---|---|
 | **0** | Contracts & scaffolding | ✅ `done` | ❌ **No — serialization point** | Schemas validate; contract frozen |
-| **1** | Read-only Library & Reader | `in progress` — **Track A ✅ done**; B/C/D not started | ✅ Tracks B/C/D | Search works; status honest; rebuild is equivalent |
+| **1** | Read-only Library & Reader | `in progress` — **Tracks A ✅ and B ✅ done**; C/D not started | ✅ Tracks C/D | Search works; status honest; rebuild is equivalent |
 | **2** | Knowledge Map | `not started` | ✅ Partial (renderer vs inspector) | Provenance distinguishable; empty graph honest |
 | **3** | Canvas & board persistence | `not started` | ⚠️ Sequential with Phase 4 | Layout survives restart; partial corruption tolerated |
 | **4** | Pen & annotation | `not started` | ⚠️ Sequential with Phase 3 | Strokes stable under zoom/pan; no canonical leakage |
@@ -124,7 +125,7 @@ Flags: **`S`** = serialized (single owner) · **`P`** = parallel-safe once depen
 
 ### Phase 1 — Read-only Library & Reader · fan out to 4 tracks
 
-**Track A is complete** (`T-101`–`T-104`, 2026-09-01). Tracks B, C and D are unblocked and were never blocked *on* A: `MemoryRepository` served Track B from day one, and `SqliteRepository` now answers the same ten methods with `0` page-for-page differences from it, so a route written against either is written against both. Track B should wire `SqliteRepository.open(root, search=search_retrieval)` and keep `MemoryRepository` as the test oracle.
+**Tracks A and B are complete** (`T-101`–`T-108`, 2026-09-01). Tracks C and D are unblocked and were never blocked *on* A: `MemoryRepository` served Track B from day one, and `SqliteRepository` now answers the same ten methods with `0` page-for-page differences from it, so a route written against either is written against both. Track B did exactly that, and D-052 is the reason it is worth repeating for Track D: the oracle answered correctly while the real implementation 503'd on every request, so a test that reaches only for `MemoryRepository` can be green against a broken server.
 
 | ID | Task | Track | Flag |
 |---|---|---|---|
@@ -132,18 +133,19 @@ Flags: **`S`** = serialized (single owner) · **`P`** = parallel-safe once depen
 | ~~`T-102`~~ | ✅ **done** — [`index/scanner.py`](../src/x2knwldg/index/scanner.py): mirrors `adapt_project`'s walk rather than re-deriving it. The digest covers a run's **whole subtree**, not `metadata.json`: `adapt_run` also reads `is_file()`, `st_size`, the `raw/source.*` glob and `vault/**/*.md`, so a narrower digest would miss a deleted vault note. `(mtime_ns, size)` prefilters, `io.sha256_file` arbitrates, so a touched-but-identical file is not a re-index. Damage follows D-043's two tiers — *skipped* and *incomplete*, never a silent drop — and `adapt_library`'s silent empty-on-damage is closed from outside by reading both library files first. A deleted run leaves `library/graph.json` naming endpoints no entity has, so the fragment is dropped **whole** and named. 31 tests in `tests/test_sqlite_scanner.py` | `S` |
 | ~~`T-103`~~ | ✅ **done** — [`index/search.py`](../src/x2knwldg/index/search.py). FTS5 is candidate **retrieval**; `query.rank_documents` stays the sole ranking rule (D-046), so `bm25()` appears nowhere. `derivation_note` **is** indexed; `context` is not and segment `text` is not stored, each because it is **measured** to cost no reachable word (D-047, D-048) — and each measurement is a test, so the claim cannot go stale. 168 tests in `tests/test_sqlite_search.py`, including a 6036-query differential fuzz against the in-memory ranker with 0 mismatches | `S` |
 | ~~`T-104`~~ | ✅ **done** — `tests/test_sqlite_equivalence.py`: 21 tests, ~32k page-for-page observation comparisons over eight scenarios (full build ≡ cache-free `MemoryRepository`; refresh from no index and from an empty one; a no-op refresh; a run edited, added, removed; `library/` alone rebuilt; and `.x2knwldg/` deleted then rebuilt — Phase 1's own acceptance criterion). Items element-wise **and** `next_cursor` as an exact token, `total` with `null` distinguished from `0`. A fresh `MemoryRepository` per comparison (D-042). **0 differences.** `built_at`/`index_version` are excluded by name, because the seam's README requires SQLite to report them while `MemoryRepository` reports `None`. Mutation-checked: dropping the probe row, faking `total`, and bypassing the Python filter predicate are each caught | `S` |
-| `T-105` | `GET /api/status`, `/api/sources`, `/api/sources/{id}` | B | `P` |
-| `T-106` | `GET /api/search` — cursor/page based, preserving `query.search_knowledge` result shapes | B | `P` |
-| `T-107` | `GET /api/entities/{id}`, `/api/artifacts/{id}` | B | `P` |
-| `T-108` | Path-traversal hardening + loopback-only binding + media range requests. **Read [ADR 0003](adr/0003-reject-unsafe-identifiers.md) first:** every id from a path parameter goes through `pipeline.resolve_run_dir`, which **rejects**; a rewriting sanitiser (`_safe_identifier`) must not stand in for it, and ADR 0001 invariant 8 — which said otherwise — is superseded | B | `S` |
+| ~~`T-105`~~ | ✅ **done** — [`routes/status.py`](../src/x2knwldg/server/routes/status.py) and [`routes/sources.py`](../src/x2knwldg/server/routes/sources.py), five paths (`/api/status` plus the four `/api/sources*`). `/api/status` answers in **every** index state including `absent`, and passes D-050's optional `runs` through exactly as the repository produced it — never synthesising `skipped: []`. `/entities` and `/relations` call `get_source` first, because an empty page for an unknown source would assert the source exists. Enum filters validated by the query dataclasses, not restated as framework enums (D-058). **96 tests** in `tests/test_api_status.py` + `tests/test_api_sources.py`, every one over both implementations | B | `P` |
+| ~~`T-106`~~ | ✅ **done** — [`routes/search.py`](../src/x2knwldg/server/routes/search.py). Hits pass through **verbatim**: no rename, reshape, sort, re-score or truncation, so `video_id` stays `video_id` (ADR 0001 invariant 6) and a caption hit still carries no `global_id` (D-023). `SearchResponse.query` echoes the query as executed, so a client batching requests cannot mis-attribute a response. Ranking remains `query.rank_documents` alone (D-046). **60 tests** in `tests/test_sqlite_search.py`'s sibling `tests/test_api_search.py`, including a paged walk reproducing the unpaged call exactly | B | `P` |
+| ~~`T-107`~~ | ✅ **done** — [`routes/entities.py`](../src/x2knwldg/server/routes/entities.py). Records out verbatim; the only id grammar is `ids.parse_global_id` reached **through** the repository, so `invalid_id` (400) and `not_found` (404) stay distinct (D-020) and no route pre-validates or rewrites. A canonical concept — which belongs to no source (D-016) — resolves here. Slash-bearing ids answer 404 by segment matching (D-056). **17 tests** in `tests/test_api_entities.py`, including a 29-entry hostile-id battery over both endpoints and both implementations | B | `P` |
+| ~~`T-108`~~ | ✅ **done** — [`routes/media.py`](../src/x2knwldg/server/routes/media.py) plus `tests/test_api_hardening.py`. Two independent checks stand between a path parameter and a read, **neither of which rewrites**: the repository refuses a malformed id before anything is opened, and the record's project-relative path is resolved and re-checked against the root anyway — the index is a rebuildable cache, and a cache is not a trust boundary. Ranges per RFC 9110: an unparseable `Range` is ignored, only a well-formed unsatisfiable one is a `416`, and it carries `Content-Range: bytes */size`. An `external` artifact answers `404 unavailable` rather than `503`, because there will never be local bytes for a YouTube video. **178 tests**, including a wire-hostile battery across all seven id-taking routes, a raw-id battery at the repository boundary, and dot segments handed to the ASGI app as a raw path (httpx normalises them, so the obvious test grades the client). Loopback binding stays in `cli.py` and is `T-116`'s to wire | B | `S` |
 | `T-109` | Vite/React/TS scaffold, routing, design tokens | C | `P` |
 | `T-110` | i18n + `dir` switching shell, English default (**D-012**), logical CSS properties throughout | C | `P` |
 | `T-111` | Library view: list + compact grid, filters (source type, kind, source class, confidence, validation status) | C | `P` |
 | `T-112` | Reader: metadata, virtualized transcript, report, knowledge units, evidence, relations | C | `P` |
 | `T-113` | Provenance/status components — `source` vs `derived` vs `user`, distinguished by icon/label/line style, **not colour alone** | C | `P` |
 | `T-114` | YouTube embed + timestamp seek; never assume a local media file exists | C | `P` |
-| `T-115` | Contract tests against the frozen API schema; index rebuild-equivalence test; path-traversal tests | D | `P` |
-| `T-116` | Wire `x2knwldg ui` end to end (root resolve → index check → loopback serve → open browser) | integrator | `S` |
+| `T-115` | Contract tests against the frozen API schema; index rebuild-equivalence test; path-traversal tests. **Largely delivered by Tracks A and B** — `tests/test_api_contract.py` (contract), `tests/test_sqlite_equivalence.py` (rebuild equivalence, `T-104`), `tests/test_api_hardening.py` (traversal). What is left is what neither track owned: `PARTIAL`/`FAIL` fixture coverage through the **API** rather than the repository, and a test that the served document matches `types.d.ts` | D | `P` |
+| ~~`T-117`~~ | ✅ **done** — `GET /api/graph` and `GET /api/graph/neighborhood/{id}` in [`routes/graph.py`](../src/x2knwldg/server/routes/graph.py). Added because the backlog assigned only 7 of the 11 frozen endpoints while the repository has always served all ten methods, so leaving these unrouted would have shipped a contract advertising paths that answer nothing. `NeighborhoodResponse` carries no `page` — a neighborhood is bounded by `depth` and `limit` and says so with `truncated`. `depth` outside 1..3 is refused, never clamped. **32 tests**; see D-059 for what an edge on a *page* may legitimately reach | B | `P` |
+| `T-116` | Wire `x2knwldg ui` end to end (root resolve → index check → loopback serve → open browser). **Unblocked:** `create_app(project_root=…)` exists and serves all eleven endpoints; what remains is replacing `cli.py`'s refusing stub with a uvicorn call that keeps the loopback refusal and the `6 UI_NOT_IMPLEMENTED` exit for a project with no index | integrator | `S` |
 
 ### Phases 2–7 — epics only
 
@@ -213,6 +215,14 @@ repeated here.
 
 | D-050 | `StatusPayload` gains an **optional** `runs` object — `{discovered, indexed, skipped[]}`, each skipped entry `{relative_path, reason}`. `openapi.json` first, `types.d.ts` regenerated, `IndexStatus` second (ADR 0002 invariant 3) | accepted | A run directory that produced no `Source` was in no page and in no count, so the only honest reading of `counts.sources` was "at most this many" — and nothing said so. `/api/status` described a project of two sources where three run directories existed, and D-043 exists precisely because "a count that omits a run without saying so is a claim of completeness the library has not got". The scanner already recorded both tiers; this is the reading of them the frozen payload had no field for. **Named, not counted**: "one run was skipped" is not actionable and "this directory, for this reason" is. **Optional in the schema, unconditional in an implementation that scans**: optional keeps v1 additive rather than forcing a `schemas/v2/` (a new *required* field is the versioning rule's breaking change), and unconditional means a reader can tell "nothing was skipped" from "this server does not report skipped runs" — D-043's `problems: []` rule applied to a payload. `MemoryRepository` **omits** it, for the reason it reports `index_version: null`: it has no scan, and `skipped: []` would assert it looked. Done now rather than after `T-105`, because the same edit costs a schema change today and a schema plus routes plus `IndexRepository` plus frontend once endpoints consume it |
 | D-051 | A skipped run's stored `reason` is **project-relative**, sanitised where it is recorded rather than on the way out | accepted | `AdapterError` names the directory it refused and names it *absolutely*. That string was only ever stored and printed by the CLI, where a host path is unremarkable — D-050 turned it into an HTTP response body, at which point it leaks the user's filesystem layout to any client, which D-030 and ADR 0003 both forbid ("no host path reaches an error body"). Caught by the test written for D-050 rather than in review. Sanitised at the point of record so there is one rule and the CLI gains the same property, and to the same relative string the row is keyed by, so the reason and the path it names cannot disagree |
+| D-052 | The SQLite **reader** opens with `check_same_thread` lifted and serialises all ten methods behind a re-entrant lock. A **writer** must not lift it | accepted | `sqlite3` binds a connection to its creating thread; Starlette and uvicorn both answer from a thread pool. So `SqliteRepository.open()` at app construction made **every** request answer `503 index_unavailable: SQLite objects created in a thread can only be used in that same thread` — in production, on all eleven endpoints, not only under a test client. It went unseen because `MemoryRepository` has no connection and answered fine: a suite that reaches for the oracle by default stays green while the implementation the UI will actually use is broken, which is why `test_every_endpoint_answers_over_sqlite_not_only_over_memory` now exists. The lock arrives **with** the lifted check rather than after it — lifting alone trades a loud failure for a silent one — and is held across a whole method rather than per statement, because `graph()` runs several statements that must describe one state. Writers stay single-threaded, where an unlocked multithreaded connection would be a corrupt index waiting for a second thread |
+| D-053 | `ErrorBody.message` is bounded to its `maxLength` of 1024 in `envelope.error_body`, at the HTTP boundary | accepted | The refusals that quote the offending input back — `global id '…' must have three colon-separated parts` — produced 3061-character bodies for a 3000-character id, so a refusal **violated the contract it was enforcing**. Bounded where every error body is built rather than in the repository, whose message is also a log line and a CLI string where the full id is worth keeping: 1024 characters is an HTTP fact, so it is enforced at the HTTP edge. Found by the traversal battery's over-long id, which is the only hostile input whose damage lands on the response rather than on the read |
+| D-054 | `redirect_slashes=False` on the app. An **empty** id is a `404`, never a redirect to the collection | accepted | Starlette redirects `/api/sources/` to `/api/sources` by default, so a request naming **no** source was answered `200` with a page of **every** source. The failure mode is a success carrying real data, which no status-code assertion elsewhere would have caught. `/api/sources` is the only prefix in this API that is both a collection and the parent of item paths, so it is the only place the default is wrong — but the setting is applied app-wide because `include_router` nests a router's own value and ignores it (FastAPI 0.141) |
+| D-055 | ADR 0001 invariant 5's structural check narrows from "no module in `x2knwldg` imports the `ui` extra" to "nothing **outside** `src/x2knwldg/server/` imports it", plus two new tests | accepted, **amends the rule `T-008` recorded** | Read literally, the old rule forbade the server from importing the framework it *is*, which would have meant hiding a `fastapi` import inside every route function to satisfy a test rather than an invariant. What invariant 5 actually states is that installing and **using the core package** must not require an optional dependency. The replacement is two rules, and together they are stricter than the one they replace: nothing outside `server/` imports the extra, **and** nothing outside `server/` imports `server` at module scope — without the second, `cli.py` could pull the whole framework in transitively while every line still passed the first. `server/__init__` resolves `create_app` through a module `__getattr__`, so even `import x2knwldg.server` does not need the extra, and a third test pins that. Re-verified on a core-only venv: 1440 passed, 403 skipped, no creep |
+| D-056 | A **slash-bearing** id answers `404`, not `400 invalid_id` | accepted | A path parameter matches one segment, so `/api/entities/%2e%2e%2f%2e%2e%2fetc%2fpasswd` never reaches the route at all. Making it a `400` needs a `:path` catch-all per endpoint, which adds paths the frozen surface does not have — a contract decision, not a route's, and `test_the_served_surface_is_exactly_the_frozen_one` would refuse it. Nothing is lost: no `globalId` contains a slash by schema, nothing is read, nothing is rewritten, and the D-020 distinction between *malformed* and *absent* is still enforced where ids actually live, inside a segment. The outcome is asserted rather than assumed, so a future `:path` route would have to change the test deliberately |
+| D-057 | `MemoryRepository.project_root` is **public**, matching `SqliteRepository` | accepted | The byte channel resolves an artifact's project-relative path against the repository's root, and worked over SQLite while answering `500` over the oracle, because one implementation exposed the attribute and the other kept it private. `T-104` compares the **ten protocol methods** and nothing else, so a difference outside them passes straight through a harness whose whole purpose is to catch differences. Recorded as a decision rather than a typo fix because it marks the boundary of what the equivalence proof covers: interchangeable *for the protocol* is not interchangeable *for everything a caller may touch* |
+| D-058 | Enum-valued query filters are declared as plain strings in the routes and validated by the query dataclasses, not restated as framework enums | accepted | `kind` alone is 31 values from `constants.py`, and a second copy in a route is the copy that goes stale. Both paths already produce `400 invalid_request`, so the framework enum buys only a duplicated vocabulary. It would also **cost** something: a FastAPI `pattern` on an id parameter collapses `invalid_id` and `invalid_request` into one status, destroying the D-020 distinction the routes exist to preserve. The bounds that *are* restated — `limit`'s 1..500 — are restated deliberately and in one shared place (`server/params.py`), so the generated document reflects the real limits, and `PagedQuery.__post_init__` still checks them for every non-HTTP caller |
+| D-059 | On a **page** of `/api/graph`, an edge is included when both endpoints pass the node filter and **at least one** is on this page. The strict "every edge's endpoints are among the returned nodes" holds for an unpaged graph, a filtered whole graph, a neighborhood, and the accumulated result of a full paged walk | accepted | An edge straddling two pages appears in both, which is what `repository/README.md` already specified and what both implementations do; the strict form asserted against a single page fails against both. Recorded because the tempting test is the wrong one, and because the Map's real requirement is narrower than the strict form and is now asserted directly: every edge touches a node on the page, and neither endpoint was excluded by the filter — the dangling-edge rule. `truncated` remains stated rather than implied, so a partial graph is never presented as the whole one |
 
 ### ⚠️ D-011 is **additive** — do not "clean up" the 2-part ID
 
@@ -481,71 +491,51 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 
 ## 11. Next step
 
-**Phase 0 is complete and its exit gate is met.** The next session opens Phase 1, which is
-the first phase that may run more than one agent: fan out to the four tracks of §8.2, with
-`T-116` held back as the integrator step.
+**Phase 1 Tracks A and B are complete.** The SQLite index serves the whole
+`IndexRepository` (`T-101`–`T-104`) and all **eleven** frozen endpoints are served over it
+(`T-105`–`T-108`, plus `T-117` for the two graph paths the backlog had left unassigned).
+`x2knwldg ui` is still a refusing stub: there is an API, and no UI.
 
-All nine Phase 0 tasks are done: `T-001` (ADRs), `T-002`
-([`schemas/v1/`](../schemas/v1/README.md)), `T-003` ([`ids.py`](../src/x2knwldg/ids.py)),
-`T-004` ([`adapters/`](../src/x2knwldg/adapters/README.md)), `T-005`
-([`schemas/api/v1/`](../schemas/api/v1/README.md)), `T-006`
-([run fixtures](../tests/fixtures/runs/README.md)), `T-007`
-([`repository/`](../src/x2knwldg/repository/README.md)), `T-008`
-([`web/`](../web/README.md) + the `ui` extra), and `T-009` (the zero-dependency
-re-confirmation).
-
-**What `T-008` deliberately did not do.** It scaffolded a directory, not an application.
-There is no Vite, no React, no router, and no design token in `web/` — `T-109` chooses those
-(D-038), the same restraint D-029 applied to the type generator. `x2knwldg ui` is a refusing
-stub: it enforces loopback-only binding and resolves the project root, then exits `6` with
-`UI_NOT_IMPLEMENTED` rather than starting something that cannot serve (D-037, renumbered from
-`2` by D-040 so the refusal cannot be mistaken for a mistyped flag).
-
-**Suggested fan-out, 3–4 agents (§8.5):**
+**Fan out to Tracks C and D.** They own disjoint directories (§8.2) and neither waits on the
+other:
 
 | Track | Start with | Has everything it needs |
 |---|---|---|
-| **A — Indexer** (`src/x2knwldg/index/`) | `T-101` SQLite schema + migrations | Implements `IndexRepository` (`T-007`) over SQLite without widening it; `MemoryRepository` is the oracle `T-104` proves equivalence against |
-| **B — API** (`src/x2knwldg/server/`) | `T-105` `/api/status`, `/api/sources` | Calls the repository only. The contract is frozen (`T-005`) and `MemoryRepository` answers all of it today, so B does not wait on A |
-| **C — Frontend** (`web/`) | `T-109` Vite/React/TS scaffold on top of the `T-008` toolchain | Types are generated and compile: `import type { … } from "./api/contract"`. Develops against a mock, never waits on B |
-| **D — Fixtures & tests** (`tests/`) | `T-115` contract tests, rebuild equivalence, traversal | The labelled `PASS`/`PARTIAL`/`FAIL` fixtures exist (`T-006`) |
+| **C — Frontend** (`web/`) | `T-109` Vite/React/TS scaffold on the `T-008` toolchain | Types are generated and compile. It can now develop against the **real** API — `create_app(project_root=…)` serves all eleven endpoints — instead of a mock, which is a better oracle than a mock ever is |
+| **D — Fixtures & tests** (`tests/`) | `T-115`, reduced to what Tracks A and B did not already deliver | Contract, equivalence and traversal tests exist. What is missing is `PARTIAL`/`FAIL` fixture coverage *through the API*, and a check that the served document agrees with `types.d.ts` |
 
-**Rules a track agent must not break:**
+`T-116` (wire `x2knwldg ui` end to end) is the integrator step and is now unblocked: the app
+factory exists, so what remains is replacing `cli.py`'s stub body with a uvicorn call that
+keeps the loopback refusal and the `6 UI_NOT_IMPLEMENTED` exit for a project with no index.
 
-- Write only inside your track's directory (§8.2). The files in §8.3 — `cli.py`,
-  `pyproject.toml`, `.gitignore`, `.github/workflows/ci.yml`, `docs/`, `library.py`,
-  `repository/base.py` — are integrator-only.
-- Widening `IndexRepository` is a contract change: `schemas/api/v1/openapi.json` first,
-  [ADR 0002](adr/0002-index-repository-seam.md) second, never a local decision.
-- Do not begin Phase 3 Canvas or Phase 4 pen work. They are sequential with each other
-  (§8.4) and belong to a later phase.
-- `web/tsconfig.json` keeps `skipLibCheck: false`. Turning it on reopens R17 in silence.
+**What Track B changed that a later track must not undo:**
 
-**Three things Phase 1 inherits from the audit remediation:**
+- **`redirect_slashes` is off** (D-054). Turning it back on makes an empty id serve the whole
+  collection again, and the failure mode is a `200` with real data.
+- **The reader's lock is load-bearing** (D-052). `check_same_thread` is lifted, so removing
+  the lock trades a loud failure for a corrupt read. Writers must stay single-threaded.
+- **Routes catch no `RepositoryError`.** The repository chooses the status (D-030); a route
+  that catches and re-raises puts the taxonomy in eleven places.
+- **Enum filters are not restated in routes** (D-058). A FastAPI `pattern` on an id parameter
+  would collapse `invalid_id` into `invalid_request` and destroy the D-020 distinction.
+- **`web/tsconfig.json` keeps `skipLibCheck: false`.** Turning it on reopens R17 in silence.
 
-- **`T-104` must construct a fresh `MemoryRepository` per comparison.** The search corpus
-  is a per-instance cache built once on first search and never invalidated (D-042,
-  [ADR 0004](adr/0004-graph-membership-and-search-corpus.md)). An oracle that reuses one
-  instance would compare the incremental index against a snapshot, not against the tree.
-- **Cursors do not survive a restart.** `repository.encode_cursor` signs with a
-  per-process key, so a token issued before a restart is rejected after it. Deliberate,
-  and the wire format is unchanged — but `T-106` must not write a test that persists a
-  cursor across processes, and the UI must treat an expired cursor as "start again"
-  rather than as an error.
-- **[`CODEOWNERS`](../.github/CODEOWNERS) resolves every track to `@Ssisakhti`.** It is the
-  only GitHub identity this repository can verify, so the four-way split of §8.2 exists in
-  prose and in that file's `TODO` block but not yet in GitHub. Correct for a single
-  maintainer; fill the handles in per track when accounts exist, and do not invent one — an
-  owner GitHub cannot resolve is dropped silently, leaving the boundary unowned.
+**Two things the parallel run taught, worth repeating for C and D:**
 
-**One known limitation, closed as a consequence rather than a defect.** A single-caption
-segment gets no overlap and cannot: overlap is re-emitted captions, and a segment holding
-one caption has only itself to re-emit, so re-emitting it would start the next segment
-where this one started and the walk would not advance. The alternative is a boundary
-inside a caption, which would mint a caption id no transcript states. It is in
-`segmenter`'s module docstring and pinned by
-`tests/test_segmenter_hardening.test_a_single_caption_segment_carries_no_overlap`,
-alongside the related fact nobody had written down — `overlap_sec` is a **floor**,
-quantised up to one caption length. The one honest improvement left is to record the
-*realised* overlap in each segment record, which changes `segments.json` and is therefore a
-decision for whoever owns that schema, not a repair.
+- **Test against the implementation that ships, not only against the oracle.** D-052 was a
+  bug in which every HTTP request over SQLite answered `503`, in production, while every
+  memory-backed test passed. A suite that defaults to `MemoryRepository` was green against a
+  server that could not serve a single request. `test_every_endpoint_answers_over_sqlite_not_only_over_memory`
+  exists so that cannot recur.
+- **A hostile-input test can end up grading the client.** httpx resolves `..` and rejects
+  control bytes before a request leaves, so the obvious traversal battery proved nothing
+  about the server for those cases. They are now split three ways: ids that reach the wire,
+  ids checked at the repository boundary, and raw paths handed straight to the ASGI app.
+
+**One limitation carried forward unchanged.** A single-caption segment gets no overlap and
+cannot: overlap is re-emitted captions, and a segment holding one caption has only itself to
+re-emit. It is in `segmenter`'s module docstring and pinned by
+`tests/test_segmenter_hardening.test_a_single_caption_segment_carries_no_overlap`, alongside
+the fact that `overlap_sec` is a **floor**, quantised up to one caption length. The one
+honest improvement left is to record the *realised* overlap in each segment record, which
+changes `segments.json` and is a decision for whoever owns that schema, not a repair.

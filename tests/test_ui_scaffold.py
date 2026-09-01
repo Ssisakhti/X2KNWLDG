@@ -325,14 +325,82 @@ def test_importing_the_cli_does_not_import_the_ui_extra() -> None:
     assert result.stdout.strip() == "", f"leaked into module scope: {result.stdout.strip()}"
 
 
-def test_no_module_in_the_package_imports_the_ui_extra_at_module_scope() -> None:
+def test_no_module_outside_the_server_package_imports_the_ui_extra() -> None:
+    """The core stays zero-dependency; the ``ui`` extra's own code may use it.
+
+    Narrowed when Track B landed (`T-105`-`T-108`). The original rule was "no
+    module in ``x2knwldg`` imports fastapi at module scope", written when the
+    server did not exist — and read literally it forbids the server from
+    importing the framework it *is*, which would mean hiding a `fastapi` import
+    inside every route function to satisfy a test rather than an invariant.
+
+    The invariant ADR 0001 invariant 5 actually states is that installing and
+    using the **core** package must not require an optional dependency. So the
+    rule is now two rules, and together they are stricter than the one they
+    replaced:
+
+    1. Nothing outside ``server/`` imports the extra (this test).
+    2. Nothing outside ``server/`` imports ``server`` at module scope
+       (:func:`test_nothing_outside_the_server_package_imports_it_eagerly`), so
+       the extra cannot be reached transitively either.
+
+    ``x2knwldg.server`` itself is exempt from neither: it is only reached by
+    importing it deliberately, and its ``__init__`` resolves ``create_app``
+    lazily so that even ``import x2knwldg.server`` does not need the extra.
+    """
     package = PROJECT_ROOT / "src" / "x2knwldg"
+    server = package / "server"
     offenders = []
     for module in sorted(package.rglob("*.py")):
+        if server in module.parents:
+            continue
         for line in module.read_text(encoding="utf-8").splitlines():
             if re.match(r"^(import|from)\s+(fastapi|uvicorn|starlette)\b", line):
                 offenders.append(f"{module.relative_to(PROJECT_ROOT)}: {line.strip()}")
     assert offenders == [], offenders
+
+
+def test_nothing_outside_the_server_package_imports_it_eagerly() -> None:
+    """Rule 2: the extra must not be reachable transitively.
+
+    Without this, ``cli.py`` could import ``x2knwldg.server`` at module scope
+    and pull the whole framework in while every line still passed rule 1.
+    """
+    package = PROJECT_ROOT / "src" / "x2knwldg"
+    server = package / "server"
+    offenders = []
+    for module in sorted(package.rglob("*.py")):
+        if server in module.parents:
+            continue
+        for line in module.read_text(encoding="utf-8").splitlines():
+            if re.match(r"^(from|import)\s+(x2knwldg\.)?server\b", line.strip()):
+                offenders.append(f"{module.relative_to(PROJECT_ROOT)}: {line.strip()}")
+            if re.match(r"^from\s+\.\s*server\b|^from\s+\.server\b", line.strip()):
+                offenders.append(f"{module.relative_to(PROJECT_ROOT)}: {line.strip()}")
+    assert offenders == [], offenders
+
+
+def test_importing_the_server_package_does_not_import_the_ui_extra() -> None:
+    """``import x2knwldg.server`` alone must not need fastapi.
+
+    ``server/__init__`` resolves ``create_app`` through a module ``__getattr__``
+    for exactly this reason: the envelope is stdlib-only and testable on a bare
+    core install, and only touching ``create_app`` requires the extra.
+    """
+    probe = (
+        "import sys, x2knwldg.server;"
+        "leaked=[n for n in ('fastapi','uvicorn','starlette') if n in sys.modules];"
+        "print(','.join(leaked))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        cwd=PROJECT_ROOT,
+        env={"PYTHONPATH": str(PROJECT_ROOT / "src"), "PATH": "/usr/bin:/bin"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "", f"leaked into module scope: {result.stdout.strip()}"
 
 
 # ---------------------------------------------------------------------------

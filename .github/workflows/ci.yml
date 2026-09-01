@@ -24,12 +24,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install with dev and legacy extras
+      - name: Install with dev, legacy and ui extras
         # legacy brings networkx/pyvis, which the upstream scripts in
         # legacy/upstream/ need. Without it their tests skip rather than run.
+        # ui brings fastapi/uvicorn: the Track B route tests skip without
+        # them, so leaving it out would have meant the whole API layer was
+        # green in CI by never running. The zero-dependency job below still
+        # proves the core package installs and tests without either.
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev,legacy]'
+          pip install -e '.[dev,legacy,ui]'
       - name: Run the suite
         run: pytest -q
 
