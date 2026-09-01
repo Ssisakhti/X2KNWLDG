@@ -739,6 +739,10 @@ class IndexStatus:
     counts: Mapping[str, int] = field(default_factory=dict)
     sources_by_status: Mapping[str, int] = field(default_factory=dict)
     adapters: Sequence[Mapping[str, str]] = ()
+    #: What the last scan saw on disk, or ``None`` from an implementation that
+    #: scans no filesystem. ``{"discovered": int, "indexed": int, "skipped":
+    #: [{"relative_path": str, "reason": str}]}`` — see :meth:`payload`.
+    runs: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.state not in INDEX_STATES:
@@ -748,7 +752,7 @@ class IndexStatus:
 
     def payload(self) -> dict[str, Any]:
         """Exactly the frozen ``StatusPayload`` object."""
-        return {
+        payload: dict[str, Any] = {
             "index": {
                 "state": self.state,
                 "built_at": self.built_at,
@@ -766,6 +770,27 @@ class IndexStatus:
             },
             "adapters": [dict(adapter) for adapter in self.adapters],
         }
+        if self.runs is not None:
+            # Additive and optional (D-050). A run directory that produced no
+            # `Source` is in no page and in no count, so without this the only
+            # honest reading of `counts.sources` is "at most this many" — and
+            # nothing said so. Named rather than counted, because "one run was
+            # skipped" is not actionable and "this directory, for this reason"
+            # is.
+            #
+            # Omitted rather than zeroed by an implementation that never
+            # scanned: `MemoryRepository` reports no `runs` for the same reason
+            # it reports `index_version: null` — claiming `skipped: []` would
+            # assert it looked and found none.
+            payload["runs"] = {
+                "discovered": int(self.runs.get("discovered", 0)),
+                "indexed": int(self.runs.get("indexed", 0)),
+                "skipped": [
+                    {"relative_path": str(run["relative_path"]), "reason": str(run["reason"])}
+                    for run in self.runs.get("skipped", ())
+                ],
+            }
+        return payload
 
 
 # --------------------------------------------------------------------------

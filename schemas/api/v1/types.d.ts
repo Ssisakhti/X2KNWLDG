@@ -561,6 +561,23 @@ export type RunStatusTally = {
   UNKNOWN: number;
 };
 
+/**
+ * A run directory the index scanned and could not turn into a `Source`. It is named rather
+ * than counted so that a `counts.sources` smaller than `runs.discovered` never has to be
+ * explained by guesswork.
+ */
+export type SkippedRun = {
+  /**
+   * The run directory, relative to the project root.
+   */
+  relative_path: ProjectRelativePath;
+  /**
+   * Why the run could not be indexed, in the words of whatever refused it. Never a host path
+   * (D-030).
+   */
+  reason: string;
+};
+
 export type StatusPayload = {
   index: {
     state: IndexState;
@@ -588,6 +605,20 @@ export type StatusPayload = {
    * The registered adapters, so a stale record can be traced to the code that wrote it.
    */
   adapters: Array<AdapterRef>;
+  /**
+   * What the last scan saw on disk, and what it could not index. `discovered` counts run
+   * directories holding a `metadata.json`; `indexed` counts those that produced a `Source`.
+   * Every other one is named in `skipped`, so a library that is smaller than the filesystem says
+   * why rather than simply being smaller. `discovered` equals `indexed` plus the length of
+   * `skipped`. A run indexed *with* named gaps counts as indexed and reports those gaps on its
+   * own `Source.adapter_metadata`. Optional: an implementation that scans no filesystem omits it
+   * rather than reporting a zero it did not measure.
+   */
+  runs?: {
+    discovered: number;
+    indexed: number;
+    skipped: Array<SkippedRun>;
+  };
 };
 
 export type StatusResponse = {
