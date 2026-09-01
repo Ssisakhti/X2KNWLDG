@@ -80,7 +80,9 @@ requires_sample = pytest.mark.skipif(
 
 #: The measured hit counts for the real sample, read off ``MemoryRepository`` —
 #: the cache-free oracle. A token-only index returns 3, 10 and 162.
-SAMPLE_TOTALS = {"learning": 4, "model": 19, "the": 253}
+#: `the` is 258 rather than 253 because `derivation_note` joined the
+#: searchable field set under D-047; `learning` and `model` are unmoved.
+SAMPLE_TOTALS = {"learning": 4, "model": 19, "the": 258}
 
 #: The text of the synthetic run. Every line is here to fail a specific wrong
 #: implementation, and the comment says which.

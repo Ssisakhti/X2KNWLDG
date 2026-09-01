@@ -149,6 +149,24 @@ def run_documents(run_dir: Path, *, include_transcript: bool = True) -> list[Sea
     documents: list[SearchDocument] = []
     for unit in knowledge.get("units", []):
         source = unit.get("source", {})
+        # The searchable text of a unit. Widening this list widens the SQLite
+        # index too, because `index.search` builds its corpus from this
+        # function rather than re-deriving the field set (D-046) — and a
+        # `refresh_index` picks the change up even when no file under
+        # `output/` moved, because every source is re-indexed on each pass.
+        #
+        # `derivation_note` is here so that a phrase a reader can see in the
+        # Reader is a phrase they can search for. It earns its place on that
+        # ground and not on recall: measured on the sample, it contributes 25
+        # tokens no other field holds, out of 1095. It is also *derived*
+        # commentary about provenance, so a domain term found only here ranks
+        # a unit for what the reasoning says rather than for what the unit
+        # claims. That is the accepted cost, and it is why the list stops
+        # here (D-047).
+        #
+        # `context` is deliberately absent: every token it holds already
+        # appears in `content` or `normalized_statement` — measured at **0**
+        # new tokens — so indexing it would add cost and find nothing.
         searchable = " ".join(
             str(value or "")
             for value in (
@@ -156,6 +174,7 @@ def run_documents(run_dir: Path, *, include_transcript: bool = True) -> list[Sea
                 unit.get("normalized_statement"),
                 source.get("evidence_excerpt"),
                 unit.get("kind"),
+                unit.get("derivation_note"),
             )
         )
         start = _seconds(source.get("start_sec"))

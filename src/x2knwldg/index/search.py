@@ -83,23 +83,37 @@ line to wire::
 Underneath, and usable on their own: :func:`index_documents` indexes one
 source's documents, and :func:`search_candidates` retrieves without ranking.
 
-Deliberately deferred, and named here rather than silently skipped
------------------------------------------------------------------
+What is searchable, and what is deliberately not
+-----------------------------------------------
 
-``T-103``'s task text lists three more searchable things. All three are out of
-scope, and each for a reason about correctness rather than effort.
+The field set is ``query.run_documents``', and this module builds its corpus from
+that function rather than re-deriving the list, so the two readers cannot drift
+and a widening is one edit rather than two (D-046).
 
-* **``derivation_note`` and ``context``.** ``query.run_documents`` builds a
-  unit's searchable text from ``content``, ``normalized_statement``,
-  ``source.evidence_excerpt`` and ``kind``. Indexing more text than that would
-  make this module and ``MemoryRepository`` score the same corpus differently,
-  which destroys the oracle ``T-104`` compares against. Field parity first;
-  widening the corpus is a follow-up that changes ``query.py`` and this module
-  together, in one commit, with the oracle moving with them.
-* **Transcript segment text.** D-028 freezes exactly two hit shapes and there is
-  no ``transcript_segment`` among them. Minting a third is an ``openapi.json``
-  change first and an indexing change second (ADR 0002 invariant 3), so a
-  segment-level hit could not be returned from here today whatever was indexed.
+``derivation_note`` **is** indexed (D-047), on the ground that a phrase a reader
+can see in the Reader should be a phrase they can search for — not on recall.
+Measured on the real sample it contributes 25 tokens no other field holds out of
+1095. The accepted cost is precision: it is *derived* commentary about
+provenance, so a domain term found only there ranks a unit for what the reasoning
+says rather than for what the unit claims.
+
+Two things are left out, and each is **measured** to cost no reachable word
+rather than assumed to:
+
+* **``context``.** Every token it holds already appears in the unit's own
+  ``content`` or ``normalized_statement`` — on the real sample, where 9 units
+  carry one, the set difference is empty. Indexing it would answer no query it
+  does not already answer.
+* **Transcript segment text.** A segment's ``text`` is byte-identically the
+  concatenation of the captions it spans, and those are indexed, so segments hold
+  zero words of their own. What a segment hit would change is the granularity of
+  a result, not what can be found — a Reader question, answerable by grouping
+  captions through the ``caption_ids`` a segment already carries. It would also
+  need a third hit shape: D-028 freezes two, so minting one is an
+  ``openapi.json`` change first (ADR 0002 invariant 3, D-048).
+
+Both measurements are tests in ``tests/test_sqlite_equivalence.py``, so if either
+stops being true the suite says so rather than this docstring going stale.
 
 Stdlib only, Python 3.10 floor, parameterised SQL throughout. Read-only with
 respect to every canonical file. Every connection is expected to come from

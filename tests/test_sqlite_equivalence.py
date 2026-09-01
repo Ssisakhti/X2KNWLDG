@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import re
 import shutil
 import sqlite3
 from contextlib import contextmanager
@@ -79,6 +80,7 @@ from x2knwldg.index import (
     refresh_index,
 )
 from x2knwldg.index.search import document_indexer, search_retrieval
+from x2knwldg import query as query_module
 from x2knwldg.library import rebuild_library
 from x2knwldg.repository import (
     MAX_LIMIT,
@@ -137,7 +139,20 @@ SAMPLE_COUNTS = {"sources": 1, "artifacts": 85, "entities": 86, "relations": 118
 #: Measured on the real sample, read off the cache-free oracle. A token-only
 #: FTS index returns 3, 10 and 162 for these (see ``index/search`` on the
 #: ``機習`` recall hole and the two disjuncts of ``SearchDocument.score``).
-SAMPLE_SEARCH_TOTALS = {"learning": 4, "model": 19, "the": 253}
+#: `the` moved 253 -> 258 when `derivation_note` joined the searchable field
+#: set (D-047). `learning` and `model` are unmoved, which is the point: the
+#: widening added 25 tokens out of 1095, not a new corpus.
+SAMPLE_SEARCH_TOTALS = {"learning": 4, "model": 19, "the": 258}
+
+def searchable_tokens(value: object) -> set[str]:
+    """The tokens ``query.rank_documents`` matches on, for a measurement.
+
+    ``query._fold`` is private and is reached for deliberately: the two
+    measurements below are *about* that function's notion of a word, so
+    reimplementing the folding here would measure a different one.
+    """
+    return set(re.findall(r"\w+", query_module._fold(str(value or "")), re.UNICODE))
+
 
 requires_sample = pytest.mark.skipif(
     not (SAMPLE_DIR / "metadata.json").exists(),
@@ -1083,35 +1098,30 @@ def test_the_real_sample_survives_a_refresh_and_a_cache_deletion(tmp_path: Path)
 
 
 @requires_fts5
-def test_the_text_that_is_deliberately_not_searchable_is_missing_from_both_paths(
-    tmp_path: Path,
-) -> None:
-    """Three gaps ``index/README.md`` records, asserted so they stay decisions.
+def test_the_field_set_is_the_same_on_both_paths(tmp_path: Path) -> None:
+    """What is searchable, and what is not, is one decision for both readers.
 
-    Each is a real gap — text a user can read in the Reader and cannot find by
-    search — and each is deferred for a reason about correctness. What matters
-    here is that the index and the cache-free oracle have the *same* gap: field
-    parity is what makes ``MemoryRepository`` an oracle at all, so a widening
-    that reached only one of the two would break this proof rather than fix
-    search.
+    Field parity is what makes ``MemoryRepository`` an oracle at all: a widening
+    that reached only one of the two would break this proof rather than improve
+    search. ``index.search`` builds its corpus from ``query.run_documents``
+    rather than re-deriving the field set, so the two cannot drift (D-046).
+
+    ``derivation_note`` **is** searchable (D-047): a phrase a reader can see in
+    the Reader is a phrase they can search for. Segment text is **not** stored
+    (D-048), and ``context`` is **not** indexed — the next two tests measure why
+    each of those costs nothing.
     """
     root = project(tmp_path)
     built(root)
     with opened(sqlite_factory(root)) as repo, opened(memory_factory(root)) as oracle:
-        # 1. `derivation_note`: the fixture's derived unit says "Restates
-        #    KU-000001 as the property it gives the run." and no search finds it.
-        #    `query.run_documents` folds in content, normalized_statement,
-        #    source.evidence_excerpt and kind — and nothing else.
         for reader in (repo, oracle):
-            assert reader.search(SearchQuery(q="restates", limit=MAX_LIMIT)).total == 0
-            # 2. `context`, likewise, on the runs that carry one.
-            assert reader.search(SearchQuery(q="context", limit=MAX_LIMIT)).total == 0
+            # Each fixture's derived unit says "Restates KU-000001 as the
+            # property it gives the run." — findable since D-047.
+            assert reader.search(SearchQuery(q="restates", limit=MAX_LIMIT)).total == 3
 
-        # 3. Segment text is not stored at all. "window" appears in a caption
-        #    *and* in `segments.json`'s concatenated segment text; only the
-        #    caption is a hit, and D-028 freezes exactly two hit shapes, so a
-        #    `transcript_segment` would be an `openapi.json` change first.
-        for reader in (repo, oracle):
+            # Segment text is not stored at all. "window" appears in a caption
+            # *and* in `segments.json`'s concatenated segment text; only the
+            # caption is a hit, because D-028 freezes exactly two hit shapes.
             page = reader.search(SearchQuery(q="window", limit=MAX_LIMIT))
             assert page.total == 3, "one caption per run, and no segment document"
             assert {hit["type"] for hit in page.items} == {TRANSCRIPT_CAPTION_HIT}
@@ -1120,6 +1130,75 @@ def test_the_text_that_is_deliberately_not_searchable_is_missing_from_both_paths
                 SearchQuery(q="window", limit=MAX_LIMIT, include_transcript=False)
             )
             assert blind.total == 0, "the only 'window' text is in the transcript"
+
+
+@requires_sample
+def test_not_indexing_context_costs_no_reachable_word() -> None:
+    """D-047's other half, as a measurement rather than an assertion of faith.
+
+    ``context`` is left out of the searchable field set, and the reason is that
+    it is fully redundant: every token it holds already appears in the unit's
+    own ``content`` or ``normalized_statement``. Measured on the real sample,
+    where **9** units carry one, the set difference is empty — so there exists
+    no query that indexing ``context`` would newly answer.
+
+    This is the test that turns the deferral from an opinion into a fact, and it
+    is the one that will speak up if that stops being true: a future extraction
+    whose ``context`` carries vocabulary of its own makes this fail, and the
+    deferral then has a real cost to weigh rather than none.
+    """
+    units = json.loads((SAMPLE_DIR / "knowledge_units.json").read_text(encoding="utf-8"))
+    captions = json.loads((SAMPLE_DIR / "transcript.json").read_text(encoding="utf-8"))
+
+    searchable: set[str] = set()
+    for caption in captions.get("captions", []):
+        searchable |= searchable_tokens(caption.get("text"))
+    carried = 0
+    context_tokens: set[str] = set()
+    for unit in units.get("units", []):
+        source = unit.get("source") or {}
+        searchable |= (
+            searchable_tokens(unit.get("content"))
+            | searchable_tokens(unit.get("normalized_statement"))
+            | searchable_tokens(source.get("evidence_excerpt"))
+            | searchable_tokens(unit.get("kind"))
+            | searchable_tokens(unit.get("derivation_note"))
+        )
+        if unit.get("context"):
+            carried += 1
+            context_tokens |= searchable_tokens(unit.get("context"))
+
+    assert carried, "the sample is expected to carry `context` on some units"
+    assert context_tokens - searchable == set(), (
+        "`context` now holds vocabulary nothing else does, so leaving it out of "
+        "the field set has a cost — re-weigh D-047 rather than deleting this test"
+    )
+
+
+@requires_sample
+def test_not_storing_segment_text_costs_no_reachable_word() -> None:
+    """D-048, likewise measured: a segment holds no word its captions do not.
+
+    ``segments.json`` text is the concatenation of the captions it spans, which
+    are already indexed, so a ``transcript_segment`` hit shape would make
+    nothing newly findable — it would only change the granularity of a hit, and
+    that is a question for the Reader rather than for the frozen contract.
+    """
+    segments = json.loads((SAMPLE_DIR / "segments.json").read_text(encoding="utf-8"))
+    captions = json.loads((SAMPLE_DIR / "transcript.json").read_text(encoding="utf-8"))
+
+    caption_tokens: set[str] = set()
+    for caption in captions.get("captions", []):
+        caption_tokens |= searchable_tokens(caption.get("text"))
+    segment_tokens: set[str] = set()
+    for segment in segments.get("segments", []):
+        segment_tokens |= searchable_tokens(segment.get("text"))
+
+    assert segment_tokens, "the sample is expected to carry segment text"
+    assert segment_tokens - caption_tokens == set(), (
+        "a segment now holds vocabulary its captions do not, so D-048's "
+        "'nothing newly findable' no longer holds — re-weigh it"
+    )
 
 
 @requires_fts5

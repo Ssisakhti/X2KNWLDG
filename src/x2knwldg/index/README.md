@@ -207,28 +207,43 @@ What the union buys, measured on the real sample (578 documents, 5083 token rows
 The right two columns agree, which is the point: a token-only index would have
 returned 3, 10 and 162 and said nothing about the rest.
 
-## Deferred, on the record, with reasons
+## What is searchable, and what is deliberately not
 
-Three things a reader may reasonably expect to be searchable are not. None is
-skipped for effort, and none is left to be discovered.
+The searchable field set is `query.run_documents`', and this package builds its
+corpus from that function rather than re-deriving the list — so the two readers
+cannot drift, and widening is one edit rather than two (D-046).
 
-- **`derivation_note` and `context` are not indexed**, although `T-103`'s task
-  text names them. `query.run_documents` builds a unit's searchable text from
-  `content`, `normalized_statement`, `source.evidence_excerpt` and `kind`.
-  Indexing more than that would make this package and `MemoryRepository` score
-  the same corpus differently — which destroys the oracle `T-104` compares
-  against, and the ranking the CLI and the MCP tools already ship. Widening
-  means changing `query.run_documents` and this index together, in one commit,
-  with the oracle moving with them. This is a **real gap**, not a technicality:
-  on the real sample 8 units carry a `derivation_note` and 9 carry a `context`,
-  so it is text a user can read in the Reader and cannot find by search.
-- **Segment text is not stored.** D-028 freezes exactly two hit shapes —
-  `HIT_TYPES` is `knowledge_unit` and `transcript_caption` — and there is no
-  `transcript_segment`. Minting one is an `openapi.json` change first and an
-  indexing change second (ADR 0002 invariant 3), so a segment-level hit could
-  not be *returned* today whatever was indexed. Caption text is indexed, and a
-  segment's text is a concatenation of its captions, so nothing is unfindable;
-  what is missing is the segment-shaped hit.
+**`derivation_note` is indexed** (D-047). It earns that on one ground: a phrase a
+reader can see in the Reader should be a phrase they can search for. Not on
+recall — measured on the real sample it contributes **25** tokens no other field
+holds, out of **1095**, and the word `the` moves 253 → 258. The accepted cost is
+to precision: `derivation_note` is *derived* commentary about provenance, so a
+domain term appearing only there ranks a unit for what the reasoning says rather
+than for what the unit claims. That is why the list stops there.
+
+Two things are not searchable, and neither is skipped for effort. Both are
+**measured** to cost no reachable word, and both measurements are tests, so if
+that stops being true the suite says so instead of the README going quietly
+stale:
+
+- **`context` is not indexed.** Every token it holds already appears in the
+  unit's own `content` or `normalized_statement`: on the real sample, where 9
+  units carry one, the set difference is **empty**. There is no query that
+  indexing it would newly answer, so it would be cost without effect.
+  `test_not_indexing_context_costs_no_reachable_word` is that measurement.
+- **Segment text is not stored, and no `transcript_segment` hit shape exists.**
+  A segment's `text` is byte-identically the concatenation of the captions it
+  spans, and those are indexed, so segments add **zero** words of their own
+  (`test_not_storing_segment_text_costs_no_reachable_word`). What a segment hit
+  would change is the *granularity* of a result, not what can be found — and
+  that is a question for the Reader, which can group captions by the
+  `caption_ids` each segment already carries, rather than for the frozen
+  contract. Minting the shape would be an `openapi.json` change first and a
+  regenerated `types.d.ts` second (ADR 0002 invariant 3), widening Track B's and
+  Track C's surface to make findable what is already findable (D-048).
+
+One further gap is real and belongs to the integrator rather than to search:
+
 - **A run the scanner *skipped* is invisible over HTTP.** It is recorded in the
   `runs` table with its reason, and in `ScanReport.skipped_runs`, but it has no
   `Source` record — so it is in no page, and the frozen `IndexStatus` has no
