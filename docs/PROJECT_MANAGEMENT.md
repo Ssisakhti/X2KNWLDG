@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-08-31 · **Phase 0 complete** — `T-001`–`T-009` done, exit gate met. Phase 1 may fan out to the four tracks of §8.2
+**Last updated:** 2026-09-01 · **Phase 0 complete**; **Phase 1 Track A complete** — `T-101`–`T-104` done, the SQLite index serves the whole `IndexRepository`. Tracks B/C/D may fan out
 **Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
@@ -57,7 +57,8 @@ Measured from disk on **2026-08-31**. Re-verify with the commands in §7.3.
 | API contract (`T-005`) | **11 endpoints, all `GET`**, frozen in [`schemas/api/v1/openapi.json`](../schemas/api/v1/README.md); 24 components, every response body a `$ref` into `schemas/v1/`. Valid against the OpenAPI 3.1 meta-schema, external `$ref`s resolving from disk. **925 lines** of generated, committed TypeScript in `types.d.ts`, checked against `tsc --strict` |
 | Repository seam (`T-007`) | [`src/x2knwldg/repository/`](../src/x2knwldg/repository/README.md): `IndexRepository`, **10 methods** serving the 11 frozen endpoints, plus `MemoryRepository` over `adapt_project`. Stdlib-only. Fixed by [ADR 0002](adr/0002-index-repository-seam.md) |
 | Scaffold (`T-008`) | [`web/`](../web/README.md) holds TypeScript only — `package.json`, `package-lock.json`, `tsconfig.json`, `src/api/contract.ts`. `npm run typecheck` (`tsc --noEmit`) passes and is a CI job. The `ui` extra is `fastapi` + `uvicorn`; `x2knwldg ui` exists as a refusing stub |
-| Test baseline | **1348 passed, 0 failed, 0 skipped, 36 subtests** (`.venv/bin/python -m pytest -q`, all extras installed) — measured 2026-08-31 after the audit remediation; 1287 after the five-agent second wave, 765 before it, 515 before that. Core package with no extras at all: **1139 passed, 5 skipped** — re-measured 2026-08-31 by the §7.2 bare-venv procedure, and it was **not** a formality: it failed. See the note under §7.2 |
+| Test baseline | **1643 passed, 0 failed, 0 skipped, 36 subtests** (2026-09-01, after Track A: +295 in the five `tests/test_sqlite_*.py` files). Core package with no extras: **1434 passed, 5 skipped**. Previously **1348 passed** (`.venv/bin/python -m pytest -q`, all extras installed) — measured 2026-08-31 after the audit remediation; 1287 after the five-agent second wave, 765 before it, 515 before that, with **1139 passed, 5 skipped** on the bare venv. That bare-venv run was **not** a formality: it failed. See the note under §7.2 |
+| SQLite index (Track A) | [`src/x2knwldg/index/`](../src/x2knwldg/index/README.md): `schema.py` (DDL + forward-only migrations), `scanner.py` (discovery, whole-subtree digests, incremental change detection, build lifecycle), `search.py` (FTS5 retrieval behind `query.rank_documents`), `repository.py` (`SqliteRepository`, all **ten** protocol methods, widening nothing). Stdlib-only, so it runs on a bare core install; `packages.find` auto-discovers it, so `pyproject.toml` is untouched. The index lives at `.x2knwldg/index.sqlite`, already gitignored. On the real sample it reaches **1 source, 85 artifacts, 86 entities, 118 relations** and a graph of **86 nodes / 118 edges** — the same figures `adapt_project` and `MemoryRepository` reach, now by a third independent path |
 | Toolchain | Node 26.5.0 · npm 11.17.0 · Python 3.14.6 · SQLite 3.53.4 with **FTS5 available** |
 
 > **Correction of record.** Canvas plan §4 previously stated the sample had empty
@@ -91,7 +92,7 @@ Exit criteria live in canvas plan §16; this table tracks state only.
 | Phase | Name | Status | Parallelizable | Gate to next phase |
 |---|---|---|---|---|
 | **0** | Contracts & scaffolding | ✅ `done` | ❌ **No — serialization point** | Schemas validate; contract frozen |
-| **1** | Read-only Library & Reader | `not started` — **gate open, may fan out** | ✅ Tracks A/B/C/D | Search works; status honest; rebuild is equivalent |
+| **1** | Read-only Library & Reader | `in progress` — **Track A ✅ done**; B/C/D not started | ✅ Tracks B/C/D | Search works; status honest; rebuild is equivalent |
 | **2** | Knowledge Map | `not started` | ✅ Partial (renderer vs inspector) | Provenance distinguishable; empty graph honest |
 | **3** | Canvas & board persistence | `not started` | ⚠️ Sequential with Phase 4 | Layout survives restart; partial corruption tolerated |
 | **4** | Pen & annotation | `not started` | ⚠️ Sequential with Phase 3 | Strokes stable under zoom/pan; no canonical leakage |
@@ -123,12 +124,14 @@ Flags: **`S`** = serialized (single owner) · **`P`** = parallel-safe once depen
 
 ### Phase 1 — Read-only Library & Reader · fan out to 4 tracks
 
+**Track A is complete** (`T-101`–`T-104`, 2026-09-01). Tracks B, C and D are unblocked and were never blocked *on* A: `MemoryRepository` served Track B from day one, and `SqliteRepository` now answers the same ten methods with `0` page-for-page differences from it, so a route written against either is written against both. Track B should wire `SqliteRepository.open(root, search=search_retrieval)` and keep `MemoryRepository` as the test oracle.
+
 | ID | Task | Track | Flag |
 |---|---|---|---|
-| `T-101` | SQLite schema + explicit versioned migrations | A | `P` |
-| `T-102` | Scanner over `output/*/metadata.json`; incremental via `io.sha256_file`; skip dotfiles and `library/` | A | `P` |
-| `T-103` | FTS5 tables for KU `content`, `normalized_statement`, `derivation_note`, `evidence_excerpt`, `context`; caption and segment `text` | A | `P` |
-| `T-104` | Full-rebuild path proven equivalent to incremental | A | `P` |
+| ~~`T-101`~~ | ✅ **done** — [`index/schema.py`](../src/x2knwldg/index/schema.py): the DDL as one ordered `MIGRATIONS` tuple, forward-only and appended never edited, with `schema_migrations` as the ledger `IndexStatus.index_version` is read from. A database newer than the code is refused (`SchemaTooNew`), never read from a schema this code does not understand. FTS5 is probed by creating a `temp` table, not by `PRAGMA compile_options`, and its absence is refused rather than worked around. Records are stored verbatim as JSON with `identity`/`digest` as **two** columns, because `repository.order_key`'s separator is a NUL byte. 31 tests in `tests/test_sqlite_schema.py` | `S` |
+| ~~`T-102`~~ | ✅ **done** — [`index/scanner.py`](../src/x2knwldg/index/scanner.py): mirrors `adapt_project`'s walk rather than re-deriving it. The digest covers a run's **whole subtree**, not `metadata.json`: `adapt_run` also reads `is_file()`, `st_size`, the `raw/source.*` glob and `vault/**/*.md`, so a narrower digest would miss a deleted vault note. `(mtime_ns, size)` prefilters, `io.sha256_file` arbitrates, so a touched-but-identical file is not a re-index. Damage follows D-043's two tiers — *skipped* and *incomplete*, never a silent drop — and `adapt_library`'s silent empty-on-damage is closed from outside by reading both library files first. A deleted run leaves `library/graph.json` naming endpoints no entity has, so the fragment is dropped **whole** and named. 31 tests in `tests/test_sqlite_scanner.py` | `S` |
+| ~~`T-103`~~ | ✅ **done, with two fields deferred** — [`index/search.py`](../src/x2knwldg/index/search.py). FTS5 is candidate **retrieval**; `query.rank_documents` stays the sole ranking rule (D-046), so `bm25()` appears nowhere. `derivation_note` and `context` are **not** indexed and segment `text` is **not** stored — see D-047 and D-048; both are recorded in the package README, not in silence. 168 tests in `tests/test_sqlite_search.py`, including a 6036-query differential fuzz against the in-memory ranker with 0 mismatches | `S` |
+| ~~`T-104`~~ | ✅ **done** — `tests/test_sqlite_equivalence.py`: 21 tests, ~32k page-for-page observation comparisons over eight scenarios (full build ≡ cache-free `MemoryRepository`; refresh from no index and from an empty one; a no-op refresh; a run edited, added, removed; `library/` alone rebuilt; and `.x2knwldg/` deleted then rebuilt — Phase 1's own acceptance criterion). Items element-wise **and** `next_cursor` as an exact token, `total` with `null` distinguished from `0`. A fresh `MemoryRepository` per comparison (D-042). **0 differences.** `built_at`/`index_version` are excluded by name, because the seam's README requires SQLite to report them while `MemoryRepository` reports `None`. Mutation-checked: dropping the probe row, faking `total`, and bypassing the Python filter predicate are each caught | `S` |
 | `T-105` | `GET /api/status`, `/api/sources`, `/api/sources/{id}` | B | `P` |
 | `T-106` | `GET /api/search` — cursor/page based, preserving `query.search_knowledge` result shapes | B | `P` |
 | `T-107` | `GET /api/entities/{id}`, `/api/artifacts/{id}` | B | `P` |
@@ -203,6 +206,11 @@ repeated here.
 | D-044 | D-030's taxonomy gains two codes for boundaries that are not HTTP: `invalid_request` — an argument refused before anything is read, where no identifier is involved — and `internal_error`. The four original codes keep their meanings and their HTTP statuses. **Extends D-030** | accepted | Two MCP tool parameters are *paths*, not ids, so `resolve_run_dir` is not their check even though its behaviour is (ADR 0003 invariant 5). Reporting a refused path as `invalid_id` would name a thing the request never contained, which is the kind of small lie D-030 exists to prevent — the taxonomy's whole point is that a refusal says what was actually refused. `internal_error` is the boundary's own catch: a tool must let out one error type carrying a known code, so an unexpected exception is converted rather than leaked with its message and paths intact. Narrowing the MCP surface to the four HTTP codes was the alternative and was rejected: it would force one of them to mean something it does not |
 | D-045 | An adapter **states what it could not do** rather than dropping it silently, and `Source.adapter_metadata` carries two diagnostic channels for it: `unmappable_artifacts` (a generated `vault/` note whose filename cannot spell an id — skipped and named, not fatal) and `unreadable_files` (a canonical file present but damaged — named, so a missing count is not read as a zero). Both are free-form by schema and absent when there is nothing to report. The line is drawn at index integrity: a run whose `knowledge_units.json` is damaged while its `relationships.json` is intact is **refused** at adapt time, naming the dangling edge. **Qualifies D-022** | accepted | D-022 requires an `AdapterError` wherever a value would have to be guessed, and that is still right for canonical evidence. Nothing here is guessed either way; the choice is between refusing everything and stating the one omission, and the rule that actually matters is that the omission is never silent — the recurring finding across this audit. One `vault/` note whose filename cannot spell an id took down a whole project's index, and that note is a generated export beside the canonical files, so it is skipped and named. A damaged canonical file is different again: its counts were already omitted rather than zeroed, but 'this count is missing' does not say 'this file is broken', and only one of those is actionable. The refusal stays where integrity is at stake: stranded edges would make the graph and `/api/sources/{id}/relations` disagree about one fact, `check_index_integrity` would refuse the whole project later anyway, and the failure belongs on the run that causes it. `adapter_metadata` is the only place in the frozen `Source` record an adapter may say any of this |
 
+| D-046 | FTS5 is candidate **retrieval**; `query.rank_documents` is the only ranking rule. Two disjuncts, two indexes: `document_tokens` (a plain table holding `query._tokens`'s own output) for token overlap, and a `trigram` FTS5 index queried with **`GLOB`** for the substring test. `bm25()` is not used | accepted | `SearchDocument.score`'s `phrase_bonus` is a *raw substring* test, so partial matching is how this ranker works without a stemmer; BM25 would change the hit **set**, not merely the order, and D-028 licenses an implementation change rather than a contract change. Three measured reasons for the shape: (a) `LIKE '%q%'` reads `%` and `_` in the *user's* query as wildcards — a search for `100%` matched a document reading "100 percent", and `a_b` matched `axb` — while `GLOB` with an escaped needle is byte-exact and still consumes the index (`INDEX 0:G0`); (b) trigram `MATCH` silently returns **zero rows** for a needle under three characters, which is absence presented as a fact; (c) an FTS5 `unicode61` index is not `query._tokens` — it splits on `_` where `\w+` does not, and does not split scriptless CJK at all, so for `機習` against `機械学習のモデル` the scorer returns **0.667** while a token `MATCH` **and** a trigram substring scan both return nothing, the two characters not being adjacent. Storing the Python tokeniser's output makes the overlap disjunct exact *by construction* rather than approximately right. Ranking parity is then structural, which is what keeps `T-104` a real oracle instead of a coincidence two implementations must keep re-earning |
+| D-047 | `derivation_note` and `context` — both named in `T-103`'s task text — are **not** indexed. The searchable field set is exactly `query.run_documents`' | accepted, **deferred not dropped** | Indexing more text than the in-memory ranker would make `SqliteRepository` return hits `MemoryRepository` does not, destroying `T-104`'s page-for-page comparison and with it the only oracle that would catch a real ranking regression. This is a **real gap, not a free win**: on the real sample **8** units carry a `derivation_note` and **9** carry a `context`, so that is text a reader can see and search cannot find. The fix is one line in `query.run_documents`' `searchable` join, after which the index inherits the fields for free and the oracle still agrees — so it is a change to make deliberately, in `query.py` and the index together, never in one alone. `tests/test_sqlite_equivalence.py` asserts the absence on **both** paths, so the gap is executable rather than a note that can go stale |
+| D-048 | Segment `text` is **not stored**, and no `transcript_segment` hit shape is minted | accepted, **contract question raised** | D-028 freezes exactly two hit shapes and D-023 emits no `segment` entities in v1, so a segment match has no shape to be returned as. Minting one is a change to `schemas/api/v1/openapi.json` first and the generated `types.d.ts` second (ADR 0002 invariant 3) — an integrator decision that widens Track B's and Track C's surface, not a track's local call. Storing text no shape can serve would also be a cache nothing reads, and it would be *redundant* text: a segment's text is a concatenation of its captions', which are already indexed, so it adds no reachable word and would double-count the same evidence in any future scoring |
+| D-049 | The scanner **skips and names** an unmappable run where `adapters.adapt_project` refuses the whole project. `strict=True` reproduces the refusal exactly | accepted | D-043's reasoning transfers: the sin is the silence, not the skipping, and one broken run must not cost a reader every other run — D-045 already applies the same rule to a single unaddressable vault note. But the consequence is real and worth an id: on a *damaged* project the index is a named **superset** of what the `MemoryRepository` oracle can produce, because the oracle raises `AdapterError` and answers nothing at all. So `strict=True` exists for the one caller that needs the comparison well defined, and `T-104` asserts the divergence itself rather than hiding it |
+
 ### ⚠️ D-011 is **additive** — do not "clean up" the 2-part ID
 
 `.claude/commands/kg_navigator.md` **mandates** the 2-part form `<video-id>:<knowledge-unit-id>` for `output/library/graph.json` nodes, and `library.rebuild_library`, through `ids.make_library_id`, emits exactly that.
@@ -230,7 +238,7 @@ A future session must not consolidate these into one form without also updating 
 
 ### 7.2 Regression baseline
 ```bash
-.venv/bin/python -m pytest -q               # expect: 1348 passed, 0 failed, 36 subtests (plus new tests)
+.venv/bin/python -m pytest -q               # expect: 1643 passed, 0 failed, 36 subtests (plus new tests)
 git diff --stat -- output/                  # expect: empty, always
 .venv/bin/python tests/fixtures/runs/build_fixtures.py
 git diff --stat -- tests/fixtures/runs/     # expect: empty — regeneration is byte-identical
@@ -276,7 +284,7 @@ python3 -m venv /tmp/bare && /tmp/bare/bin/pip install . pytest
 for p in jsonschema openapi-spec-validator networkx pyvis yt-dlp fastapi uvicorn; do
   /tmp/bare/bin/pip show "$p" >/dev/null 2>&1 && echo "LEAKED: $p"
 done                                        # expect: no output
-/tmp/bare/bin/python -m pytest -q           # expect: 1139 passed, 5 skipped, 36 subtests
+/tmp/bare/bin/python -m pytest -q           # expect: 1434 passed, 5 skipped, 36 subtests
 ```
 
 The 5 skips are the `jsonschema` and `legacy` tests, which skip by design. Every
@@ -327,6 +335,20 @@ print({k: len(v) for k, v in adapt_project(Path('.')).by_model().items()})"
 from pathlib import Path
 from x2knwldg.repository import MemoryRepository
 print(MemoryRepository.from_project(Path('.')).status().payload()['counts'])"
+
+# And a fourth time through the SQLite index, which is what a route will call
+# once T-105 wires it. Writes .x2knwldg/ and nothing else; delete it freely.
+.venv/bin/python -c "
+from pathlib import Path
+from x2knwldg.index import build_index, SqliteRepository
+from x2knwldg.index.search import document_indexer, search_retrieval
+from x2knwldg.repository import SearchQuery
+root = Path('.')
+build_index(root, index_documents=document_indexer(root))
+repo = SqliteRepository.open(root, search=search_retrieval)
+print(repo.status().payload()['counts'])
+print({q: repo.search(SearchQuery(q=q, limit=1)).total for q in ('learning', 'model', 'the')})"
+# expect: the same 1/85/86/118, and {'learning': 4, 'model': 19, 'the': 253}
 ```
 
 ### 7.4 End-to-end scenarios (canvas plan §17.3)
@@ -352,7 +374,7 @@ Exclusive file ownership is the mechanism that makes concurrent agents safe. An 
 
 | Track | Owns exclusively | Scope |
 |---|---|---|
-| **A — Indexer** | `src/x2knwldg/index/` | SQLite schema, migrations, scanner, FTS5, incremental hashing — behind `repository.IndexRepository` |
+| **A — Indexer** ✅ **done** | `src/x2knwldg/index/` | SQLite schema, migrations, scanner, FTS5, incremental hashing — behind `repository.IndexRepository`. Delivered 2026-09-01 (`T-101`–`T-104`); see [`index/README.md`](../src/x2knwldg/index/README.md) |
 | **B — API** | `src/x2knwldg/server/` | FastAPI routes, path safety, range requests, versioned responses |
 | **C — Frontend** | `web/` | Vite/React scaffold, tokens, i18n/bidi shell, Library, Reader |
 | **D — Fixtures & tests** | `tests/` | Labeled `PARTIAL`/`FAIL` fixtures, contract tests, rebuild equivalence |
@@ -442,7 +464,7 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 | `repository.encode_cursor` / `decode_cursor` | The one cursor encoding. The SQLite implementation issues its keyset cursors through it so both implementations produce the same token for the same position |
 | `repository.matches_entity` / `matches_relation` / `matches_source` / `relation_belongs_to_source` | The definition of every filter the contract exposes. Where a SQL `WHERE` clause disagrees with them, they are right |
 | `repository.graph_nodes` | The **one** rule for which nodes a source's graph is drawn over — an entity of the source, or an endpoint of a relation `relation_belongs_to_source` accepts (D-041, [ADR 0004](adr/0004-graph-membership-and-search-corpus.md)). `T-101`–`T-104` inherit it; do not re-derive it in SQL |
-| `query.run_documents` / `query.rank_documents` | The searchable form of a run, and the ranking over it. `MemoryRepository` builds its corpus from these once per instance (D-042) and `query.search_knowledge` is the CLI's caller of the same pair. `T-103` replaces the corpus, not these shapes |
+| `query.run_documents` / `query.rank_documents` | The searchable form of a run, and the ranking over it. `MemoryRepository` builds its corpus from these once per instance (D-042) and `query.search_knowledge` is the CLI's caller of the same pair. `T-103` replaced the corpus, **not** these shapes: `index.search` retrieves candidates and hands them to `rank_documents` unchanged, so the scoring rule has exactly one implementation (D-046). Widening `run_documents`' `searchable` join is therefore a **coupled** change — do it here and in the index together, or the two rankers disagree and `T-104`'s oracle dies (D-047) |
 | `constants.py` | The real controlled vocabulary: 22 source kinds, 8 derived kinds, 16 relation types, 10 omission reasons |
 | `artifacts.SECTION_ORDER` | A ready-made 12-section UI grouping taxonomy for knowledge kinds |
 
