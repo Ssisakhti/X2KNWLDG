@@ -75,7 +75,9 @@ or ``sqlite3.version`` (removed in 3.14).
 from __future__ import annotations
 
 import json
+import functools
 import sqlite3
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
@@ -171,6 +173,35 @@ SearchRetrieval = Callable[[sqlite3.Connection, SearchQuery], SearchCandidates]
 # --------------------------------------------------------------------------
 
 
+def _serialized(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Hold the repository's lock for the whole of *method*.
+
+    ``SqliteRepository`` opens its connection with the same-thread check lifted,
+    because a web server answers from a thread pool and would otherwise fail
+    every request with *"SQLite objects created in a thread can only be used in
+    that same thread"* — a 503 on every endpoint, in production, not only in a
+    test.
+
+    Lifting that check is only safe if something else serialises access, and
+    this is that something. The lock is taken around the whole public method
+    rather than around each ``execute``: a method like :meth:`graph` runs
+    several statements whose results must describe one consistent state, and a
+    lock released between them would let a rebuild land in the middle and
+    return edges whose nodes are no longer there.
+
+    Re-entrant, because the methods call each other — ``neighborhood`` runs
+    ``graph``'s machinery, and a plain ``Lock`` would deadlock on the second
+    acquisition in the same thread.
+    """
+
+    @functools.wraps(method)
+    def guarded(self: "SqliteRepository", *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return guarded
+
+
 class SqliteRepository:
     """Every v1 record for a project, answered from the SQLite index.
 
@@ -191,6 +222,8 @@ class SqliteRepository:
         search: SearchRetrieval | None = None,
     ) -> None:
         self._connection = connection
+        #: Serialises access to the connection. See :func:`_serialized`.
+        self._lock = threading.RLock()
         #: The project this index is a cache for. Recorded, never joined onto:
         #: no id reaches a path here (D-042, ADR 0003).
         self.project_root = (
@@ -224,7 +257,10 @@ class SqliteRepository:
         """
         path = schema.database_path(Path(project_root))
         try:
-            connection = schema.connect(path, create=False)
+            # The reader is opened multithreaded because a web server answers
+            # from a thread pool; every method is serialised by `_serialized`,
+            # which is what makes lifting the driver's check safe.
+            connection = schema.connect(path, create=False, multithreaded=True)
         except FileNotFoundError:
             return cls(None, project_root=project_root, search=search)
         try:
@@ -244,6 +280,7 @@ class SqliteRepository:
             )
         return cls(connection, project_root=project_root, search=search)
 
+    @_serialized
     def close(self) -> None:
         """Release the connection. Reading is all this class ever did with it."""
         if self._connection is not None:
@@ -310,6 +347,7 @@ class SqliteRepository:
             )
         return self._connection
 
+    @_serialized
     def status(self) -> IndexStatus:
         """What the index is. Answers in every state, including ``error``.
 
@@ -421,6 +459,7 @@ class SqliteRepository:
     # Sources and artifacts
     # ------------------------------------------------------------------
 
+    @_serialized
     def list_sources(self, query: SourceQuery) -> Page:
         """``GET /api/sources``."""
         self._require_ready()
@@ -435,6 +474,7 @@ class SqliteRepository:
             params=params,
         )
 
+    @_serialized
     def get_source(self, source_id: str) -> SourceDetail | None:
         """``GET /api/sources/{source_id}``, with the artifacts the source owns."""
         self._require_ready()
@@ -455,6 +495,7 @@ class SqliteRepository:
         ]
         return SourceDetail(source=record, artifacts=artifacts)
 
+    @_serialized
     def get_artifact(self, artifact_id: str) -> dict[str, Any] | None:
         """``GET /api/artifacts/{artifact_id}`` and ``GET /api/media/{artifact_id}``.
 
@@ -470,6 +511,7 @@ class SqliteRepository:
     # Entities and relations
     # ------------------------------------------------------------------
 
+    @_serialized
     def list_entities(self, query: EntityQuery) -> Page:
         """``GET /api/sources/{source_id}/entities``.
 
@@ -495,11 +537,13 @@ class SqliteRepository:
             params=params,
         )
 
+    @_serialized
     def get_entity(self, entity_id: str) -> dict[str, Any] | None:
         """``GET /api/entities/{entity_id}``, or ``None``."""
         self._require_ready()
         return self._one("entity_ref", _global_id(entity_id, "entity_id"))
 
+    @_serialized
     def list_relations(self, query: RelationQuery) -> Page:
         """``GET /api/sources/{source_id}/relations``.
 
@@ -525,6 +569,7 @@ class SqliteRepository:
     # Search — offset paging over injected retrieval
     # ------------------------------------------------------------------
 
+    @_serialized
     def search(self, query: SearchQuery) -> Page:
         """``GET /api/search`` — a page of the two hit shapes of D-028.
 
@@ -590,6 +635,7 @@ class SqliteRepository:
     # Graph
     # ------------------------------------------------------------------
 
+    @_serialized
     def graph(self, query: GraphQuery) -> GraphPage:
         """``GET /api/graph`` — a page of nodes, with the edges among them.
 
@@ -672,6 +718,7 @@ class SqliteRepository:
             total=page.total,
         )
 
+    @_serialized
     def neighborhood(self, query: NeighborhoodQuery) -> Neighborhood | None:
         """``GET /api/graph/neighborhood/{entity_id}``, or ``None`` for an unknown center.
 

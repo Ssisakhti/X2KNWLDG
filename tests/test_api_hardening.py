@@ -215,7 +215,74 @@ def test_a_malformed_id_and_an_unknown_id_get_different_answers(served: Path) ->
 
 
 # --------------------------------------------------------------------------
-# 4. The surface itself
+# 4. The repository survives being answered from a thread pool
+# --------------------------------------------------------------------------
+
+
+@h.requires_fts5
+def test_the_sqlite_reader_answers_from_other_threads(tmp_path: Path) -> None:
+    """A server answers from a thread pool, so the reader must tolerate one.
+
+    ``sqlite3`` binds a connection to its creating thread by default. Starlette
+    runs sync endpoints in a worker thread, so a repository opened during app
+    construction answered *every* request with
+    ``503 index_unavailable: SQLite objects created in a thread can only be
+    used in that same thread`` — in production under uvicorn, not only under a
+    test client. The reader is now opened with the check lifted and every method
+    serialised by a lock.
+
+    Asserted with real threads rather than through the client, because the
+    client is what hid it: a failure here names the cause, and a 503 in a route
+    test names only the symptom.
+    """
+    import threading
+
+    from x2knwldg.repository import SourceQuery
+
+    repo = h.sqlite_repository(h.project(tmp_path))
+    try:
+        results: list[object] = []
+        errors: list[str] = []
+
+        def ask() -> None:
+            try:
+                results.append(len(repo.list_sources(SourceQuery()).items))
+            except Exception as exc:  # noqa: BLE001 - the failure text is the point
+                errors.append(f"{type(exc).__name__}: {exc}")
+
+        threads = [threading.Thread(target=ask) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert errors == [], errors
+        assert len(results) == 8
+        assert len(set(results)) == 1, f"threads disagreed about the library: {results}"
+    finally:
+        repo.close()
+
+
+def test_every_endpoint_answers_over_sqlite_not_only_over_memory(tmp_path: Path) -> None:
+    """The whole surface, served by the implementation the UI will actually use.
+
+    The thread bug made every SQLite-backed request a 503 while every
+    memory-backed one passed, so a suite that reached for the oracle by default
+    stayed green with the real server broken. This asks each endpoint for a
+    non-503 over SQLite.
+    """
+    root = h.project(tmp_path)
+    with h.client(h.sqlite_repository(root)) as client:
+        for response in _every_response(client):
+            if response.status_code != 503:
+                continue
+            body = response.json()
+            assert body["error"]["code"] == "index_unavailable"
+            pytest.fail(f"an endpoint 503'd over SQLite: {body}")
+
+
+# --------------------------------------------------------------------------
+# 5. The surface itself
 # --------------------------------------------------------------------------
 
 
