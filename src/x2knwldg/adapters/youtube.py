@@ -220,7 +220,19 @@ class YouTubeAdapter(SourceAdapter):
         """
         document, reason = read_optional_json_or_reason(path)
         if reason is not None:
-            damaged.append({"path": self.relative(path), "reason": reason})
+            # D-051's rule, on D-045's other channel. Every ``JsonReadError``
+            # names the file it could not read and names it *absolutely*, and
+            # this record is served verbatim inside a 200 body by
+            # ``/api/sources`` — at which point the reason leaks the user's
+            # filesystem layout to any HTTP client, which D-030 and ADR 0003
+            # both forbid. Sanitised here, at the point the reason is
+            # recorded, rather than on the way out: one rule, the CLI gains
+            # the same property, and it becomes the same relative string the
+            # entry's ``path`` is keyed by, so the two cannot disagree about
+            # which file failed. The substring is exact rather than hopeful --
+            # ``io.read_json`` formats this very ``path`` into the message.
+            relative = self.relative(path)
+            damaged.append({"path": relative, "reason": reason.replace(str(path), relative)})
         return document
 
     # ----------------------------------------------------------------

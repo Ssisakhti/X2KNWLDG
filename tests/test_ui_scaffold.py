@@ -512,11 +512,25 @@ def test_the_typecheck_script_is_the_one_ci_runs() -> None:
     assert _package_json()["scripts"]["typecheck"] == "tsc --noEmit"
 
 
-def test_the_frontend_has_no_runtime_dependencies_yet() -> None:
-    """``T-109`` chooses Vite and React. ``T-008`` does not choose for it."""
+def test_the_frontend_declares_the_toolchain_t109_chose() -> None:
+    """``T-008`` chose nothing here; ``T-109`` chose Vite + React + Vitest.
+
+    This replaces the ``T-008``-era guard that asserted *no* runtime dependency,
+    whose own docstring named its expiry: "``T-109`` chooses Vite and React".
+    It has now chosen, so the guard is rewritten to the property that outlives
+    the choice rather than deleted — every tool CI invokes is declared in the
+    manifest, so ``npm ci`` installs what ``npm run typecheck``, ``npm test``
+    and ``npm run build`` need, and a dependency dropped by a refactor is a
+    failure here rather than a red CI job on an unrelated pull request.
+
+    ``typescript`` stays a *dev* dependency: it is a build-time tool, and the
+    declarations it checks are erased by ``contract.ts``'s ``export type *``
+    (asserted separately), so nothing about the contract reaches the bundle.
+    """
     package = _package_json()
-    assert package.get("dependencies", {}) == {}
-    assert set(package["devDependencies"]) == {"typescript"}
+    assert {"react", "react-dom"} <= set(package["dependencies"])
+    assert {"typescript", "vite", "vitest"} <= set(package["devDependencies"])
+    assert "typescript" not in package.get("dependencies", {})
 
 
 def test_the_lock_file_agrees_with_the_manifest() -> None:
