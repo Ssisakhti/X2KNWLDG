@@ -167,7 +167,7 @@ jobs:
     # web/tsconfig.json sets skipLibCheck: false and lists the declarations as a
     # root file on purpose. With the default skipLibCheck, tsc would skip the one
     # file this job exists to check and pass without looking.
-    name: web typecheck (tsc --noEmit)
+    name: web (typecheck, test, build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -182,3 +182,17 @@ jobs:
       - name: Type-check the frozen contract and the frontend
         working-directory: web
         run: npm run typecheck
+      - name: Test the frontend
+        # Hermetic: the integration files under web/src skip unless
+        # X2KNWLDG_API_BASE names a running server, so this job needs no
+        # Python and stands up no API. What it does cover is every unit and
+        # component test T-109--T-114 wrote, including the logical-CSS guard
+        # (D-012) and the provenance guard that no class is signalled by
+        # colour alone (ADR 0001 invariant 10).
+        working-directory: web
+        run: npm test
+      - name: Build the frontend
+        # tsc --noEmit does not resolve assets or bundle, so a frontend can
+        # type-check and test green while the production build is broken.
+        working-directory: web
+        run: npm run build
