@@ -282,6 +282,25 @@ def run_dirs(output_root: Path) -> list[Path]:
     ]
 
 
+def _project_relative_reason(reason: str, run_dir: Path, canonical_dir: str) -> str:
+    """*reason* with the host path replaced by the project-relative one.
+
+    ``AdapterError`` names the directory it refused, and it names it
+    absolutely: "/Users/me/proj/output/broken has no readable metadata.json".
+    That string is stored, and since D-050 it is also served by
+    ``/api/status`` — at which point an absolute path is a leak of the
+    user's filesystem layout to any HTTP client, which D-030 and ADR 0003
+    both forbid ("no host path reaches an error body").
+
+    Sanitised here, at the point the reason is *recorded*, rather than on
+    the way out: one rule, and the CLI report gains the same property it
+    already has for every path it prints beside it. The relative form is
+    the same string the row is keyed by, so the two cannot disagree about
+    which directory failed.
+    """
+    return reason.replace(str(run_dir), canonical_dir)
+
+
 def _run_files(run_dir: Path) -> list[Path]:
     """Every regular file the adapter could observe, sorted by path."""
     return sorted(
@@ -616,7 +635,13 @@ def _examine(
             # `adapt_project` refuses the whole project here, and `T-104` needs
             # a mode that agrees with its oracle record for record.
             raise
-        return _Run(canonical_dir, _SKIPPED, digest, reason=str(exc), had_records=had_records)
+        return _Run(
+            canonical_dir,
+            _SKIPPED,
+            digest,
+            reason=_project_relative_reason(str(exc), run_dir, canonical_dir),
+            had_records=had_records,
+        )
 
     problems = list(digest.problems)
     for source in records.sources:

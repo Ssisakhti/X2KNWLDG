@@ -458,13 +458,22 @@ def snapshot(repo: Any, probes: Probes, plan: Plan = FIXTURE_PLAN) -> dict[str, 
     artifacts = probes.artifacts[:: plan.artifact_stride]
 
     status = repo.status().payload()
-    # `built_at` and `index_version` are excluded here and asserted separately:
-    # `repository/README.md` requires the SQLite path to report them from the
-    # migration table and the last build, and requires `MemoryRepository` to
-    # report None for both, because "stating a version there would claim a
-    # durable artifact that does not exist". A frozen document forces them to
-    # differ; every other field of the payload must agree exactly.
-    seen["status"] = {key: value for key, value in status.items() if key != "index"}
+    # Three fields are excluded here and asserted separately, each because a
+    # frozen document requires the two implementations to differ:
+    #
+    # `built_at` and `index_version` — `repository/README.md` requires the
+    # SQLite path to report them from the migration table and the last build,
+    # and `MemoryRepository` to report None for both, because "stating a version
+    # there would claim a durable artifact that does not exist".
+    #
+    # `runs` — optional by contract (D-050) and reported only by an
+    # implementation that actually scanned a filesystem. `MemoryRepository`
+    # omits it rather than claiming `skipped: []`, which would assert it looked.
+    #
+    # Every other field of the payload must agree exactly.
+    seen["status"] = {
+        key: value for key, value in status.items() if key not in ("index", "runs")
+    }
     seen["status.index.state"] = status["index"]["state"]
 
     for filters, limit in itertools.product(plan.source_filters, plan.limits):
@@ -1202,16 +1211,19 @@ def test_not_storing_segment_text_costs_no_reachable_word() -> None:
 
 
 @requires_fts5
-def test_a_run_the_scanner_skipped_is_recorded_and_yet_invisible_over_http(
-    tmp_path: Path,
-) -> None:
-    """The third deferral: a skipped run has a ``runs`` row and no ``Source``.
+def test_a_run_the_scanner_skipped_is_named_over_http(tmp_path: Path) -> None:
+    """A run that produced no ``Source`` is reported, not merely absent (D-050).
 
-    It is in the ``runs`` table and in the ``ScanReport``, and it is nowhere in
-    ``IndexStatus`` — the frozen payload has no field for it. Naming it over
-    HTTP is an additive ``/api/status`` field, which is a contract change and
-    not this track's to make. Asserted here so the hole is a decision on record
-    rather than something a reader discovers.
+    This test used to assert the opposite. A skipped run had a ``runs`` row and
+    a ``ScanReport`` entry and nothing in ``IndexStatus``, so ``/api/status``
+    described a project of two sources where three run directories existed —
+    and the payload gave a reader no way to know the difference between "two
+    runs" and "two of three". The `runs` field closed that, additively.
+
+    What matters is the shape of the honesty: `discovered` accounts for every
+    run directory, `indexed` for those that became a `Source`, and the
+    remainder is **named** with a reason. A count alone would say something is
+    missing without saying what, which is not actionable.
     """
     root = project(tmp_path, "partial-run", "fail-run")
     broken = root / "output" / "broken-run"
@@ -1228,7 +1240,57 @@ def test_a_run_the_scanner_skipped_is_recorded_and_yet_invisible_over_http(
         payload = repo.status().payload()
         assert payload["counts"]["sources"] == 2, "the skipped run has no Source record"
         assert sum(payload["sources_by_status"].values()) == 2
-        assert "skipped" not in json.dumps(payload), "IndexStatus has no field for it"
+
+        runs = payload["runs"]
+        assert runs["discovered"] == 3, "every run directory is accounted for"
+        assert runs["indexed"] == 2
+        assert runs["discovered"] == runs["indexed"] + len(runs["skipped"])
+        assert [entry["relative_path"] for entry in runs["skipped"]] == ["output/broken-run"]
+        reason = runs["skipped"][0]["reason"]
+        assert reason, "a skipped run without a reason is a count wearing a name"
+        assert str(tmp_path) not in reason, "no host path reaches a status body (D-030)"
+
+        # The library fragment carries a `runs` row of its own and no
+        # `source_id`, and it is not an ingested run. Counting it would inflate
+        # `discovered` past the directories on disk and report the library as a
+        # failure on every successful build.
+        assert not any(
+            entry["relative_path"].endswith("/library") for entry in runs["skipped"]
+        )
+
+
+def test_a_project_whose_runs_all_index_reports_nothing_skipped(tmp_path: Path) -> None:
+    """The other half: an empty ``skipped`` is emitted, not omitted.
+
+    A reader has to be able to tell "nothing was skipped" from "this server does
+    not report skipped runs", so the list is always present on an
+    implementation that scans. That is D-043's rule for ``videos.json``'s
+    ``problems: []`` applied to a payload, and it is why the field is optional
+    in the schema but unconditional here.
+    """
+    root = project(tmp_path)
+    built(root)
+    with opened(sqlite_factory(root)) as repo:
+        runs = repo.status().payload()["runs"]
+    assert runs == {"discovered": 3, "indexed": 3, "skipped": []}
+
+
+def test_the_oracle_omits_the_runs_field_rather_than_claiming_it_looked(
+    tmp_path: Path,
+) -> None:
+    """``MemoryRepository`` reports no ``runs``, for the reason it reports no version.
+
+    It has no scan to report. Emitting ``skipped: []`` would assert that it
+    looked at the filesystem and found nothing wrong, which is a claim it cannot
+    make — the same reasoning that makes it report ``index_version: null``
+    rather than a number. The contract therefore makes the field optional.
+    """
+    root = project(tmp_path)
+    built(root)
+    with opened(memory_factory(root)) as oracle:
+        assert "runs" not in oracle.status().payload()
+    with opened(sqlite_factory(root)) as repo:
+        assert "runs" in repo.status().payload()
 
 
 # --------------------------------------------------------------------------

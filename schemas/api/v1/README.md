@@ -31,7 +31,15 @@ The two exceptions are deliberate, and both are grounded in code that already ex
   and the MCP tools ship today; FTS5 (`T-103`) replaces the linear scan behind them
   without changing them.
 - **`/api/status`** describes the index rather than a source, so it has no record to
-  reuse. Everything in it is a copied status or a count of one.
+  reuse. Everything in it is a copied status or a count of one — plus the optional
+  `runs` object added by D-050, which is the one thing in the payload that is neither:
+  it reports how many run directories the last scan saw, how many became a `Source`,
+  and **names** the rest with a reason. Without it a `counts.sources` smaller than the
+  filesystem could only be read as "at most this many", and nothing said so. Optional
+  because an implementation that scans no filesystem must omit it rather than report a
+  zero it did not measure, and because a new *required* field would make this
+  `schemas/api/v2/`. A skipped run's `reason` is project-relative: no host path reaches
+  a response body (D-030, D-051).
 
 ## The rules a server may not break
 

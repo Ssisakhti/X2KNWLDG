@@ -77,11 +77,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
 from .. import ids
-from ..adapters import ADAPTERS
+from ..adapters import ADAPTERS, LIBRARY_DIR_NAME
 from ..repository import (
     INDEX_STATES,
     READY,
@@ -322,24 +322,74 @@ class SqliteRepository:
         version: int | None = None
         counts: dict[str, int] = {}
         tally: dict[str, int] = {}
+        runs: dict[str, Any] | None = None
         if self._connection is not None:
             try:
                 version = schema.schema_version(self._connection)
                 counts = self._counts()
                 tally = self._status_tally()
+                runs = self._runs_seen()
             except (StoreError, sqlite3.DatabaseError):
-                counts, tally = {}, {}
+                counts, tally, runs = {}, {}, None
         return IndexStatus(
             state=state,
             built_at=built_at,
             index_version=version,
             counts=counts,
             sources_by_status=tally,
+            runs=runs,
             adapters=[
                 {"name": adapter.source_type, "version": adapter.version}
                 for adapter in sorted(ADAPTERS.values(), key=lambda cls: cls.source_type)
             ],
         )
+
+    def _runs_seen(self) -> dict[str, Any]:
+        """What the last scan found on disk, and what it could not index (D-050).
+
+        A run directory that produced no ``Source`` is in no page and in no
+        count, so without this the only honest reading of ``counts.sources`` is
+        "at most this many" — and nothing said so. The scanner already records
+        both tiers in its ``runs`` table; this reads them back rather than
+        re-deriving anything, so the number cannot disagree with the build that
+        produced it.
+
+        A skipped run is **named**, not merely counted: "one run was skipped" is
+        not actionable and "this directory, for this reason" is.
+
+        The library fragment is excluded. It keeps a ``runs`` row of its own so
+        a ``rebuild_library`` that moved no run still re-derives it, and that row
+        carries no ``source_id`` because the library is not an ingested source
+        (D-016) — so counting it would both inflate ``discovered`` past the
+        number of run directories on disk and report the library as a failure
+        every time it succeeded. It is identified by its directory name, which
+        is safe because ``run_dirs`` refuses that name as a run.
+        """
+        rows = self._query(
+            "SELECT canonical_dir, source_id, skipped_reason FROM runs "
+            "ORDER BY canonical_dir"
+        ).fetchall()
+        runs = [
+            row
+            for row in rows
+            if PurePosixPath(row["canonical_dir"]).name != LIBRARY_DIR_NAME
+        ]
+        skipped = [
+            {
+                "relative_path": row["canonical_dir"],
+                # The contract requires a non-empty reason. A row with none is
+                # a scanner bug rather than a run's fault, and saying so beats
+                # emitting an empty string the schema would reject.
+                "reason": row["skipped_reason"] or "skipped for a reason the index did not record",
+            }
+            for row in runs
+            if row["source_id"] is None
+        ]
+        return {
+            "discovered": len(runs),
+            "indexed": len(runs) - len(skipped),
+            "skipped": skipped,
+        }
 
     def _counts(self) -> dict[str, int]:
         """One ``COUNT(*)`` per family. No filter, so no predicate is owed."""

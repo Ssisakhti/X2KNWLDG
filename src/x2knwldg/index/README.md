@@ -242,14 +242,27 @@ stale:
   regenerated `types.d.ts` second (ADR 0002 invariant 3), widening Track B's and
   Track C's surface to make findable what is already findable (D-048).
 
-One further gap is real and belongs to the integrator rather than to search:
+A gap that used to be here has been closed:
 
-- **A run the scanner *skipped* is invisible over HTTP.** It is recorded in the
-  `runs` table with its reason, and in `ScanReport.skipped_runs`, but it has no
-  `Source` record — so it is in no page, and the frozen `IndexStatus` has no
-  field for it. `/api/status` therefore reports a project of two sources where
-  three run directories exist. The fix is an additive `/api/status` field, which
-  is a contract change and not this track's to make.
+- **A run the scanner *skipped* is named over HTTP** (D-050). It has a `runs`
+  row with its reason and a `ScanReport.skipped_runs` entry, and it has no
+  `Source` record — so it is in no page and in no count. `/api/status` therefore
+  used to describe a project of two sources where three run directories existed,
+  with nothing in the payload to say which reading was right. `StatusPayload`
+  now carries an optional `runs` object — `discovered`, `indexed`, and the rest
+  **named** in `skipped` with a reason, because "one run was skipped" is not
+  actionable and "this directory, for this reason" is. It is optional in the
+  schema so v1 stays additive, and unconditional here so a reader can tell
+  "nothing was skipped" from "this server does not report it".
+  `MemoryRepository` omits the field rather than claiming `skipped: []`, for the
+  same reason it reports `index_version: null`: it has no scan to report.
+
+  The reason itself is stored **project-relative** (D-051). `AdapterError` names
+  the directory it refused and names it absolutely, which was unremarkable while
+  the string only reached a CLI report and became a leak of the user's
+  filesystem layout the moment it reached a response body (D-030, ADR 0003). It
+  is sanitised where it is recorded, so there is one rule rather than a
+  sanitiser at each boundary.
 
 ## Tests
 
