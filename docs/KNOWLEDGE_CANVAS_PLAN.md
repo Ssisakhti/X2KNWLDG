@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map under way — `T-202`–`T-207` complete: the Map has a renderer, a graph, an address, a visual grammar, a search rail, a bounded card constellation, a complete related list and Quick Read. `T-208` (accessibility, bidi, responsive disclosure) and `T-209` (the real-browser phase gate) remain
+**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map under way — `T-202`–`T-208` complete: the Map has a renderer, a graph, an address, a visual grammar, a search rail, a bounded card constellation, a complete related list, Quick Read, and now a stated state for everything it cannot show, a DOM companion listing everything it draws, foldable panels, touch targets, reduced motion and the Persian pass. Only `T-209` (the real-browser phase gate) remains
 **Last updated:** 2026-09-02
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -1105,7 +1105,7 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-126 | The Map has one renderer lifecycle, owned by a framework-free `MapSession` reached through an injected factory; React decides only when to attach and when to kill ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Killing a renderer on unmount *and on replacement* is a sequence property, and jsdom has no WebGL, so it is only assertable against a fake. `StrictMode` double-invokes effects, so an attach that did not kill first would leak a WebGL context per mount — and a browser answers an excess by losing the oldest context, far from the cause |
 | D-127 | Sigma is loaded through a dynamic `import` from the Map route only, never statically ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `sigma`'s default primitives read `WebGL2RenderingContext` off the global while the module body evaluates, so a static import anywhere in the application's module graph fails to load under jsdom and takes unrelated suites with it. Loading it where it is used also keeps a 362 kB chunk out of the routes that draw no graph |
 | D-128 | A continuation page re-settles the whole layout; nodes already placed are not pinned ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | New nodes arrive on their identity seeds, which say nothing about the structure the layout has found, so drawing them unrelaxed scatters dots over a settled graph. Pinning needs a third node attribute, and D-124 lets the graph carry `x`, `y` and the record only. The picture moving when the graph grows is the accepted cost |
-| D-129 | A Map that cannot draw still reports the graph: the renderer's refusal is a stated state, the counts beside it stay true, and they precede the canvas ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `allowInvalidContainer: false` is kept because a graph drawn into a zero-sized box is an unexplainable failure — which makes an unsized container and a browser without WebGL2 states the Map must render. Those counts are also the only text account until `T-208`'s companion exists, so an account placed after the picture would read as complete to anyone who never reaches it |
+| D-129 | A Map that cannot draw still reports the graph: the renderer's refusal is a stated state, the counts beside it stay true, and they precede the canvas ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `allowInvalidContainer: false` is kept because a graph drawn into a zero-sized box is an unexplainable failure — which makes an unsized container and a browser without WebGL2 states the Map must render. Those counts were also the only text account until `T-208` built the companion list beside them (D-142), so an account placed after the picture would read as complete to anyone who never reaches it |
 | D-130 | The Map is a content browser with one progressive Search → Preview/Peek → Focus → Quick Read journey; preview and reading stay in `#/map`, while the Reader is the full-source destination ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | A topology-only graph does not reveal what a node contains, and routing every selection away from the graph produces blind clicks and repeated backtracking. Progressive disclosure keeps overview, information scent and reading context together without turning every node into a card |
 | D-131 | Search, Peek, selected and related cards use only verbatim API records; on-stage previews may visibly truncate, while Quick Read exposes the complete stored statement and recorded evidence; no client-generated summary is allowed ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `EntityRef.label` is already the pipeline's selected `normalized_statement`/content and its locator may state an excerpt and time. Summarising again would introduce an unproven claim between canonical evidence and the user |
 | D-132 | Focus is a bounded card constellation over the same graph: one primary selected card, at most one transient Peek, active relation labels and density-budgeted neighbour previews; every returned neighbour is also present in the complete semantic related list ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Permanent HTML for every node defeats WebGL and creates overlap, while circles alone recreate the blind-click problem. Sigma's graph-to-viewport overlay pattern supports a bounded focus layer, and the semantic list prevents a viewport budget from becoming silent data loss |
@@ -1204,12 +1204,16 @@ An agent must not guess the answers to these if the decision would cause a notic
   Quick Read over the complete stored statement, the recorded evidence and the derivation
   in D-131's order; and the canvas's event and coordinate adapters as a *third* caller of
   one selection identity (D-135–D-138)
+- [x] Phase 2 / T-208: usable by everyone — two honest-state functions and the four pairs
+  they keep apart (D-139–D-141), the DOM companion that lists every entity the canvas draws
+  and is deliberately not windowed (D-142), one collapsible panel whose summary keeps
+  stating what it holds (D-143), and the motion, touch and bidi rules including a
+  reduced-motion answer for the camera the stylesheet cannot reach (D-144)
 - [x] Translate this document to English per D-014
 
 ### Planned / not started
 
-- [ ] `T-208`–`T-209`: accessibility, bidi and responsive disclosure over everything
-  `T-202`–`T-207` built; and the real-browser anti-pogo phase gate
+- [ ] `T-209`: the real-browser anti-pogo phase gate over everything `T-202`–`T-208` built
 - [ ] Canvas
 - [ ] Pen annotations
 - [ ] Adapters for future sources
@@ -1218,34 +1222,33 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-The next execution session claims **`T-208`**. Every *implementation* task in the approved
-`T-201` Knowledge Map epic is done: `T-202` chose the renderer, `T-203` built the data
-underneath it, `T-204` put the Map on screen, `T-205` gave it a visual grammar, `T-206` gave
-it an address and a search rail, and `T-207` gave it the reading — a selection loads what the
-entity is and what it is connected to, the stage carries a bounded constellation anchored to
-the marks, and the related list carries every neighbour the server returned.
+The next execution session claims **`T-209`**, the last task in the approved `T-201`
+Knowledge Map epic. Every *implementation* task in it is done: `T-202` chose the renderer,
+`T-203` built the data underneath it, `T-204` put the Map on screen, `T-205` gave it a
+visual grammar, `T-206` gave it an address and a search rail, `T-207` gave it the reading,
+and `T-208` made all of it reachable without a pointer, without WebGL2 and in Persian.
 
-What is missing is the guarantee that all of it works without a pointer, without WebGL, and
-in Persian.
+What is missing is that **nobody has opened it in a browser.**
 
 1. Read [ADR 0005](adr/0005-knowledge-map-client.md) — including *Gate result*, *Projection
-   result*, *Shell result*, *Approved browsing experience* and *Constellation result* —
-   `PROJECT_MANAGEMENT.md` §5 Phase 2, §8.6, §9 (R20) and §11, D-059, and D-117–D-138.
-2. **`T-208`** distinguishes loading, empty, partial, API error and WebGL-unavailable states
-   across every surface, and makes the whole Search → Preview/Peek → Focus → Quick Read
-   journey reachable by keyboard and touch. Three things `T-207` deliberately left it are
-   listed in `PROJECT_MANAGEMENT.md` §11 and are not to be rediscovered: the overlay is
-   presentation *by decision* (D-137), three panels now compete for one screen, and the
-   transient Peek is rendered in exactly one place.
-3. Reuse rather than rebuild. The relevant rules have not moved: `cutToBudget` is the one
-   text cutter, `previewOfEntity`/`previewOfHit` the one card-content formatter, `mapLink`
-   the only URL grammar, `useMapFocus.focusEntity` the only selection entry point (now with
-   three callers), `placeConstellation` the only density policy, and `MapSession` the only
-   renderer lifecycle. §8.6 forbids a second of any of them, and
-   `tests/test_ui_scaffold.py` fails if one appears.
-4. `T-209` then walks the whole task in a real browser and is where every number chosen by
-   argument gets measured: the declared Sigma primitives, the halo and the four label numbers
-   (`T-205`), and the card budget, cell size, inset and settle delay (`T-207`).
+   result*, *Shell result*, *Approved browsing experience*, *Constellation result* and
+   *Accessibility result* — `PROJECT_MANAGEMENT.md` §5 Phase 2, §8.6, §9 (R20) and §11,
+   D-059, and D-117–D-144.
+2. **`T-209`** exercises the real thing: the direct link, the filters, progressive loading,
+   search → preview → focus → compare related cards → Quick Read → prior focus → Reader, and
+   the states — empty, truncated, refused, WebGL-unavailable, container refused — plus
+   teardown. Assert behaviour and accessible state, never a cross-platform pixel golden.
+3. Three claims are asserted today only in jsdom, which is the wrong witness for all three:
+   what Sigma's camera does with `{ duration: 0 }`; whether the narrow-screen stage keeps a
+   real height (`allowInvalidContainer: false` makes it load-bearing); and whether a real
+   screen reader and a real keyboard walk the DOM path the suite asserts by role and
+   attribute.
+4. Every number in this Map was chosen by argument and measured by nobody: the declared
+   Sigma primitives, the halo and the four label numbers (`T-205`); the card budget, cell
+   size, stage inset and settle delay (`T-207`); and the outline's page of 25, the 44 px
+   touch minimum and the 48rem breakpoint (`T-208`). Record the current experience as a
+   click/backtrack baseline *before* setting a UX threshold, then walk the real sample and
+   confirm the user can say why a neighbour is worth opening before opening it.
 
 ## 24. Research references
 

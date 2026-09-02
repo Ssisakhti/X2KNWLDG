@@ -31,11 +31,12 @@
  * so the timestamp is the same grammar the Library's hits use and a record with
  * no time simply carries none rather than `t=0` (D-069).
  *
- * **Collapsible, and open by default.** `<details>` rather than a state flag: a
- * panel that competes with the search rail for the same screen is `T-208`'s to
- * arrange, and the platform element is the one that is keyboard-operable,
- * announced, and findable by in-page search without any of it being written
- * here.
+ * **Collapsible, through the one disclosure** (`T-208`). `T-207` made this
+ * panel a `<details>` of its own and stopped there; the panel is now a
+ * `Disclosure`, which is the same platform element written once for the three
+ * panels that compete for one screen. What that costs is a nested collapse
+ * nobody wanted -- Quick Read's own summary is the *panel's* summary now, and
+ * it keeps stating which record is folded away: provenance, kind and identity.
  *
  * Not `EntityCard`. The Reader's card renders the same record and is right for
  * the Reader -- it leads with the provenance badge row and ends with the ids --
@@ -54,6 +55,7 @@ import { formatConfidence, formatSeconds } from "../lib/format";
 import { readerPath } from "../lib/readerLink";
 import type { ActiveRelation } from "../map/neighbourhood";
 import type { NeighbourhoodFailure } from "../map/useNeighbourhood";
+import { Disclosure } from "./Disclosure";
 import { ErrorState } from "./ErrorState";
 import { RelationCues } from "./MapRelation";
 import { ProvenanceBadge } from "./Provenance";
@@ -130,160 +132,167 @@ export function MapQuickRead({
 }) {
   const { t } = useI18n();
 
-  if (focus === null) {
-    return (
-      <section className="panel stack map__quickread" aria-label={t("map.quickRead.title")}>
-        <h2 className="panel__title">{t("map.quickRead.title")}</h2>
-        <p className="muted">{t("map.quickRead.noFocus")}</p>
-      </section>
-    );
-  }
-
   const start = timeRangeOf(entity?.locator)?.start_sec ?? null;
   const confidence = formatConfidence(entity?.confidence ?? null);
 
+  /*
+   * The badge row is the panel's summary now (`T-208`), rather than a second
+   * `<summary>` nested inside it. What a collapsed Quick Read has to keep
+   * saying is *which record it holds* -- provenance, kind and identity -- so
+   * that folding the reading away never costs the reader the knowledge that
+   * the reading is there.
+   */
+  const summary =
+    focus === null ? (
+      t("map.panel.nothingFocused")
+    ) : (
+      <span className="row">
+        {entity !== null && <ProvenanceBadge provenance={entity.provenance_class} />}
+        {entity !== null && <span className="badge">{entity.kind ?? t("common.notStated")}</span>}
+        <Mono>{focus}</Mono>
+      </span>
+    );
+
   return (
-    <section
-      className="panel stack map__quickread"
-      aria-label={t("map.quickRead.title")}
-      data-map-quickread={focus}
+    <Disclosure
+      id="quickread"
+      className="map__quickread"
+      title={t("map.quickRead.title")}
+      summary={summary}
+      preferOpen={focus !== null}
+      {...(focus === null ? {} : { marks: { "data-map-quickread": focus } })}
     >
-      <h2 className="panel__title">{t("map.quickRead.title")}</h2>
-      <p className="faint">{t("map.quickRead.hint")}</p>
+      {focus === null && <p className="muted">{t("map.quickRead.noFocus")}</p>}
 
-      {loading && <p className="muted">{t("common.loading")}</p>}
-      {error instanceof ApiFailure && <ErrorState error={error} onRetry={onRetry} />}
-      {error !== null && !(error instanceof ApiFailure) && (
-        <p className="notice notice--internal" role="alert">
-          {t("map.conflict.detail", { kind: error.kind, id: error.id, field: error.field })}
-        </p>
+      {focus !== null && (
+        <>
+          <p className="faint">{t("map.quickRead.hint")}</p>
+
+          {loading && <p className="muted">{t("common.loading")}</p>}
+          {error instanceof ApiFailure && <ErrorState error={error} onRetry={onRetry} />}
+          {error !== null && !(error instanceof ApiFailure) && (
+            <p className="notice notice--internal" role="alert">
+              {t("map.conflict.detail", { kind: error.kind, id: error.id, field: error.field })}
+            </p>
+          )}
+
+          {entity !== null && (
+            <div className="stack map__quickread__body">
+              {/* 1 — the complete stored statement, uncut. */}
+              <section className="stack">
+                <h3>{t("map.quickRead.statement")}</h3>
+                {entity.label == null ? (
+                  <Missing />
+                ) : (
+                  <Bidi as="p" marks={{ "data-map-statement": "complete" }}>
+                    {entity.label}
+                  </Bidi>
+                )}
+                <p className="faint">{t("map.quickRead.statementNote")}</p>
+              </section>
+
+              {/* 2 — the recorded evidence and its locator. */}
+              <section className="stack">
+                <h3>{t("map.quickRead.evidence")}</h3>
+                <Evidence entity={entity} />
+              </section>
+
+              {/* 3 — the active relations, each naming its own direction. */}
+              <section className="stack" data-map-quickread-relations={relations.length}>
+                <h3>{t("map.quickRead.relations")}</h3>
+                <RelationCues
+                  relations={relations}
+                  subject="focus"
+                  empty={t("map.quickRead.noRelations")}
+                  confidence
+                />
+              </section>
+
+              {/* 4 — the derivation, verbatim. */}
+              <section className="stack">
+                <h3>{t("map.quickRead.derivation")}</h3>
+                {entity.derived_from == null || entity.derived_from.length === 0 ? (
+                  <p className="faint">{t("map.quickRead.noDerivation")}</p>
+                ) : (
+                  <p className="faint">
+                    {t("reader.units.derivedFrom")}:{" "}
+                    {entity.derived_from.map((id) => (
+                      <Mono key={id}>{id} </Mono>
+                    ))}
+                  </p>
+                )}
+                {entity.derivation_note != null && (
+                  <Bidi as="p">
+                    {t("reader.units.derivationNote")}: {entity.derivation_note}
+                  </Bidi>
+                )}
+              </section>
+
+              {/* 5 — provenance and source, with the escape hatch into the Reader. */}
+              <section className="stack">
+                <h3>{t("map.quickRead.provenance")}</h3>
+                <DefinitionList
+                  entries={[
+                    {
+                      label: t("map.quickRead.provenanceClass"),
+                      value: <Mono>{entity.provenance_class}</Mono>,
+                    },
+                    {
+                      label: t("reader.units.confidence"),
+                      value: confidence,
+                    },
+                    {
+                      label: t("map.quickRead.source"),
+                      value: entity.source_id == null ? null : <Mono>{entity.source_id}</Mono>,
+                    },
+                  ]}
+                />
+                {entity.source_id != null && (
+                  <div className="row">
+                    <Link
+                      to={readerPath(entity.source_id, { tab: "units", seconds: start })}
+                      data-map-reader-link
+                    >
+                      {t("map.quickRead.openReader")}
+                    </Link>
+                    <span className="faint">
+                      {start === null
+                        ? t("map.quickRead.readerNoTime")
+                        : t("map.quickRead.readerAt", { time: formatSeconds(start) ?? "" })}
+                    </span>
+                  </div>
+                )}
+              </section>
+
+              {/* 6 — the identifiers, last. */}
+              <section className="stack">
+                <h3>{t("map.quickRead.technical")}</h3>
+                <DefinitionList
+                  entries={[
+                    { label: "global_id", value: <Mono>{entity.global_id}</Mono> },
+                    { label: "local_id", value: <Mono>{entity.local_id}</Mono> },
+                    {
+                      label: t("reader.units.libraryId"),
+                      value: entity.library_id == null ? null : <Mono>{entity.library_id}</Mono>,
+                    },
+                    { label: "entity_type", value: <Mono>{entity.entity_type}</Mono> },
+                    {
+                      label: t("map.quickRead.kind"),
+                      value: entity.kind == null ? null : <Mono>{entity.kind}</Mono>,
+                    },
+                    {
+                      label: t("reader.units.canonicalPath"),
+                      value:
+                        entity.canonical_path == null ? null : <Mono>{entity.canonical_path}</Mono>,
+                    },
+                    { label: "schema_version", value: <Mono>{entity.schema_version}</Mono> },
+                  ]}
+                />
+              </section>
+            </div>
+          )}
+        </>
       )}
-
-      {entity !== null && (
-        <details open className="map__quickread__body">
-          <summary>
-            <span className="row">
-              <ProvenanceBadge provenance={entity.provenance_class} />
-              <span className="badge">{entity.kind ?? t("common.notStated")}</span>
-              <Mono>{entity.global_id}</Mono>
-            </span>
-          </summary>
-
-          <div className="stack">
-            {/* 1 — the complete stored statement, uncut. */}
-            <section className="stack">
-              <h3>{t("map.quickRead.statement")}</h3>
-              {entity.label == null ? (
-                <Missing />
-              ) : (
-                <Bidi as="p" marks={{ "data-map-statement": "complete" }}>
-                  {entity.label}
-                </Bidi>
-              )}
-              <p className="faint">{t("map.quickRead.statementNote")}</p>
-            </section>
-
-            {/* 2 — the recorded evidence and its locator. */}
-            <section className="stack">
-              <h3>{t("map.quickRead.evidence")}</h3>
-              <Evidence entity={entity} />
-            </section>
-
-            {/* 3 — the active relations, each naming its own direction. */}
-            <section className="stack" data-map-quickread-relations={relations.length}>
-              <h3>{t("map.quickRead.relations")}</h3>
-              <RelationCues
-                relations={relations}
-                subject="focus"
-                empty={t("map.quickRead.noRelations")}
-                confidence
-              />
-            </section>
-
-            {/* 4 — the derivation, verbatim. */}
-            <section className="stack">
-              <h3>{t("map.quickRead.derivation")}</h3>
-              {entity.derived_from == null || entity.derived_from.length === 0 ? (
-                <p className="faint">{t("map.quickRead.noDerivation")}</p>
-              ) : (
-                <p className="faint">
-                  {t("reader.units.derivedFrom")}:{" "}
-                  {entity.derived_from.map((id) => (
-                    <Mono key={id}>{id} </Mono>
-                  ))}
-                </p>
-              )}
-              {entity.derivation_note != null && (
-                <Bidi as="p">
-                  {t("reader.units.derivationNote")}: {entity.derivation_note}
-                </Bidi>
-              )}
-            </section>
-
-            {/* 5 — provenance and source, with the escape hatch into the Reader. */}
-            <section className="stack">
-              <h3>{t("map.quickRead.provenance")}</h3>
-              <DefinitionList
-                entries={[
-                  {
-                    label: t("map.quickRead.provenanceClass"),
-                    value: <Mono>{entity.provenance_class}</Mono>,
-                  },
-                  {
-                    label: t("reader.units.confidence"),
-                    value: confidence,
-                  },
-                  {
-                    label: t("map.quickRead.source"),
-                    value: entity.source_id == null ? null : <Mono>{entity.source_id}</Mono>,
-                  },
-                ]}
-              />
-              {entity.source_id != null && (
-                <div className="row">
-                  <Link
-                    to={readerPath(entity.source_id, { tab: "units", seconds: start })}
-                    data-map-reader-link
-                  >
-                    {t("map.quickRead.openReader")}
-                  </Link>
-                  <span className="faint">
-                    {start === null
-                      ? t("map.quickRead.readerNoTime")
-                      : t("map.quickRead.readerAt", { time: formatSeconds(start) ?? "" })}
-                  </span>
-                </div>
-              )}
-            </section>
-
-            {/* 6 — the identifiers, last. */}
-            <section className="stack">
-              <h3>{t("map.quickRead.technical")}</h3>
-              <DefinitionList
-                entries={[
-                  { label: "global_id", value: <Mono>{entity.global_id}</Mono> },
-                  { label: "local_id", value: <Mono>{entity.local_id}</Mono> },
-                  {
-                    label: t("reader.units.libraryId"),
-                    value: entity.library_id == null ? null : <Mono>{entity.library_id}</Mono>,
-                  },
-                  { label: "entity_type", value: <Mono>{entity.entity_type}</Mono> },
-                  {
-                    label: t("map.quickRead.kind"),
-                    value: entity.kind == null ? null : <Mono>{entity.kind}</Mono>,
-                  },
-                  {
-                    label: t("reader.units.canonicalPath"),
-                    value:
-                      entity.canonical_path == null ? null : <Mono>{entity.canonical_path}</Mono>,
-                  },
-                  { label: "schema_version", value: <Mono>{entity.schema_version}</Mono> },
-                ]}
-              />
-            </section>
-          </div>
-        </details>
-      )}
-    </section>
+    </Disclosure>
   );
 }

@@ -33,12 +33,26 @@
 import forceAtlas2 from "graphology-layout-forceatlas2";
 
 import type { MapGraph } from "./graphProjection";
+import { cameraAnimation, type MapCameraAnimation } from "./motion";
 
-/** The part of Sigma's camera the Map drives. Sigma's satisfies it structurally. */
+// Re-exported because it is part of *this* boundary: `MapRenderer` and
+// `MapCamera` are declared here, so a caller writing a renderer -- the real
+// one, or the tests' fake -- should not have to know the preference it came
+// from is read in `motion.ts`.
+export type { MapCameraAnimation };
+
+/**
+ * The part of Sigma's camera the Map drives. Sigma's satisfies it structurally.
+ *
+ * Each gesture takes the animation argument `T-208` reads the reduced-motion
+ * preference into (`motion.ts`). It is optional because `undefined` is a real
+ * answer -- "use whatever duration the renderer thinks is right" -- and
+ * because a camera that cannot animate at all still satisfies this interface.
+ */
 export interface MapCamera {
-  zoomIn(): unknown;
-  zoomOut(): unknown;
-  reset(): unknown;
+  zoomIn(animation?: MapCameraAnimation): unknown;
+  zoomOut(animation?: MapCameraAnimation): unknown;
+  reset(animation?: MapCameraAnimation): unknown;
 }
 
 /**
@@ -287,17 +301,26 @@ export class MapSession {
     this.renderer?.resize(true);
   }
 
+  /*
+   * The three camera gestures, and the one thing they all pass on.
+   *
+   * `cameraAnimation()` is read at the gesture rather than held, because the
+   * reduced-motion preference can change while the page is open and because
+   * nothing here should own a copy of it (`T-208`). A reader who asked for
+   * less motion gets the new view immediately; everyone else gets the
+   * renderer's own easing, since the argument is then `undefined`.
+   */
   zoomIn(): void {
-    this.renderer?.getCamera().zoomIn();
+    this.renderer?.getCamera().zoomIn(cameraAnimation());
   }
 
   zoomOut(): void {
-    this.renderer?.getCamera().zoomOut();
+    this.renderer?.getCamera().zoomOut(cameraAnimation());
   }
 
   /** Back to the framed whole graph, which is where a reload starts. */
   resetView(): void {
-    this.renderer?.getCamera().reset();
+    this.renderer?.getCamera().reset(cameraAnimation());
   }
 
   /**

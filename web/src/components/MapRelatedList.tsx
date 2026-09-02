@@ -42,6 +42,7 @@ import type { MapPeekBinding } from "../map/useMapPeek";
 import { previewOfEntity } from "../map/useMapSearch";
 import { ApiFailure } from "../api/errors";
 import { useI18n, type MessageKey } from "../i18n";
+import { Disclosure } from "./Disclosure";
 import { ErrorState } from "./ErrorState";
 import { MapResultCard } from "./MapResultCard";
 import { RelationCues } from "./MapRelation";
@@ -91,26 +92,38 @@ export function MapRelatedList({
 }) {
   const { t } = useI18n();
 
-  if (focus === null) {
-    return (
-      <section className="panel stack map__related" aria-label={t("map.related.title")}>
-        <h2 className="panel__title">{t("map.related.title")}</h2>
-        <p className="muted">{t("map.related.noFocus")}</p>
-      </section>
-    );
-  }
-
   const onStage = new Set((placement?.cards ?? []).map((card) => card.globalId));
   const related = neighbourhood?.related ?? [];
 
+  if (focus === null) {
+    return (
+      <Disclosure
+        id="related"
+        className="map__related"
+        title={t("map.related.title")}
+        summary={t("map.panel.nothingFocused")}
+        preferOpen={false}
+      >
+        <p className="muted">{t("map.related.noFocus")}</p>
+      </Disclosure>
+    );
+  }
+
   return (
-    <section
-      className="panel stack map__related"
-      aria-label={t("map.related.title")}
-      data-map-related={related.length}
-      data-map-related-depth={neighbourhood?.depth ?? depth}
+    <Disclosure
+      id="related"
+      className="map__related"
+      title={t("map.related.title")}
+      // The count is in the summary because this is the list that cannot omit
+      // anything (R20): a folded panel that did not say how many neighbours it
+      // holds would be exactly the silent omission the list exists to prevent.
+      summary={t("map.related.summary", { count: related.length })}
+      preferOpen
+      marks={{
+        "data-map-related": String(related.length),
+        "data-map-related-depth": String(neighbourhood?.depth ?? depth),
+      }}
     >
-      <h2 className="panel__title">{t("map.related.title")}</h2>
       <p className="faint">{t("map.related.hint")}</p>
 
       <div className="row">
@@ -220,6 +233,6 @@ export function MapRelatedList({
           </MapResultCard>
         );
       })}
-    </section>
+    </Disclosure>
   );
 }

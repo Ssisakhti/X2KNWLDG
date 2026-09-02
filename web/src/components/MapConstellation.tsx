@@ -34,12 +34,13 @@
  * `MapResultCard` -- so a statement shortened on a card is shortened exactly
  * as it is in the rail, with the cut visible (D-131, §8.6).
  *
- * **The Peek is not here.** `MapPeekCard` is rendered in the search rail and
- * in exactly one place (invariant 13); hovering a mark on the canvas opens
- * that same one binding, and the mark itself answers immediately with the
- * hover state and the forced label `mapStyle` computes for it. Which surface
- * the transient card belongs on when the stage is narrow is a disclosure
- * question `T-208` owns.
+ * **The Peek is not here.** `MapPeekCard` is rendered in exactly one place
+ * (invariant 13) -- since `T-208`, by the route, immediately below the stage.
+ * Hovering a mark on the canvas opens that same one binding, and the mark
+ * itself answers immediately with the hover state and the forced label
+ * `mapStyle` computes for it. It was the search rail's until that panel became
+ * foldable: a card rendered inside a collapsed `<details>` is a card nobody
+ * sees.
  */
 
 import type { CSSProperties } from "react";

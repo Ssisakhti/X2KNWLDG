@@ -12,110 +12,34 @@
  * endpoint has not arrived yet.
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { EntityRef, IndexedRelation } from "../api/contract";
 import type { MapPoint } from "../map/mapSession";
 import { App } from "../App";
 import { fakeRenderers } from "../test/mapRenderer";
 import { concept, edge, expressesConcept, unit } from "../test/graphRecords";
 import { mapStyle } from "../map/mapStyle";
 import { jsonFetch, renderApp } from "../test/render";
+// The route's server stub and its sized stage live beside the renderer fake
+// (`T-208`), because this route now has two suites and one of each is the
+// rule (§8.6).
+import {
+  C1,
+  KU1,
+  KU2,
+  LONG_STATEMENT,
+  entityBody,
+  entityIdOf,
+  graphBody,
+  library,
+  mapFetch,
+  neighbourhoodBody,
+  sizeTheStage,
+} from "../test/mapServer";
 
 import { MapView } from "./MapView";
 
-/**
- * The graph responder, plus the three other endpoints this route touches.
- *
- * `MapFilters` fetches `listSources` to fill its one server-backed control,
- * and a selection fetches `getEntity` and `getNeighborhood` (`T-207`) -- so a
- * stub answering every URL with a graph page hands the filter a page envelope
- * where a source array belongs, and hands the neighbourhood a payload with no
- * `center_id`. Routing by path rather than answering everything the same way
- * is also what keeps a test honest about *which* request it is asserting on.
- *
- * The defaults are deliberately the *empty* honest answers -- no sources, a
- * `404` for an entity, an empty neighbourhood -- so a test that cares about
- * one of them says so by overriding it, and a test that does not is not
- * quietly relying on a fixture.
- */
-function mapFetch(
-  responder: (url: string) => { status?: number; body: unknown },
-  extra: (url: string) => { status?: number; body: unknown } | null = () => null,
-): typeof fetch {
-  return jsonFetch((url) => {
-    const override = extra(url);
-    if (override !== null) return override;
-    if (url.includes("/api/sources")) {
-      return { body: { data: [], page: { limit: 200, next_cursor: null, total: 0 } } };
-    }
-    if (url.includes("/api/entities/")) {
-      return {
-        status: 404,
-        body: { error: { code: "not_found", message: "No entity in the index has that id." } },
-      };
-    }
-    if (url.includes("/api/graph/neighborhood/")) {
-      return { body: neighbourhoodBody(entityIdOf(url), []) };
-    }
-    return responder(url);
-  });
-}
-
-/** The `entity_id` a path parameter carried, decoded the way the client encoded it. */
-function entityIdOf(url: string): string {
-  const last = url.split("?")[0]?.split("/").pop() ?? "";
-  return decodeURIComponent(last);
-}
-
-function entityBody(entity: EntityRef) {
-  return { api_version: "v1", schema_version: "1.0", data: entity };
-}
-
-function neighbourhoodBody(
-  centre: string,
-  nodes: EntityRef[],
-  edges: IndexedRelation[] = [],
-  options: { depth?: number; truncated?: boolean } = {},
-) {
-  return {
-    api_version: "v1",
-    schema_version: "1.0",
-    data: {
-      center_id: centre,
-      depth: options.depth ?? 1,
-      nodes,
-      edges,
-      truncated: options.truncated ?? false,
-    },
-  };
-}
-
-const KU1 = "youtube:pqlWNihgdjI:KU-000001";
-const KU2 = "youtube:pqlWNihgdjI:KU-000002";
-const C1 = "library:concepts:C-000001";
-
-/**
- * A statement longer than any preview budget.
- *
- * So that "the card shortens it visibly" and "Quick Read shows it whole" are
- * two assertions about one record rather than two fixtures.
- */
-const LONG_STATEMENT = `${"A statement the transcript actually makes, at length. ".repeat(12)}End.`;
-
-function graphBody(
-  nodes: EntityRef[],
-  edges: IndexedRelation[],
-  options: { truncated?: boolean; next?: string | null; total?: number | null } = {},
-) {
-  return {
-    api_version: "v1",
-    schema_version: "1.0",
-    data: { nodes, edges, truncated: options.truncated ?? false },
-    page: { limit: 500, next_cursor: options.next ?? null, total: options.total ?? null },
-  };
-}
 
 /**
  * A renderer that records the lifecycle, and the camera the controls drive.
@@ -347,6 +271,10 @@ describe("the Map", () => {
     const { factory, events } = recorder();
     renderApp(<MapView createRenderer={factory} />);
     await drawn();
+    // The counts arrive one render before the camera does: the effect that
+    // hands the graph to the renderer runs after the render that first sees
+    // the page, and there is no camera to drive until it has (`T-208`).
+    await waitFor(() => expect(screen.getByRole("button", { name: "Zoom in" })).toHaveProperty("disabled", false));
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
     fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
@@ -464,72 +392,6 @@ describe("the Map", () => {
  * property §8.6 forbids a second of.
  */
 describe("the Map's canvas and its constellation", () => {
-  const STAGE = { width: 900, height: 600 };
-
-  /** A stage with a real size, which jsdom does not otherwise provide. */
-  function sizeTheStage(): void {
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
-      this: Element,
-    ) {
-      const sized = this.hasAttribute("data-map-stage");
-      const width = sized ? STAGE.width : 0;
-      const height = sized ? STAGE.height : 0;
-      return {
-        x: 0,
-        y: 0,
-        width,
-        height,
-        top: 0,
-        left: 0,
-        right: width,
-        bottom: height,
-        toJSON: () => ({}),
-      } as DOMRect;
-    });
-  }
-
-  /** The graph, the two entities and the two neighbourhoods of one small library. */
-  function library(): typeof fetch {
-    const one = unit("KU-000001", { label: LONG_STATEMENT });
-    const two = unit("KU-000002");
-    const three = concept("C-000001");
-    return mapFetch(
-      () => ({
-        body: graphBody([one, two, three], [edge(KU1, KU2, "supports"), expressesConcept(KU1, C1)], {
-          total: 3,
-        }),
-      }),
-      (url) => {
-        if (url.includes("/api/entities/")) {
-          const id = entityIdOf(url);
-          const record = [one, two, three].find((entity) => entity.global_id === id);
-          return record === undefined
-            ? {
-                status: 404,
-                body: { error: { code: "not_found", message: "No entity has that id." } },
-              }
-            : { body: entityBody(record) };
-        }
-        if (url.includes("/api/graph/neighborhood/")) {
-          const id = entityIdOf(url);
-          if (id === KU1) {
-            return {
-              body: neighbourhoodBody(
-                KU1,
-                [one, two, three],
-                [edge(KU1, KU2, "supports"), expressesConcept(KU1, C1)],
-              ),
-            };
-          }
-          if (id === KU2) {
-            return { body: neighbourhoodBody(KU2, [two, one], [edge(KU1, KU2, "supports")]) };
-          }
-          return { body: neighbourhoodBody(id, []) };
-        }
-        return null;
-      },
-    );
-  }
 
   it("focuses the node a click on the canvas names, through the rail's own function", async () => {
     vi.stubGlobal("fetch", library());
@@ -661,8 +523,15 @@ describe("the Map's canvas and its constellation", () => {
     // Compare: both neighbours, each with its own statement and its own real
     // relation, before anything is opened.
     await waitFor(() => expect(document.querySelectorAll("[data-map-related-entity]")).toHaveLength(2));
+    // Scoped to the related list, because `T-208`'s outline lists the same
+    // loaded record on the same card -- deliberately: the two panels answer
+    // different questions ("what this Map holds" and "what this focus is
+    // connected to") about one entity, and the statement is the entity's.
+    const relatedPanel = document.querySelector("[data-map-related]") as HTMLElement;
     expect(
-      screen.getByText("A statement the transcript actually makes, numbered KU-000002."),
+      within(relatedPanel).getByText(
+        "A statement the transcript actually makes, numbered KU-000002.",
+      ),
     ).toBeDefined();
     // Twice each: once on the neighbour's row, once among the focus's own
     // active relations in Quick Read. Both are the same record, named the same
@@ -718,9 +587,18 @@ describe("the Map's address", () => {
     expect(screen.getByRole("heading", { name: "Knowledge Map", level: 1 })).toBeDefined();
     expect(state().dataset.mapNodes).toBe("2");
     expect(state().dataset.mapEdges).toBe("1");
+    // The *module* refused, which is a browser with no WebGL2 -- not a
+    // renderer that was reached and refused this container (`T-208`). The two
+    // are separate states because they have separate answers, and this is the
+    // first one: nothing on this canvas will work in this browser, so the
+    // companion list opens itself and every count stays true.
     await waitFor(() =>
-      expect(document.querySelector("[data-map-renderer-failed]")).not.toBeNull(),
+      expect(document.querySelector("[data-map-renderer-unavailable]")).not.toBeNull(),
     );
+    expect(document.querySelector("[data-map-renderer-failed]")).toBeNull();
+    expect(
+      document.querySelector("[data-map-panel='outline']")?.getAttribute("data-map-panel-open"),
+    ).toBe("true");
   });
 
   it("comes back to the prior focus without leaving the Map", async () => {

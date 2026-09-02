@@ -445,8 +445,9 @@ Explore                         Focus + Quick Read
 
 `T-205` supplies renderer states and semantic density, `T-206` supplies preview/Peek and
 focus history, `T-207` supplies the bounded constellation/related list/Quick Read (delivered;
-see *Constellation result*), `T-208` ensures the same journey exists without hover or WebGL,
-and `T-209` walks the complete task in a real browser. The acceptance question is behavioural: before opening a related node, can
+see *Constellation result*), `T-208` ensured the same journey exists without hover or WebGL
+(delivered; see *Accessibility result*), and `T-209` walks the complete task in a real
+browser. The acceptance question is behavioural: before opening a related node, can
 the user state what it says and why its real relation makes it worth opening? No numeric UX
 threshold is fixed until the pre-card experience is observed as a baseline.
 
@@ -501,8 +502,9 @@ stays off: `T-204` left it "until something selects an edge", and this is the
 task that would have — an edge has no address in D-119's grammar, so its
 relation is named in words instead (D-135).
 
-**Measured.** The frontend suite is **491 hermetic tests in 44 files**, plus
-**22** against a running server — 85 of them new here, and 5 of the 22. Against
+**Measured.** The frontend suite was **491 hermetic tests in 44 files**, plus
+**22** against a running server — 85 of them new here, and 5 of the 22.
+(`T-208` took it to 550 in 51; see *Accessibility result* below.) Against
 the real ingested project, the graph's most connected entity is a derived unit
 with **8 neighbours and 13 edges** among them, spanning both relation
 vocabularies and including a canonical concept that belongs to no source: the
@@ -544,23 +546,147 @@ Three, all fixed inside this task.
    on that attribute is asserting on something that was never there. `Bidi`
    takes its marks explicitly, the way `MapLegend`'s `Row` already did.
 
-### What the constellation hands to later tasks
+### What the constellation handed to later tasks
 
-- **The overlay stays presentation.** `T-208` makes the DOM path primary; it
-  must not answer that by giving the overlay controls, and a scaffold test
-  fails if a button, link or field appears there.
-- **Three panels now compete for one screen** — the search rail, Quick Read and
-  the related list. `T-207` made Quick Read a `<details>` and stopped:
-  "collapsible rather than permanent competing panels" is `T-208`'s sentence.
-- **The transient Peek is rendered in exactly one place**, the search rail, and
-  a pointer on a mark now opens it there. Moving it to a better surface is
-  allowed; rendering it twice is not (invariant 13).
+All three of these were `T-208`'s, and all three are settled; see
+*Accessibility result*.
+
+- **The overlay stays presentation.** `T-208` made the DOM path primary without
+  giving the overlay a single control, and a scaffold test still fails if a
+  button, link or field appears there.
+- **Three panels competed for one screen** — the search rail, Quick Read and
+  the related list. `T-207` made Quick Read a `<details>` and stopped;
+  "collapsible rather than permanent competing panels" became `Disclosure`,
+  written once, with each panel's count in its own summary (D-143).
+- **The transient Peek is rendered in exactly one place.** It was the search
+  rail's; moving it was allowed and it was moved, because that panel now folds
+  and a card inside a closed `<details>` is invisible. It is the route's, still
+  exactly one (invariant 13).
 - **Four more numbers for `T-209` to measure**: the card budget, the cell size,
   the stage inset and the settle delay. They are stated once, in
   `constellation.ts`, beside the reasoning for each.
 - The `data-map-card`, `data-map-related-entity`, `data-map-stage-omission` and
   `data-map-quickread` attributes are the test seam for "no neighbour silently
   disappears"; keep them true if these surfaces are restyled.
+
+## Accessibility result (`T-208`, 2026-09-02)
+
+The Map is usable without a pointer, without WebGL2 and in Persian, and the
+route now says which state it is in rather than letting five conditions each
+answer for themselves.
+
+**Two honest-state functions, and the pairs are the point.** `mapState.ts`
+holds `describeGraph` over the walk's own report and `describeCanvas` over the
+renderer's, and every number in them is copied out of `GraphSnapshotState`.
+What they exist for is the pairs a per-site condition collapses:
+
+- **Unasked is not empty.** A snapshot with no page applied has nothing to
+  count, so it prints no zeros -- printing them would be D-068's shape again,
+  an empty answer to a question nobody asked, presented as an answer.
+- **Partial is not whole.** `complete` is read, never recomputed (D-123).
+- **Refused is not empty.** The pages that arrived stay countable, and the view
+  says out loud that they are not an answer to the request that failed.
+- **Undrawn is not absent.** The graph can be whole and undrawable at once.
+
+**The renderer's two failures are two states** (D-140). A module that never
+loaded is a browser with no WebGL2; a renderer that refused *this container* is
+almost always its size and recovers on the next layout. One message for both
+had been telling readers of the second case to find a different browser.
+
+**The account is no longer only counts.** D-129 put the snapshot's counts
+before the canvas because they were the only text a screen reader could reach;
+`MapOutline` is the companion that was promised, and D-142 is why it is shaped
+the way it is. It lists every entity the Map has drawn on the same
+`MapResultCard` the search rail renders -- so the row a reader lands on carries
+the statement, the provenance, the kind, a preview on focus, a Focus button
+that is the *same* selection identity a mark is, and the Reader link -- in the
+API's own order, bounded at 25 with everything past the bound counted and a
+control that lists more. It is not windowed, and that is the trade `T-207` left
+open, settled in the other direction: a row outside the DOM is a row no screen
+reader and no in-page search can reach, which costs the very claim the list
+exists to make.
+
+**The canvas is a picture only while it is one** (D-141). `role="img"` and the
+label are written only while a live renderer holds the graph, and the states
+where it does not each say what they are: nothing drawn yet, nothing to draw,
+no WebGL2, this container refused.
+
+**The panels fold, and none of them goes quiet** (D-143). `Disclosure` is the
+one collapsible panel; the count lives in the `<summary>`, so a folded panel
+still states what it holds, and `preferOpen` follows the journey's step -- with
+nothing selected the search rail is open, with something selected Quick Read
+and the related list are, and the companion opens *itself* whenever it is the
+only view of the graph.
+
+**Motion is answered twice because there are two animators** (D-144). The
+stylesheet neutralises everything the browser animates, in a blanket rule
+rather than a list, because the list is what rots. `motion.ts` answers for the
+camera, which the stylesheet cannot reach, and answers `undefined` when motion
+is welcome rather than inventing a duration the renderer already has.
+
+**Measured.** The frontend suite is **550 hermetic tests in 51 files**, plus
+the same **22** against a running server -- 59 of them new here, none in an
+existing file, and the whole suite was also run *against* `dev_api.py`: 572
+passed, nothing skipped. The build cost, measured against this commit's own
+before-and-after on this machine: the application bundle goes from 445.12 kB
+to 454.34 kB (127.50 to 130.02 kB gzipped) and the stylesheet from 11.33 kB to
+12.19 kB, while the renderer chunk does not move at all -- 371.90 kB before and
+after. That last figure is the one worth reading: nothing `T-208` added is in
+the chunk a browser without WebGL2 will fail to load, which is the point of the
+whole task.
+
+### Findings
+
+Four, all fixed inside this task, and the first two are the ones a later task
+would otherwise rediscover.
+
+1. **A `<details>` fires `toggle` asynchronously -- including for a change a
+   script made.** Rendering `open={state}` therefore turns every programmatic
+   change into an event that arrives a task later and writes its own value back
+   into the state that caused it. Two preference changes in quick succession
+   (a page arrives, the renderer refuses it, and the companion's step changes
+   twice) let the *first* event land after the second change, and the panel
+   closed itself with nothing having been clicked -- while every unit test of
+   the component passed, because a unit test changes the preference once. The
+   element's `open` is now a prop at mount and imperative afterwards, and the
+   toggle handler reads the *element* rather than trusting the event's payload.
+2. **A canvas is described as drawing one render before it draws.** React runs
+   a render and then its effects, so the render that first sees a page precedes
+   the effect that hands the graph to the renderer. `T-207` found this in the
+   constellation's first placement; here it made the picture flicker into
+   existence and out again, which is what fired the `<details>` defect above.
+   The fix is that "a live renderer holds this graph" is *state*, not a ref:
+   a ref cannot say it, because it changes without a render.
+3. **The one Peek was rendered inside a panel that now folds.** With something
+   selected the search rail collapses, so a pointer on a mark opened a card
+   inside a closed `<details>` -- invisible, on the one surface that has no
+   other way to say what a mark states. It is the route's now, immediately
+   below the stage, and still exactly one (invariant 13). Below rather than
+   above, because a transient card that resizes the container makes the
+   renderer re-measure on every hover.
+4. **The counts and the camera do not arrive together.** A test that waited for
+   the counts and then clicked *Zoom in* was clicking a disabled button, and it
+   had been passing because the old `drawn` flag was true a render early --
+   for the same reason finding 2 describes. Waiting for the control rather
+   than for the counts is the honest wait: there is no camera until there is a
+   renderer.
+
+### What the accessibility pass hands to `T-209`
+
+- **Three claims jsdom is the wrong witness for.** What Sigma's camera does
+  with `{ duration: 0 }` on a real canvas; whether the narrow-screen stage
+  keeps a real height (`allowInvalidContainer: false` makes that load-bearing);
+  and whether a real screen reader and a real keyboard walk the DOM path the
+  suite asserts by role, attribute and event.
+- **Three more numbers to measure**: the outline's page of 25, the 44 px touch
+  minimum, and the 48rem breakpoint at which the stage shortens.
+- **Two guards that must keep failing**: there is one `<details>` in `web/src`
+  and one reader of `prefers-reduced-motion`, and neither completeness list is
+  windowed. Both are in `tests/test_ui_scaffold.py`.
+- The `data-map-panel`, `data-map-panel-open`, `data-map-outline`,
+  `data-map-reading` and `data-map-stage-companion` attributes are the test
+  seam for the disclosure and the honest states; keep them true if these
+  surfaces are restyled.
 
 ## References
 
@@ -586,5 +712,5 @@ Three, all fixed inside this task.
 - Nielsen Norman Group, information scent and pogo-sticking:
   <https://www.nngroup.com/articles/information-scent/>
   <https://www.nngroup.com/articles/pogo-sticking/>
-- [`PROJECT_MANAGEMENT.md`](../PROJECT_MANAGEMENT.md) — `T-201`–`T-209`, D-117 … D-133
+- [`PROJECT_MANAGEMENT.md`](../PROJECT_MANAGEMENT.md) — `T-201`–`T-209`, D-117 … D-144
 - [`KNOWLEDGE_CANVAS_PLAN.md`](../KNOWLEDGE_CANVAS_PLAN.md) §6.3, §13.3, §16 Phase 2

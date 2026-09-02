@@ -1,8 +1,8 @@
 # `web/src/map/` — the Knowledge Map
 
 Phase 2: `T-202`'s seeding and compatibility harness, `T-203`'s projection,
-`T-204`'s renderer lifecycle, `T-205`'s style table, `T-206`'s URL grammar and
-`T-207`'s bounded neighbourhood
+`T-204`'s renderer lifecycle, `T-205`'s style table, `T-206`'s URL grammar,
+`T-207`'s bounded neighbourhood and `T-208`'s honest states
 ([ADR 0005](../../../docs/adr/0005-knowledge-map-client.md)):
 
 | Path | Holds |
@@ -14,12 +14,14 @@ Phase 2: `T-202`'s seeding and compatibility harness, `T-203`'s projection,
 | `useGraphWalk.ts` | That walk bound to a component: `deps` name the question, unmount disposes it, and nothing here decides what a page means |
 | `mapSession.ts` | `MapSession` — **the** renderer lifecycle: lay out, draw, refresh, resize, zoom, reset, kill, plus the canvas's event and coordinate adapters. Framework-free, and reached through an injected factory |
 | `sigmaRenderer.ts` | The only module that imports `sigma`, and the only place the application constructs it |
+| `mapState.ts` | What the Map is **allowed to say about itself**: `describeGraph` over the walk's report, `describeCanvas` over the renderer's. Two total functions, no state, and the four pairs they keep apart are the reason they exist |
+| `outline.ts` | The drawn graph as a list: the accumulated graph in the API's own order, each row formatted by the one card formatter, with drawn relations counted and the bound's remainder counted too |
+| `motion.ts` | The **only** reader of `prefers-reduced-motion` in the application, because the stylesheet cannot reach a camera animated in script on a canvas |
 | `gate/` | The `T-202` compatibility harness: a single-page graph builder and the renderer lifecycle it exercises |
 
 The route itself is [`../views/MapView.tsx`](../views/MapView.tsx), and it is
-the join rather than a fourth copy of anything. Accessibility, responsive
-disclosure and the complete bidi pass are `T-208`'s; the real-browser walk is
-`T-209`'s.
+the join rather than a fourth copy of anything. The real-browser walk is
+`T-209`'s, and so is every number in here that was chosen by argument.
 
 ## Seeding is not decoration
 
@@ -431,12 +433,14 @@ nothing about importance (invariant 15). `localeCompare` is deliberately not
 used: it is locale dependent, and the Map's order must not change when the UI
 language does.
 
-The list is **not windowed**, deliberately. Its length is bounded by the
-neighbourhood's own `limit` and by `depth`, and the real graph's widest fan-out
-is eight; `VirtualList` would be the tool if a library ever made that hundreds,
-but windowing keeps most rows out of the DOM, which trades against the very
-claim this list exists to make. That trade is `T-208`'s to make, not this
-task's.
+The list is **not windowed**, deliberately, and `T-208` settled that trade in
+the same direction for the outline (D-142): a row outside the DOM is a row no
+screen reader and no in-page search can reach, which costs exactly the claim
+these lists exist to make. Length is bounded instead — by the neighbourhood's
+own `limit` and by `depth` here, by a stated page of 25 in the outline — and
+the real graph's widest fan-out is eight. `VirtualList` exists and measures its
+rows; it is the Reader's tool, not this one's, and a scaffold guard fails if it
+appears here.
 
 ### The density policy is four clauses, each of them counted
 
@@ -522,3 +526,73 @@ It is not `EntityCard`: the Reader's card renders the same record correctly for
 the Reader, leading with the provenance badge row, and D-131 fixes a different
 order here. Two components, one record, two stated orders — and the atoms are
 shared.
+
+## What the Map may say about itself (`T-208`)
+
+Five states were already rendered on this route — a loading line, an empty
+note, a partial extent, an `ApiFailure` panel and a renderer refusal — and each
+was decided at its own render site. `mapState.ts` is those decisions as two
+total functions, and what they exist for is the *pairs* a per-site condition
+collapses into one true-sounding sentence:
+
+- **Unasked is not empty.** A snapshot with no page applied has nothing to
+  count, so nothing is counted for it: `counted: false`, and the counts panel
+  does not appear. Printing zeros there is D-068's shape — an empty answer to a
+  question nobody asked, presented as an answer.
+- **Partial is not whole.** `complete` is `GraphSnapshot`'s conclusion over the
+  cursor, the held edges and the API's own `truncated` (D-123). It is read, and
+  never recomputed here.
+- **Refused is not empty.** A failure outranks a count, and the pages that did
+  arrive stay countable while the view says out loud that they are not an
+  answer to the request that failed.
+- **Undrawn is not absent.** The graph can be whole and undrawable at once.
+
+`describeCanvas` answers the second question, which is a different question:
+`unavailable` (the renderer module never loaded — no WebGL2, and nothing on
+that canvas will ever work), `refused` (a renderer was reached and refused this
+container, almost always its size, and the next layout usually fixes it),
+`pending`, `nothing`, `drawing`. The two faults were one message until `T-208`
+split them (D-140), and the single message had been telling readers of the
+second case to go and find a different browser.
+
+**`drawing` means a live renderer is holding this graph** — not "a factory
+arrived and a page exists" (D-141). React runs a render and then its effects,
+so the render that first sees a page precedes the effect that draws it; a
+canvas described as drawing during that render is describing something that has
+not happened. That is why the view keeps the snapshot the renderer holds in
+*state* rather than in the ref beside it: a ref cannot say "there is a picture
+now", because it changes without a render. The visible cost is that the zoom
+and reset controls arrive one render after the counts, which is honest — there
+is no camera until there is a renderer.
+
+## The outline is the DOM half of the pair (`T-208`)
+
+D-120 pairs the WebGL surface with a DOM one, and until `T-208` the DOM half
+could only be reached through a *query*: the search rail lists what matches and
+the related list lists a selection's neighbourhood, and both need something
+typed or something selected first. `outline.ts` and `MapOutline` are the list
+that needs neither (D-142).
+
+The order is `forEachNode`'s, which is insertion order, which is the order the
+pages arrived, which is the order the server returned. Sorting by how connected
+a node is would be the invented importance invariant 15 forbids — and it would
+reorder the list under the reader every time another page arrived. Each row
+states its **drawn** relations, a count that grows as pages arrive and is
+smaller than the neighbourhood's answer whenever a far endpoint has not loaded
+(D-059); a relation the pipeline recorded onto the entity itself counts once,
+because `degree` in a directed multigraph counts a loop twice.
+
+## Motion the stylesheet cannot reach (`T-208`)
+
+The stylesheet's `prefers-reduced-motion` block covers everything the browser
+animates and nothing the Map animates: zoom, zoom out and reset are eased by
+Sigma's camera, in JavaScript, on a canvas. `motion.ts` reads the same
+preference and turns it into the camera's own argument, which is why
+`MapCamera` grew an optional animation parameter rather than the Map growing a
+second camera path.
+
+It answers `undefined` when motion is welcome, deliberately: a duration of our
+own would override whatever the renderer decides is right for its own gesture,
+and would be a fifth Map number chosen by argument and measured by nobody. The
+preference is read *at the gesture* rather than cached, because it can change
+while the page is open.

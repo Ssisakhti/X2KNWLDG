@@ -1745,3 +1745,119 @@ def test_the_map_builds_its_card_content_in_exactly_one_place() -> None:
         and "MAP_LABEL_ELLIPSIS" in path.read_text(encoding="utf-8")
     ]
     assert not cutters, f"these modules cut display text themselves: {cutters}"
+
+
+# ---------------------------------------------------------------------------
+# T-208 — the DOM path is the primary one, and each policy has one home
+# ---------------------------------------------------------------------------
+
+
+def test_the_map_has_a_dom_companion_for_everything_it_draws() -> None:
+    """D-120 pairs the WebGL surface with a DOM one, and `T-208` built it.
+
+    Until this list existed, the DOM half of that pair could only be reached
+    through a *query*: the search rail lists what matches and the related list
+    lists a selection's neighbourhood, so a reader with no pointer, no WebGL2
+    or a screen reader had the counts and no way to reach the entities the
+    counts were about. That is "essential content exists only on the canvas",
+    which the phase gate forbids outright.
+
+    What is guarded here is the wiring, because the wiring is what a later
+    refactor drops: the route renders the companion, and the companion reads
+    the accumulated graph through the one projection.
+    """
+    view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
+    assert "<MapOutline" in view, "the Map route renders no companion list"
+    outline = (WEB / "src" / "components" / "MapOutline.tsx").read_text(encoding="utf-8")
+    assert "outlineOfGraph" in outline, (
+        "the companion no longer reads the accumulated graph through `outline.ts`"
+    )
+    assert "previewOfEntity" not in outline, (
+        "the companion builds its own card content; §8.6 allows one formatter, "
+        "and `outlineOfGraph` already goes through it"
+    )
+
+
+def test_the_companion_lists_are_not_windowed() -> None:
+    """A row that is not in the DOM is a row no reader can reach.
+
+    ``VirtualList`` exists and measures its rows, and it is the right tool for
+    the Reader's captions. It is the wrong tool for these two lists, and the
+    trade is deliberate: windowing keeps most rows out of the DOM, which costs
+    exactly the claim they exist to make — the related list may omit no
+    neighbour (R20), and the outline is the surface that has to be reachable
+    when nothing else is. Both bound their length instead, and both count what
+    the bound leaves out.
+    """
+    for name in ("MapOutline.tsx", "MapRelatedList.tsx"):
+        source = (WEB / "src" / "components" / name).read_text(encoding="utf-8")
+        assert "VirtualList" not in source, (
+            f"{name} windows its rows; a row outside the DOM is unreachable, and "
+            "these two lists exist to be complete"
+        )
+
+
+def test_the_map_announces_a_picture_only_when_there_is_one() -> None:
+    """An empty box announced as an image of the knowledge graph is a lie.
+
+    ``role="img"`` with a label saying "Knowledge graph, drawn" is true while
+    the renderer holds the graph and false in the four states where it does
+    not — no WebGL2, a refused container, no page yet, and no node to draw.
+    So the role is conditional, and a constant one is the regression.
+    """
+    view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
+    # Comments are stripped first: the JSX comment above the stage quotes the
+    # attribute in order to explain why it is conditional.
+    code = re.sub(r"/\*.*?\*/", "", view, flags=re.DOTALL)
+    assert 'role="img"' not in code, (
+        "the stage claims to be a picture unconditionally; it is only a picture "
+        "while a live renderer holds the graph"
+    )
+    assert 'role={drawing ? "img" : undefined}' in code
+
+
+def _code_without_comments(path: Path) -> str:
+    """A module's code, with its prose removed.
+
+    These guards read source as text, and this project's source carries a lot
+    of prose: a file that *explains* why it no longer builds its own
+    disclosure would otherwise read as one that does.
+    """
+    source = path.read_text(encoding="utf-8")
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return re.sub(r"^\s*//.*$", "", source, flags=re.MULTILINE)
+
+
+def test_the_map_has_one_disclosure_and_one_motion_policy() -> None:
+    """Two policies `T-208` added, each with exactly one home.
+
+    A second ``<details>`` is not a styling choice: the panel that grew one
+    inside another (Quick Read did, in `T-207`) had two collapsed states for
+    one panel, and the outer one hid a summary the reader needed. And a second
+    reader of the reduced-motion query would be a second answer to it — the
+    stylesheet cannot reach a camera animated in script on a canvas, which is
+    the whole reason `map/motion.ts` exists.
+    """
+    disclosures = [
+        path.relative_to(WEB).as_posix()
+        for path in _web_modules()
+        if ".test." not in path.name and "<details" in _code_without_comments(path)
+    ]
+    assert disclosures == ["src/components/Disclosure.tsx"], (
+        f"these modules build a disclosure themselves: {disclosures}"
+    )
+
+    readers = [
+        path.relative_to(WEB).as_posix()
+        for path in _web_modules()
+        if ".test." not in path.name and "prefers-reduced-motion" in _code_without_comments(path)
+    ]
+    assert readers == ["src/map/motion.ts"], (
+        f"these modules read the reduced-motion preference themselves: {readers}"
+    )
+
+    base = (WEB / "src" / "styles" / "base.css").read_text(encoding="utf-8")
+    assert "@media (prefers-reduced-motion: reduce)" in base, (
+        "the stylesheet answers no reduced-motion preference, so `motion.ts` is "
+        "answering for the canvas alone"
+    )

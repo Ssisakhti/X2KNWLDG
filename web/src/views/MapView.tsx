@@ -51,8 +51,14 @@
  * that survives when the WebGL view cannot be read at all -- by a screen
  * reader, or in a browser with no WebGL2 -- and a Map whose only honest
  * description came after the picture would be a Map that reads as complete to
- * anyone who never reaches the picture. The full semantic companion, the
- * keyboard walk and the bidi rules are `T-208`'s.
+ * anyone who never reaches the picture.
+ *
+ * **And the account is no longer only counts** (`T-208`). `MapOutline` lists
+ * every entity the Map has drawn, as the same cards the search rail renders,
+ * so the drawing is *one view* of a list that is also in the DOM -- reachable
+ * with no pointer, no WebGL2 and no query typed. `mapState.ts` decides what
+ * the Map may claim about the graph and about the picture, which are two
+ * different questions: a graph can be whole and undrawable at once.
  *
  * **The renderer is injected, and loaded on demand.** `createRenderer` is
  * replaced by a fake in the tests, because jsdom has no WebGL: the sequence
@@ -79,9 +85,12 @@ import { ErrorState } from "../components/ErrorState";
 import { MapConstellation } from "../components/MapConstellation";
 import { MapFilters } from "../components/MapFilters";
 import { MapLegend } from "../components/MapLegend";
+import { MapOutline } from "../components/MapOutline";
+import { MapPeekCard } from "../components/MapPeekCard";
 import { MapQuickRead } from "../components/MapQuickRead";
 import { MapRelatedList } from "../components/MapRelatedList";
 import { MapSearchRail } from "../components/MapSearchRail";
+import { Bidi } from "../components/primitives";
 import { useI18n } from "../i18n";
 import {
   MAP_STAGE_SETTLE_MS,
@@ -92,6 +101,7 @@ import {
 import { GraphConflictError } from "../map/graphProjection";
 import type { GraphFilters } from "../map/graphSnapshot";
 import { apiGraphPages } from "../map/graphWalk";
+import { describeCanvas, describeGraph, type RendererFault } from "../map/mapState";
 import { mapStyle } from "../map/mapStyle";
 import { MapSession, type MapRendererFactory } from "../map/mapSession";
 import { useGraphWalk } from "../map/useGraphWalk";
@@ -121,7 +131,26 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   const session = useRef<MapSession | null>(null);
   /** Which snapshot the live renderer was created for; `0` is none. */
   const attached = useRef(0);
-  const [rendererError, setRendererError] = useState<string | null>(null);
+  /**
+   * The same fact, in state, because the *view* has to render it (`T-208`).
+   *
+   * A ref cannot say "there is a picture now": it changes without a render.
+   * So the snapshot the renderer holds is state as well, and it is what
+   * `describeCanvas` is told -- otherwise the canvas reads as drawing for the
+   * one render between a page arriving and the effect that draws it.
+   */
+  const [holdingId, setHoldingId] = useState(0);
+  /**
+   * Why there is no drawing, when there is none (`T-208`).
+   *
+   * Two phases, because they are two different failures with two different
+   * answers: the module never loaded (a browser with no WebGL2 -- nothing on
+   * this canvas will ever work), or a renderer was reached and refused this
+   * container (almost always its size, which the next layout fixes). One
+   * message for both sent a reader with an unsized stage looking for a
+   * different browser.
+   */
+  const [fault, setFault] = useState<RendererFault | null>(null);
   // Both the initialiser and every setter are wrapped: `useState` *calls* a
   // function it is handed, so storing a factory unwrapped would construct a
   // renderer during render, before the container exists.
@@ -141,14 +170,19 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         if (live) setFactory(() => createSigmaRenderer);
       })
       .catch((cause: unknown) => {
-        if (live) setRendererError(cause instanceof Error ? cause.message : String(cause));
+        if (live) {
+          setFault({
+            phase: "module",
+            detail: cause instanceof Error ? cause.message : String(cause),
+          });
+        }
       });
     return () => {
       live = false;
     };
   }, [createRenderer]);
 
-  const { snapshot, snapshotId, status, loadingMore, error } = walk.state;
+  const { snapshot, snapshotId, loadingMore, error } = walk.state;
   const pages = snapshot?.pagesApplied ?? 0;
   const graph = walk.graph;
 
@@ -292,6 +326,7 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     });
     session.current = live;
     attached.current = 0;
+    setHoldingId(0);
     return () => {
       live.kill();
       session.current = null;
@@ -310,7 +345,8 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         live.attach(graph);
         attached.current = snapshotId;
       }
-      setRendererError(null);
+      setFault(null);
+      setHoldingId(snapshotId);
       // The renderer now holds this graph, so its marks have positions to
       // anchor cards to (`T-207`). This is the *first* placement: without it
       // the overlay would wait for a frame event, and the placement computed
@@ -324,7 +360,11 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
       // with. The counts above the canvas remain true and readable.
       live.kill();
       attached.current = 0;
-      setRendererError(cause instanceof Error ? cause.message : String(cause));
+      setHoldingId(0);
+      setFault({
+        phase: "create",
+        detail: cause instanceof Error ? cause.message : String(cause),
+      });
     }
   }, [graph, snapshotId, pages, factory]);
 
@@ -376,8 +416,25 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   const zoomOut = useCallback(() => session.current?.zoomOut(), []);
   const resetView = useCallback(() => session.current?.resetView(), []);
 
+  /**
+   * The two honest states, each decided in one place (`T-208`, `mapState.ts`).
+   *
+   * `reading` is what the accumulated graph *is* -- and above all which pairs
+   * it must not collapse: empty is not absent, partial is not whole, refused
+   * is not empty. `canvas` is whether there is a picture of it, which is a
+   * different question with a different answer: a graph can be whole and
+   * undrawable at once, and every list on this route works either way.
+   */
+  const reading = describeGraph(walk.state);
+  const picture = describeCanvas({
+    fault,
+    holding: holdingId !== 0 && holdingId === snapshotId,
+    nodes: snapshot?.nodes ?? 0,
+  });
   /** Whether there is a camera to drive: a live renderer over a loaded page. */
-  const drawn = pages > 0 && factory !== null && rendererError === null;
+  const drawn = picture.interactive;
+  /** Whether the stage really holds a picture, which is what a card anchors to. */
+  const drawing = picture.kind === "drawing";
   const conflict = error instanceof GraphConflictError ? error : null;
 
   /**
@@ -396,7 +453,7 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
    * makes a card follow its mark.
    */
   const placement = useMemo<StagePlacement | null>(() => {
-    if (!drawn || focus.focus === null) return null;
+    if (!drawing || focus.focus === null) return null;
     return placeConstellation({
       centreId: drawnFocus,
       related: neighbourhood?.related ?? [],
@@ -404,10 +461,26 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
       stage: stageBox,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawn, focus.focus, drawnFocus, neighbourhood, stageBox, placedAt, snapshotId, pages]);
+  }, [drawing, focus.focus, drawnFocus, neighbourhood, stageBox, placedAt, snapshotId, pages]);
 
   return (
-    <div className="stack map">
+    // Escape dismisses the Peek anywhere on the Map (`T-208`). One handler for
+    // the route rather than one per panel: a Peek can be opened from the
+    // rail, the outline, a related row or a mark on the canvas, and the
+    // keyboard has no "leave" event to end any of them. (`MapSearchRail`
+    // keeps its own, so the panel is still self-contained when it is rendered
+    // alone -- calling `peek.close()` twice closes nothing twice.)
+    <div
+      className="stack map"
+      // The two readings, as one attribute each: the whole route's state in a
+      // place a test can read without going looking for the sentence that
+      // renders it, and `T-209`'s seam for the same states in a browser.
+      data-map-reading={reading.kind}
+      data-map-canvas={picture.kind}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") peek.close();
+      }}
+    >
       <h1>{t("map.title")}</h1>
       <p className="muted">{t("map.subtitle")}</p>
 
@@ -428,9 +501,21 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         </div>
       )}
 
-      {status === "loading" && <p className="muted">{t("common.loading")}</p>}
+      {/*
+        The Map's own state, in words, before the picture (D-129).
 
-      {snapshot !== null && pages > 0 && (
+        `reading.counted` is the whole distinction `T-208` added here: a
+        snapshot with no page applied has nothing to count, and printing zeros
+        for it would say "your library holds no graph" on the strength of a
+        request that has not been answered. So the counts appear when there are
+        counts, and the states that precede them say what they are instead.
+      */}
+      {reading.kind === "loading" && !reading.counted && (
+        <p className="muted">{t("map.reading.loading")}</p>
+      )}
+      {reading.kind === "unasked" && <p className="muted">{t("map.reading.unasked")}</p>}
+
+      {reading.counted && snapshot !== null && (
         <section
           className="panel map__state"
           aria-label={t("map.state.title")}
@@ -467,7 +552,17 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
               )}
             </dd>
           </dl>
-          {snapshot.nodes === 0 && <p className="muted">{t("map.empty")}</p>}
+          {reading.kind === "empty" && <p className="muted">{t("map.empty")}</p>}
+          {(reading.kind === "refused" || reading.kind === "conflict") && (
+            // The pages that arrived before the failure are still drawn, and
+            // they are still true -- but they are not an answer to the
+            // question that failed, and a count sitting under an error panel
+            // reads as one.
+            <p className="faint" data-map-reading-stale>
+              {t("map.reading.stale")}
+            </p>
+          )}
+          {reading.kind === "loading" && <p className="muted">{t("map.reading.loading")}</p>}
         </section>
       )}
 
@@ -508,13 +603,30 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         sourceScope={source}
       />
 
-      {rendererError !== null && (
+      {/*
+        A browser that cannot draw at all, and a renderer that refused this
+        container, are two states with two answers (`T-208`). The first is
+        permanent for this browser and the second usually resolves on the next
+        layout, so they are not one message -- and neither of them costs the
+        reader anything but the picture: the counts above and every list below
+        are unchanged, and the outline is opened for them.
+      */}
+      {picture.kind === "unavailable" && (
+        <div className="notice notice--unavailable" role="alert" data-map-renderer-unavailable>
+          <strong>{t("map.renderer.unavailable")}</strong>
+          <p>{t("map.renderer.unavailableNote")}</p>
+          <Bidi as="p" className="faint">
+            {picture.detail}
+          </Bidi>
+        </div>
+      )}
+      {picture.kind === "refused" && (
         <div className="notice notice--unavailable" role="alert" data-map-renderer-failed>
           <strong>{t("map.renderer.failed")}</strong>
           <p>{t("map.renderer.failedNote")}</p>
-          <p className="faint" dir="auto">
-            {rendererError}
-          </p>
+          <Bidi as="p" className="faint">
+            {picture.detail}
+          </Bidi>
         </div>
       )}
 
@@ -524,7 +636,9 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         One label, and one label is not accessibility: it describes the
         existence of a graph rather than its selectable entities, which is why
         ADR 0005 (D-120) pairs it with a DOM surface and why the counts above
-        are rendered as text. `T-208` owns the rest of that pairing.
+        are rendered as text. `MapOutline` below is the rest of that pairing
+        (`T-208`), and the label is written only while there is a picture to
+        label.
 
         The overlay is a *sibling* of the stage rather than a child of it, and
         that is not layout taste: `MapSession.kill()` empties the container,
@@ -537,15 +651,55 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         rule `hideLabelsOnMove` applies to labels, for the same reason.
       */}
       <div className="map__canvas">
+        {/*
+          `role="img"` only while there *is* a picture (`T-208`). An empty box
+          announced as an image of the knowledge graph is a claim about content
+          that is not there, and the states below say what is there instead.
+        */}
         <div
           ref={stage}
           className="map__stage"
-          role="img"
-          aria-label={t("map.stage.label")}
+          role={drawing ? "img" : undefined}
+          aria-label={drawing ? t("map.stage.label") : undefined}
+          aria-hidden={drawing ? undefined : true}
           data-map-stage
         />
         {!moving && <MapConstellation placement={placement} centre={hood.centre} />}
       </div>
+
+      {/*
+        The one Peek, rendered in the one place (invariant 13).
+
+        It is here rather than in the search rail because `T-208` made the
+        panels foldable, and a Peek rendered inside a collapsed `<details>` is
+        a card nobody can see -- while the pointer that opened it was on the
+        canvas, which has no other way to say what a mark states. Below the
+        stage rather than above it, because a transient card that resizes the
+        container makes the renderer re-measure on every hover.
+      */}
+      {peek.peek !== null && <MapPeekCard peek={peek.peek} onClose={() => peek.close()} />}
+
+      {picture.kind === "pending" && <p className="muted">{t("map.canvas.pending")}</p>}
+      {picture.kind === "nothing" && <p className="muted">{t("map.canvas.nothing")}</p>}
+      {/*
+        The pointer path is an enhancement over the DOM path, and this sentence
+        is where the Map says so: the marks are one view of a list that is
+        right below, and everything a mark can do a row can do.
+      */}
+      <p className="faint" data-map-stage-companion>
+        {t("map.stage.companion")}
+      </p>
+
+      <MapOutline
+        graph={graph}
+        revision={snapshotId + pages}
+        focus={focus.focus}
+        onFocus={focus.focusEntity}
+        peek={peek}
+        // The companion opens itself whenever it is the only view of the
+        // graph: no renderer, a refused container, or nothing drawn yet.
+        preferOpen={!drawing}
+      />
 
       <MapQuickRead
         focus={focus.focus}

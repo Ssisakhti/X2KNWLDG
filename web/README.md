@@ -26,9 +26,9 @@ npm run build      # production bundle into dist/
 | `src/api/useAsync.ts`, `src/api/usePaged.ts` | One request, and cursor paging |
 | `src/i18n/` | Catalogues and the locale/`dir` provider (`T-110`) |
 | `src/styles/` | Design tokens and the stylesheet, logical properties throughout |
-| `src/components/` | Provenance and status badges (`T-113`), the media panel (`T-114`), the virtualized list, the report renderer, and the Map's DOM surfaces — legend and filters (`T-205`), search rail, result card and Peek (`T-206`), card overlay, related list, Quick Read and the one relation cue (`T-207`) |
+| `src/components/` | Provenance and status badges (`T-113`), the media panel (`T-114`), the virtualized list, the report renderer, and the Map's DOM surfaces — legend and filters (`T-205`), search rail, result card and Peek (`T-206`), card overlay, related list, Quick Read and the one relation cue (`T-207`), and the one collapsible panel plus the DOM companion that lists everything the Map draws (`T-208`) |
 | `src/views/` | Library (`T-111`), Reader (`T-112`) and Map (`T-204`) |
-| [`src/map/`](src/map/README.md) | The Knowledge Map's machinery: deterministic seed positions (`T-202`), the graph projection, progressive snapshot and page walk (`T-203`), the renderer lifecycle and the one Sigma constructor (`T-204`), the style table and label policy (`T-205`), the URL grammar, search and focus/Peek state (`T-206`), the bounded neighbourhood and the on-stage density policy (`T-207`), and the `T-202` renderer gate |
+| [`src/map/`](src/map/README.md) | The Knowledge Map's machinery: deterministic seed positions (`T-202`), the graph projection, progressive snapshot and page walk (`T-203`), the renderer lifecycle and the one Sigma constructor (`T-204`), the style table and label policy (`T-205`), the URL grammar, search and focus/Peek state (`T-206`), the bounded neighbourhood and the on-stage density policy (`T-207`), the honest-state reducers, the outline projection and the motion policy (`T-208`), and the `T-202` renderer gate |
 | `scripts/dev_api.py` | Stands up the real server over the committed fixtures |
 | `gate.html` | The `T-202` gate harness, development-only and outside the production build ([why](src/map/README.md)) |
 
@@ -140,6 +140,12 @@ preferences, and each one has a test:
 | A neighbour with **no card** on the stage vs no neighbour at all (D-132, R20) | `placeConstellation` returns a counted reason per refusal — not drawn, off the stage, crowded, over budget — and the related list holds every returned neighbour regardless |
 | A neighbour that is **two hops** out vs one with a real relation to the focus | The related row names the relation and direction when there is one, and states the hop distance instead of borrowing another entity's relation |
 | A neighbourhood the server **cut short** vs a complete one | `truncated` is the server's own statement and is rendered as one; the client never infers it from a length |
+| A question **nobody has asked yet** vs a library with no graph (`T-208`, D-139) | `describeGraph` reports `unasked` with nothing counted; the counts panel appears only once a page has been applied, so no zero is printed for a request that has not been answered |
+| A **refused** question vs an empty answer (D-139) | The error panel states the refusal, and where earlier pages are still drawn, `map.reading.stale` says out loud that those counts are not an answer to the request that failed |
+| A browser with **no WebGL2** vs a renderer that refused **this container** (D-140) | Two states, two messages: the first is permanent for that browser and the second usually resolves on the next layout. `describeCanvas` decides which, from the phase the failure happened in |
+| A picture **not drawn yet** vs a stage with **nothing to draw** (D-141) | `describeCanvas` reports `pending` until a live renderer holds the graph and `nothing` when it holds a graph with no node; `role="img"` is written only while there is a picture to label |
+| What the Map **draws** vs what a reader can **reach** (D-142) | `MapOutline` lists every drawn entity as a real card with a real Focus button — no pointer, no WebGL2 and no query needed. It is bounded at 25, states what the bound left out, and is deliberately not windowed |
+| A panel **put away** vs a panel with **nothing in it** (D-143) | `Disclosure` keeps each panel's count in its own `<summary>`, so folding a panel never hides that it holds something |
 
 ## Known gaps
 
@@ -148,22 +154,21 @@ preferences, and each one has a test:
   by asking each listed source separately, and each group reports its own total.
   No aggregate count is shown, because the server never computed one. A
   cross-source entity list taking those filters would be a contract change.
-- **The Map is not yet accessible.** `#/map` draws the graph, states what it
-  holds, styles provenance and vocabulary without relying on colour, carries its
-  selection and filters in the URL, and reads a selection whole — but the
-  keyboard and touch walk, the responsive disclosure of three panels that now
-  compete for one screen, and the complete bidi pass are `T-208`'s. The card
-  overlay is deliberately presentation only (D-137): it holds no control, so
-  nothing on it is unreachable without WebGL, and every action lives in the DOM
-  beside it.
-- **The related list is not windowed.** It renders one card per returned
-  neighbour, and it is meant to: the number is bounded by the neighbourhood's
-  own `limit` and by `depth`, and on the real 86-node graph the widest fan-out
-  is eight. A library large enough for depth 3 to return hundreds would want
-  `VirtualList` here — the component exists and measures its rows — but
-  windowing means most rows are not in the DOM, which is a deliberate trade
-  against "no neighbour silently disappears" and belongs to `T-208`'s
-  disclosure pass rather than to a speculative fix.
+- **Neither completeness list is windowed, on purpose** (`T-208`, D-142). The
+  related list renders one card per returned neighbour and the outline renders
+  one per drawn node up to a stated page of 25, with the remainder counted and
+  a control that lists more. `VirtualList` exists and measures its rows, and it
+  is the right tool for the Reader's captions; it is the wrong tool here,
+  because a row outside the DOM is a row no screen reader and no in-page search
+  can reach — which costs exactly the claim these two lists exist to make. The
+  bound is the neighbourhood's own `limit` and `depth` on one side and a stated
+  page on the other, and the real 86-node graph's widest fan-out is eight.
+- **The Map's DOM path is the primary one, and the canvas is an enhancement.**
+  Search, preview, focus, related knowledge, Quick Read and the Reader are all
+  reachable with no pointer and no WebGL2. The card overlay is presentation
+  only (D-137): it holds no control, and a guard fails if one appears. What is
+  *not* yet proven is any of it in a real browser with a real screen reader —
+  that is `T-209`'s, and it is the only remaining task in the epic.
 - **Every frozen endpoint now has a caller.** `T-207` was the last gap:
   `/api/entities/{entity_id}` backs Quick Read and
   `/api/graph/neighborhood/{entity_id}` backs the constellation and the related
@@ -171,4 +176,9 @@ preferences, and each one has a test:
 - **The Map has not been walked in a real browser.** `T-202` proved the renderer
   over this graph in Chrome on the target machine, and `#/map` itself is checked
   in jsdom against an injected fake and against a real server. The route's own
-  browser walk is `T-209`'s.
+  browser walk is `T-209`'s — and three of `T-208`'s claims are waiting for it
+  in particular: what Sigma's camera does with the `{ duration: 0 }` a
+  reduced-motion preference hands it, whether the narrow-screen stage keeps a
+  real height (`allowInvalidContainer: false` makes that load-bearing), and
+  whether a real screen reader walks the DOM path the suite asserts by role and
+  attribute.

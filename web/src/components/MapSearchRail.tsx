@@ -21,22 +21,29 @@
  * -- the same function a Sigma `clickNode` handler must call. There is no
  * second path that could resolve a different identity.
  *
- * **Peek is the binding's, not the rail's.** `useMapPeek` is created above
- * this component so that the canvas and this list share one Peek (invariant
- * 13). The rail spreads its handlers onto the results it knows are loaded, so
- * a pointer *or* a keyboard focus over a result previews the same node; a
- * result the Map has not loaded gets no handlers, because there is no record
- * to show and one would have to be invented.
+ * **Peek is the binding's, not the rail's** -- and since `T-208` it is not
+ * *rendered* here either. `useMapPeek` is created above this component so that
+ * the canvas and this list share one Peek (invariant 13); the rail spreads its
+ * handlers onto the results it knows are loaded, so a pointer *or* a keyboard
+ * focus over a result previews the same node, and a result the Map has not
+ * loaded gets no handlers, because there is no record to show and one would
+ * have to be invented.
+ *
+ * The card itself moved to the route, because this panel now folds: a Peek
+ * opened by a pointer on the canvas while the rail was collapsed rendered
+ * inside a closed `<details>`, which is a card nobody can see. Moving it to a
+ * better surface was always allowed; rendering it twice was never (invariant
+ * 13).
  */
 
 import { useState } from "react";
 
+import { Disclosure } from "./Disclosure";
 import { ErrorState } from "./ErrorState";
 import { useI18n } from "../i18n";
 import type { MapGraph } from "../map/graphProjection";
 import type { MapPeekBinding } from "../map/useMapPeek";
 import { useMapSearch } from "../map/useMapSearch";
-import { MapPeekCard } from "./MapPeekCard";
 import { MapResultCard } from "./MapResultCard";
 import { Mono } from "./primitives";
 
@@ -70,16 +77,28 @@ export function MapSearchRail({
   const focusLoaded = focus !== null && graph !== null && graph.hasNode(focus);
 
   return (
-    <section
-      className="panel stack map__search"
-      aria-label={t("map.search.title")}
+    <Disclosure
+      id="search"
+      className="map__search"
+      title={t("map.search.title")}
+      // A folded rail still says what it found: `T-208` collapses the three
+      // panels that compete for one screen, and a disclosure whose summary
+      // reads only "Search this Map" hides the answer along with the form.
+      summary={
+        search.query === ""
+          ? t("map.search.noQuery")
+          : t("map.search.matched", { count: search.loaded.matched })
+      }
+      // Searching is the step D-130's journey is on while nothing is
+      // selected; once something is, Quick Read and the related list are.
+      // A preference, not a lock -- the reader may reopen it.
+      preferOpen={focus === null}
       // Escape dismisses the Peek for the keyboard path, where there is no
       // "leave" event to end it.
       onKeyDown={(event) => {
         if (event.key === "Escape") peek.close();
       }}
     >
-      <h2 className="panel__title">{t("map.search.title")}</h2>
       <p className="faint">{t("map.search.hint")}</p>
 
       <form
@@ -142,8 +161,6 @@ export function MapSearchRail({
           </>
         )}
       </div>
-
-      {peek.peek !== null && <MapPeekCard peek={peek.peek} onClose={() => peek.close()} />}
 
       {query !== "" && (
         <>
@@ -223,6 +240,6 @@ export function MapSearchRail({
           </section>
         </>
       )}
-    </section>
+    </Disclosure>
   );
 }

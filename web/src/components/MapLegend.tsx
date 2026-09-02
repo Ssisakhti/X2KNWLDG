@@ -37,6 +37,7 @@ import {
   type MapNodeShape,
   type KindFamily,
 } from "../map/mapStyle";
+import { Disclosure } from "./Disclosure";
 import { ProvenanceBadge } from "./Provenance";
 
 /**
@@ -136,8 +137,15 @@ export function MapLegend() {
   const { t } = useI18n();
 
   return (
-    <section className="panel stack" aria-label={t("map.legend.title")} data-map-legend>
-      <h2 className="panel__title">{t("map.legend.title")}</h2>
+    // Collapsed by default (`T-208`): a legend is read once and then known,
+    // and it is the longest panel on the route. Folded, it still names itself,
+    // and the marks it explains are not going anywhere.
+    <Disclosure
+      id="legend"
+      title={t("map.legend.title")}
+      preferOpen={false}
+      marks={{ "data-map-legend": "" }}
+    >
       <p className="faint">{t("map.legend.noColourOnly")}</p>
 
       <h3 className="faint">{t("map.legend.nodesShape")}</h3>
@@ -243,6 +251,6 @@ export function MapLegend() {
         ))}
       </ul>
       <p className="faint">{t("map.legend.unrecognisedNote")}</p>
-    </section>
+    </Disclosure>
   );
 }

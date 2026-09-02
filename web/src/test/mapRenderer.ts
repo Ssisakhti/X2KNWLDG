@@ -27,6 +27,7 @@
 
 import type {
   MapCamera,
+  MapCameraAnimation,
   MapNodeEvent,
   MapPoint,
   MapRenderer,
@@ -40,6 +41,16 @@ export const FAKE_DEFAULT_POINT: MapPoint = { x: 300, y: 250 };
 export interface FakeRenderer extends MapRenderer {
   /** Every call the session made, in order. */
   events: string[];
+  /**
+   * The animation argument each camera gesture was handed, in order
+   * (`T-208`).
+   *
+   * `undefined` is the renderer keeping its own duration; `{ duration: 0 }`
+   * is a reader who asked for reduced motion. Recorded separately from
+   * `events` so the existing assertions on the gesture *sequence* keep
+   * reading as they did.
+   */
+  animations: (MapCameraAnimation | undefined)[];
   /** Fire a node event the session subscribed to. A no-op if it did not. */
   fireNode: (event: MapNodeEvent, globalId: string) => void;
   /** Fire the "a frame was drawn" event. */
@@ -74,16 +85,27 @@ export function fakeRenderers(
       throw new Error("WebGL2 is not available in this browser.");
     }
     events.push("create");
+    const animations: (MapCameraAnimation | undefined)[] = [];
     const camera: MapCamera = {
-      zoomIn: () => events.push("zoomIn"),
-      zoomOut: () => events.push("zoomOut"),
-      reset: () => events.push("reset"),
+      zoomIn: (animation?: MapCameraAnimation) => {
+        animations.push(animation);
+        events.push("zoomIn");
+      },
+      zoomOut: (animation?: MapCameraAnimation) => {
+        animations.push(animation);
+        events.push("zoomOut");
+      },
+      reset: (animation?: MapCameraAnimation) => {
+        animations.push(animation);
+        events.push("reset");
+      },
     };
     const nodeHandlers = new Map<MapNodeEvent, (globalId: string) => void>();
     let onRenderHandler: (() => void) | null = null;
 
     const renderer: FakeRenderer = {
       events,
+      animations,
       resize: (force?: boolean) => events.push(`resize:${String(force)}`),
       refresh: () => events.push("refresh"),
       kill: () => events.push("kill"),

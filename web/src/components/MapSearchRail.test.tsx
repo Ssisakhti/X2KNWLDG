@@ -19,6 +19,7 @@ import { recordLookup } from "../map/useMapSearch";
 import { useMapPeek } from "../map/useMapPeek";
 import { concept, unit } from "../test/graphRecords";
 import { renderApp } from "../test/render";
+import { MapPeekCard } from "./MapPeekCard";
 import { MapSearchRail } from "./MapSearchRail";
 
 const KU1 = unit("KU-000001", { label: "Coverage is audited window by window." });
@@ -90,16 +91,25 @@ function Harness({
   const [focus, setFocus] = useState<string | null>(initialFocus);
   const peek = useMapPeek(recordLookup(graph));
   return (
-    <MapSearchRail
-      graph={graph}
-      revision={1}
-      focus={focus}
-      onFocus={(globalId) => {
-        setFocus(globalId);
-        onFocus?.(globalId);
-      }}
-      peek={peek}
-    />
+    <>
+      <MapSearchRail
+        graph={graph}
+        revision={1}
+        focus={focus}
+        onFocus={(globalId) => {
+          setFocus(globalId);
+          onFocus?.(globalId);
+        }}
+        peek={peek}
+      />
+      {/*
+        The route renders the one Peek, not the rail (`T-208`), so the harness
+        renders it the way `MapView` does. What is under test is unchanged: a
+        row reports the node and the origin to the one binding, and the card
+        shows what that binding holds.
+      */}
+      {peek.peek !== null && <MapPeekCard peek={peek.peek} onClose={() => peek.close()} />}
+    </>
   );
 }
 

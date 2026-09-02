@@ -132,6 +132,8 @@ export const en = {
   "map.subtitle":
     "The graph the index actually holds: entities as nodes, indexed relations as directed edges.",
   "map.stage.label": "Knowledge graph, drawn",
+  "map.stage.companion":
+    "The drawing is one view of this graph. The same entities are listed under “What this Map holds”, where each one can be previewed, focused and opened without a pointer.",
   "map.controls": "Map view controls",
   "map.zoomIn": "Zoom in",
   "map.zoomOut": "Zoom out",
@@ -140,6 +142,13 @@ export const en = {
   "map.stopLoading": "Stop loading",
   "map.empty":
     "The index holds no graph node, so there is nothing to draw. This is not a drawing that failed.",
+  "map.reading.unasked":
+    "No page of the graph has been read yet, so this Map states nothing about what your library holds.",
+  "map.reading.loading": "Reading a page of the graph…",
+  "map.reading.stale":
+    "The counts below are from the pages that did arrive. They are not an answer to the request that failed.",
+  "map.canvas.pending": "Nothing has been drawn yet.",
+  "map.canvas.nothing": "There is no node to draw, so the stage is empty rather than broken.",
   "map.state.title": "What is drawn",
   "map.state.nodes": "Nodes loaded",
   "map.state.edges": "Edges drawn",
@@ -157,9 +166,14 @@ export const en = {
     "One {kind} arrived twice with different content: {field} differs for {id}. The page was refused whole rather than merged, because a merge would draw a record no request returned.",
   "map.renderer.failed": "The graph could not be drawn",
   "map.renderer.failedNote":
-    "The counts above are what the index returned; only the drawing is missing. A browser without WebGL2, or a container with no size, refuses the renderer.",
+    "The counts above are what the index returned; only the drawing is missing. The renderer refuses a container with no size, so a stage that has not been laid out yet is the usual cause, and the next layout recovers it.",
+  "map.renderer.unavailable": "This browser did not provide the graphics the drawing needs",
+  "map.renderer.unavailableNote":
+    "The renderer needs WebGL2, and loading it was refused. Nothing else on this Map depends on it: the counts, the list of what the Map holds, search, focus, related knowledge and Quick Read all work as they are.",
 
   "map.search.title": "Search this Map",
+  "map.search.noQuery": "nothing searched yet",
+  "map.search.matched": "{count} loaded nodes match",
   "map.search.hint":
     "Loaded nodes are matched here, in the browser. The index is searched over the API.",
   "map.search.transcriptNote":
@@ -182,9 +196,21 @@ export const en = {
   "map.focus.clear": "Clear the focus",
   "map.focus.notLoaded":
     "This entity is not among the nodes loaded so far, so it is not drawn yet.",
+  "map.panel.nothingFocused": "nothing focused",
+
   "map.peek.title": "Peek",
   "map.peek.note": "A preview. Nothing is selected, and no history is written.",
   "map.peek.close": "Close the peek",
+
+  "map.outline.title": "What this Map holds",
+  "map.outline.summary": "{listed} of {loaded} loaded nodes listed",
+  "map.outline.hint":
+    "Every entity the Map has drawn, in the order the server returned it — never by importance. Move to a row to preview it, focus it to read it, or open its source in the Reader. None of that needs a pointer or a drawn graph.",
+  "map.outline.none":
+    "No node is loaded, so there is nothing to list. What the Map has read is stated above.",
+  "map.outline.edges": "{count} relations drawn at this mark",
+  "map.outline.unlisted": "{count} more loaded nodes are not on this page of the list.",
+  "map.outline.more": "List more nodes",
 
   "map.legend.title": "What the marks mean",
   "map.legend.nodesShape": "Nodes: where the knowledge came from, by shape",
@@ -267,6 +293,7 @@ export const en = {
     "This entity records no time, so the Reader opens at the start of the source.",
 
   "map.related.title": "Related knowledge",
+  "map.related.summary": "{count} related entities",
   "map.related.hint":
     "Every entity the bounded neighbourhood returned, listed in full. The stage carries only the cards that fit.",
   "map.related.noFocus": "Nothing is focused, so there is no neighbourhood to list.",
@@ -484,6 +511,8 @@ export const fa: Messages = {
   "map.subtitle":
     "همان گرافی که نمایه در خود دارد: موجودیت‌ها به‌عنوان گره و روابط نمایه‌شده به‌عنوان یال‌های جهت‌دار.",
   "map.stage.label": "گراف دانش، ترسیم‌شده",
+  "map.stage.companion":
+    "ترسیم تنها یک نما از این گراف است. همان موجودیت‌ها در «آنچه این نقشه در خود دارد» فهرست شده‌اند؛ آنجا می‌توان هر یک را بدون نشانگر پیش‌نمایش، کانونی و باز کرد.",
   "map.controls": "کنترل‌های نمای نقشه",
   "map.zoomIn": "بزرگ‌نمایی",
   "map.zoomOut": "کوچک‌نمایی",
@@ -492,6 +521,13 @@ export const fa: Messages = {
   "map.stopLoading": "توقف بارگذاری",
   "map.empty":
     "نمایه هیچ گره گرافی ندارد، پس چیزی برای ترسیم نیست. این یک ترسیمِ ناکام نیست.",
+  "map.reading.unasked":
+    "هنوز هیچ صفحه‌ای از گراف خوانده نشده است، پس این نقشه چیزی دربارهٔ محتوای کتابخانهٔ شما بیان نمی‌کند.",
+  "map.reading.loading": "خواندن یک صفحه از گراف…",
+  "map.reading.stale":
+    "شمارش‌های زیر از صفحه‌هایی است که رسیده‌اند. آن‌ها پاسخِ درخواستی که ناکام ماند نیستند.",
+  "map.canvas.pending": "هنوز چیزی ترسیم نشده است.",
+  "map.canvas.nothing": "گرهی برای ترسیم نیست؛ پس صحنه خالی است، نه خراب.",
   "map.state.title": "آنچه ترسیم شده",
   "map.state.nodes": "گره‌های بارگذاری‌شده",
   "map.state.edges": "یال‌های ترسیم‌شده",
@@ -509,9 +545,14 @@ export const fa: Messages = {
     "یک {kind} دو بار با محتوای متفاوت رسید: {field} برای {id} تفاوت دارد. صفحه به‌جای ادغام، یکجا رد شد؛ چون ادغام رکوردی را ترسیم می‌کرد که هیچ درخواستی آن را برنگردانده است.",
   "map.renderer.failed": "گراف ترسیم نشد",
   "map.renderer.failedNote":
-    "شمارش‌های بالا همان چیزی است که نمایه برگرداند؛ فقط ترسیم انجام نشده است. مرورگر بدون WebGL2، یا ظرفی بدون اندازه، رندرکننده را نمی‌پذیرد.",
+    "شمارش‌های بالا همان چیزی است که نمایه برگرداند؛ فقط ترسیم انجام نشده است. رندرکننده ظرفی بدون اندازه را نمی‌پذیرد، پس صحنه‌ای که هنوز چیدمان نشده علت معمول است و چیدمان بعدی آن را درست می‌کند.",
+  "map.renderer.unavailable": "این مرورگر گرافیکِ لازم برای ترسیم را فراهم نکرد",
+  "map.renderer.unavailableNote":
+    "رندرکننده به WebGL2 نیاز دارد و بارگذاری آن پذیرفته نشد. هیچ بخش دیگری از این نقشه به آن وابسته نیست: شمارش‌ها، فهرستِ آنچه نقشه در خود دارد، جست‌وجو، کانون، دانش مرتبط و خوانش سریع همچنان کار می‌کنند.",
 
   "map.search.title": "جست‌وجو در این نقشه",
+  "map.search.noQuery": "هنوز چیزی جست‌وجو نشده",
+  "map.search.matched": "{count} گرهِ بارگذاری‌شده منطبق است",
   "map.search.hint":
     "گره‌های بارگذاری‌شده همین‌جا و در مرورگر تطبیق داده می‌شوند. نمایه از راه API جست‌وجو می‌شود.",
   "map.search.transcriptNote":
@@ -534,9 +575,21 @@ export const fa: Messages = {
   "map.focus.clear": "پاک‌کردن کانون",
   "map.focus.notLoaded":
     "این موجودیت میان گره‌های بارگذاری‌شدهٔ تاکنون نیست، پس هنوز ترسیم نشده است.",
+  "map.panel.nothingFocused": "چیزی کانونی نشده",
+
   "map.peek.title": "نگاه گذرا",
   "map.peek.note": "یک پیش‌نمایش. چیزی برگزیده نمی‌شود و هیچ تاریخچه‌ای نوشته نمی‌شود.",
   "map.peek.close": "بستن نگاه گذرا",
+
+  "map.outline.title": "آنچه این نقشه در خود دارد",
+  "map.outline.summary": "{listed} از {loaded} گرهِ بارگذاری‌شده فهرست شده است",
+  "map.outline.hint":
+    "همهٔ موجودیت‌هایی که نقشه ترسیم کرده است، به همان ترتیبی که سرور برگردانده — هرگز بر پایهٔ اهمیت. برای پیش‌نمایش روی یک ردیف بروید، برای خواندن آن را کانونی کنید، یا منبعش را در خواننده باز کنید. هیچ‌یک از این‌ها به نشانگر یا گرافِ ترسیم‌شده نیاز ندارد.",
+  "map.outline.none":
+    "هیچ گرهی بارگذاری نشده است، پس چیزی برای فهرست‌کردن نیست. آنچه نقشه خوانده است در بالا بیان شده.",
+  "map.outline.edges": "{count} رابطه در این نشانه ترسیم شده است",
+  "map.outline.unlisted": "{count} گرهِ بارگذاری‌شدهٔ دیگر در این صفحه از فهرست نیستند.",
+  "map.outline.more": "فهرست‌کردن گره‌های بیشتر",
 
   "map.legend.title": "معنای نشانه‌ها",
   "map.legend.nodesShape": "گره‌ها: خاستگاه دانش، با شکل",
@@ -619,6 +672,7 @@ export const fa: Messages = {
     "این هستار زمانی ثبت نکرده است، پس خواننده از آغاز منبع باز می‌شود.",
 
   "map.related.title": "دانش مرتبط",
+  "map.related.summary": "{count} موجودیت مرتبط",
   "map.related.hint":
     "هر هستاری که همسایگی کران‌دار بازگردانده، به‌طور کامل فهرست شده است. صحنه تنها کارت‌هایی را نگه می‌دارد که جا می‌شوند.",
   "map.related.noFocus": "چیزی کانونی نیست، پس همسایگی‌ای برای فهرست کردن وجود ندارد.",
