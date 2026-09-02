@@ -153,6 +153,17 @@ describe("label density", () => {
     expect(nodeLabelVisibility("neighbour", beyond)).toBe("auto");
   });
 
+  it("forces no more neighbour labels than a real fan-out can show (D-145)", () => {
+    // Measured in a browser by `T-209`, not argued: forcing a label on all
+    // eight neighbours of the real graph's busiest entity drew nine sentences
+    // into a cluster about 250 px across, because ForceAtlas2 pulls a node's
+    // neighbours towards it -- a fan-out is the densest part of the picture,
+    // which is the worst place to bypass Sigma's label grid. The grid's own
+    // budget for that area, at `labelGridCellSize: 180`, is one or two.
+    expect(MAP_LABEL_NEIGHBOUR_BUDGET).toBeGreaterThan(0);
+    expect(MAP_LABEL_NEIGHBOUR_BUDGET).toBeLessThanOrEqual(4);
+  });
+
   it("names a relation only on an active path", () => {
     expect(edgeLabelVisibility("selected")).toBe("visible");
     expect(edgeLabelVisibility("hovered")).toBe("visible");
@@ -162,7 +173,7 @@ describe("label density", () => {
 
   it("states the zoom and density rule as settings rather than leaving it to a default", () => {
     // D-122: "the Map must have a stated policy rather than inherit whatever a
-    // default draws". These are the four numbers `T-209` re-measures.
+    // default draws". `T-209` measured all four in a browser and kept them.
     expect(MAP_LABEL_SETTINGS.renderLabels).toBe(true);
     expect(MAP_LABEL_SETTINGS.renderEdgeLabels).toBe(true);
     expect(MAP_LABEL_SETTINGS.labelDensity).toBeGreaterThan(0);

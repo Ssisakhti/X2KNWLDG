@@ -28,7 +28,7 @@
  *   `renderLabels` is now `true`, which it was not in `T-204`: the blanket
  *   `false` was holding the door until a truncation and density policy existed,
  *   and `labelPolicy.ts` is that policy. It is spread in rather than restated
- *   so that the four numbers `T-209` re-measures live in one file.
+ *   so that the four numbers `T-209` measured live in one file.
  *
  * ## Primitives
  *
@@ -75,6 +75,11 @@
  * The adapter adds no behaviour and no state. It renames three calls and
  * unwraps one event payload, so that the Map's own boundary says `onNode` and
  * a `global_id` where Sigma says `clickNode` and `{ node }`.
+ *
+ * `T-209` added the last member for the same reason: `nodeDisplay` is
+ * `getNodeDisplayData` narrowed to a point, because a camera is addressed in
+ * the *framed* space rather than in graph units or pixels, and framing a
+ * focus is therefore a question only the renderer can answer (D-146).
  */
 
 import Sigma from "sigma";
@@ -154,6 +159,18 @@ export function sigmaRendererFor(style: MapStyle): MapRendererFactory {
         sigma.on("afterRender", handler);
       },
       graphToViewport: (point: MapPoint) => sigma.graphToViewport(point),
+      // The camera's own coordinates (`T-209`): `getNodeDisplayData` answers
+      // in the framed space `Camera.animate` is addressed in, which is why
+      // framing a focus is asked of the renderer rather than computed from
+      // the graph's `x`/`y`. `undefined` for a node it does not hold, which
+      // becomes the `null` the boundary states.
+      nodeDisplay: (globalId: string) => {
+        const display = sigma.getNodeDisplayData(globalId);
+        if (display === undefined) return null;
+        return Number.isFinite(display.x) && Number.isFinite(display.y)
+          ? { x: display.x, y: display.y }
+          : null;
+      },
     };
   };
 }

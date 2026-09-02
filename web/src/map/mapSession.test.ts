@@ -19,9 +19,12 @@ import type { EntityRef, IndexedRelation } from "../api/contract";
 import type { MapGraph } from "./graphProjection";
 import { GraphSnapshot } from "./graphSnapshot";
 import {
+  MAP_FOCUS_MARGIN,
+  MAP_FOCUS_MIN_RATIO,
   MAP_LAYOUT_ITERATIONS,
   MapSession,
   type MapCamera,
+  type MapCameraTarget,
   type MapNodeEvent,
   type MapPoint,
   type MapRenderer,
@@ -34,18 +37,33 @@ type FakeRenderer = MapRenderer & {
   calls: string[];
   /** The handlers the session subscribed, by event, so a test can fire them. */
   listeners: Map<string, (globalId: string) => void>;
+  /** Every framing target the camera was given, in order (`T-209`). */
+  framings: MapCameraTarget[];
+  /** Where each node is in the framed space this fake reports (`T-209`). */
+  display: Map<string, MapPoint>;
 };
 
 function fakeRenderer(): FakeRenderer {
   const calls: string[] = [];
   const listeners = new Map<string, (globalId: string) => void>();
+  const framings: MapCameraTarget[] = [];
+  const display = new Map<string, MapPoint>();
   const camera: MapCamera = {
     zoomIn: () => calls.push("camera:zoomIn"),
     zoomOut: () => calls.push("camera:zoomOut"),
     reset: () => calls.push("camera:reset"),
+    animate: (target: MapCameraTarget, animation?: { duration: number }) => {
+      // The animation argument is in the call, because "arrives immediately"
+      // is the assertion a reduced-motion preference has to survive.
+      calls.push(`camera:animate:${animation === undefined ? "default" : animation.duration}`);
+      framings.push(target);
+    },
   };
   return {
     calls,
+    framings,
+    display,
+    nodeDisplay: (globalId: string) => display.get(globalId) ?? null,
     resize: (force?: boolean) => calls.push(`resize:${String(force)}`),
     refresh: () => calls.push("refresh"),
     kill: () => calls.push("kill"),
@@ -199,6 +217,74 @@ describe("MapSession", () => {
     expect(container.childElementCount).toBe(0);
   });
 
+  it("releases the context a refused renderer left behind, and empties the stage", () => {
+    /*
+     * `T-209`'s finding, and it is a leak invariant 10 was already about.
+     *
+     * Sigma appends its canvases and takes their WebGL context in its
+     * constructor, and validates the container *after* that -- so a container
+     * with a zero dimension throws with a live context already attached, and
+     * this session never receives the object whose `kill()` would release it.
+     * Measured in Chrome on the real route before the fix: seven refused
+     * attaches, seven contexts created, none lost, seven canvases piling up
+     * in the stage. Browsers answer too many live contexts by losing the
+     * oldest, so the symptom appears somewhere else entirely.
+     *
+     * The fake reproduces the *order* -- attach a canvas, then throw -- which
+     * is the whole shape of the bug.
+     */
+    let lost = 0;
+    const canvasWithContext = () => {
+      const canvas = document.createElement("canvas");
+      // jsdom has no WebGL, so the context is a stub that answers the one
+      // question this path asks it.
+      canvas.getContext = ((kind: string) =>
+        kind === "webgl2"
+          ? { getExtension: (name: string) => (name === "WEBGL_lose_context" ? { loseContext: () => { lost += 1; } } : null) }
+          : null) as HTMLCanvasElement["getContext"];
+      return canvas;
+    };
+    const live = session(() => {
+      container.append(canvasWithContext());
+      throw new Error("Container has no height.");
+    });
+
+    for (let round = 0; round < 3; round += 1) {
+      expect(() => live.attach(sample())).toThrow(/no height/);
+    }
+
+    expect(container.childElementCount).toBe(0);
+    expect(lost).toBe(3);
+    // A refusal is not a create: nothing was handed over, so there is nothing
+    // to kill and the counters stay honest.
+    expect(live.creates).toBe(0);
+    expect(live.kills).toBe(0);
+    expect(live.live).toBe(false);
+    // And the graph is released with it, so a later `nodePosition` answers
+    // `null` rather than reporting a position on a stage that has none.
+    expect(live.nodePosition("youtube:pqlWNihgdjI:KU-000001")).toBeNull();
+  });
+
+  it("recovers on the next attach after a refusal, with one renderer alive", () => {
+    // A refused container is usually a stage that has not been laid out yet
+    // (D-140), so the next attempt is the normal case and must not inherit
+    // anything from the failure.
+    let refuse = true;
+    const renderer = fakeRenderer();
+    const live = session(() => {
+      if (refuse) throw new Error("Container has no height.");
+      return renderer;
+    });
+    expect(() => live.attach(sample())).toThrow();
+    refuse = false;
+    live.attach(sample());
+    expect(live.live).toBe(true);
+    expect(live.creates).toBe(1);
+    live.kill();
+    expect(live.kills).toBe(1);
+    expect(renderer.calls).toContain("kill");
+  });
+
   it("counts one kill per create, after any sequence", () => {
     const live = session(fakeRenderer);
     for (let round = 0; round < 5; round += 1) {
@@ -234,6 +320,94 @@ describe("MapSession", () => {
     expect(renderer.calls.length).toBe(after);
     expect(live.creates).toBe(1);
     expect(live.kills).toBe(1);
+  });
+
+  describe("framing a focus (`T-209`, D-146)", () => {
+    /*
+     * What the walk found: the camera framed the whole 86-node graph, a
+     * focus sat wherever the layout had left it, its neighbourhood spanned
+     * about a tenth of the stage -- so every neighbour card was refused for
+     * covering the focused one -- and `zoomIn` zooms about the *middle of the
+     * stage*, so selecting a node and zooming in pushed it off screen. Two
+     * halves of the Map that both knew where the focus was, with nothing
+     * carrying it between them.
+     */
+    function framed(display: Record<string, MapPoint>) {
+      const renderer = fakeRenderer();
+      for (const [key, point] of Object.entries(display)) renderer.display.set(key, point);
+      const live = session(() => renderer);
+      live.attach(sample());
+      return { live, renderer };
+    }
+
+    const KU1 = "youtube:pqlWNihgdjI:KU-000001";
+    const KU2 = "youtube:pqlWNihgdjI:KU-000002";
+    const C1 = "library:concepts:C-000001";
+
+    it("centres the focus and its drawn neighbours, not the focus alone", () => {
+      // A focus at the edge of its own neighbourhood would otherwise leave
+      // half of that neighbourhood off the stage.
+      const { live, renderer } = framed({
+        [KU1]: { x: 0, y: 0 },
+        [KU2]: { x: 0.4, y: 0 },
+        [C1]: { x: 0.4, y: 0.2 },
+      });
+      expect(live.frame(KU1, [KU2, C1])).toBe(true);
+      expect(renderer.framings).toHaveLength(1);
+      // No preference: the renderer keeps its own easing (`motion.ts`).
+      expect(renderer.calls).toContain("camera:animate:default");
+      const target = renderer.framings[0] as MapCameraTarget;
+      expect(target.x).toBeCloseTo(0.2);
+      expect(target.y).toBeCloseTo(0.1);
+      // The extent to show is 0.4, and the margin is what keeps the outermost
+      // marks clear of the inset that refuses a clipped card.
+      expect(target.ratio).toBeCloseTo(0.4 * MAP_FOCUS_MARGIN);
+    });
+
+    it("does not zoom in on a lone mark until the rest of the graph is a rumour", () => {
+      const { live, renderer } = framed({ [KU1]: { x: 0.5, y: 0.5 } });
+      expect(live.frame(KU1)).toBe(true);
+      expect((renderer.framings[0] as MapCameraTarget).ratio).toBe(MAP_FOCUS_MIN_RATIO);
+    });
+
+    it("ignores a neighbour the renderer does not hold rather than framing nothing", () => {
+      // A neighbour the pages have not reached has no position, and a bounding
+      // box that included a zero for it would frame empty space.
+      const { live, renderer } = framed({ [KU1]: { x: 0.5, y: 0.5 } });
+      expect(live.frame(KU1, [KU2, "youtube:v:absent"])).toBe(true);
+      const target = renderer.framings[0] as MapCameraTarget;
+      expect(target.x).toBeCloseTo(0.5);
+      expect(target.y).toBeCloseTo(0.5);
+    });
+
+    it("refuses to move for a focus the renderer has no position for", () => {
+      const { live, renderer } = framed({ [KU2]: { x: 0.5, y: 0.5 } });
+      expect(live.frame(KU1, [KU2])).toBe(false);
+      expect(renderer.framings).toHaveLength(0);
+    });
+
+    it("does nothing at all with no live renderer", () => {
+      const live = session(fakeRenderer);
+      expect(live.frame(KU1)).toBe(false);
+      live.attach(sample());
+      live.kill();
+      expect(live.frame(KU1)).toBe(false);
+    });
+
+    it("arrives immediately for a reader who asked for less motion", () => {
+      // The same policy as the three gestures beside it: the preference is
+      // read at the gesture, and `motion.ts` owns the reading (`T-208`).
+      const matchMedia = window.matchMedia;
+      window.matchMedia = ((query: string) =>
+        ({ matches: query.includes("reduce"), media: query })) as typeof window.matchMedia;
+      try {
+        const { live, renderer } = framed({ [KU1]: { x: 0.5, y: 0.5 } });
+        live.frame(KU1);
+        expect(renderer.calls).toContain("camera:animate:0");
+      } finally {
+        window.matchMedia = matchMedia;
+      }
+    });
   });
 
   it("re-settles the layout and refreshes when a page merges into the graph on screen", () => {

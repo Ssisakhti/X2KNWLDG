@@ -194,6 +194,13 @@ jobs:
       - name: Type-check the frozen contract and the frontend
         working-directory: web
         run: npm run typecheck
+      - name: Type-check the browser gate
+        # Playwright transpiles specs without type-checking them, so without
+        # this the `T-209` gate would be the only unchecked TypeScript in the
+        # repository. Its own program, because it needs `skipLibCheck` for
+        # declarations this project does not own; `src` keeps it off (R17).
+        working-directory: web
+        run: npm run typecheck:browser
       - name: Test the frontend
         # Hermetic: the integration files under web/src skip unless
         # X2KNWLDG_API_BASE names a running server, so this job needs no
@@ -307,6 +314,60 @@ jobs:
           else
             echo "the server was already gone"
           fi
+
+  browser:
+    # `T-209`: the Map in a real browser, which is the one witness the other
+    # jobs cannot be. jsdom has no WebGL and no layout, so the renderer's
+    # lifecycle, the reduced-motion camera, the 44 px touch targets, the
+    # narrow-screen stage and the keyboard's own tab order are all asserted
+    # here or nowhere -- and counting WebGL contexts is how ADR 0005
+    # invariant 10 stops being an assumption.
+    #
+    # Against the committed run fixtures, like the integration job: `output/`
+    # is not in the repository, so the real 86-node library exists only on a
+    # developer's machine. The recorded walk in ADR 0005 was performed there;
+    # this job is the regression net.
+    name: the Map in a browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install the package and the frontend toolchain
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,ui]'
+          npm --prefix web ci
+      - name: Install the browser the gate is recorded on
+        # Google Chrome, the same channel the walk was recorded in, rather
+        # than the bundled Chromium: the gate has been run on both and passes
+        # on both -- the bundled one answers WebGL2 through a software
+        # rasteriser, which is a useful second witness -- but a result should
+        # name one browser, and this is the one ADR 0005 names.
+        working-directory: web
+        run: npx playwright install --with-deps chrome
+      - name: Walk it
+        working-directory: web
+        env:
+          # `dev_api.py`'s default is the committed fixtures, and the config
+          # starts both servers itself.
+          X2KNWLDG_PYTHON: python
+        run: npm run browser
+      - name: Keep what a failure left behind
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-gate-trace
+          path: |
+            web/test-results/
+            web/playwright-report/
+          retention-days: 7
 
   requirements:
     # D-111: `requirements.txt` forwards to the extras and said the `ui` layer

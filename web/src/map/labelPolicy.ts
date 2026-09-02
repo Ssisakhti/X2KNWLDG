@@ -78,18 +78,29 @@ export const MAP_EDGE_LABEL_CHARS = 32;
 /**
  * How many neighbours of the focus may have their label *forced*.
  *
- * This is the density budget D-132 requires a number for. Above it, the
- * neighbours keep their marks, their emphasis and their place in the semantic
- * related list, and their labels go back to `"auto"` so Sigma's grid decides
- * which ones fit. A budget that is exceeded therefore costs legibility, never
- * data: nothing is hidden, and `T-207`'s related list still names every one of
- * them (ADR 0005 invariant 13).
+ * This is the density budget D-132 requires a number for. Nothing is hidden
+ * by it, and `T-207`'s related list still names every one of them (ADR 0005
+ * invariant 13).
  *
- * Twelve, because the real graph's most connected nodes sit in that order of
- * degree and twelve short labels fit around a focus at typical stage sizes.
- * `T-209` measures it on the real route; it is a starting value, not a law.
+ * **Four, measured** (`T-209`, D-145). Twelve was the starting value, chosen
+ * on the argument that the real graph's most connected nodes sit in that
+ * order of degree and that twelve short labels fit around a focus. The walk
+ * disagreed: forcing a label on all eight neighbours of the busiest entity
+ * drew nine sentences into a cluster about 250 px across -- ForceAtlas2 pulls
+ * a node's neighbours *towards* it, so a fan-out is the densest part of the
+ * picture, which is the worst place to bypass Sigma's label grid. Sigma's own
+ * budget for that area, at `labelGridCellSize: 180`, is one or two labels.
+ *
+ * Four is the largest fan-out that stayed readable. Above it the neighbours
+ * keep their marks, their emphasis and their place in the semantic related
+ * list, and their labels go back to `"auto"` so the grid decides which ones
+ * fit. A budget that is exceeded therefore costs legibility, never data.
+ *
+ * It is deliberately the same number as `MAP_STAGE_CARD_BUDGET` and for the
+ * same measured reason, but it stays a separate constant: they bound
+ * different things, and one of them will move without the other.
  */
-export const MAP_LABEL_NEIGHBOUR_BUDGET = 12;
+export const MAP_LABEL_NEIGHBOUR_BUDGET = 4;
 
 /**
  * The settings half of the policy: what Sigma does with every `"auto"` label.
@@ -114,9 +125,12 @@ export const MAP_LABEL_NEIGHBOUR_BUDGET = 12;
  *   zooming. Text that reflows every frame is unreadable anyway, and the
  *   labels return the moment the camera stops.
  *
- * These four numbers are the ones `T-209` re-measures in a browser. They are
- * stated here, once, so that re-measuring means editing a value rather than
- * finding where the behaviour came from.
+ * `T-209` measured these four on the real graph in Chrome and kept all four:
+ * the framed overview draws **8 labels over 86 marks**, and two zoom presses
+ * make about twelve speak in the visible area, which is exactly the "quiet
+ * until you look closer" D-122 asked for. They are stated here, once, so that
+ * re-measuring means editing a value rather than finding where the behaviour
+ * came from.
  */
 export const MAP_LABEL_SETTINGS = {
   renderLabels: true,

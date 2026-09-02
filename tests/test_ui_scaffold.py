@@ -1595,8 +1595,13 @@ def test_the_map_stage_states_a_size() -> None:
 
     That is deliberate — a container with no size should be a refusal the Map
     states rather than a blank canvas nobody can explain — but it means the
-    stage's size is load-bearing. It is stated once, in the stylesheet, and the
-    renderer is told about every change to it.
+    stage's size is load-bearing, and `T-209` measured *how*: the renderer
+    refuses a dimension of exactly zero and accepts everything else, so a
+    two-pixel stage is drawn into and reported as a picture (D-145). The
+    stylesheet's **minimum** is therefore what stands between a small window
+    and an unreadable graph the route calls drawn — not, as `T-208` assumed, a
+    way of avoiding a stated refusal. It is stated once, in the stylesheet,
+    and the renderer is told about every change to it.
     """
     renderer = (WEB / "src" / "map" / "sigmaRenderer.ts").read_text(encoding="utf-8")
     assert "allowInvalidContainer: false" in renderer
@@ -1606,6 +1611,11 @@ def test_the_map_stage_states_a_size() -> None:
     assert "block-size" in stage.group(0), (
         "the Map's stage declares no block size, so `allowInvalidContainer: "
         "false` will refuse the renderer"
+    )
+    assert "min-block-size" in stage.group(0), (
+        "the Map's stage declares no *minimum* block size, so a narrow window "
+        "draws a graph a reader cannot see and the route still calls it drawn "
+        "(D-145)"
     )
     view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
     assert 'className="map__stage"' in view
@@ -1861,3 +1871,141 @@ def test_the_map_has_one_disclosure_and_one_motion_policy() -> None:
         "the stylesheet answers no reduced-motion preference, so `motion.ts` is "
         "answering for the canvas alone"
     )
+
+
+# ---------------------------------------------------------------------------
+# T-209 — the browser gate: dev-only, pinned, type-checked, and run by CI
+# ---------------------------------------------------------------------------
+#
+# The gate is the phase's last task and the only witness for WebGL, layout,
+# real focus order and the reduced-motion camera. Everything below exists so
+# that it cannot quietly stop being any of those things: a harness that leaks
+# into the bundle, a range instead of a pin, a spec `npm test` tries to run in
+# jsdom, or a job nobody runs are each a way for a green tree to mean less
+# than it says.
+
+#: The gate's own dependency. A development one: nothing under `web/src`
+#: imports it and `npm run build` never sees it, which is why it is pinned and
+#: recorded separately from the Map's runtime packages.
+GATE_DEV_PINS = ("@playwright/test",)
+
+
+def test_the_browser_gate_is_pinned_to_one_exact_version() -> None:
+    """A browser gate's result is about the harness that produced it.
+
+    The same argument as D-117 for the renderer: a range lets an unrelated
+    `npm install` change what the walk measured, and a measurement that
+    describes a version nobody recorded is not a measurement.
+    """
+    package = _package_json()
+    for name in GATE_DEV_PINS:
+        version = package["devDependencies"][name]
+        assert _EXACT_VERSION.match(version), f"{name} is not an exact pin: {version}"
+
+
+def test_the_browser_gate_is_recorded_with_its_licence() -> None:
+    """Apache-2.0, not MIT, so it has a section of its own in the notices."""
+    notices = (PROJECT_ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    package = _package_json()
+    for name in GATE_DEV_PINS:
+        version = package["devDependencies"][name]
+        assert f"{name}@{version}" in notices, f"{name}@{version} is not recorded"
+    assert "Apache-2.0" in notices, "the gate's licence is recorded as something it is not"
+
+
+def test_the_browser_gate_stays_out_of_the_application() -> None:
+    """The harness is not the Map, and the Map does not know it exists.
+
+    `gate.html` has the same guard (`T-202`) for the same reason: a harness
+    written to answer a question must not become a second implementation of
+    the thing it is asking about.
+    """
+    gate = WEB / "browser"
+    assert gate.is_dir(), "the browser gate is gone"
+    assert list(gate.glob("*.spec.ts")), "the browser gate holds no specs"
+
+    offenders = [
+        path.relative_to(WEB).as_posix()
+        for path in sorted((WEB / "src").rglob("*.ts*"))
+        if "browser/" in path.read_text(encoding="utf-8")
+    ]
+    assert not offenders, f"these application modules reach into the gate: {offenders}"
+
+    # And the other direction: the gate asserts on behaviour rather than on
+    # the constants it is checking. A spec that imported `MAP_STAGE_CARD_BOX`
+    # would agree with whatever the module says, which is the one thing a gate
+    # must not do.
+    borrowed = [
+        path.name
+        for path in sorted(gate.rglob("*.ts"))
+        if re.search(r'from\s+"\.\./src', path.read_text(encoding="utf-8"))
+    ]
+    assert not borrowed, f"these specs import the application's own numbers: {borrowed}"
+
+
+def test_the_unit_suite_does_not_try_to_run_the_browser_gate() -> None:
+    """`npm test` stays hermetic, and jsdom never sees a Playwright spec.
+
+    Vitest's `include` is `src/**`, so the gate's files are outside it. If that
+    ever widened, every spec in `web/browser/` would fail in jsdom for reasons
+    that have nothing to do with the Map.
+    """
+    config = (WEB / "vite.config.ts").read_text(encoding="utf-8")
+    include = re.search(r'include:\s*\[(.*?)\]', config, re.DOTALL)
+    assert include is not None, "the test program no longer states what it includes"
+    assert "browser" not in include.group(1), (
+        "vitest now collects the browser gate's specs, which cannot run in jsdom"
+    )
+    playwright = (WEB / "playwright.config.ts").read_text(encoding="utf-8")
+    assert 'testDir: "./browser"' in playwright, "the gate no longer states where its specs are"
+
+
+def test_the_browser_gate_is_type_checked_by_its_own_program() -> None:
+    """Playwright transpiles specs without type-checking them.
+
+    So without a program of its own the gate would be the only unchecked
+    TypeScript in the repository — and it is the code that decides whether the
+    phase is finished.
+    """
+    package = _package_json()
+    assert package["scripts"].get("typecheck:browser") == (
+        "tsc --noEmit --project browser/tsconfig.json"
+    )
+    assert package["scripts"].get("browser") == "playwright test"
+    config = json.loads(
+        re.sub(
+            r'^\s*"//":\s*\[.*?\],\s*$',
+            "",
+            (WEB / "browser" / "tsconfig.json").read_text(encoding="utf-8"),
+            flags=re.DOTALL | re.MULTILINE,
+        )
+    )
+    # `src` keeps `skipLibCheck: false`, which is risk R17's mitigation; the
+    # gate needs it on for declarations this project does not own, so the two
+    # programs are separate rather than one relaxed one.
+    assert config["compilerOptions"]["skipLibCheck"] is True
+    root = json.loads((WEB / "tsconfig.json").read_text(encoding="utf-8"))
+    assert root["compilerOptions"]["skipLibCheck"] is False
+
+
+def test_ci_walks_the_map_in_a_browser() -> None:
+    """The gate that nobody runs is the gate that stops being true.
+
+    D-116 is the precedent: thirteen integration tests gated on a variable no
+    job set, so the only tests that could disagree with the frontend never ran
+    anywhere. This job installs a browser, serves the committed fixtures and
+    walks the route.
+    """
+    workflow = _workflow()
+    assert "npm run browser" in workflow, "no job walks the Map in a browser"
+    assert "playwright install" in workflow, "the browser job installs no browser"
+    assert "npm run typecheck:browser" in workflow, "no job type-checks the gate"
+    # A failed walk has to leave its trace behind, or the next person debugs a
+    # red job by re-running it and hoping.
+    assert "upload-artifact" in workflow, "a failed browser walk keeps nothing"
+
+
+def test_the_browser_gate_keeps_its_artifacts_out_of_the_repository() -> None:
+    """Traces and screenshots are what one run produced, not what it asserts."""
+    for entry in ("web/test-results/x", "web/playwright-report/x"):
+        assert _check_ignore(entry), f"{entry} is not ignored, so a walk dirties the tree"

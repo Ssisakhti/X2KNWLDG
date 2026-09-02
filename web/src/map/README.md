@@ -19,9 +19,17 @@ Phase 2: `T-202`'s seeding and compatibility harness, `T-203`'s projection,
 | `motion.ts` | The **only** reader of `prefers-reduced-motion` in the application, because the stylesheet cannot reach a camera animated in script on a canvas |
 | `gate/` | The `T-202` compatibility harness: a single-page graph builder and the renderer lifecycle it exercises |
 
+The `T-209` browser gate is deliberately **not** in here: it is
+[`web/browser/`](../../browser/gate.ts), outside `src` entirely, and it imports
+nothing from these modules — a spec that imported the number it is checking
+would agree with whatever the module says.
+
 The route itself is [`../views/MapView.tsx`](../views/MapView.tsx), and it is
-the join rather than a fourth copy of anything. The real-browser walk is
-`T-209`'s, and so is every number in here that was chosen by argument.
+the join rather than a fourth copy of anything. **Every number in here has now
+been walked in a browser** by `T-209` ([`../../browser/`](../../browser/gate.ts)):
+most were kept, three were replaced by what Chrome measured, and the walk is
+where four defects nothing in jsdom could reach were found. ADR 0005
+§ *Walk result* is the record; D-145–D-149 are what changed.
 
 ## Seeding is not decoration
 
@@ -351,7 +359,7 @@ Exceeding the neighbour budget costs legibility, never data: the labels return
 to `"auto"`, every neighbour keeps its mark, and `T-207`'s related list names
 all of them (invariant 13).
 
-### Primitives, and what `T-209` has to look at
+### Primitives, and what the browser said about them
 
 Sigma v4's default primitive set is one node shape, two edge paths and no
 extremities — a palette with exactly one channel, colour. `sigmaRenderer.ts`
@@ -365,11 +373,14 @@ table needs. Three consequences worth knowing:
   with a canonical relation *and* a library-synthetic one often enough that two
   straight lines would be one drawn line and one edge the Map counted but
   nobody can see.
-- None of this has been drawn in a browser yet. `T-202` proved the *default*
-  primitives on this machine; the declared set, the halo's backdrop border and
-  the four label numbers are `T-209`'s to walk. The build cost is measured: the
-  renderer chunk goes from 362 kB to 377 kB (98 kB gzipped), still loaded by no
-  route but the Map.
+- All of it is drawn now (`T-209`). The declared shapes, the extremities, the
+  curved parallel path and the selected mark's halo all render on the real
+  86-node graph, in Chrome over the GPU and on a software rasteriser. Three of
+  the four label numbers are kept: the overview draws **8 labels over 86
+  marks**, which is the quiet overview D-122 asked for, and two zoom presses
+  make about twelve speak. The fourth was wrong — see the neighbour budget
+  below. The build cost is measured: the renderer chunk goes from 362 kB to
+  377 kB (98 kB gzipped), still loaded by no route but the Map.
 
 ### Hover must not move the graph
 
@@ -446,16 +457,39 @@ appears here.
 
 `placeConstellation` walks the related list in its own order and answers, for
 each entity: no mark on this Map (`not_loaded`), a mark outside the stage at
-this camera position (`off_stage`), a card that would overlap one already
-placed — one per 240 px cell, the same device Sigma's `labelDensity` uses for
-labels — (`crowded`), or beyond the four-card budget (`budget`). Crowding is
-checked *before* the budget, so the budget is spent on cards a reader can
-actually read.
+this camera position (`off_stage`), a card that would cover one already placed
+in **any** of the four ways it can open (`crowded`), or beyond the four-card
+budget (`budget`). Crowding is checked *before* the budget, so the budget is
+spent on cards a reader can actually read.
 
-The budget is four, not `MAP_LABEL_NEIGHBOUR_BUDGET`'s twelve, and the two are
-deliberately different numbers for different things: a label is a line of text
-beside a mark, a card is a block with a statement, a relation and a badge row.
-Both are stated once and are `T-209`'s to measure.
+The crowding clause used to be a 240 px grid cell, the same device Sigma's
+`labelDensity` uses for labels, and `T-209` measured what that cost on the real
+graph: it refused **7 of 8** neighbour cards that would have fitted *and*
+placed two that overlapped by two thirds of a card, because a grid answers
+"same cell?" when the question is "same pixels?" (D-145). It is now an overlap
+test over the card's measured footprint — 320×248 for a neighbour, 416×176 for
+the primary, which is what Chrome laid them out at — and the rectangle it
+reserves is the card, its gap, **and the mark it points at**, because two cards
+opening in opposite directions from marks four pixels apart overlap nothing and
+still point into the same four pixels. Four orientations are tried in a stated
+order before a refusal, since a card prefers to open towards the middle of the
+stage and two marks either side of the middle would otherwise grow into each
+other.
+
+The card budget is four and the *forced* label budget is also four now, and the
+two remain deliberately separate numbers for different things: a label is a
+line of text beside a mark, a card is a block with a statement, a relation and
+a badge row. Twelve forced labels was the value `T-205` argued for, and the
+walk showed why it was wrong — ForceAtlas2 pulls a node's neighbours towards
+it, so a fan-out is the densest part of the picture and nine sentences landed
+in a cluster 250 px across.
+
+None of this works at all unless the camera goes to the selection, which it did
+not until `T-209` (D-146): the camera framed the whole graph, a neighbourhood
+was about a tenth of the stage wide, and every neighbour card was refused for
+covering the focused one. `MapSession.frame` centres a new focus with its drawn
+neighbours; `MAP_FOCUS_MARGIN` is calibrated over 23 real focuses, and its
+table is in `mapSession.ts`.
 
 Cards placed plus omissions counted equals the neighbours returned. That is
 tested, on fixtures and on the real fan-out, and it is the whole answer to

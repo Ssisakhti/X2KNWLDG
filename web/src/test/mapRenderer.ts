@@ -28,6 +28,7 @@
 import type {
   MapCamera,
   MapCameraAnimation,
+  MapCameraTarget,
   MapNodeEvent,
   MapPoint,
   MapRenderer,
@@ -55,6 +56,8 @@ export interface FakeRenderer extends MapRenderer {
   fireNode: (event: MapNodeEvent, globalId: string) => void;
   /** Fire the "a frame was drawn" event. */
   fireRender: () => void;
+  /** Every framing gesture the camera was asked for, in order (`T-209`). */
+  framings: MapCameraTarget[];
 }
 
 export interface FakeRendererHarness {
@@ -73,11 +76,18 @@ export function fakeRenderers(
     failOnCreate?: boolean;
     /** Where each node's mark is, in stage pixels, by `global_id`. */
     points?: Record<string, MapPoint>;
+    /**
+     * Where each node is in the renderer's *framed* space, by `global_id`
+     * (`T-209`). Unlisted nodes have no display position, which is what a
+     * renderer answers for a node it does not hold.
+     */
+    display?: Record<string, MapPoint>;
   } = {},
 ): FakeRendererHarness {
   const events: string[] = [];
   const all: FakeRenderer[] = [];
   const points = options.points ?? {};
+  const display = options.display ?? {};
 
   const factory: MapRendererFactory = (graph: MapGraph) => {
     if (options.failOnCreate === true) {
@@ -86,6 +96,7 @@ export function fakeRenderers(
     }
     events.push("create");
     const animations: (MapCameraAnimation | undefined)[] = [];
+    const framings: MapCameraTarget[] = [];
     const camera: MapCamera = {
       zoomIn: (animation?: MapCameraAnimation) => {
         animations.push(animation);
@@ -99,6 +110,11 @@ export function fakeRenderers(
         animations.push(animation);
         events.push("reset");
       },
+      animate: (target: MapCameraTarget, animation?: MapCameraAnimation) => {
+        animations.push(animation);
+        framings.push(target);
+        events.push("animate");
+      },
     };
     const nodeHandlers = new Map<MapNodeEvent, (globalId: string) => void>();
     let onRenderHandler: (() => void) | null = null;
@@ -106,6 +122,7 @@ export function fakeRenderers(
     const renderer: FakeRenderer = {
       events,
       animations,
+      framings,
       resize: (force?: boolean) => events.push(`resize:${String(force)}`),
       refresh: () => events.push("refresh"),
       kill: () => events.push("kill"),
@@ -125,6 +142,7 @@ export function fakeRenderers(
         });
         return (found === null ? undefined : points[found]) ?? FAKE_DEFAULT_POINT;
       },
+      nodeDisplay: (globalId: string) => display[globalId] ?? null,
       fireNode: (event, globalId) => nodeHandlers.get(event)?.(globalId),
       fireRender: () => onRenderHandler?.(),
     };

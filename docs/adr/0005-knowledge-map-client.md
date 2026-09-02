@@ -2,8 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-02
-- **Decision ledger:** D-117 … D-133 (`KNOWLEDGE_CANVAS_PLAN.md` §19 and
-  `PROJECT_MANAGEMENT.md` §6)
+- **Decision ledger:** D-117 … D-149 (`KNOWLEDGE_CANVAS_PLAN.md` §19 and
+  `PROJECT_MANAGEMENT.md` §6). D-117–D-133 are this decision's own; D-134–D-149
+  were recorded by the tasks that implemented it, `T-207`–`T-209`
 - **Supersedes:** none
 - **Superseded by:** none
 
@@ -688,8 +689,219 @@ would otherwise rediscover.
   seam for the disclosure and the honest states; keep them true if these
   surfaces are restyled.
 
+## Walk result (`T-209`, 2026-09-03)
+
+**The Map has been opened in a browser.** Everything `T-202`–`T-208` built is
+walked automatically now, on the real library and on the committed fixtures,
+and the walk found four defects the jsdom suites could not have found, two
+claims that were false in a browser, and one inverted piece of reasoning. All
+of them are fixed; every number the phase had chosen by argument is measured
+or replaced by a measured one.
+
+**Where it ran.** macOS 26.5.2 on Apple silicon (arm64), **Google Chrome
+152.0.7977.65** through Playwright's `channel: "chrome"` — the same browser and
+machine `T-202` recorded — reaching WebGL2 through
+`ANGLE (Apple, ANGLE Metal Renderer: Apple M5)`, a real GPU path. The harness is
+`@playwright/test@1.62.1`, pinned exactly for the same reason the renderer is
+(D-117): a walk's result is only about the versions that produced it. The whole
+gate was then re-run on Playwright's **bundled Chromium 151.0.7922.34**, which
+answers WebGL2 through SwiftShader — a software rasteriser — and passes there
+too, which is worth more than it sounds: the route needs no GPU.
+
+**What it was pointed at.** The **built bundle**, served by `vite preview` after
+`npm run build`, rather than the dev server's module graph: `x2knwldg ui` serves
+`dist/`, and the renderer is a lazily imported chunk (D-127), so "the module
+never loaded" is a real network request in production. Behind it, the **real
+API** — `create_app(project_root=…)` through `scripts/dev_api.py`, forwarded by
+a proxy added to `vite.config.ts` for this purpose. Every expected number in the
+specs is read back out of the payload the page was answered with, never typed
+into a test, which is what lets one gate serve two libraries: the real ingested
+project (86 entities, 118 relations, one page under the contract maximum) and
+the committed `PASS`/`PARTIAL`/`FAIL` fixtures (7 and 9). **27 specs, four
+files, green on both libraries and both drivers.**
+
+### What it drew
+
+`86 / 86` nodes and `118` edges, `0` held, `complete`, `truncated: false`,
+`role="img"` present, one canvas, one WebGL2 context — the counts on screen
+compared field by field with `/api/graph?limit=500`. Seven states were produced
+and read: unasked/loading (no counts printed at all, camera disabled), empty
+(`provenance_class=user` is a real filter with a real empty answer: `0 / 0`
+counted, "nothing to draw", the companion opening itself), partial (the request
+rewritten to five nodes a page: `held > 0`, `complete: false`), refused
+(`503` on the second page: the first page still counted, the error stated, the
+counts marked as not an answer to what failed), whole, undrawable
+(`WebGL2RenderingContext` deleted before the bundle ran) and container-refused
+(a stage of zero height).
+
+### The numbers, now measured
+
+| Chosen by argument | Measured | Kept? |
+|---|---|---|
+| Automatic labels at the overview (`labelDensity: 1`, `labelGridCellSize: 180`, `labelRenderedSizeThreshold: 14`) | **8 of 86 marks** carry a label at the framed overview; two zoom presses make about twelve speak in the visible area | kept — this is exactly the quiet overview D-122 asked for |
+| `MAP_LABEL_NEIGHBOUR_BUDGET = 12` | 12 forced labels around the busiest entity drew **nine sentences into a cluster ~250 px across**: ForceAtlas2 pulls neighbours *towards* their focus, so a fan-out is the densest part of the picture and the worst place to bypass Sigma's grid | **4** (D-145) |
+| `MAP_STAGE_CARD_CELL = 240` (a square grid cell) | The grid refused **7 of 8** neighbour cards that would have fitted *and* placed two that overlapped by two thirds of a card | replaced by a measured footprint, 320×248 and 416×176, and an overlap test (D-145) |
+| `MAP_STAGE_CARD_BUDGET = 4` | Reached: 4 cards placed on the busiest entity once the focus is framed; 36 cards placed across 23 focuses | kept |
+| `MAP_STAGE_CARD_INSET = 24`, `MAP_STAGE_SETTLE_MS = 150` | No clipped card and no card re-placed mid-gesture in any walk | kept |
+| `MAP_OUTLINE_PAGE = 25` | 25 rows listed, 61 counted as unlisted, **four presses** of *List more* to reach all 86, every row in the DOM | kept |
+| The 44 px touch minimum | Three classes of control were **smaller** on a coarse pointer: the label around the transcript checkbox (30 px), every link inside a card (23 px) and the skip link (41 px) | kept, and the rule widened to cover them |
+| The 48rem breakpoint | Stage 1216×630 at 1440×900, 358×360 at 390×844, never below 240 px down to a 320 px viewport | kept |
+| — | WebGL contexts over three filter changes and five route round trips: **12 created, 11 lost, 1 live**, one canvas | invariant 10 holds |
+| — | The eased camera is mid-flight at 68 ms and 142 ms and final by 230 ms; with `prefers-reduced-motion: reduce` the **first frame after the press is already final** | D-144 confirmed on a real canvas |
+| — | The stage begins **790 px down** a 1440×900 document, so about a sixth of the picture is above the fold on load and none of it at 390×844 | recorded, not changed — see finding 8 |
+
+### The anti-pogo baseline, and the threshold it sets
+
+The task asked for the click/backtrack cost of the circle-and-label experience
+to be recorded *before* a UX threshold was set. It is this, and it is worse than
+the phase assumed.
+
+- At the framed overview, **8 of 86 marks carry any text at all**, and a
+  drawn label is cut at 42 code points (`MAP_LABEL_CHARS.normal`).
+- **34 of the 86 statements share a prefix with another node at every budget
+  we could choose**, including the full stored text: 17 pairs are the *same
+  statement to the character* — a source-grounded knowledge unit and the
+  derived concept that expresses it, joined by `expresses_concept`. For those
+  pairs the picture separates them by node shape (both `derived` in one case,
+  so not even that) and by hue for `kind`, and by nothing else.
+- So from the canvas alone, identifying a mark costs **one selection per
+  candidate** — a click and a backtrack each — and for those 17 pairs no
+  number of clicks on the *picture* distinguishes them; only the record does.
+
+Against that, the shipped route: a related row carries the neighbour's verbatim
+statement, its relation and direction in words, its provenance as a glyph and a
+badge, its kind and its identifier, **before anything is opened** — zero clicks
+to decide, one to open, and Back returns to the prior focus with the Map never
+unmounted. The threshold this walk sets is therefore about the row rather than
+the card: *a neighbour must be describable from what is on screen before it is
+opened*, and the semantic related list is what guarantees it. The stage's cards
+are a second view of those rows and are bounded; on this graph they carry the
+focused statement plus one to four neighbours, and every neighbour without one
+is counted with a reason.
+
+### Findings
+
+Nine. Four were defects, two were claims that a browser falsified, one was a
+piece of reasoning that turned out to be backwards, and two are about the
+harness itself.
+
+1. **A renderer that refused its container leaked a WebGL context, every
+   time.** Sigma appends its canvases and takes their context in its
+   constructor and validates the container *afterwards*, so a zero-sized stage
+   throws with a live context already attached — and `MapSession` never
+   receives the object whose `kill()` would release it. Measured before the
+   fix: seven refused attaches, **seven contexts created, none lost, seven
+   canvases piling up in the stage**, and leaving the route released none of
+   them. Browsers cap live contexts at around sixteen and answer an excess by
+   losing the *oldest*, so the symptom is a different Map going blank later.
+   This is ADR 0005 invariant 10, and the jsdom suites could not see it because
+   a fake factory throws without having created anything. `MapSession.attach`
+   now empties the container and loses the context explicitly on a refusal
+   (D-147), and the browser gate counts contexts so the invariant is observed
+   rather than assumed.
+2. **Selection and the camera had never spoken.** The camera framed the whole
+   86-node graph, so a focus sat wherever the layout had put it and its whole
+   neighbourhood spanned about a tenth of the stage — which meant *every*
+   neighbour card was refused for covering the focused one, on every focus in a
+   twenty-entity sample. Worse, `Zoom in` zooms about the **middle of the
+   stage** rather than about the selection, so a reader who selected a node and
+   pressed it twice pushed the selection off the stage entirely while the route
+   went on saying, correctly, that the graph was drawn. Two halves that both
+   knew where the focus was, with nothing carrying it between them — the same
+   shape as D-069. `MapSession.frame` and D-146 are the fix.
+3. **The density policy's grid answered the wrong question.** A 240 px square
+   cell asks "is another card in this cell?"; the question is "would this card
+   cover one?" — and two anchors either side of a cell boundary can be a pixel
+   apart while two in one cell can be 300 apart, so the grid managed to do both
+   halves of its job wrong at once (7 of 8 refused, and two placed cards
+   overlapping). Replaced by the card's measured footprint. Then a second
+   finding surfaced *inside* the fix: a card opens towards the middle of the
+   stage so it will not be clipped, so two marks either side of the middle grow
+   towards each other and meet. The policy now tries all four orientations in a
+   stated order before refusing, and the reserved rectangle includes the mark
+   itself, because two cards pointing into the same four pixels from opposite
+   directions is the same confusion by another route (D-145).
+4. **Escape could not dismiss a Peek opened from the canvas.** `T-208` moved
+   the one Peek to the route and added Escape "from anywhere on the route" as a
+   React `onKeyDown` on the route's own element — which only ever sees a key
+   pressed while focus is *inside* it. A canvas takes no focus, so the one
+   surface with no other way to dismiss a Peek was the one surface where the
+   key did nothing. The route now listens on `window`, and only while a Peek is
+   open (D-148).
+5. **"1 hops from the focus."** Also "1 related entities", and "1 returned
+   relations name an endpoint the response did not return" — three plural
+   errors in one sentence about one real neighbourhood, on a route whose entire
+   argument is that the words on screen are the record's own. `interpolate`
+   grew one plural form, `{count|singular|plural}`, used by the Map's count
+   messages in English and by nothing in Persian, which keeps the singular
+   after a numeral (D-149).
+6. **`allowInvalidContainer: false` refuses only an *exactly* zero
+   dimension.** A stage two pixels high is accepted, drawn into, and reported
+   as a picture — with `role="img"` and "Knowledge graph, drawn". So D-144's
+   reasoning was backwards: the stylesheet's minimum on the stage is
+   load-bearing not because a collapsed container becomes a stated refusal, but
+   because it does *not*. The floor is what stands between a small window and
+   an unreadable two-pixel graph the route calls drawn (D-147), and
+   `tests/test_ui_scaffold.py` now fails if the minimum disappears.
+7. **The beta's `GL_INVALID_OPERATION` noise is unchanged.** Chrome still logs
+   `glDrawArraysInstanced: Active draw buffers with missing fragment shader
+   outputs` a few times per context while drawing everything correctly, exactly
+   as `T-202` recorded (finding 2). The gate names it and ignores it, and
+   fails on any *other* console error, page error or failed request; the only
+   404 in a clean walk is `/favicon.ico`, which this project does not define.
+8. **The picture is the last thing on the route to reach the screen.** The
+   counts come before the canvas by decision (D-129), and with the title, the
+   filters, the counts panel, the camera controls and the search rail above it
+   the stage starts 790 px down a 1440×900 document — and below the fold
+   entirely on a phone. Nothing was changed for it: the order is deliberate,
+   the DOM path is the primary one (D-142), and the alternative is to weaken
+   the one description that survives when the picture cannot be read. It is
+   recorded because it is the first thing to reconsider if the Map ever becomes
+   the route people arrive on.
+9. **Two findings about the harness, both worth keeping.** A Peek is React
+   state, so it appears a render *after* the pointer move that opened it and
+   stays open until the pointer leaves the mark: a sweep that reads the DOM
+   immediately after each move reports the hit one probe late, which passes a
+   hover assertion and then clicks empty canvas. And a Peek is rendered below
+   the stage, so opening one changes the document's height and a scrolled
+   document has its scroll clamped — which moves the stage under a coordinate
+   measured before any of that. `browser/gate.ts` confirms a mark before
+   returning it and re-measures the stage with the Peek open, and says why.
+
+### What the walk hands to Phase 3
+
+- **The gate is the regression net, and CI runs it.** `npm run browser` walks
+  the committed fixtures with both servers started by the config;
+  `X2KNWLDG_BROWSER_PROJECT_ROOT` points it at a real project, which is how the
+  measurements above were taken. `npm run typecheck:browser` type-checks the
+  gate itself, because Playwright transpiles specs without checking them.
+- **`web/browser/` imports nothing from `web/src`, on purpose.** A spec that
+  imported `MAP_STAGE_CARD_BOX` would agree with whatever the module says,
+  which is the one thing a gate must not do. `tests/test_ui_scaffold.py` fails
+  if that changes, and fails if the harness leaks into the application.
+- **Three numbers are still starting values rather than measurements**, because
+  the real library gives them nothing to bite on: `PREVIEW_LIMIT` (240
+  characters in a rail), `MAP_STAGE_PRIMARY_CHARS`/`MAP_STAGE_NEIGHBOUR_CHARS`
+  and `NEIGHBOURHOOD_LIMIT`. A library with a fan-out larger than eight or a
+  statement longer than 121 characters is where they will first be wrong.
+- **The framing margin is calibrated, not derived.** `MAP_FOCUS_MARGIN = 1.2`
+  is the tightest framing at which no neighbour's mark falls outside the card
+  inset, measured over 23 focuses; the relation between a camera ratio and
+  pixels is Sigma's own, so a renderer upgrade should re-run that table
+  (`mapSession.ts` states it).
+- **A pixel golden is still refused** (`PROJECT_MANAGEMENT.md` `T-209`). Where
+  the walk needed to compare two pictures it compares them *within one
+  browser* — an overview against the same overview after *Reset the view* — and
+  determinism across a reload is asserted on the **card anchors**, which are
+  the renderer's own answer for where each mark is, rather than on pixels that
+  differ between a Metal driver and a software rasteriser for reasons that are
+  not defects.
+
 ## References
 
+- Playwright: <https://playwright.dev/docs/intro>
+- Playwright visual comparisons, and why this gate does not use one:
+  <https://playwright.dev/docs/test-snapshots>
 - Sigma v4 beta site: <https://v4.sigmajs.org/>
 - Sigma v4 quickstart (`4.0.0-beta.5` at decision time):
   <https://v4.sigmajs.org/get-started/quickstart/>

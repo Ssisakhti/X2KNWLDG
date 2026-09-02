@@ -295,6 +295,31 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, snapshotId, pages, drawnFocus, neighbourhood]);
 
+  /*
+   * Bring a new focus onto the stage (`T-209`, D-146).
+   *
+   * The walk found selection and the camera never speaking: the camera framed
+   * the whole graph, so a focus sat wherever the layout had put it -- and
+   * `Zoom in` zooms about the middle of the stage, so a reader who selected a
+   * node and zoomed pushed it off screen altogether. Every neighbour card was
+   * refused for covering the focused one, because a neighbourhood at
+   * whole-graph scale is about a tenth of the stage wide.
+   *
+   * Keyed on the *drawn* focus and on the graph the renderer holds, so this
+   * fires once per selection: a re-render moves nothing, and a focus named by
+   * the URL before the first page arrives is framed when the picture appears.
+   * The neighbours come from the drawn graph rather than from the bounded
+   * neighbourhood, which arrives later and would move the camera a second
+   * time under a reader who had started reading.
+   */
+  useEffect(() => {
+    if (drawnFocus === null || graph === null) return;
+    session.current?.frame(drawnFocus, graph.neighbors(drawnFocus));
+    // The graph is mutated in place (D-118), so the page count is the
+    // dependency that says "the picture changed", not the graph's identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawnFocus, holdingId, pages]);
+
   useEffect(() => {
     const changed = mapStyle.setView({
       selectedNode: drawnFocus,
@@ -412,6 +437,40 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     [setFilters],
   );
 
+  /*
+   * Escape dismisses the Peek from anywhere on the route (`T-208`, corrected
+   * by `T-209`).
+   *
+   * One reader of the key for the whole route rather than one per panel: a
+   * Peek can be opened from the rail, the outline, a related row or a mark on
+   * the canvas, and the keyboard has no "leave" event to end any of them.
+   * (`MapSearchRail` keeps its own, so the panel is still self-contained when
+   * it is rendered alone -- calling `peek.close()` twice closes nothing
+   * twice.)
+   *
+   * On `window`, not on the route's own element, and that is `T-209`'s
+   * correction: a React `onKeyDown` on this `<div>` only ever sees a key
+   * pressed while focus is *inside* it, and a canvas takes no focus. So a
+   * pointer on a mark opened a Peek that Escape could not close -- the one
+   * surface with no other way to dismiss it -- while the same key worked
+   * everywhere a control had been tabbed to. Measured in Chrome on the real
+   * route; jsdom could not have shown it, because a test fires the event at
+   * the element it chooses.
+   *
+   * Listening only while a Peek is open, so this route adds no global key
+   * handler to a page that has nothing to dismiss.
+   */
+  const closePeek = peek.close;
+  const peeking = peek.peek !== null;
+  useEffect(() => {
+    if (!peeking) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePeek();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [peeking, closePeek]);
+
   const zoomIn = useCallback(() => session.current?.zoomIn(), []);
   const zoomOut = useCallback(() => session.current?.zoomOut(), []);
   const resetView = useCallback(() => session.current?.resetView(), []);
@@ -464,12 +523,6 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   }, [drawing, focus.focus, drawnFocus, neighbourhood, stageBox, placedAt, snapshotId, pages]);
 
   return (
-    // Escape dismisses the Peek anywhere on the Map (`T-208`). One handler for
-    // the route rather than one per panel: a Peek can be opened from the
-    // rail, the outline, a related row or a mark on the canvas, and the
-    // keyboard has no "leave" event to end any of them. (`MapSearchRail`
-    // keeps its own, so the panel is still self-contained when it is rendered
-    // alone -- calling `peek.close()` twice closes nothing twice.)
     <div
       className="stack map"
       // The two readings, as one attribute each: the whole route's state in a
@@ -477,9 +530,6 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
       // renders it, and `T-209`'s seam for the same states in a browser.
       data-map-reading={reading.kind}
       data-map-canvas={picture.kind}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") peek.close();
-      }}
     >
       <h1>{t("map.title")}</h1>
       <p className="muted">{t("map.subtitle")}</p>

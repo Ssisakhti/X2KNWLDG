@@ -46,11 +46,13 @@ import { Bidi, ExternalLink, Missing, Mono } from "./primitives";
 /**
  * Characters of a statement shown in a list before it is visibly cut.
  *
- * A number chosen to fit a rail without hiding the sentence's subject, not a
- * measured threshold -- `T-209` walks the real route and is where a measured
- * one would come from. It is exported so `T-207`'s on-stage cards can shorten
- * to the *same* policy instead of writing a second one (§8.6: one card-content
- * formatter).
+ * A number chosen to fit a rail without hiding the sentence's subject, and
+ * still not a measured threshold: `T-209` walked the real route and this
+ * library gave it nothing to bite on -- the longest statement it holds is 121
+ * characters, so the cut almost never fires here. A library with longer
+ * statements is where this number will first be wrong. It is exported so
+ * `T-207`'s on-stage cards can shorten to the *same* policy instead of writing
+ * a second one (§8.6: one card-content formatter).
  */
 export const PREVIEW_LIMIT = 240;
 

@@ -136,7 +136,7 @@ describe("MapSearchRail", () => {
     // The local answer needs no request and is already true.
     expect(screen.getByText("Coverage is audited window by window.")).not.toBeNull();
     expect(document.querySelector("[data-map-loaded-matches]")?.textContent).toContain(
-      "1 of 1 matching nodes, out of 3 loaded",
+      "1 of 1 matching node, out of 3 loaded",
     );
 
     await waitFor(() =>

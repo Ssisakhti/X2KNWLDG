@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map under way — `T-202`–`T-208` complete: the Map has a renderer, a graph, an address, a visual grammar, a search rail, a bounded card constellation, a complete related list, Quick Read, and now a stated state for everything it cannot show, a DOM companion listing everything it draws, foldable panels, touch targets, reduced motion and the Persian pass. Only `T-209` (the real-browser phase gate) remains
+**Current stage:** Phases 0, 1 and 2 complete — the Knowledge Map has a renderer, a graph, an address, a visual grammar, a search rail, a bounded card constellation, a complete related list, Quick Read, a stated state for everything it cannot show, a DOM companion listing everything it draws, foldable panels, touch targets, reduced motion and the Persian pass; and `T-209` has **opened it in a browser** — 27 automated specs over the built bundle and the real API, green on the real 86/118 library and on the committed fixtures, which is where four defects no jsdom test could reach were found and fixed (D-145–D-149). Next: Phase 3 (Canvas), which needs its own decomposition
 **Last updated:** 2026-09-02
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -1213,7 +1213,14 @@ An agent must not guess the answers to these if the decision would cause a notic
 
 ### Planned / not started
 
-- [ ] `T-209`: the real-browser anti-pogo phase gate over everything `T-202`–`T-208` built
+- [x] Phase 2 / T-209: the real-browser anti-pogo phase gate over everything `T-202`–`T-208`
+  built — [`web/browser/`](../web/browser/gate.ts), 27 specs over the production bundle and
+  the real API in Google Chrome on the target machine, plus the same walk on a software
+  rasteriser; the WebGL context leak on a refused container, the camera that had never been
+  told about selection, the density grid that answered the wrong question and the Escape key
+  the canvas could not reach (D-145–D-149)
+- [x] **Phase 2 complete** — every clause of the Phase 2 gate in `docs/PROJECT_MANAGEMENT.md`
+  §5 is met, and met in a browser
 - [ ] Canvas
 - [ ] Pen annotations
 - [ ] Adapters for future sources
@@ -1222,33 +1229,35 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-The next execution session claims **`T-209`**, the last task in the approved `T-201`
-Knowledge Map epic. Every *implementation* task in it is done: `T-202` chose the renderer,
-`T-203` built the data underneath it, `T-204` put the Map on screen, `T-205` gave it a
-visual grammar, `T-206` gave it an address and a search rail, `T-207` gave it the reading,
-and `T-208` made all of it reachable without a pointer, without WebGL2 and in Persian.
+**Phase 2 is finished.** `T-209` opened the Map in a browser, which is what the phase had
+never had: 27 specs in [`web/browser/`](../web/browser/gate.ts) walk the built bundle over
+the real API in Google Chrome on the target machine — the journey, the seven states, the
+keyboard with and without a renderer, a coarse pointer, Persian, reduced motion, the WebGL
+context count and the anti-pogo baseline — and pass again on a software rasteriser and on
+the committed fixtures. Four defects that only a browser could show were found and fixed
+(D-145–D-149; ADR 0005 § *Walk result* records them and the measurements).
 
-What is missing is that **nobody has opened it in a browser.**
+**The next execution session opens Phase 3 (Canvas), and its first act is to decompose it**,
+the way `T-201` was decomposed before anything was built. Nothing in Phase 3 is claimable
+yet. Before writing any of it:
 
-1. Read [ADR 0005](adr/0005-knowledge-map-client.md) — including *Gate result*, *Projection
-   result*, *Shell result*, *Approved browsing experience*, *Constellation result* and
-   *Accessibility result* — `PROJECT_MANAGEMENT.md` §5 Phase 2, §8.6, §9 (R20) and §11,
-   D-059, and D-117–D-144.
-2. **`T-209`** exercises the real thing: the direct link, the filters, progressive loading,
-   search → preview → focus → compare related cards → Quick Read → prior focus → Reader, and
-   the states — empty, truncated, refused, WebGL-unavailable, container refused — plus
-   teardown. Assert behaviour and accessible state, never a cross-platform pixel golden.
-3. Three claims are asserted today only in jsdom, which is the wrong witness for all three:
-   what Sigma's camera does with `{ duration: 0 }`; whether the narrow-screen stage keeps a
-   real height (`allowInvalidContainer: false` makes it load-bearing); and whether a real
-   screen reader and a real keyboard walk the DOM path the suite asserts by role and
-   attribute.
-4. Every number in this Map was chosen by argument and measured by nobody: the declared
-   Sigma primitives, the halo and the four label numbers (`T-205`); the card budget, cell
-   size, stage inset and settle delay (`T-207`); and the outline's page of 25, the 44 px
-   touch minimum and the 48rem breakpoint (`T-208`). Record the current experience as a
-   click/backtrack baseline *before* setting a UX threshold, then walk the real sample and
-   confirm the user can say why a neighbour is worth opening before opening it.
+1. Read §6.4 and §13 of this document for what a board is, §16 Phase 3 for the deliverables,
+   and `docs/PROJECT_MANAGEMENT.md` §5 for the phase gate the Map has just cleared — the
+   Canvas inherits the Map's boundaries rather than restating them.
+2. Take the transfer seriously as a *contract* question first. A board that stores a
+   knowledge unit stores an **identity**, never a copy of the statement: the Map's whole
+   argument is that what is on screen is the record's own text, and the first Canvas that
+   writes its own copy of a statement breaks D-131 permanently. The board schema and its
+   write API do not exist yet, and inventing them in a component is the failure to avoid.
+3. Reuse, do not reimplement. `PROJECT_MANAGEMENT.md` §10 and §11 list what already exists
+   and what must not grow a second copy: one graph store, one selection grammar, one style
+   table, one card-content formatter, one renderer lifecycle, one disclosure, one reader of
+   the reduced-motion query. A Canvas is a fourth caller of the selection identity, not a
+   second one.
+4. Extend the browser gate rather than starting a second harness. It is
+   `web/browser/`, it costs one `npm run browser`, and it is the only witness this project
+   has for layout, focus order, pointer behaviour and WebGL lifetime. The pattern to copy is
+   that no spec holds a number the server can state.
 
 ## 24. Research references
 
@@ -1333,6 +1342,21 @@ What is missing is that **nobody has opened it in a browser.**
   history while Peek does not; no decorative metric or inferred grouping is introduced.
 - `T-205`–`T-209`, Phase 2 acceptance and §23 were refined without widening `T-204`, the
   frozen API, Phase 3 Canvas or canonical output.
+
+### 2026-09-03 — the Map, opened in a browser
+
+- `T-209` completed, and with it Phase 2. The gate is `web/browser/` on
+  `@playwright/test@1.62.1`: the built bundle, the real API, Google Chrome 152 on the target
+  machine through `ANGLE Metal`, and the same 27 specs green on Playwright's bundled Chromium
+  over SwiftShader and on the committed fixtures.
+- D-145 (the card policy tests measured footprints for overlap in four orientations, and the
+  forced label budget is 4), D-146 (a new focus is framed with its drawn neighbours),
+  D-147 (a refused container releases its WebGL context, and the stage's CSS minimum is
+  load-bearing because the renderer accepts anything non-zero), D-148 (Escape is read on
+  `window`) and D-149 (one plural form in `interpolate`) recorded from what the walk found.
+- ADR 0005 § *Walk result* records where it ran, what it drew, the measurements that replaced
+  the numbers chosen by argument, the anti-pogo baseline and the nine findings.
+- §22 and §23 updated: Phase 3 is next and its first act is to decompose it.
 
 ### 2026-08-31 — initial version
 

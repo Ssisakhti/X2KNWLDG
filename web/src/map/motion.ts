@@ -15,9 +15,11 @@
  * **`undefined` rather than a number of our own.** When motion is welcome
  * this returns nothing at all, which leaves the renderer's default duration
  * in place. Inventing a number here would be a fourth Map constant chosen by
- * argument and measured by nobody (`T-209` owns the ones that already exist),
- * and it would silently override whatever the renderer decides is right for
- * its own gesture.
+ * argument and measured by nobody, and it would silently override whatever the
+ * renderer decides is right for its own gesture. `T-209` measured what the
+ * renderer does with each answer, in frames on a real canvas: an eased zoom is
+ * still mid-flight at 142 ms and final by 230, while `{ duration: 0 }` is
+ * final on the first frame after the press.
  *
  * **Read at the call, not at module load.** The preference can change while
  * the page is open -- a system setting, or a browser devtools override -- and

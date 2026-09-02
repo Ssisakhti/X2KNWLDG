@@ -76,7 +76,14 @@ describe("the catalogues", () => {
   });
 
   it("keep every placeholder that English states", () => {
-    const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+    // Both forms: `{name}` prints the value and `{name|one|other}` agrees with
+    // it (`T-209`), and a message that referred to a parameter only through
+    // the plural form would otherwise slip past this guard. Names are made
+    // unique, because English may well mention one count three times in a
+    // sentence where Persian mentions it once -- Persian keeps the singular
+    // after a numeral, so its catalogue carries no plural form at all.
+    const placeholders = (text: string) =>
+      [...new Set([...text.matchAll(/\{(\w+)(?:\|[^{}|]*\|[^{}|]*)?\}/g)].map((m) => m[1]))].sort();
     for (const [key, english] of Object.entries(en)) {
       expect({ key, names: placeholders(fa[key as keyof typeof en]) }).toEqual({
         key,
@@ -93,6 +100,45 @@ describe("interpolation", () => {
 
   it("leaves an unknown placeholder alone rather than blanking it", () => {
     expect(interpolate("{missing} here", {})).toBe("{missing} here");
+  });
+
+  describe("the plural form (`T-209`)", () => {
+    // The browser walk read "1 hops from the focus" and "1 related entities"
+    // off the real route, in one sentence about one real neighbourhood.
+    const hops = "{count} {count|hop|hops} from the focus";
+
+    it("agrees with a count of one", () => {
+      expect(interpolate(hops, { count: 1 })).toBe("1 hop from the focus");
+    });
+
+    it("agrees with every other count, zero included", () => {
+      expect(interpolate(hops, { count: 2 })).toBe("2 hops from the focus");
+      expect(interpolate(hops, { count: 0 })).toBe("0 hops from the focus");
+      expect(interpolate(hops, { count: 11 })).toBe("11 hops from the focus");
+    });
+
+    it("reads a numeric string the same way as a number", () => {
+      expect(interpolate(hops, { count: "1" })).toBe("1 hop from the focus");
+    });
+
+    it("agrees several times in one sentence, from one parameter", () => {
+      const message = "{count} related {count|entity has|entities have} no card";
+      expect(interpolate(message, { count: 1 })).toBe("1 related entity has no card");
+      expect(interpolate(message, { count: 7 })).toBe("7 related entities have no card");
+    });
+
+    it("leaves a form alone when the parameter is missing", () => {
+      // The same rule as the bare placeholder: an unsubstituted message is a
+      // visible defect, and a silently chosen plural is not.
+      expect(interpolate("{count|hop|hops}", {})).toBe("{count|hop|hops}");
+    });
+
+    it("takes an empty alternative literally", () => {
+      // "1 file" / "2 files" is the common shape, and the singular side of it
+      // is the empty string rather than a word.
+      expect(interpolate("{count} file{count||s}", { count: 1 })).toBe("1 file");
+      expect(interpolate("{count} file{count||s}", { count: 2 })).toBe("2 files");
+    });
   });
 
   it("translates through the catalogue of the requested locale", () => {

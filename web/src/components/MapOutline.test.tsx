@@ -83,7 +83,7 @@ describe("the Map's outline", () => {
       screen.getByText("A statement the transcript actually makes, numbered KU-000001."),
     ).toBeDefined();
     // Both rows: one edge is drawn, and it is drawn at each of its ends.
-    expect(screen.getAllByText("1 relations drawn at this mark")).toHaveLength(2);
+    expect(screen.getAllByText("1 relation drawn at this mark")).toHaveLength(2);
   });
 
   it("selects through the one selection identity, from a real button", () => {

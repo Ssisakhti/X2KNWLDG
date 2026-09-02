@@ -173,13 +173,13 @@ export const en = {
 
   "map.search.title": "Search this Map",
   "map.search.noQuery": "nothing searched yet",
-  "map.search.matched": "{count} loaded nodes match",
+  "map.search.matched": "{count} loaded {count|node|nodes} {count|matches|match}",
   "map.search.hint":
     "Loaded nodes are matched here, in the browser. The index is searched over the API.",
   "map.search.transcriptNote":
     "Transcript captions are not entities in v1, so they can be read but never focused.",
   "map.search.loaded.title": "On the Map",
-  "map.search.loaded.count": "{shown} of {matched} matching nodes, out of {searched} loaded.",
+  "map.search.loaded.count": "{shown} of {matched} matching {matched|node|nodes}, out of {searched} loaded.",
   "map.search.loaded.empty": "No node loaded on the Map matches this query.",
   "map.search.loaded.none": "The Map has loaded no nodes yet, so there is nothing to match.",
   "map.search.index.title": "In the index",
@@ -203,13 +203,13 @@ export const en = {
   "map.peek.close": "Close the peek",
 
   "map.outline.title": "What this Map holds",
-  "map.outline.summary": "{listed} of {loaded} loaded nodes listed",
+  "map.outline.summary": "{listed} of {loaded} loaded {loaded|node|nodes} listed",
   "map.outline.hint":
     "Every entity the Map has drawn, in the order the server returned it — never by importance. Move to a row to preview it, focus it to read it, or open its source in the Reader. None of that needs a pointer or a drawn graph.",
   "map.outline.none":
     "No node is loaded, so there is nothing to list. What the Map has read is stated above.",
-  "map.outline.edges": "{count} relations drawn at this mark",
-  "map.outline.unlisted": "{count} more loaded nodes are not on this page of the list.",
+  "map.outline.edges": "{count} {count|relation|relations} drawn at this mark",
+  "map.outline.unlisted": "{count} more loaded {count|node is|nodes are} not on this page of the list.",
   "map.outline.more": "List more nodes",
 
   "map.legend.title": "What the marks mean",
@@ -260,14 +260,14 @@ export const en = {
   "map.stage.primary": "Focused",
   "map.stage.neighbour": "Related",
   "map.stage.omitted":
-    "{count} related entities have no card on the stage. Every one of them is listed below.",
+    "{count} related {count|entity has|entities have} no card on the stage. Every one of them is listed below.",
   "map.stage.omitted.notLoaded":
-    "{count} are not drawn on this Map yet, so there is no mark to anchor a card to.",
-  "map.stage.omitted.offStage": "{count} are outside the visible stage at this camera position.",
+    "{count} {count|is|are} not drawn on this Map yet, so there is no mark to anchor a card to.",
+  "map.stage.omitted.offStage": "{count} {count|is|are} outside the visible stage at this camera position.",
   "map.stage.omitted.crowded":
-    "{count} would have overlapped a card already placed, so the card was not drawn.",
+    "{count} would have covered a card already placed, so {count|its card|their cards} {count|was|were} not drawn.",
   "map.stage.omitted.budget":
-    "{count} are beyond the on-stage card budget, which exists so the graph stays visible.",
+    "{count} {count|is|are} beyond the on-stage card budget, which exists so the graph stays visible.",
 
   "map.quickRead.title": "Quick Read",
   "map.quickRead.hint":
@@ -293,24 +293,24 @@ export const en = {
     "This entity records no time, so the Reader opens at the start of the source.",
 
   "map.related.title": "Related knowledge",
-  "map.related.summary": "{count} related entities",
+  "map.related.summary": "{count} related {count|entity|entities}",
   "map.related.hint":
     "Every entity the bounded neighbourhood returned, listed in full. The stage carries only the cards that fit.",
   "map.related.noFocus": "Nothing is focused, so there is no neighbourhood to list.",
   "map.related.depth": "Depth",
   "map.related.depthNote": "Hops from the focus. The server refuses more than three.",
-  "map.related.count": "{count} related entities within {depth} hops, over {edges} returned relations.",
+  "map.related.count": "{count} related {count|entity|entities} within {depth} {depth|hop|hops}, over {edges} returned {edges|relation|relations}.",
   "map.related.none": "The index records no relation for this entity at this depth.",
   "map.related.truncated":
     "The server cut the walk short at its own limit, so more neighbours exist than were returned.",
-  "map.related.hops": "{count} hops from the focus",
+  "map.related.hops": "{count} {count|hop|hops} from the focus",
   "map.related.viaPath":
-    "Reached through another entity {hops} hops out; it states no relation to the focus itself.",
+    "Reached through another entity {hops} {hops|hop|hops} out; it states no relation to the focus itself.",
   "map.related.onStage": "its card is on the stage",
   "map.related.unjoinable":
-    "{count} returned relations name an endpoint the response did not return, so they are counted rather than drawn.",
+    "{count} returned {count|relation names|relations name} an endpoint the response did not return, so {count|it is|they are} counted rather than drawn.",
   "map.related.unreachable":
-    "{count} returned entities have no path to the focus over the relations this response returned.",
+    "{count} returned {count|entity has|entities have} no path to the focus over the relations this response returned.",
 
   "reader.tab.overview": "Overview",
   "reader.tab.transcript": "Transcript",

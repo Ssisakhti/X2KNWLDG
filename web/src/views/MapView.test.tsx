@@ -48,7 +48,13 @@ import { MapView } from "./MapView";
  * renderer boundary now has event and coordinate adapters and three private
  * copies of a fake would be three chances to diverge from it.
  */
-function recorder(behaviour: { failOnCreate?: boolean; points?: Record<string, MapPoint> } = {}) {
+function recorder(
+  behaviour: {
+    failOnCreate?: boolean;
+    points?: Record<string, MapPoint>;
+    display?: Record<string, MapPoint>;
+  } = {},
+) {
   return fakeRenderers(behaviour);
 }
 
@@ -444,11 +450,17 @@ describe("the Map's canvas and its constellation", () => {
   it("places the bounded card constellation over the marks, as presentation only", async () => {
     sizeTheStage();
     vi.stubGlobal("fetch", library());
+    // Three marks whose cards clear one another on a 900x600 stage, which is
+    // a real constraint rather than a fixture detail: the shipped cards are
+    // 416 and 320 px wide (`T-209`, D-145), a card reaches from its mark to
+    // the far edge of its box, and the policy refuses one that would cover
+    // another. Two of these are on the same side, far apart down the stage;
+    // the third opens the other way from the opposite corner.
     const harness = recorder({
       points: {
-        [KU1]: { x: 450, y: 300 },
-        [KU2]: { x: 120, y: 120 },
-        [C1]: { x: 780, y: 480 },
+        [KU1]: { x: 60, y: 60 },
+        [KU2]: { x: 60, y: 560 },
+        [C1]: { x: 860, y: 60 },
       },
     });
     renderApp(<MapView createRenderer={harness.factory} />, { route: `/map?focus=${KU1}` });
@@ -473,10 +485,78 @@ describe("the Map's canvas and its constellation", () => {
     ]);
     // The primary card is anchored where the renderer says its mark is.
     const primary = document.querySelector("[data-map-card='youtube:pqlWNihgdjI:KU-000001']");
-    expect((primary as HTMLElement).style.left).toBe("450px");
-    expect((primary as HTMLElement).style.top).toBe("300px");
+    expect((primary as HTMLElement).style.left).toBe("60px");
+    expect((primary as HTMLElement).style.top).toBe("60px");
     // And the primary card shortens the statement visibly rather than silently.
     expect(primary?.querySelector("[data-truncated]")).not.toBeNull();
+  });
+
+  it("brings a new focus and its drawn neighbours onto the stage (`T-209`, D-146)", async () => {
+    // Selection and the camera used to be two halves that never spoke: the
+    // camera framed the whole graph, so a focus sat wherever the layout had
+    // put it and its whole neighbourhood was a tenth of the stage wide.
+    sizeTheStage();
+    vi.stubGlobal("fetch", library());
+    const harness = recorder({
+      display: {
+        [KU1]: { x: 0.1, y: 0.1 },
+        [KU2]: { x: 0.5, y: 0.1 },
+        [C1]: { x: 0.5, y: 0.3 },
+      },
+    });
+    renderApp(<MapView createRenderer={harness.factory} />, { route: `/map?focus=${KU1}` });
+    await drawn();
+
+    await waitFor(() => expect(harness.latest()?.framings.length).toBe(1));
+    const target = harness.latest()?.framings[0];
+    // The middle of the focus *and its drawn neighbours*, which is what makes
+    // the neighbourhood readable rather than the focus merely centred.
+    expect(target?.x).toBeCloseTo(0.3);
+    expect(target?.y).toBeCloseTo(0.2);
+    expect(target?.ratio).toBeGreaterThan(0);
+
+    // And once per selection. The bounded neighbourhood arrives *after* this
+    // -- it is a second request -- and moving the camera again when it lands
+    // would pull the picture out from under a reader who had started reading.
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-map-related-entity]").length).toBeGreaterThan(0),
+    );
+    expect(harness.latest()?.framings).toHaveLength(1);
+  });
+
+  it("frames nothing for a focus these pages have not loaded", async () => {
+    // The URL may name an entity this filter never reached. There is no mark
+    // to centre, and pointing the camera at where it would have been is a
+    // picture of a focus that does not exist.
+    sizeTheStage();
+    vi.stubGlobal("fetch", library());
+    const harness = recorder({ display: { [KU1]: { x: 0.2, y: 0.2 } } });
+    renderApp(<MapView createRenderer={harness.factory} />, {
+      route: "/map?focus=youtube:pqlWNihgdjI:KU-999999",
+    });
+    await drawn();
+    await waitFor(() => expect(document.querySelector("[data-map-nodes]")).not.toBeNull());
+    expect(harness.latest()?.framings).toHaveLength(0);
+  });
+
+  it("closes the Peek on Escape even when nothing on the route has focus", async () => {
+    // `T-209`'s correction to `T-208`. The route used to read the key from a
+    // React `onKeyDown` on its own element, which only sees a key pressed
+    // while focus is *inside* it -- and a canvas takes no focus, so a Peek
+    // opened by a pointer on a mark was the one Peek Escape could not close.
+    // The key is dispatched at the document here, which is where a browser
+    // sends it when nothing is focused.
+    vi.stubGlobal("fetch", library());
+    const harness = recorder();
+    renderApp(<MapView createRenderer={harness.factory} />, { route: "/map" });
+    await drawn();
+
+    harness.latest()?.fireNode("enterNode", KU2);
+    await waitFor(() => expect(document.querySelector("[data-map-peek]")).not.toBeNull());
+    expect(document.activeElement).toBe(document.body);
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(document.querySelector("[data-map-peek]")).toBeNull());
   });
 
   it("draws no card while the camera is moving, and places them again when it stops", async () => {

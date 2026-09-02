@@ -652,16 +652,25 @@ input {
  *
  * Gated on `pointer: coarse` because that is the condition the rule is about:
  * a mouse is precise and a 44px control row would waste a rail's height for
- * no gain. Every interactive element on the route is covered, including the
- * ones the Map added -- the depth select, the transcript checkbox and the
- * cards' Focus buttons.
+ * no gain.
+ *
+ * `T-209` measured this list in a real browser on a coarse pointer and found
+ * three things it did not cover, all of them things a finger has to hit: the
+ * label that wraps a checkbox (30 px -- the checkbox itself is deliberately
+ * 24 px, so the *label* is the target and it was smaller than the rule
+ * intended), every link inside a card, which is how a card reaches the Reader
+ * (23 px), and the skip link itself (41 px). `min-block-size` alone does not
+ * grow a native checkbox, which is why the label carries the target and why
+ * asserting the rule in jsdom could not have shown any of this: jsdom has no
+ * layout, so every one of these elements measured zero.
  */
 @media (pointer: coarse) {
   .button,
   .tabs__tab,
   summary,
   select,
-  input {
+  input,
+  .shell__skip {
     min-block-size: 2.75rem;
   }
 
@@ -670,9 +679,31 @@ input {
     padding-inline: var(--space-4);
   }
 
+  /*
+   * A checkbox stays its own size -- stretching a native control to 44 px
+   * draws a 44 px box with a 24 px tick in it -- and its label becomes the
+   * target instead, which is what a tap on the words already does.
+   */
   input[type="checkbox"] {
     min-block-size: 1.5rem;
     min-inline-size: 1.5rem;
+  }
+
+  label:has(input[type="checkbox"]) {
+    min-block-size: 2.75rem;
+    align-items: center;
+  }
+
+  /*
+   * A link in a card is a real destination -- "Open the source" is how the
+   * Map's cards reach the Reader -- so it gets the same minimum as the button
+   * beside it. Inline-flex rather than padding, so the extra height is
+   * centred on the text and the row's alignment does not shift.
+   */
+  .card a {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 2.75rem;
   }
 }
 
