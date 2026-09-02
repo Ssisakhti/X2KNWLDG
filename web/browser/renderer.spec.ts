@@ -57,17 +57,26 @@ test.describe("the renderer's lifecycle", () => {
     }
 
     const report = await contextReport(page);
-    // Exactly one alive -- the one on screen -- and every other one lost,
-    // with a `webglcontextlost` event for each, because Sigma's `kill()`
-    // calls `loseContext()` explicitly rather than leaving it to the
-    // collector.
+    // Exactly one alive -- the one on screen -- and every other one lost.
+    // `isContextLost()` is the synchronous truth and is what this asserts.
     expect(report.live).toBe(1);
     expect(report.lost).toBe(report.created - 1);
-    expect(report.lostEvents).toBeGreaterThanOrEqual(report.created - 1);
     // And several were really created: a test that passed because nothing
     // happened would prove nothing.
     expect(report.created).toBeGreaterThan(5);
     await expect(page.locator("[data-map-stage] canvas")).toHaveCount(1);
+
+    // The release is also *observable*, which is the difference between
+    // Sigma calling `loseContext()` and a context left to the collector. It
+    // is polled rather than read: `loseContext()` queues
+    // `webglcontextlost` rather than dispatching it inline, so the count lags
+    // the release by a task or more -- and a run that read it immediately
+    // passed on one machine and failed on another with 6 events for 7 dead
+    // contexts. Waiting for a queued event is not tolerating a flake; not
+    // waiting for it is asserting on a number that was never due yet.
+    await expect
+      .poll(async () => (await contextReport(page)).lostEvents, { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(report.created - 1);
   });
 
   test("releases the context a refused container left behind (D-145)", async ({ page }) => {
@@ -105,11 +114,16 @@ test.describe("the renderer's lifecycle", () => {
     // seven here, the software rasteriser three.
     expect(report.created).toBeGreaterThanOrEqual(2);
     // Nothing alive, because nothing is drawn: every refused attempt released
-    // what it had taken.
+    // what it had taken. `isContextLost()` is synchronous, so this is the
+    // authoritative reading.
     expect(report.live).toBe(0);
-    expect(report.lostEvents).toBeGreaterThanOrEqual(report.created);
+    expect(report.lost).toBe(report.created);
     // And the container is empty rather than holding a stack of dead canvases.
     await expect(page.locator("[data-map-stage] canvas")).toHaveCount(0);
+    // The event, waited for rather than assumed: `loseContext()` queues it.
+    await expect
+      .poll(async () => (await contextReport(page)).lostEvents, { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(report.created);
   });
 });
 
