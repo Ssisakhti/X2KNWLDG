@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-02
-- **Decision ledger:** D-117 … D-120 (`KNOWLEDGE_CANVAS_PLAN.md` §19 and
+- **Decision ledger:** D-117 … D-133 (`KNOWLEDGE_CANVAS_PLAN.md` §19 and
   `PROJECT_MANAGEMENT.md` §6)
 - **Supersedes:** none
 - **Superseded by:** none
@@ -35,6 +35,14 @@ Three boundaries make the frontend choice architectural rather than routine.
    on colour. Putting an HTML component on every node would defeat Sigma's reason for being,
    but leaving selection inside a canvas would make the Map pointer-only and would provide
    no useful semantic description of the graph.
+4. **Topology alone does not answer the user's reading task.** The required journey is to
+   search for knowledge, judge a result before opening it, read the stored statement and
+   evidence, then choose related knowledge with its relation and content already visible.
+   Bare circles force blind clicks; navigating every selection to the Reader discards graph
+   context and creates repeated backtracking. Research on knowledge-graph consumers likewise
+   identifies the limits of node-link diagrams and proposes contextual knowledge cards that
+   preserve discoverability, while information-scent research treats omitted differentiating
+   content as a cause of pogo-sticking.
 
 Sigma requires node positions. Graphology's ForceAtlas2 implementation likewise requires
 non-zero initial `x`/`y` positions and offers a worker. The canvas plan already says a worker
@@ -75,6 +83,27 @@ is introduced only when real data blocks the UI thread, not in anticipation of s
    layout on the real sample. A worker is added only if that measurement or a later real
    dataset shows blocking. No arbitrary performance threshold is recorded before the
    baseline exists.
+8. **Make the Map a progressive content browser.** Its single journey is Search →
+   Preview/Peek → Focus → Quick Read. Search and reading remain inside `#/map`; the Reader is
+   the deliberate destination for the complete source, not the price of understanding every
+   node. *(D-130)*
+9. **Copy content; do not re-author it.** Result, Peek, selected and related cards use the
+   API record verbatim. On-stage previews may visibly truncate; Quick Read exposes the full
+   stored `label`, recorded locator excerpt/time, active relation, derivation, provenance and
+   source before technical identifiers. Missing content stays missing; there is no generated
+   client summary. *(D-131)*
+10. **Use a bounded card constellation over the same WebGL graph.** The stage has one primary
+    selected Knowledge Card, at most one transient Peek, labelled active relations and only
+    the compact neighbour previews that an explicit density policy can place. Sigma's
+    `graphToViewport`/`afterRender` overlay pattern keeps those DOM elements anchored without
+    turning every node into HTML. Every node returned by the bounded neighbourhood remains in
+    the semantic related list, so a viewport budget never becomes silent omission. *(D-132)*
+11. **Preserve exploration history without inventing semantics.** Focus selection pushes the
+    existing `mapLink` grammar, browser Back restores prior focus without leaving Map, and
+    transient Peek writes no history. Radial/region grouping and deterministic ordering may
+    use only relation, direction, vocabulary, provenance, source and identity. No inferred
+    importance, cluster, score or decorative quantitative axis is presented as data.
+    *(D-133)*
 
 ## Alternatives considered
 
@@ -89,6 +118,9 @@ is introduced only when real data blocks the UI thread, not in anticipation of s
 | Put a focusable DOM element over every WebGL node | It duplicates the renderer at graph scale and fights pan/zoom positioning. A bounded results/selection/inspector surface supplies semantics without rebuilding the graph in HTML |
 | Treat the canvas as accessible by assigning one label | A single label describes the existence of a graph, not its selectable entities, relationships or controls, and does not make pointer actions keyboard-operable |
 | Start with a ForceAtlas2 worker | The current graph is 86/118 and no blocking has been measured. Worker lifecycle and bundling are real complexity; the plan requires evidence before paying it |
+| Keep circles plus a side inspector only | The user must still click a node before learning what it contains or why its relation matters. Quick Read solves reading after selection; Preview/Peek and related cards solve informed choice before it |
+| Turn every visible node into a rich card | It collapses at overview density, creates a second DOM renderer and contradicts the measured reason Sigma was selected. The bounded constellation gives the focused subgraph cards while WebGL retains the whole context |
+| Use the supplied radial references as a radar or importance chart | No API field states a radial value or importance score. A visually plausible shape would be an invented claim. The design borrows centre, sectors, labelled paths and restrained regions only where exact fields support them |
 
 ## Consequences
 
@@ -100,6 +132,10 @@ is introduced only when real data blocks the UI thread, not in anticipation of s
   straddling edges have one merge rule.
 - Empty, partial and complete are visible states rather than inferences from a cursor.
 - Pointer, keyboard, reload and Reader navigation share one selection identity.
+- Search results and graph neighbours expose verbatim information scent before selection, and
+  Quick Read exposes the complete stored statement/evidence without a route change.
+- Focus history preserves orientation while the full WebGL graph remains the context behind a
+  bounded number of readable cards.
 - The existing API and canonical files remain unchanged.
 
 **Negative / accepted costs**
@@ -110,6 +146,8 @@ is introduced only when real data blocks the UI thread, not in anticipation of s
   handing one response directly to Sigma.
 - The Map has both a visual renderer and a semantic DOM control surface. They must be tested
   to select the same `global_id`.
+- Overlay cards need collision/density policy and render synchronisation; the semantic related
+  list is required because no viewport can promise to place every neighbour card legibly.
 - A graph larger than the first page is intentionally incomplete until the user or a focus/
   neighbourhood action loads more data.
 
@@ -140,6 +178,20 @@ is introduced only when real data blocks the UI thread, not in anticipation of s
    signal for provenance and relation vocabulary.
 10. **Lifecycle cleanup is load-bearing.** Sigma and any layout worker are killed on unmount
     or replacement; a filter/reload loop must not accumulate WebGL contexts or workers.
+11. **No blind-choice dependency.** A result or returned neighbour has a verbatim textual
+    preview and its real relation context before focus; the full Reader is not required merely
+    to learn what a node says.
+12. **No client-authored knowledge.** On-stage card truncation is visibly presentational;
+    Quick Read's complete selected text, excerpts, confidence, derivation and times are copied,
+    absent or linked, never completed or summarised by the client.
+13. **Overlay count is bounded; neighbour access is complete.** One primary selected card and at
+    most one Peek exist on stage; density-budgeted compact cards may omit a placement, but
+    every neighbourhood record remains in the semantic related list and WebGL graph.
+14. **Peek is ephemeral; Focus is history.** Hover/keyboard preview writes no URL entry;
+    selection uses `mapLink`, and browser Back restores a prior focus without leaving Map.
+15. **Visual emphasis is not evidence.** Grouping, order, shape and path labels derive only
+    from stated graph fields. No inferred relevance, importance, quantitative axis or cluster
+    enters the view without a separate data/contract decision.
 
 ## Gate result (`T-202`, 2026-09-02)
 
@@ -370,6 +422,34 @@ would otherwise rediscover.
 - The `data-map-*` attributes on the state panel are the test seam for
   "partial is not whole"; keep them true if the panel is restyled.
 
+## Approved browsing experience (`T-205`–`T-209`, 2026-09-02)
+
+The user approved a Map that combines the global network with readable, card-shaped focus.
+The four supplied visual references are references, not specifications: their reusable ideas
+are a quiet stage with one strong focus, rectangular content nodes, labelled active paths,
+visible interaction history, radial focus/context and editorial hierarchy. Their decorative
+or quantitative shapes are not data and are not copied as if they were.
+
+```text
+Explore                         Focus + Quick Read
+
+  o---◇---o                     [related statement]
+   \  |  /                        relation \
+     [o]                    ┌──────────────────────┐  ┌──────────────┐
+   /  |  \                  │ selected full       │  │ statement    │
+  o---o---◇                 │ Knowledge Card      │  │ evidence/time│
+                            └──────────────────────┘  │ derivation   │
+                               relation /             │ source/meta  │
+                           [related statement]        └──────────────┘
+```
+
+`T-205` supplies renderer states and semantic density, `T-206` supplies preview/Peek and
+focus history, `T-207` supplies the bounded constellation/related list/Quick Read, `T-208`
+ensures the same journey exists without hover or WebGL, and `T-209` walks the complete task in
+a real browser. The acceptance question is behavioural: before opening a related node, can
+the user state what it says and why its real relation makes it worth opening? No numeric UX
+threshold is fixed until the pre-card experience is observed as a baseline.
+
 ## References
 
 - Sigma v4 beta site: <https://v4.sigmajs.org/>
@@ -379,10 +459,20 @@ would otherwise rediscover.
 - Sigma v4 announcement and maintainer maturity update:
   <https://github.com/jacomyal/sigma.js/discussions/1539>
 - Sigma releases: <https://github.com/jacomyal/sigma.js/releases/>
+- Sigma interaction events: <https://v4.sigmajs.org/reference/events/>
+- Sigma graph-coordinate HTML/SVG overlays:
+  <https://v4.sigmajs.org/how-to/layers/sync-html-svg/>
 - Graphology instantiation: <https://graphology.github.io/instantiation.html>
 - Graphology mutation/keyed edges: <https://graphology.github.io/mutation.html>
 - Graphology ForceAtlas2: <https://graphology.github.io/standard-library/layout-forceatlas2.html>
 - W3C keyboard technique G202: <https://www.w3.org/WAI/WCAG22/Techniques/general/G202.html>
 - W3C accessibility principles: <https://www.w3.org/WAI/fundamentals/accessibility-principles/>
-- [`PROJECT_MANAGEMENT.md`](../PROJECT_MANAGEMENT.md) — `T-201`–`T-209`, D-117 … D-120
+- Shneiderman, *The Eyes Have It*: overview, zoom/filter and details on demand:
+  <https://hci.stanford.edu/courses/cs448b/papers/shneiderman96eyes.pdf>
+- Li et al., *Knowledge Graphs in Practice*: contextual knowledge cards and preserving
+  discoverability: <https://www.cs.tufts.edu/~remco/publications/2023/TVCG2023-KnowledgeGraph.pdf>
+- Nielsen Norman Group, information scent and pogo-sticking:
+  <https://www.nngroup.com/articles/information-scent/>
+  <https://www.nngroup.com/articles/pogo-sticking/>
+- [`PROJECT_MANAGEMENT.md`](../PROJECT_MANAGEMENT.md) — `T-201`–`T-209`, D-117 … D-133
 - [`KNOWLEDGE_CANVAS_PLAN.md`](../KNOWLEDGE_CANVAS_PLAN.md) §6.3, §13.3, §16 Phase 2
