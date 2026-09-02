@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-09-01 · **Phase 0 complete**; **Phase 1 Tracks A and B complete** — the SQLite index serves the whole `IndexRepository` (`T-101`–`T-104`) and all **eleven** frozen endpoints are served over it (`T-105`–`T-108`). Tracks C and D may fan out
+**Last updated:** 2026-09-02 · **Phases 0 and 1 complete**; **Phase 2 planned and approved** — `T-201` is the Knowledge Map epic, decomposed into `T-202`–`T-209`; `T-202` is the only task ready to claim
 **Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
@@ -99,7 +99,7 @@ Exit criteria live in canvas plan §16; this table tracks state only.
 |---|---|---|---|---|
 | **0** | Contracts & scaffolding | ✅ `done` | ❌ **No — serialization point** | Schemas validate; contract frozen |
 | **1** | Read-only Library & Reader | ✅ `done` — four tracks + `T-116`; §7.4 scenarios 1–3 walked and passing | — | Search works; status honest; rebuild is equivalent |
-| **2** | Knowledge Map | `not started` | ✅ Partial (renderer vs inspector) | Provenance distinguishable; empty graph honest |
+| **2** | Knowledge Map | 🟦 `planned` — `T-201` approved; `T-202` next | ✅ After `T-204` (styling vs inspector) | Provenance distinguishable; empty/partial graphs honest; selection reaches evidence |
 | **3** | Canvas & board persistence | `not started` | ⚠️ Sequential with Phase 4 | Layout survives restart; partial corruption tolerated |
 | **4** | Pen & annotation | `not started` | ⚠️ Sequential with Phase 3 | Strokes stable under zoom/pan; no canonical leakage |
 | **5** | Richer media & documents | `not started` | ✅ Per-format | Scoped only once real files are in use |
@@ -152,13 +152,47 @@ Flags: **`S`** = serialized (single owner) · **`P`** = parallel-safe once depen
 | ~~`T-117`~~ | ✅ **done** — `GET /api/graph` and `GET /api/graph/neighborhood/{id}` in [`routes/graph.py`](../src/x2knwldg/server/routes/graph.py). Added because the backlog assigned only 7 of the 11 frozen endpoints while the repository has always served all ten methods, so leaving these unrouted would have shipped a contract advertising paths that answer nothing. `NeighborhoodResponse` carries no `page` — a neighborhood is bounded by `depth` and `limit` and says so with `truncated`. `depth` outside 1..3 is refused, never clamped. **32 tests**; see D-059 for what an edge on a *page* may legitimately reach | B | `P` |
 | ~~`T-116`~~ | ✅ **done** — `_run_ui` in `cli.py` and [`server/serve.py`](../src/x2knwldg/server/serve.py). The five steps of canvas plan §8.3, in an order that is itself the contract: the bind address is refused **first** (before the dependency probe, or the invariant would hold only where it was least needed), the root is resolved by `pipeline.project_root` alone, the extra is probed and named, the index is refreshed (D-065), and only then is a socket bound, a URL printed and a browser opened (D-066). An unbuilt frontend stops it at `6 UI_NOT_BUILT` (D-064) **before** the index is touched, so a command about to refuse writes nothing. The eleven `/api` routes are registered first and `StaticFiles` is mounted at `/` last, so it catches only what no route claimed; D-060's hash routing is why no SPA-fallback rule is needed. **26 tests** — 24 in `tests/test_ui_serving.py` (11 of them stdlib-only and running on a bare core install) plus the rewritten wiring tests in `tests/test_ui_scaffold.py`. The traversal battery hands raw paths to the ASGI app, because httpx normalises `..` before sending and the obvious test grades the client; a companion test proves the probe reaches the mount at all | integrator | `S` |
 
-### Phases 2–7 — epics only
+### Phase 2 — Knowledge Map · `T-201` epic
 
-Deliberately not broken down. Decomposing them before their contracts exist produces churn; expand each at its phase start.
+`T-201` is the approved epic and is not claimed as one implementation task. Its children
+below are the claimable units. The frozen v1 API already serves every consumer this phase
+needs: `/api/graph`, `/api/graph/neighborhood/{entity_id}`, `/api/entities/{entity_id}` and
+`/api/search`. Phase 2 does **not** widen that contract and does not write to `output/` or
+`workspace/`.
+
+The dependency choice is [ADR 0005](adr/0005-knowledge-map-client.md): pin the exact Sigma
+v4 beta used by `T-202`, rather than a moving prerelease range. Sigma v4 began as an alpha;
+its current documentation identifies the line as beta and documents `4.0.0-beta.5`. The
+maintainer describes the API as full-featured and stable enough for new work while still
+warning that interactions between newer features may contain bugs. `T-202` is therefore a
+real compatibility gate, not a ceremonial spike: a blocking defect on the real graph or the
+user's MacBook sends the phase back to the current stable v3 **before** Map code accumulates.
+
+| ID | Task | Flag | Depends on | Acceptance |
+|---|---|---|---|---|
+| `T-201` | **Epic — Knowledge Map:** WebGL overview, provenance/kind semantics, search and focus, filters, bounded neighbourhoods, inspector, Reader navigation, and an accessible DOM path | — | Phase 1 gate | Complete only when `T-202`–`T-209` are done |
+| `T-202` | **Sigma v4 compatibility and layout gate.** Pin exact compatible versions of Sigma v4 beta, Graphology and only the renderer/layout packages actually used; record their licences. Build the smallest renderer over the real 86-node/118-edge sample on the user's MacBook; exercise create, update, resize, selection and teardown; record layout/render observations. Seed every node with a deterministic non-zero position before any ForceAtlas2 pass. Use the worker only if measurement shows the synchronous pass blocks interaction. If a blocking v4 defect appears, record it and pin stable v3 before `T-203`; do not carry two renderer APIs | `S` | — | Real sample renders and tears down without leaked contexts or uncaught errors; one version line chosen; `output/` unchanged |
+| `T-203` | **Graph projection and progressive snapshot.** Pure typed conversion from `EntityRef`/`IndexedRelation` into a `MultiDirectedGraph`; preserve `global_id`, edge `id`, direction, parallel edges, intentional self-loops, nulls and canonical paths verbatim. Accumulate graph pages, dedupe nodes by `global_id` and edges by `id`, refuse conflicting duplicates, and hold an edge off-canvas until both endpoints have arrived. A filter change aborts the old walk and creates a new snapshot. Never parse an opaque cursor | `S` | `T-202` | Unit tests cover D-059 cross-page edges, duplicate pages, conflicts, cancellation, empty data and `truncated`; no dangling rendered edge and no invented field |
+| `T-204` | **Addressable Map shell and renderer.** Add `#/map` and the navigation entry; own the Sigma lifecycle, explicit container size, resize, zoom/reset and deterministic initial layout. Load at most the contract maximum (500 nodes) in the first request and expose deliberate progressive loading when more pages exist. No heavy HTML component per WebGL node | `S` | `T-203` | Direct navigation and reload work; the 86/118 sample fits one honest page; a larger graph remains visibly partial until accumulated; renderer cleanup is tested through an injected/fake boundary |
+| `T-205` | **Visual semantics and real filters.** Define one tested style matrix for node `provenance_class` + `kind` and edge `relation_vocabulary` + provenance. Canonical, `derived_from`, and `expresses_concept` must all be recognisable; source/derived/user and canonical/synthetic/user each retain a non-colour signal in the Map and its legend. Offer only filters the frozen graph API actually accepts: `source_id`, `provenance_class`, `relation_vocabulary`. Do not invent a server-side kind filter | `P` | `T-204` | Pure style/reducer tests cover every current kind and all three vocabularies; legend and graph agree; changing a filter starts a fresh server-backed snapshot |
+| `T-206` | **Search, focus and Map URL grammar.** One `mapLink` module builds and parses selection/filter state, following `readerLink`: invalid values are ignored, never coerced. Search loaded node label/id locally and use `/api/search?include_transcript=false` for indexed knowledge; a hit with a real `global_id` can load its neighbourhood then focus it, while a caption/null-id hit is explained rather than given an address. Camera focus and selection survive reload | `P` | `T-204` | URL round trips; stale search requests abort; keyboard selection focuses the same node as pointer selection; malformed URL state invents neither a node nor a default filter |
+| `T-207` | **Neighbourhood, inspector and Reader navigation.** Selection calls `/api/entities/{entity_id}` and loads the bounded neighbourhood at depth 1 by default; expose depths 1–3 and the real vocabulary filter. Merge returned records through `T-203`, state neighbourhood truncation, and keep the inspector collapsible. Reuse the existing entity/provenance/locator/relation presentation. A node with `source_id` links through `readerPath`, including a real locator time when present; a canonical concept with no source gets no fabricated Reader link | `P` | `T-204`, `T-206` | Node and keyboard selection show the same real evidence; truncated neighbourhood is labelled; Reader deep link lands on the source/unit and timestamp the entity actually carries |
+| `T-208` | **Honest states, accessibility and bidi.** Distinguish loading, empty, partial, API error and WebGL-unavailable states. Provide a semantic DOM companion for graph summary, search results, selected node and relations so no operation is WebGL/pointer-only. Complete English/Persian messages, logical CSS and mixed-direction identifiers. The WebGL canvas is a presentation of the same selection, not the accessibility tree by itself | `S` | `T-205`, `T-207` | Keyboard-only walk reaches search, node selection, neighbourhood, inspector and Reader; empty is not absent and partial is not whole; RTL mirrors while ids/URLs stay LTR; non-colour distinctions are asserted |
+| `T-209` | **Integration, real-browser and phase gate.** Test projection and state in Vitest, the served endpoints against the real fixture API, and Sigma/WebGL in a real browser. Exercise direct Map link, filters, progressive load, search → focus → neighbourhood → inspector → Reader, empty/truncated/error states and teardown. Do not use a cross-platform pixel golden as the primary oracle; assert behaviour/accessible state and manually walk the real sample on the user's MacBook. Record a measured baseline before setting any performance threshold | `S` | `T-202`–`T-208` | Typecheck, frontend tests, real-API integration, browser test and production build pass; real 86/118 graph has no lost/duplicate identities; `git diff --stat -- output/` is empty |
+
+**Phase 2 gate:** an empty graph is honest; a partial graph says it is partial; canonical and
+derived/synthetic relationships are distinguishable without colour alone; selecting a node
+shows the real entity/evidence and can reach the Reader; URL state survives reload; and the
+real 86/118 sample is renderable without changing a canonical file. Moving a node to the
+Canvas remains Phase 3 and does not block this gate.
+
+### Phases 3–7 — epics only
+
+Deliberately not broken down. Expand each at its phase start, after the preceding phase has
+made its contracts concrete.
 
 | ID | Epic | Phase |
 |---|---|---|
-| `T-201` | Sigma.js/WebGL Map: styles by provenance + kind, search/focus/filter, neighborhood loading, inspector integration, link to Reader | 2 |
 | `T-301` | Canvas: board CRUD, entity insertion, custom nodes, user relations, frames, autosave, undo/redo, portable `workspace/boards/` persistence | 3 |
 | `T-401` | Pen: pointer events + `perfect-freehand`, world-coordinate strokes, eraser, layer toggle, mouse fallback | 4 |
 | `T-501` | Rich media: PDF.js + page locators, image viewer, audio, anchored annotations | 5 |
@@ -283,6 +317,10 @@ repeated here.
 | D-114 | `ruff check` and `mypy` are configured in `pyproject.toml`, run by a CI `lint` job, and declared in the `dev` extra | accepted | The project had **no** Python lint, format or type checking: no config, no CI step, no mention in the docs — while `web/` had `tsc --strict` with `noUncheckedIndexedAccess` and a job of its own. The audit called it the largest single asymmetry in the project, and the cost was not hypothetical: four imports left dead by a refactor earlier in this same session were found by running pyflakes by hand, and nothing else would have said so. The rule set (`E4`, `E7`, `E9`, `F`, `B`, `I`, `UP`) is a **floor chosen to be raised**; `E501` is out because the long explanatory comments in this tree are the documentation and reflowing them is a style decision, not a defect. **`ruff format` is deliberately not a gate**: adopting it would reformat 71 of 105 files in one commit and bury every real change, which is a decision to take on its own. mypy covers the package only — the tests build deliberately malformed documents to prove a validator refuses them, so annotations there would have to lie. Its 42 findings were fixed rather than silenced, and two were worth having: `io.is_finite_seconds` and `transcripts._is_finite_number` became `TypeGuard`s, which is both true and the only way the narrowing is legible; and the id constructors' `str` parameters became `Any`, because `validate_id_part` has always taken `Any` and refusing junk is the contract — a `str` annotation described a precondition no caller could satisfy |
 | D-115 | The `tests` matrix runs on macOS as well as Linux | accepted | All five jobs were `ubuntu-latest`, and this project is developed and used on macOS. `routes/media.py`'s containment checks are the ADR-0003 boundary and they resolve paths; a case-insensitive filesystem answers `Path.resolve()` and `relative_to` differently from ext4, so the one boundary that most needs platform evidence had none. One macOS row rather than the whole grid: the platform matters, four interpreters on it do not |
 | D-116 | A CI job serves the real API and runs the frontend suite against it | accepted | 13 frontend integration tests gate on `X2KNWLDG_API_BASE` and **no job set it**, so the tests that exist precisely because "a mock agrees with whatever the frontend assumed" never ran anywhere — the only tests in the tree that could not fail. `web/scripts/dev_api.py` was already a complete loopback server over the committed fixtures, so the job needed no new machinery. It also refuses a silent skip: a job that sets the variable but does not check the tests *ran* would pass on the same nothing. Run locally to prove it: all 13 pass against the real server |
+| D-117 | Phase 2 starts on an **exactly pinned Sigma v4 beta**, with `T-202` as a compatibility gate and stable v3 as the one fallback before implementation proceeds ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Sigma v4's official site now calls the line beta and its quickstart documents `4.0.0-beta.5`; the maintainer reports the API full-featured and not expected to move, while still warning that combinations of newer features may expose bugs. Starting a new Map on v4 avoids knowingly building against the renderer API v4 replaces, and v4's declarative primitives fit the provenance/kind style matrix. A prerelease range would silently move under the lockfile; an exact pin plus the real 86/118 graph and the user's MacBook makes the risk observable before the phase accumulates code |
+| D-118 | A Map is a **progressive, explicitly bounded snapshot**: the first `/api/graph` request is at most 500 nodes; pages accumulate by identity; an edge is drawable only after both endpoints have arrived; and `truncated` stays visible until the graph is whole ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | D-059 permits an edge on one page to reach a node on another page, so rendering a page as if it were a graph either dangles the edge or invents the far node. Automatically walking an unbounded library before showing anything defeats overview-first loading. Accumulating the real pages, deduping the repeated straddling edge by `id`, and stating partiality preserves both performance and truth |
+| D-119 | The Map's addressable state has one grammar, `mapLink`, and the selected entity is identified only by its existing three-part `global_id` ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `readerLink` already proved that a URL built in one place and read in another otherwise becomes two grammars. Selection, source scope, provenance and relation-vocabulary filters must survive reload; malformed values are ignored rather than coerced. Search hits without a `global_id` are not entities in v1 (D-023) and never receive an invented Map address |
+| D-120 | No Knowledge Map operation is WebGL- or pointer-only: a semantic DOM companion exposes graph state, search, selection, neighbourhood, inspector and Reader navigation, while Sigma remains the visual presentation ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Sigma renders the graph through WebGL/Canvas layers, which do not themselves make thousands of graph objects keyboard-addressable or provide a useful text alternative. The project already requires keyboard accessibility and non-colour provenance signals. A small DOM control/result/inspector surface supplies the operable structure without putting heavy HTML on every rendered node or replacing the WebGL overview |
 
 ### ⚠️ D-011 is **additive** — do not "clean up" the 2-part ID
 
@@ -317,7 +355,7 @@ git diff --stat -- output/                  # expect: empty, always
 git diff --stat -- tests/fixtures/runs/     # expect: empty — regeneration is byte-identical
 .venv/bin/python tools/generate_api_types.py --check   # expect: types.d.ts is up to date
 (cd web && npm ci && npm run typecheck)     # expect: silent — tsc --noEmit, risk R17
-(cd web && npm test && npm run build)       # expect: 113 passed, 12 skipped; then a clean build
+(cd web && npm test && npm run build)       # expect: 166 passed, 13 skipped; then a clean build
 ```
 
 `--check` duplicates `tests/test_api_types.py::test_the_committed_declarations_are_current`;
@@ -514,6 +552,25 @@ lock: §8.2 is still the rule. Change the paths there and here together, never o
 
 **3–4 agents maximum.** That is what the track split naturally supports. Beyond it, agents contend on §8.3 files and coordination cost exceeds the speedup.
 
+### 8.6 Phase 2 ownership and safe fan-out
+
+`T-202` and `T-203` are serialization points: the renderer major, Graphology shape,
+pagination merge rule and URL identity must be one decision before components build on them.
+`T-204` is the integration shell and is serialized for the same reason.
+
+After `T-204`, at most two implementation tasks may run in parallel:
+
+- `T-205` owns pure style/reducer/legend modules and their tests.
+- `T-206` owns `mapLink`, search/focus state and their tests.
+- `T-207` may begin beside `T-205` only after the `T-206` selection contract lands; it owns
+  neighbourhood and inspector components.
+
+The integrator alone edits `web/package.json`, `web/package-lock.json`, `web/src/App.tsx`,
+`web/src/components/Shell.tsx`, the shared message catalogues, global styles, CI, and `docs/`.
+`T-208` then integrates accessibility/bidi across those shared surfaces, and `T-209` is the
+serialized phase gate. Parallel tasks must not add a second graph store, selection grammar,
+style table or Sigma lifecycle wrapper.
+
 ---
 
 ## 9. Risks — delta from canvas plan §18
@@ -529,6 +586,7 @@ lock: §8.2 is still the rule. Change the paths there and here together, never o
 | **R16** `value` field on statistic units is polymorphic (`int` \| `list[float]`) | 🟡 Watch | Cannot map to one SQL column — store as JSON text, keep the canonical file authoritative. `EntityRef` has no `value` field and `additionalProperties: false`, so the adapter cannot carry it into the index by accident |
 | **R17** Nothing in CI proves the generated `types.d.ts` is *valid* TypeScript | ✅ **Resolved** | `T-008` brought Node into CI: the `web-typecheck` job runs `npm ci && npm run typecheck` (`tsc --noEmit`). Two details make it real rather than decorative, and both are asserted by `tests/test_ui_scaffold.py`: `web/tsconfig.json` keeps `skipLibCheck: false`, without which `tsc` skips every `.d.ts` — including the only file the job exists to check — and lists `../schemas/api/v1/types.d.ts` as a root file so it is checked whether or not anything imports it. Verified by injecting a bad type into the generated file and watching `tsc` fail (D-038). **Turning `skipLibCheck` on reopens this risk silently** |
 | **R18** D-028's additive search fields exist only as a test helper | ✅ **Resolved** | `T-007` moved them into `MemoryRepository.as_api_hit`, which is the code path `T-106` serves and the one `tests/test_api_contract.py` now exercises — one implementation, not two. It also stopped hard-coding `youtube`: the source type is read from the indexed source, so a hit from a source the index does not hold gets `source_id: null` and `global_id: null` rather than an address that resolves to nothing |
+| **R19** Sigma v4 is prerelease and feature combinations may expose renderer defects | 🟡 Controlled gate | `T-202` pins one exact v4 beta and compatible Graphology set, then exercises create/update/resize/select/teardown on the real 86-node/118-edge graph on the user's MacBook. A blocking defect triggers a documented switch to one pinned stable v3 **before** `T-203`; the project never carries both renderer APIs. No later Phase 2 implementation task may start until this gate chooses the version line (D-117, [ADR 0005](adr/0005-knowledge-map-client.md)) |
 
 Risks 1–6 and 8 from canvas plan §18 remain as written.
 
@@ -602,10 +660,17 @@ the suite could not:
 Both lived in a seam between components that were individually correct and individually well
 tested, which is the pattern to expect again in Phase 2.
 
-**Next: Phase 2 — Map** (`T-201`). Its consumers are already served and tested but uncalled:
-`GET /api/graph`, `GET /api/graph/neighborhood/{id}`, and `/api/entities/{entity_id}`. Read
-D-059 before drawing a paged graph. `readerLink` is the precedent for any new addressable
-view: one module owning a grammar that is built in one place and read in another.
+**Next: `T-202`, the compatibility/layout gate inside the approved Phase 2 Map epic
+`T-201`.** Do not claim the epic as one task and do not start a second child beside `T-202`.
+Pin one exact Sigma v4 beta and its compatible Graphology packages, then prove create/update/
+resize/select/teardown and deterministic initial positions over the real 86-node/118-edge
+sample on the user's MacBook. Record what was measured. If v4 has a blocking defect, choose
+stable v3 there and only there; `T-203` must inherit one renderer API, never both.
+
+The Map's consumers are already served and tested but uncalled: `GET /api/graph`,
+`GET /api/graph/neighborhood/{id}`, `/api/entities/{entity_id}`, and `GET /api/search`.
+Read D-059 and D-118 before drawing a paged graph. `readerLink` is the precedent for
+`mapLink`: one module owning a grammar that is built in one place and read in another.
 
 §10's note matters there too: `derived_from` and `expresses_concept` are library-only
 synthetic relations, absent from `RELATION_TYPES` and the two most common edges in the real
