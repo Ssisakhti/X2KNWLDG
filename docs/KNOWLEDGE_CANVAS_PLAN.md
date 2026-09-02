@@ -1214,7 +1214,7 @@ An agent must not guess the answers to these if the decision would cause a notic
 ### Planned / not started
 
 - [x] Phase 2 / T-209: the real-browser anti-pogo phase gate over everything `T-202`–`T-208`
-  built — [`web/browser/`](../web/browser/gate.ts), 27 specs over the production bundle and
+  built — [`web/browser/`](../web/browser/gate.ts), 30 specs over the production bundle and
   the real API in Google Chrome on the target machine, plus the same walk on a software
   rasteriser; the WebGL context leak on a refused container, the camera that had never been
   told about selection, the density grid that answered the wrong question and the Escape key
@@ -1230,7 +1230,7 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 ## 23. Precise next step
 
 **Phase 2 is finished.** `T-209` opened the Map in a browser, which is what the phase had
-never had: 27 specs in [`web/browser/`](../web/browser/gate.ts) walk the built bundle over
+never had: 30 specs in [`web/browser/`](../web/browser/gate.ts) walk the built bundle over
 the real API in Google Chrome on the target machine — the journey, the seven states, the
 keyboard with and without a renderer, a coarse pointer, Persian, reduced motion, the WebGL
 context count and the anti-pogo baseline — and pass again on a software rasteriser and on
@@ -1347,7 +1347,7 @@ yet. Before writing any of it:
 
 - `T-209` completed, and with it Phase 2. The gate is `web/browser/` on
   `@playwright/test@1.62.1`: the built bundle, the real API, Google Chrome 152 on the target
-  machine through `ANGLE Metal`, and the same 27 specs green on Playwright's bundled Chromium
+  machine through `ANGLE Metal`, and the same 30 specs green on Playwright's bundled Chromium
   over SwiftShader and on the committed fixtures.
 - D-145 (the card policy tests measured footprints for overlap in four orientations, and the
   forced label budget is 4), D-146 (a new focus is framed with its drawn neighbours),

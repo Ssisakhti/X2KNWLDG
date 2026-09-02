@@ -120,10 +120,15 @@ test.describe("the keyboard, with no pointer at all", () => {
 
 test.describe("touch, motion and direction", () => {
   test("gives every control a 44 px target on a coarse pointer (D-145)", async ({ browser }) => {
+    // `hasTouch` alone, deliberately: it is what makes `pointer: coarse`
+    // match, and `isMobile` additionally gives Chrome a *layout* viewport
+    // taller than the visual one (1305 against 844 here), so an element the
+    // page considers scrolled into view can still be off-screen for a tap.
+    // `T-209` lost an afternoon to that; the media query is what these tests
+    // are about, and `hasTouch` is what sets it.
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
       hasTouch: true,
-      isMobile: true,
     });
     const page = await context.newPage();
     const graph = await servedGraph(page);
@@ -161,6 +166,65 @@ test.describe("touch, motion and direction", () => {
       return out;
     });
     expect(small).toEqual([]);
+    await context.close();
+  });
+
+  test("completes the journey by tap, with no hover anywhere in it", async ({ browser }) => {
+    // The third input path the epic asks for, and the one clause `T-208`'s
+    // suite could only approximate: a touch device fires no `mouseenter`, so
+    // "hover is never required" is a claim about *this* walk. Nothing below
+    // moves a pointer -- every step is `tap()`.
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+    });
+    const page = await context.newPage();
+    const graph = await servedGraph(page);
+    await page.goto("/#/map");
+    await expect(page.locator('.map[data-map-canvas="drawing"]')).toBeVisible();
+
+    // Search, by tapping.
+    const rail = page.locator('[data-map-panel="search"]');
+    if ((await rail.getAttribute("data-map-panel-open")) !== "true") {
+      await rail.locator("summary").tap();
+    }
+    const word = (graph.nodes[0]?.label ?? "the").split(/\s+/)[0] ?? "the";
+    await rail.getByRole("searchbox").tap();
+    await rail.getByRole("searchbox").fill(word);
+    await rail.getByRole("button", { name: "Search", exact: true }).tap();
+    const results = rail.locator("[data-map-result]");
+    await expect(results.first()).toBeVisible();
+
+    // A result card states what it holds before anything is opened -- which on
+    // a touch device is the only way it could, since there is no hover to
+    // preview with.
+    const card = results.first();
+    expect((await card.innerText()).trim().length).toBeGreaterThan(20);
+
+    // Focus, by tapping.
+    const focusButton = card.locator("[data-map-focus-action]");
+    const chosen = await focusButton.getAttribute("data-map-focus-action");
+    await focusButton.tap();
+    await expect(page).toHaveURL(new RegExp(`focus=${encodeURIComponent(chosen ?? "")}`));
+
+    // Quick Read and the related list, reached with taps and read on a phone.
+    const quickRead = page.locator("[data-map-quickread]");
+    await expect(quickRead).toBeVisible();
+    if ((await page.locator('[data-map-panel="quickread"]').getAttribute("data-map-panel-open")) !== "true") {
+      await page.locator('[data-map-panel="quickread"] summary').tap();
+    }
+    await expect(quickRead).toContainText("Stored statement");
+
+    // A neighbour, then Back -- history works the same on a phone.
+    const neighbour = page.locator('[data-map-panel="related"] [data-map-focus-action]').first();
+    if ((await neighbour.count()) > 0) {
+      const next = await neighbour.getAttribute("data-map-focus-action");
+      await neighbour.tap();
+      await expect(page).toHaveURL(new RegExp(`focus=${encodeURIComponent(next ?? "")}`));
+      await page.goBack();
+      await expect(page).toHaveURL(new RegExp(`focus=${encodeURIComponent(chosen ?? "")}`));
+    }
+    await expect(page.locator('.map[data-map-canvas="drawing"]')).toBeVisible();
     await context.close();
   });
 

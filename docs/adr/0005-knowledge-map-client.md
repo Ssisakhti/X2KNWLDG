@@ -717,7 +717,7 @@ a proxy added to `vite.config.ts` for this purpose. Every expected number in the
 specs is read back out of the payload the page was answered with, never typed
 into a test, which is what lets one gate serve two libraries: the real ingested
 project (86 entities, 118 relations, one page under the contract maximum) and
-the committed `PASS`/`PARTIAL`/`FAIL` fixtures (7 and 9). **27 specs, four
+the committed `PASS`/`PARTIAL`/`FAIL` fixtures (7 and 9). **30 specs, four
 files, green on both libraries and both drivers.**
 
 ### What it drew
@@ -749,6 +749,35 @@ counts marked as not an answer to what failed), whole, undrawable
 | — | WebGL contexts over three filter changes and five route round trips: **12 created, 11 lost, 1 live**, one canvas | invariant 10 holds |
 | — | The eased camera is mid-flight at 68 ms and 142 ms and final by 230 ms; with `prefers-reduced-motion: reduce` the **first frame after the press is already final** | D-144 confirmed on a real canvas |
 | — | The stage begins **790 px down** a 1440×900 document, so about a sixth of the picture is above the fold on load and none of it at 390×844 | recorded, not changed — see finding 8 |
+
+### The third input path, and the bound on the overlay
+
+Two clauses of the `T-201` epic were still unwalked when the gate first went
+green, and both are now in it.
+
+**Touch.** "The same journey works with pointer, keyboard and touch; hover is
+never required" had been asserted as target *sizes*; the journey itself had
+never been tapped. It is now, on a 390x844 phone: the rail is opened, the query
+typed, the search pressed, a result focused, Quick Read unfolded, a neighbour
+opened and Back pressed — every step a `tap()`, with no pointer move anywhere
+in the test, which is the only honest way to check that nothing needs hover. A
+touch device fires no `mouseenter`, so a card that stated nothing until hovered
+would fail this walk rather than merely look bad.
+
+**The overlay's bound** (invariant 13). Exactly one primary card and exactly
+one Peek, asserted against a real pointer: previewing a mark does not add a
+second primary card, and a second preview — opened from a row this time —
+*replaces* the first rather than joining it. And the completeness half: every
+neighbour the policy refuses a card is still drawn as a mark and still listed
+in the companion, which the walk checks by exhausting the outline's pages and
+comparing the two sets.
+
+One harness lesson came out of it, and it is the kind that wastes an afternoon:
+Playwright's `isMobile: true` gives Chrome a **layout** viewport taller than
+its visual one — 1305 against 844 here — so an element the page happily
+scrolls "into view" can still be off-screen for a tap, and the tap retries
+until the test times out. `hasTouch: true` is what makes `pointer: coarse`
+match, which is what these tests are actually about, so that is what they use.
 
 ### The anti-pogo baseline, and the threshold it sets
 

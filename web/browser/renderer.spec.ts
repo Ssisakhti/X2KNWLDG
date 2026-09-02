@@ -27,8 +27,10 @@ import {
   busiest,
   contextReport,
   countContexts,
+  findMark,
   mapUrl,
   openDrawnMap,
+  openPanel,
   servedGraph,
   settledStage,
 } from "./gate";
@@ -183,6 +185,89 @@ test.describe("the numbers the stage was given by argument", () => {
     await expect(page.locator("[data-map-related-entity]")).toHaveCount(returned.length);
     // The stage never carries more cards than the stated budget.
     expect(cards).toBeLessThanOrEqual(4);
+  });
+
+  test("overlays one primary card and one Peek, and never a second of either", async ({
+    page,
+  }) => {
+    // ADR 0005 invariant 13, in a browser: the stage's card count is bounded
+    // and the Peek is *transient* — a second preview replaces the first
+    // rather than joining it. Asserted in jsdom by construction; here it is
+    // asserted against a real pointer, which is the input that can open one
+    // without going through a row.
+    const graph = await servedGraph(page);
+    const centre = busiest(graph);
+    await openDrawnMap(page, { focus: centre });
+    await settledStage(page);
+    await expect(page.locator('[data-map-card][data-map-card-primary="true"]')).toHaveCount(1);
+
+    const first = await findMark(page, { exclude: centre });
+    expect(first, "no mark answered the pointer").not.toBeNull();
+    await expect(page.locator("[data-map-peek]")).toHaveCount(1);
+    // Still exactly one primary card: a preview is not a selection.
+    await expect(page.locator('[data-map-card][data-map-card-primary="true"]')).toHaveCount(1);
+
+    // A second preview, from a row this time, replaces the first.
+    const row = page.locator('[data-map-panel="related"] [data-map-focus-action]').first();
+    await row.focus();
+    await expect(page.locator("[data-map-peek]")).toHaveCount(1);
+    const peeked = await page.locator("[data-map-peek]").getAttribute("data-map-peek");
+    expect(peeked).not.toBe((first as NonNullable<typeof first>).globalId);
+  });
+
+  test("keeps every neighbour without a card drawn and listed (invariant 13)", async ({
+    page,
+  }) => {
+    // The completeness half of the density policy: a card the stage cannot
+    // place may cost legibility and may never cost the reader the entity. So
+    // every neighbour refused a card is still *drawn* — which the companion
+    // list is the readable proof of, since it lists exactly what the Map has
+    // drawn — or its row says it is not loaded at all.
+    const graph = await servedGraph(page);
+    const centre = busiest(graph);
+    await openDrawnMap(page, { focus: centre });
+    await settledStage(page);
+
+    const carded = new Set(
+      await page
+        .locator('.map__overlay [data-map-card][data-map-card-primary="false"]')
+        .evaluateAll((elements) =>
+          elements.map((element) => (element as HTMLElement).dataset.mapCard ?? ""),
+        ),
+    );
+    const rows = await page
+      .locator("[data-map-related-entity]")
+      .evaluateAll((elements) =>
+        elements.map((element) => (element as HTMLElement).dataset.mapRelatedEntity ?? ""),
+      );
+    expect(rows.length).toBeGreaterThan(0);
+
+    const drawn = new Set(graph.nodes.map((node) => node.global_id));
+    for (const row of rows) {
+      // In the list either way -- that is what `rows` is -- and drawn as a
+      // mark unless these pages never loaded it.
+      if (!carded.has(row)) expect(drawn.has(row)).toBe(true);
+    }
+    // And the outline lists what is drawn, so a reader can reach every one of
+    // them with no pointer and no card.
+    const outline = await openPanel(page, "outline");
+    // Until the control is gone, not once per button found: pressing it
+    // renders a *new* one, so a snapshot of the buttons that existed before
+    // the first press lists 50 of 86 rows and calls it the whole graph.
+    const more = outline.locator("[data-map-outline-more]");
+    for (let presses = 0; presses < 20 && (await more.count()) > 0; presses += 1) {
+      await more.first().click();
+    }
+    const listed = new Set(
+      await outline
+        .locator("[data-map-result]")
+        .evaluateAll((elements) =>
+          elements.map((element) => (element as HTMLElement).dataset.globalId ?? ""),
+        ),
+    );
+    for (const row of rows) {
+      if (drawn.has(row)) expect(listed.has(row)).toBe(true);
+    }
   });
 
   test("draws no two cards over the same pixels (D-145)", async ({ page }) => {

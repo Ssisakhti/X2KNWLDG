@@ -46,7 +46,7 @@ X2KNWLDG_BROWSER_CHANNEL= npm run browser
 | [`src/map/`](src/map/README.md) | The Knowledge Map's machinery: deterministic seed positions (`T-202`), the graph projection, progressive snapshot and page walk (`T-203`), the renderer lifecycle and the one Sigma constructor (`T-204`), the style table and label policy (`T-205`), the URL grammar, search and focus/Peek state (`T-206`), the bounded neighbourhood and the on-stage density policy (`T-207`), the honest-state reducers, the outline projection and the motion policy (`T-208`), and the `T-202` renderer gate |
 | `scripts/dev_api.py` | Stands up the real server over the committed fixtures |
 | `gate.html` | The `T-202` gate harness, development-only and outside the production build ([why](src/map/README.md)) |
-| `browser/` | `T-209`'s browser gate: 27 specs over the built bundle and the real API. Development-only, outside `src/`, and it imports nothing from the application — a spec that imported the number it is checking would agree with whatever the module says |
+| `browser/` | `T-209`'s browser gate: 30 specs over the built bundle and the real API. Development-only, outside `src/`, and it imports nothing from the application — a spec that imported the number it is checking would agree with whatever the module says |
 | `playwright.config.ts` | What the gate is pointed at: `npm run build` then `vite preview`, with `/api` proxied to `scripts/dev_api.py`. One worker, no retries |
 
 ## The API types
