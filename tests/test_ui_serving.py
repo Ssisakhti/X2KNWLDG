@@ -303,3 +303,67 @@ def test_the_frozen_api_document_is_unchanged_by_the_mount(served, tmp_path: Pat
     served_doc = client.get("/api/openapi.json").json()
     frozen = json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))
     assert served_doc["paths"].keys() == frozen["paths"].keys()
+
+
+# ---------------------------------------------------------------------------
+# The index the *command* builds is the one the user searches
+# ---------------------------------------------------------------------------
+
+
+def test_the_command_builds_a_searchable_index(tmp_path: Path, monkeypatch) -> None:
+    """`/api/search` must answer over the index `x2knwldg ui` actually builds.
+
+    This is a regression test with a story. `refresh_index` takes an optional
+    ``index_documents`` hook, and *without* it the scan still produces a
+    complete and correct index of sources, artifacts, entities and relations --
+    only the ``documents`` table and the FTS5 corpus stay empty. So the UI came
+    up, the library listed every source, the reader opened, the counts were
+    right, and `/api/search` answered `0` for every query ever typed.
+
+    Nothing in the suite caught it, and the reason is worth keeping: every
+    other caller in the tree -- `search.build_searchable_index`, the harness,
+    the equivalence tests -- passes ``index_documents=document_indexer(root)``
+    itself. They prove the indexer works. None of them could prove the *CLI*
+    asks for it. This test goes through `cli.main` for exactly that reason.
+    """
+    pytest.importorskip("fastapi", reason="the API layer is the `ui` extra")
+
+    from fastapi.testclient import TestClient
+
+    from x2knwldg.server.deps import build_repository
+
+    root = h.project(tmp_path / "p", *h.ALL_FIXTURES)
+    dist = root / "web" / "dist"
+    dist.mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
+
+    # Serve is replaced by a no-op that closes the socket the command bound,
+    # so the command runs to completion instead of serving the test suite.
+    served: dict[str, object] = {}
+
+    def capture(*, project_root, assets, sock, listening, open_browser):
+        served["listening"] = listening
+        sock.close()
+
+    monkeypatch.setattr(ui, "serve", capture)
+    monkeypatch.setattr(cli, "_missing_ui_dependencies", lambda: [])
+    assert cli.main(["ui", "--root", str(root), "--no-open"]) == cli.EXIT_OK
+    assert served, "the command never reached the serving step"
+
+    repository = build_repository(root)
+    try:
+        from x2knwldg.server.app import create_app
+
+        with TestClient(create_app(repository=repository)) as client:
+            response = client.get("/api/search", params={"q": "evidence"})
+            assert response.status_code == 200
+            body = response.json()
+            assert body["page"]["total"] > 0, (
+                "the command built an index whose search corpus is empty; "
+                "`refresh_index` was called without `index_documents`"
+            )
+            assert body["data"], body
+    finally:
+        close = getattr(repository, "close", None)
+        if close is not None:
+            close()

@@ -455,8 +455,16 @@ def _run_ui(args: argparse.Namespace) -> int:
         return EXIT_UI_NOT_BUILT
 
     from .index.scanner import refresh_index
+    from .index.search import document_indexer
 
-    report = refresh_index(root)
+    # `index_documents` is what fills `documents` and the FTS5 tables. Without
+    # it the scan still produces a complete, correct index of sources,
+    # artifacts, entities and relations -- and `/api/search` answers `0` for
+    # every query, because the corpus it searches was never written. Nothing
+    # else about the UI looks wrong, which is exactly why this has to be wired
+    # here rather than remembered: `T-103` pairs the two, and every other
+    # caller in the tree passes them together.
+    report = refresh_index(root, index_documents=document_indexer(root))
 
     sock, listening = ui.bind(args.host, args.port)
     print(
