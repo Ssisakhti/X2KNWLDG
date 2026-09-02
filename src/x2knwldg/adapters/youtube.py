@@ -45,13 +45,14 @@ vocabulary, which is a schema change and not this task's to make.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .. import ids
 from ..constants import MAX_AUDIT_ATTEMPTS
-from ..io import sha256_file
+from ..io import scrub_host_paths, sha256_file
 from .base import (
     CANONICAL_PROVENANCE_CLASSES,
     CANONICAL_RELATION_TYPES,
@@ -220,7 +221,19 @@ class YouTubeAdapter(SourceAdapter):
         """
         document, reason = read_optional_json_or_reason(path)
         if reason is not None:
-            damaged.append({"path": self.relative(path), "reason": reason})
+            # D-051's rule, on D-045's other channel. Every ``JsonReadError``
+            # names the file it could not read and names it *absolutely*, and
+            # this record is served verbatim inside a 200 body by
+            # ``/api/sources`` — at which point the reason leaks the user's
+            # filesystem layout to any HTTP client, which D-030 and ADR 0003
+            # both forbid. Sanitised here, at the point the reason is
+            # recorded, rather than on the way out: one rule, the CLI gains
+            # the same property, and it becomes the same relative string the
+            # entry's ``path`` is keyed by, so the two cannot disagree about
+            # which file failed. The substring is exact rather than hopeful --
+            # ``io.read_json`` formats this very ``path`` into the message.
+            relative = self.relative(path)
+            damaged.append({"path": relative, "reason": reason.replace(str(path), relative)})
         return document
 
     # ----------------------------------------------------------------
@@ -387,15 +400,20 @@ class YouTubeAdapter(SourceAdapter):
         unmappable: list[dict[str, str]],
     ) -> list[dict[str, Any]]:
         artifacts = [
-            self._file_artifact(run_dir, source_id, spec, hash_artifacts)
+            mapped
             for spec in CANONICAL_ARTIFACTS
+            if (mapped := self._file_artifact(
+                run_dir, source_id, spec, hash_artifacts, unmappable
+            )) is not None
         ]
 
         raw_source = self._raw_source_spec(run_dir)
         if raw_source is not None:
-            artifacts.append(
-                self._file_artifact(run_dir, source_id, raw_source, hash_artifacts)
+            mapped = self._file_artifact(
+                run_dir, source_id, raw_source, hash_artifacts, unmappable
             )
+            if mapped is not None:
+                artifacts.append(mapped)
 
         artifacts.extend(
             self._vault_artifacts(run_dir, source_id, hash_artifacts, unmappable)
@@ -412,8 +430,38 @@ class YouTubeAdapter(SourceAdapter):
         source_id: ids.SourceId,
         spec: _ArtifactSpec,
         hash_artifacts: bool,
-    ) -> dict[str, Any]:
+        unmappable: list[dict[str, str]],
+    ) -> dict[str, Any] | None:
+        """One canonical artifact, or ``None`` when its path cannot be mapped.
+
+        Defect D-100: ``self.relative`` resolves symlinks, so a canonical file
+        that *is* a symlink to somewhere outside the project resolved outside
+        it and raised — taking the **whole run** down over one file. Measured:
+        a symlinked ``report.md``, ``raw/source.srt`` or vault note each made
+        ``adapt_run`` refuse the run entirely, and since D-078 that is a
+        skipped-and-named run rather than a dead index, which is better and
+        still wrong.
+
+        ``adapter_metadata.unmappable_artifacts`` is the channel that already
+        exists for exactly this — "a generated ``vault/`` note whose filename
+        cannot spell an id, skipped and named" (D-045) — so an artifact the
+        index model cannot address is reported there and the rest of the run is
+        indexed. Not mapped to its *lexical* path instead: the bytes really do
+        live outside the project, ``media.py``'s containment check would refuse
+        to serve them, and an artifact in the index whose bytes cannot be
+        fetched is a promise the API does not keep.
+        """
         path = run_dir / spec.relative
+        try:
+            relative = self.relative(path)
+        except AdapterError as exc:
+            unmappable.append(
+                {
+                    "path": f"{spec.relative} (in {run_dir.name})",
+                    "reason": scrub_host_paths(str(exc)),
+                }
+            )
+            return None
         available = path.is_file()
         return {
             "schema_version": SCHEMA_VERSION,
@@ -422,7 +470,7 @@ class YouTubeAdapter(SourceAdapter):
             "kind": spec.kind,
             "role": spec.role,
             "media_type": media_type_for(path),
-            "path": self.relative(path),
+            "path": relative,
             "url": None,
             "bytes": path.stat().st_size if available else None,
             "sha256": sha256_file(path) if available and hash_artifacts else None,
@@ -488,7 +536,11 @@ class YouTubeAdapter(SourceAdapter):
                 )
                 continue
             spec = _ArtifactSpec(key, "vault_note", "export", relative.as_posix())
-            artifacts.append(self._file_artifact(run_dir, source_id, spec, hash_artifacts))
+            mapped = self._file_artifact(
+                run_dir, source_id, spec, hash_artifacts, unmappable
+            )
+            if mapped is not None:
+                artifacts.append(mapped)
         return artifacts
 
     def _video_artifact(
@@ -951,7 +1003,7 @@ def _resolve(table: Mapping[str, str], library_id: Any, owner: str) -> str:
     return global_id
 
 
-def _edge_id(from_id: str, relation: str, to_id: str) -> str:
+def _edge_id(from_id: str, relation: Any, to_id: str) -> str:
     """A deterministic edge id, so a rebuild yields the identical set (T-104).
 
     The parts are escaped before they are joined. A global id can never contain

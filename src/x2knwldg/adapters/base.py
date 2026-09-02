@@ -48,10 +48,11 @@ from __future__ import annotations
 import math
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar, Iterator, Mapping, NoReturn
+from typing import Any, ClassVar, NoReturn
 
 from .. import constants, ids
 from ..io import read_json_or_reason
@@ -164,7 +165,7 @@ class IndexRecords:
     entities: list[dict[str, Any]] = field(default_factory=list)
     relations: list[dict[str, Any]] = field(default_factory=list)
 
-    def __add__(self, other: "IndexRecords") -> "IndexRecords":
+    def __add__(self, other: IndexRecords) -> IndexRecords:
         return IndexRecords(
             sources=[*self.sources, *other.sources],
             artifacts=[*self.artifacts, *other.artifacts],

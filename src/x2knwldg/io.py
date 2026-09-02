@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import re
+from collections.abc import Sequence
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import Any, TypeGuard
 
 
 class JsonReadError(ValueError):
@@ -24,6 +27,124 @@ class JsonReadError(ValueError):
     """
 
 
+class CanonicalValueError(ValueError):
+    """A canonical document holds a value that cannot be rendered or addressed.
+
+    Defect D-074: ``format_timestamp`` was ``max(0, int(seconds))``, and
+    ``int("0.0")`` raises a bare ``ValueError`` — so a canonical file timed
+    ``"0.0"`` took ``finalize`` down with a raw traceback. ``ValueError`` is not
+    in ``cli.USER_FACING_ERRORS``, so that also broke the documented
+    ``{"status": "ERROR"}`` stderr contract; this type is in that tuple.
+
+    A ``ValueError`` subclass for the same reason :class:`JsonReadError` is one:
+    it is a bad *value*, and existing ``except ValueError`` callers keep working.
+    """
+
+
+#: An absolute POSIX path with at least two segments. Deliberately narrow: a
+#: single segment (``/tmp``) is not distinctive enough to be worth mangling
+#: ordinary prose over, and requiring two slashes keeps ``and/or`` out of it.
+_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w>])(?:/[A-Za-z0-9._\- ]+){2,}")
+
+
+#: A string that is *nothing but* an absolute path. Used where a whole field
+#: value is a path (``report``, ``graph``, ``path``) and prose is not.
+_ABSOLUTE_PATH_ONLY = re.compile(r"/(?:[A-Za-z0-9._\- ]+/)*[A-Za-z0-9._\- ]+")
+
+
+def scrub_host_paths_roots_only(
+    text: str, replacements: Sequence[tuple[str | Path, str]] = ()
+) -> str:
+    """*text* with the named roots substituted and nothing else touched.
+
+    The half of :func:`scrub_host_paths` that is safe to apply to content: a
+    root is the operator's filesystem and can never be a meaningful part of an
+    extracted quotation, while the catch-all regex would mangle a unit that
+    happens to mention a path.
+    """
+    for needle, label in sorted(
+        ((str(needle), label) for needle, label in replacements if len(str(needle)) > 1),
+        key=lambda pair: len(pair[0]),
+        reverse=True,
+    ):
+        text = text.replace(needle, label)
+    return text
+
+
+def scrub_host_paths(
+    text: str, replacements: Sequence[tuple[str | Path, str]] = ()
+) -> str:
+    """*text* with host filesystem paths removed and the sentence left standing.
+
+    Defect D-085: ``scanner._project_relative_reason`` was a single
+    ``reason.replace(str(run_dir), canonical_dir)``, so it redacted only paths
+    *under* the run directory — while an ``AdapterError`` from
+    ``project_relative`` also names the absolute project root, and a symlink
+    names a path outside the run entirely. Both reach ``/api/status`` in
+    ``skipped_runs[].reason``, and the scan's failure message reaches a ``503``
+    body verbatim. D-030 and ADR-0003 both forbid a host path in an error body,
+    and the enumeration was never going to be complete.
+
+    Two stages, because they answer different needs. The *replacements* are
+    meaningful substitutions the caller knows — a run directory for its
+    project-relative form, a root for the words "the project root" — applied
+    longest first so a nested path is not half-replaced. Whatever still looks
+    absolute afterwards is a path nobody anticipated and is reduced to its last
+    segment.
+
+    D-063 is why this scrubs rather than truncates: **the reason still has to
+    state the damage.** Deleting the sentence would satisfy a bare no-host-path
+    assertion and silently close D-045's diagnostic channel, which is the
+    failure this whole family of findings is about.
+    """
+    text = scrub_host_paths_roots_only(text, replacements)
+    return _ABSOLUTE_PATH_RE.sub(
+        lambda match: f"<path>/{match.group(0).rsplit('/', 1)[-1]}", text
+    )
+
+
+def is_finite_seconds(value: Any) -> TypeGuard[float]:
+    """Whether ``value`` is a real, finite number of seconds.
+
+    The one predicate behind every timestamp guard in the package —
+    ``transcripts._is_finite_number``, ``validators._is_seconds`` and the
+    ``_require_seconds`` coercers in ``ids`` and ``segmenter`` all defer to it,
+    keeping their own error types and their own extra rules. It lives here
+    because ``io`` imports nothing from the package, so everything can reach it.
+
+    ``bool`` is excluded because ``True`` is an ``int`` in Python and is not a
+    time. ``NaN`` and the infinities are excluded because every comparison
+    against ``NaN`` is ``False``, so a ``NaN`` bound slips past an
+    ``end < start`` test, and neither can be written back as JSON any other
+    language will read.
+
+    A ``TypeGuard`` rather than a ``bool`` (D-114): every caller reads its
+    argument out of an untrusted JSON document, so the value arrives as
+    ``Any | None`` and the comparison that follows this check is what a type
+    checker flags. Saying that the check *narrows* is both true and the only
+    way the guard is legible to a reader who is not the author.
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _whole_seconds(value: Any, label: str) -> int:
+    """``value`` as whole non-negative seconds, or a :class:`CanonicalValueError`.
+
+    Strict rather than forgiving (D-074): ``int()`` accepted the string
+    ``"12"``, silently truncated ``True`` to ``1``, and crashed on ``"0.0"``,
+    ``None`` and ``NaN``. A timestamp is either a number or it is a defect in
+    the document, and rendering a guessed one into ``report.md`` beside a
+    working YouTube deep link is exactly the invented position this project
+    refuses everywhere else.
+    """
+    if not is_finite_seconds(value):
+        raise CanonicalValueError(
+            f"{label} must be a finite number of seconds, "
+            f"got {type(value).__name__}: {value!r}"
+        )
+    return max(0, int(value))
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -33,8 +154,24 @@ def sha256_file(path: Path) -> str:
 
 
 def _reject_non_finite(constant: str) -> Any:
-    """Refuse ``NaN``/``Infinity``: canonical JSON must be readable everywhere."""
+    """Refuse the ``NaN``/``Infinity`` *tokens*: see also :func:`_reject_non_finite_float`."""
     raise ValueError(f"Canonical JSON must not contain {constant}")
+
+
+def _reject_non_finite_float(text: str) -> float:
+    """Refuse a numeric literal that *parses* to an infinity.
+
+    Defect D-075: ``parse_constant`` only ever sees the bare ``NaN`` and
+    ``Infinity`` tokens, so ``1e999`` — legal JSON, and ``inf`` once parsed —
+    passed the reader and every validator, then died inside ``_write_group``
+    with ``Out of range float values are not JSON compliant: inf`` and a full
+    traceback. This docstring's promise that "canonical JSON must be readable
+    everywhere" belongs on the parsed number, not on the spelling.
+    """
+    number = float(text)
+    if not math.isfinite(number):
+        raise ValueError(f"Canonical JSON must not contain a non-finite number ({text})")
+    return number
 
 
 def dumps_json(value: Any) -> str:
@@ -88,6 +225,75 @@ def write_json(path: Path, value: Any) -> None:
     write_text(path, dumps_json(value))
 
 
+def write_group(
+    entries: Sequence[tuple[Path, str]],
+    *,
+    prune: Sequence[Path] = (),
+) -> None:
+    """Write several files as one step, or leave every one of them as it was.
+
+    :func:`write_text` is atomic for a single file, which is not the property
+    these callers need: ``apply_extraction_bundle`` replaces four canonical
+    files that are only meaningful together, ``finalize_run`` replaces
+    ``graph.json``, ``report.md`` and a whole vault in the same breath, and
+    ``import_transcript`` writes the nine files that *are* a run. A failure
+    between two of those writes left the run internally inconsistent — a
+    ``knowledge_units.json`` from this bundle beside a ``coverage.json`` from
+    the last one — and ``validate_run`` would then read the mismatched set and
+    report ``PASS`` on it, because each file is individually well formed.
+
+    POSIX offers no multi-file commit, so this is the honest approximation:
+    every document is serialised by the caller *before* the first write, each
+    write is an atomic replace, and if one fails the previous contents of all of
+    them are put back. The remaining window is a crash between two ``rename``
+    calls, which no userspace code can close.
+
+    *prune* names directories this group **owns**: every file under them that
+    the group did not write is removed, and restored if the group fails. Defect
+    D-090: without it a generator only ever added. Apply a bundle with KU-001
+    and KU-002, finalize, retract KU-002, finalize again — ``report.md`` drops
+    it and ``vault/knowledge_units/source/KU-002.md`` is still there, linked
+    from nothing, indistinguishable from a unit that still exists. No validator
+    looks at the vault, so nothing else was ever going to notice.
+
+    It lives here rather than in ``artifacts`` (D-090) because
+    ``import_transcript`` needs it and ``artifacts`` imports ``pipeline``, not
+    the other way round. ``io`` imports nothing from the package, which is what
+    lets both reach it.
+    """
+    written = {path.resolve() for path, _ in entries}
+    stale = [
+        path
+        for directory in prune
+        for path in sorted(directory.rglob("*"))
+        if path.is_file() and path.resolve() not in written
+    ]
+    previous: list[tuple[Path, bytes | None]] = []
+    for path in [entry[0] for entry in entries] + stale:
+        try:
+            previous.append((path, path.read_bytes()))
+        except OSError:
+            previous.append((path, None))
+    try:
+        for path, text in entries:
+            write_text(path, text)
+        for path in stale:
+            path.unlink(missing_ok=True)
+    except BaseException:
+        for path, snapshot in previous:
+            try:
+                if snapshot is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    write_bytes(path, snapshot)
+            except OSError:
+                # The rollback is best effort by definition — the write that
+                # brought us here may have failed because the disk is full. The
+                # original failure is what the caller must see.
+                pass
+        raise
+
+
 def read_json(path: Path) -> Any:
     """The JSON document at *path*, or a :class:`JsonReadError` naming what is wrong.
 
@@ -97,7 +303,11 @@ def read_json(path: Path) -> Any:
     """
     try:
         with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle, parse_constant=_reject_non_finite)
+            return json.load(
+                handle,
+                parse_constant=_reject_non_finite,
+                parse_float=_reject_non_finite_float,
+            )
     except FileNotFoundError as exc:
         raise JsonReadError(f"Missing JSON file: {path}") from exc
     except IsADirectoryError as exc:
@@ -125,11 +335,21 @@ def read_json_or_reason(path: Path) -> tuple[Any, str | None]:
 
 
 def format_timestamp(seconds: float) -> str:
-    seconds = max(0, int(seconds))
-    hours, remainder = divmod(seconds, 3600)
+    """``seconds`` as ``HH:MM:SS``, or a :class:`CanonicalValueError` (D-074)."""
+    whole = _whole_seconds(seconds, "timestamp")
+    hours, remainder = divmod(whole, 3600)
     minutes, secs = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 def timestamp_url(video_id: str, seconds: float) -> str:
-    return f"https://www.youtube.com/watch?v={video_id}&t={max(0, int(seconds))}s"
+    """A YouTube deep link, or a :class:`CanonicalValueError` (D-074).
+
+    Refuses for the same reason :func:`format_timestamp` does: the two are
+    rendered side by side into ``report.md``, and a link that opens the wrong
+    moment is worse than one that is absent.
+    """
+    return (
+        f"https://www.youtube.com/watch?v={video_id}"
+        f"&t={_whole_seconds(seconds, 'timestamp')}s"
+    )

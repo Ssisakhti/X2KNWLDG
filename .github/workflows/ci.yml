@@ -10,15 +10,27 @@ permissions:
 
 jobs:
   tests:
-    name: tests (python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: tests (python ${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         # 3.10 is the floor `requires-python` declares; 3.14 is the
         # interpreter in daily use here, and it was missing, so every
         # number measured locally came from a version CI never ran.
-        python-version: ["3.10", "3.12", "3.13", "3.14"]
+        #
+        # D-115: every job used to be `ubuntu-latest`, and this project is
+        # developed and used on macOS. `routes/media.py`'s containment checks —
+        # the ADR-0003 boundary — resolve paths, and a case-insensitive
+        # filesystem answers `Path.resolve()` and `relative_to` differently
+        # from ext4. One macOS row rather than the whole grid: the platform
+        # matters, four interpreters on it do not.
+        include:
+          - { os: ubuntu-latest, python-version: "3.10" }
+          - { os: ubuntu-latest, python-version: "3.12" }
+          - { os: ubuntu-latest, python-version: "3.13" }
+          - { os: ubuntu-latest, python-version: "3.14" }
+          - { os: macos-latest, python-version: "3.12" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -167,7 +179,7 @@ jobs:
     # web/tsconfig.json sets skipLibCheck: false and lists the declarations as a
     # root file on purpose. With the default skipLibCheck, tsc would skip the one
     # file this job exists to check and pass without looking.
-    name: web typecheck (tsc --noEmit)
+    name: web (typecheck, test, build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -182,3 +194,137 @@ jobs:
       - name: Type-check the frozen contract and the frontend
         working-directory: web
         run: npm run typecheck
+      - name: Test the frontend
+        # Hermetic: the integration files under web/src skip unless
+        # X2KNWLDG_API_BASE names a running server, so this job needs no
+        # Python and stands up no API. What it does cover is every unit and
+        # component test T-109--T-114 wrote, including the logical-CSS guard
+        # (D-012) and the provenance guard that no class is signalled by
+        # colour alone (ADR 0001 invariant 10).
+        working-directory: web
+        run: npm test
+      - name: Build the frontend
+        # tsc --noEmit does not resolve assets or bundle, so a frontend can
+        # type-check and test green while the production build is broken.
+        working-directory: web
+        run: npm run build
+
+  lint:
+    # D-114: the project had no Python lint, format or type checking at all —
+    # no config, no CI step, no mention in the docs — while `web/` got
+    # `tsc --strict` with `noUncheckedIndexedAccess` and a job of its own.
+    # That asymmetry cost real defects: four imports left dead by a refactor
+    # were found by running pyflakes by hand, and nothing else would have said
+    # so. The rule set is in `pyproject.toml` and is a floor chosen to be
+    # raised; `ruff format` is deliberately not a gate.
+    name: lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,legacy,ui]'
+      - name: ruff
+        run: ruff check .
+      - name: mypy
+        run: mypy
+
+  integration:
+    # D-116: 13 frontend integration tests gate on `X2KNWLDG_API_BASE` and no
+    # job set it, so the tests that exist *because* "a mock agrees with
+    # whatever the frontend assumed" never ran anywhere. They are the only
+    # check that the wire between `web/` and the real server still fits.
+    name: frontend against the real API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install the package and the frontend toolchain
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,ui]'
+          npm --prefix web ci
+      - name: Serve the committed run fixtures
+        # `dev_api.py --fixtures` (the default) copies the PASS/PARTIAL/FAIL
+        # fixtures into a scratch project, indexes it, and binds loopback only.
+        run: |
+          python web/scripts/dev_api.py --port 8931 &
+          echo "$!" > /tmp/dev_api.pid
+      - name: Wait for it to answer
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8931/api/status > /dev/null; then
+              echo "the API is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "the API never came up" >&2
+          exit 1
+      - name: Run the frontend suite against it
+        # Without the variable these files skip, which is the defect. The step
+        # asserts they actually ran rather than trusting the exit code.
+        working-directory: web
+        env:
+          X2KNWLDG_API_BASE: http://127.0.0.1:8931
+        run: |
+          # `pipefail` first, and it is load-bearing: Actions runs `bash -e`
+          # without it, so `vitest | tee` exits with tee's status and this step
+          # would have gone green on a red frontend suite.
+          set -o pipefail
+          npx vitest run --reporter=verbose 2>&1 | tee /tmp/vitest.log
+          # And the skip check. Vitest marks a skipped test with a glyph and
+          # never the word "skipped" on the line, so grepping the test lines
+          # could not fire — a guard that never matches proves nothing, which
+          # is the failure this whole job exists to prevent. The summary is the
+          # discriminator: with the API up, nothing skips at all, so a skip
+          # count anywhere in the log means the variable did not take.
+          if grep -qE "[0-9]+ skipped" /tmp/vitest.log; then
+            echo "something skipped, so X2KNWLDG_API_BASE did not take:" >&2
+            grep -E "Test Files|Tests " /tmp/vitest.log >&2
+            exit 1
+          fi
+      - name: Stop the server
+        if: always()
+        # Written as a conditional rather than with a shell escape hatch: a
+        # step that cannot fail is a step that proves nothing, and
+        # `tests/test_ui_scaffold.py` refuses the whole family of them — including
+        # in a comment, so the guard cannot be talked around.
+        run: |
+          pid="$(cat /tmp/dev_api.pid)"
+          if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid"
+          else
+            echo "the server was already gone"
+          fi
+
+  requirements:
+    # D-111: `requirements.txt` forwards to the extras and said the `ui` layer
+    # was "not functional yet" and that CI installs `.[dev,legacy]`. Both were
+    # wrong, and no job installed this file, which is why nothing said so.
+    name: requirements.txt installs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install through requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: What it forwards to is importable
+        run: |
+          python -c "import x2knwldg, pytest, jsonschema, yt_dlp, youtube_transcript_api, requests"
+      - name: And the suite runs on it
+        run: pytest -q

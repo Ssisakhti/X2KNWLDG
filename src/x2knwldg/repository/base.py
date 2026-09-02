@@ -59,8 +59,9 @@ import hashlib
 import hmac
 import json
 import secrets
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Protocol, Sequence, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from .. import ids
 from ..adapters import RUN_STATUSES, UNKNOWN_STATUS
@@ -736,6 +737,13 @@ class IndexStatus:
     state: str = "absent"
     built_at: str | None = None
     index_version: int | None = None
+    #: Why the index is in this state, when it has something to say. D-086: a
+    #: scan that fails over a ``ready`` index rolls its writes back and leaves
+    #: the index ``ready``, because the stored records are exactly what they
+    #: were and refusing every endpoint would cost the reader a library they
+    #: can still be shown. This is then the *only* channel that says the last
+    #: scan did not finish, so it is reported rather than kept for the 503 body.
+    message: str | None = None
     counts: Mapping[str, int] = field(default_factory=dict)
     sources_by_status: Mapping[str, int] = field(default_factory=dict)
     adapters: Sequence[Mapping[str, str]] = ()
@@ -770,6 +778,12 @@ class IndexStatus:
             },
             "adapters": [dict(adapter) for adapter in self.adapters],
         }
+        if self.message:
+            # Additive and optional, like `runs` below. Absent rather than
+            # `null` when there is nothing to say, and never an empty string:
+            # the schema's `minLength: 1` is there so "" cannot be read as a
+            # reported absence of trouble.
+            payload["index"]["message"] = self.message
         if self.runs is not None:
             # Additive and optional (D-050). A run directory that produced no
             # `Source` is in no page and in no count, so without this the only
@@ -790,6 +804,20 @@ class IndexStatus:
                     for run in self.runs.get("skipped", ())
                 ],
             }
+            # D-087: the `library/` fragment keeps a `runs` row of its own and is
+            # deliberately outside the counts — but it was outside `skipped` as
+            # well, so the reason the scanner recorded for a damaged fragment
+            # surfaced nowhere at all: a broken `library/concepts.json` and a
+            # deleted `library/` both read as `skipped: []` with the entity and
+            # relation counts quietly lower. That is D-043's silent zero on the
+            # one endpoint that exists to be honest. A field of its own rather
+            # than an entry in `skipped`, because the contract states
+            # `discovered == indexed + len(skipped)` and because
+            # `ScanReport.library_skipped_reason` already decided a caller
+            # should be able to test this without matching on a path.
+            library_reason = self.runs.get("library_skipped_reason")
+            if library_reason:
+                payload["runs"]["library_skipped_reason"] = str(library_reason)
         return payload
 
 

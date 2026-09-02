@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import unicodedata
-from typing import Any
+from typing import Any, TypeGuard
 
-from .ids import is_id_part
 from .constants import (
     COVERAGE_STATUSES,
     DERIVED_KINDS,
@@ -17,7 +16,9 @@ from .constants import (
     # The one timing epsilon. Six independent copies were six chances to disagree.
     TIME_TOLERANCE_SEC,
 )
-from .transcripts import clean_text
+from .ids import is_id_part
+from .io import is_finite_seconds
+from .transcripts import clean_text, transcript_end_sec
 
 # An excerpt shorter than this cannot be evidence: a one- or two-character
 # fragment is a substring of almost every segment, so the "excerpt appears in
@@ -42,6 +43,50 @@ def _visible_length(text: str) -> int:
         if character not in _ZERO_WIDTH
         and unicodedata.category(character) not in _INVISIBLE_CATEGORIES
     )
+
+
+def _is_seconds(value: Any) -> TypeGuard[float]:
+    """Whether ``value`` is a timestamp this validator can actually check.
+
+    Defect D-070: ``validate_provenance`` guarded both of its range checks
+    behind ``isinstance(start, (int, float))`` and *skipped* them when the guard
+    failed, so a source block timed ``"99999"`` — a string, which the presence
+    test in ``validate_knowledge_units`` counts as provided — came back as
+    proven provenance. The validator failed open on precisely the shapes it
+    exists to reject.
+
+    ``bool`` is excluded because ``True`` is an ``int`` in Python and is not a
+    time. Non-finite floats are excluded because every comparison against
+    ``NaN`` is ``False``, so a ``NaN`` bound slips past an ``end < start`` test
+    and lands in ``report.md`` as a moment the video does not contain. Mirrors
+    ``ids._require_seconds`` and ``segmenter._require_seconds``, which raise
+    where this one collects an error code.
+    """
+    return is_finite_seconds(value)
+
+
+def _seconds_or(value: Any, fallback: float) -> float:
+    """*value* as a number of seconds, or *fallback* when it is not one."""
+    return float(value) if is_finite_seconds(value) else fallback
+
+
+def _as_list(value: Any) -> list[Any]:
+    """The list a coverage window field holds, or ``[]`` when it holds anything else.
+
+    Defect D-072: three window fields are read as collections —
+    ``len(unresolved_items)``, iteration over ``omitted_items``, and a
+    truthiness test on ``knowledge_units``. None checked its type, so
+    ``unresolved_items: 5`` crashed ``len()``, a string ``omitted_items`` was
+    iterated one character at a time into meaningless
+    ``invalid_omission_reason`` errors, and ``knowledge_units: "u1"`` satisfied
+    the ``covered_window_without_accounting`` guard because a non-empty string
+    is truthy — a window accounting for no units at all reported ``PASS``.
+
+    Paired with the ``window_field_not_array`` error: that names the wrong type
+    once, and reading the field as empty here lets the remaining checks run on
+    the rest of the document instead of crashing or inventing errors.
+    """
+    return value if isinstance(value, list) else []
 
 
 def _evidence_excerpt_error(value: Any, minimum: int = 1) -> str | None:
@@ -140,6 +185,28 @@ def validate_knowledge_units(document: Any) -> dict[str, Any]:
                 missing = sorted(field for field in required if source.get(field) in (None, ""))
                 if missing:
                     errors.append({"code": "incomplete_provenance", "unit": location, "fields": missing})
+                # D-070: the presence test above counts the string "99999" as
+                # provided, and a bound that is not a number cannot be checked
+                # against anything. Reported here as well as in
+                # ``validate_provenance`` because this is the validator
+                # ``import_transcript`` runs on its own.
+                unusable_timing = sorted(
+                    field
+                    for field in ("start_sec", "end_sec")
+                    if field not in missing and not _is_seconds(source.get(field))
+                )
+                if unusable_timing:
+                    errors.append(
+                        {
+                            "code": "invalid_source_timing",
+                            "unit": location,
+                            "fields": unusable_timing,
+                            "types": {
+                                field: type(source.get(field)).__name__
+                                for field in unusable_timing
+                            },
+                        }
+                    )
                 excerpt_error = _evidence_excerpt_error(source.get("evidence_excerpt"))
                 if excerpt_error is not None and "evidence_excerpt" not in missing:
                     errors.append(
@@ -234,13 +301,11 @@ def validate_provenance(
         for segment in segments_document.get("segments", [])
         if isinstance(segment, dict) and segment.get("segment_id")
     }
-    transcript_end = max(
-        (
-            caption.get("end_sec", 0)
-            for caption in transcript_document.get("captions", [])
-            if isinstance(caption, dict)
-        ),
-        default=0,
+    # D-077: one implementation of "where does the transcript end", shared with
+    # `pipeline.validate_run`, `artifacts.apply_extraction_bundle` and
+    # `transcript_integrity`. It used to exist four times at three guard levels.
+    transcript_end = transcript_end_sec(
+        transcript_document.get("captions") if isinstance(transcript_document, dict) else None
     )
     for unit in units:
         if not isinstance(unit, dict) or unit.get("source_class") != "source":
@@ -258,10 +323,34 @@ def validate_provenance(
             continue
         start = source.get("start_sec")
         end = source.get("end_sec")
-        if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+        if not _is_seconds(start) or not _is_seconds(end):
+            # D-070: the two range checks below were guarded by
+            # `isinstance(start, (int, float))` and *nothing else*, so a
+            # non-number skipped both and the unit came back reported as
+            # proven. The guard was never the bug; the missing error was. A
+            # citation whose time cannot be compared to the transcript is
+            # unverifiable, and an unverifiable citation is a failure.
+            errors.append(
+                {
+                    "code": "invalid_source_timing",
+                    "unit": unit_id,
+                    "start_sec_type": type(start).__name__,
+                    "end_sec_type": type(end).__name__,
+                }
+            )
+        else:
+            # Reached only with two comparable bounds. Falling through to the
+            # excerpt check rather than `continue`-ing keeps a unit that is
+            # wrong in two ways reported as wrong in two ways.
             if start < 0 or end < start or end > transcript_end + TIME_TOLERANCE_SEC:
                 errors.append({"code": "source_time_outside_transcript", "unit": unit_id})
-            if start < segment.get("start_sec", 0) - TIME_TOLERANCE_SEC or end > segment.get("end_sec", 0) + TIME_TOLERANCE_SEC:
+            # D-114: through `_seconds_or`, because a segment bound is read from
+            # the same untrusted document as everything else here — a string
+            # bound used to raise `TypeError` from inside the comparison, which
+            # is the D-077 family of defect one level down.
+            segment_start = _seconds_or(segment.get("start_sec"), 0.0)
+            segment_end = _seconds_or(segment.get("end_sec"), 0.0)
+            if start < segment_start - TIME_TOLERANCE_SEC or end > segment_end + TIME_TOLERANCE_SEC:
                 errors.append({"code": "source_time_outside_segment", "unit": unit_id})
         raw_excerpt = source.get("evidence_excerpt")
         excerpt_error = _evidence_excerpt_error(raw_excerpt, MIN_EVIDENCE_EXCERPT_CHARS)
@@ -276,7 +365,10 @@ def validate_provenance(
                 }
             )
             continue
-        excerpt = clean_text(raw_excerpt).casefold()
+        # `_evidence_excerpt_error` returns non-`None` for anything that is not
+        # a string, so the fallback is unreachable — written out rather than
+        # asserted so the narrowing is visible to a reader and to the checker.
+        excerpt = clean_text(raw_excerpt if isinstance(raw_excerpt, str) else "").casefold()
         segment_text = clean_text(str(segment.get("text") or "")).casefold()
         if excerpt not in segment_text:
             errors.append({"code": "evidence_excerpt_not_in_segment", "unit": unit_id})
@@ -318,10 +410,42 @@ def validate_coverage(document: Any, transcript_end_sec: float) -> dict[str, Any
         if not isinstance(window, dict):
             errors.append({"code": "window_not_object", "window": index})
             continue
+        # D-072: checked before anything reads these as collections, so a
+        # wrong type is named once rather than crashing `len()` or being
+        # iterated character by character. Absence stays the business of the
+        # accounting checks below, which already treat an empty window as
+        # unaccounted for.
+        malformed = sorted(
+            field
+            for field in ("knowledge_units", "omitted_items", "unresolved_items")
+            if field in window and not isinstance(window[field], list)
+        )
+        if malformed:
+            errors.append(
+                {
+                    "code": "window_field_not_array",
+                    "window": index,
+                    "fields": malformed,
+                    "types": {field: type(window[field]).__name__ for field in malformed},
+                }
+            )
         start = window.get("start_sec")
         end = window.get("end_sec")
-        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
-            errors.append({"code": "invalid_window_timing", "window": index})
+        if not _is_seconds(start) or not _is_seconds(end):
+            # D-070/D-072: `isinstance(True, (int, float))` is True in Python,
+            # so a window bounded by booleans validated as the range [0, 1],
+            # and a NaN bound slipped past `end < start` because every
+            # comparison against NaN is False. `ids._require_seconds` and
+            # `segmenter._require_seconds` already excluded both; this
+            # validator was the one that did not.
+            errors.append(
+                {
+                    "code": "invalid_window_timing",
+                    "window": index,
+                    "start_sec_type": type(start).__name__,
+                    "end_sec_type": type(end).__name__,
+                }
+            )
             continue
         if abs(start - cursor) > TIME_TOLERANCE_SEC:
             errors.append({"code": "coverage_gap_or_overlap", "window": index, "expected": cursor, "actual": start})
@@ -330,8 +454,8 @@ def validate_coverage(document: Any, transcript_end_sec: float) -> dict[str, Any
         cursor = end
         if window.get("status") not in COVERAGE_STATUSES:
             errors.append({"code": "invalid_window_status", "window": index})
-        unresolved += len(window.get("unresolved_items") or [])
-        for omission in window.get("omitted_items") or []:
+        unresolved += len(_as_list(window.get("unresolved_items")))
+        for omission in _as_list(window.get("omitted_items")):
             reason = omission.get("type") if isinstance(omission, dict) else None
             if reason not in OMISSION_REASONS:
                 errors.append({"code": "invalid_omission_reason", "window": index, "value": reason})
@@ -346,10 +470,10 @@ def validate_coverage(document: Any, transcript_end_sec: float) -> dict[str, Any
             status = window.get("status")
             if status not in {"covered", "omitted"}:
                 errors.append({"code": "false_coverage_pass", "window": index})
-            if status == "omitted" and not window.get("omitted_items"):
+            if status == "omitted" and not _as_list(window.get("omitted_items")):
                 errors.append({"code": "omitted_window_without_accounting", "window": index})
             if status == "covered" and not (
-                window.get("knowledge_units") or window.get("omitted_items")
+                _as_list(window.get("knowledge_units")) or _as_list(window.get("omitted_items"))
             ):
                 errors.append({"code": "covered_window_without_accounting", "window": index})
         if unresolved:

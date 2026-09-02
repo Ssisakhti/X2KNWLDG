@@ -42,3 +42,15 @@ validation.
 Statuses are asserted by the generator itself and again in
 `test_fixture_runs_are_labelled_as_synthetic` and
 `test_partial_and_fail_runs_are_projected_as_they_are`.
+
+## What now depends on them
+
+`T-115` took these three runs through the HTTP surface, which is what the
+honest-status UI reads. `test_api_honest_status` serves each fixture over both
+repository implementations and checks that the status the API reports is the one
+`pipeline.validate_run` and the canonical files hold — that `PARTIAL` and `FAIL`
+survive to a client unchanged, that a run which did not pass is still listed,
+searchable and readable rather than hidden, and that `fail-run`'s
+finished-looking `report.md`, `graph.json` and Obsidian export do not make it a
+`PASS`. That last one is the fixture's reason for existing, stated as an
+assertion.

@@ -30,9 +30,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import api_harness as h
+import pytest
 
 pytestmark = h.requires_fastapi
 

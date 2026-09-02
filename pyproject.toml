@@ -15,6 +15,15 @@ dependencies = []
 youtube = [
   "yt-dlp>=2024.1.0",
   "youtube-transcript-api>=1.0",  # 1.x instance API: youtube.py calls api.fetch()/api.list()
+  # D-112: `youtube.py` imports `requests` directly — `_BoundedSession`
+  # subclasses `requests.Session` to force a default HTTP timeout, because
+  # `youtube_transcript_api` builds its own session and calls it with no
+  # timeout, which in `requests` means "block forever". It arrived only
+  # transitively through `youtube-transcript-api`, and the guard around the
+  # import was commented "requests ships with the extra" — which no extra
+  # declared and nothing checked. If that dependency changes its HTTP layer the
+  # timeout silently disappears; declared here, CI's extras job walks it.
+  "requests>=2.25",
 ]
 mcp = ["mcp>=2,<3"]
 # The local web layer (ADR 0001 decision 6). Imported lazily inside the `ui`
@@ -30,6 +39,10 @@ legacy = [
 ]
 dev = [
   "pytest>=8.0",
+  # D-114: the lint and type gate. Both run in CI's `lint` job and are declared
+  # here so `pip install -e '.[dev]'` gives a contributor the same checks.
+  "ruff>=0.6",
+  "mypy>=1.11",
   # Validates schemas/v1/ in tests only; the core package stays zero-dependency.
   "jsonschema>=4.18",
   # Validates schemas/api/v1/openapi.json against the OpenAPI 3.1 meta-schema.
@@ -46,6 +59,58 @@ dev = [
 x2knwldg = "x2knwldg.cli:main"
 x2knwldg-mcp = "x2knwldg.mcp_server:main"
 
+# D-114: the project had no Python lint, format or type checking at all — no
+# config, no CI step, no mention in the docs — while `web/` got `tsc --strict`
+# with `noUncheckedIndexedAccess` and a CI job of its own. That asymmetry cost
+# real defects: four imports left dead by a refactor in this very session were
+# found by running pyflakes by hand, and nothing would otherwise have said so.
+#
+# The rule set is a **floor, chosen to be raised**: pyflakes (`F`) for the
+# defects that matter most here — undefined names and dead imports —
+# pycodestyle's error subset, `bugbear` for real bug patterns, `isort` for one
+# import order, and `pyupgrade` for the 3.10 floor. `E501` is deliberately out:
+# the long explanatory comments in this tree are the documentation, and
+# reflowing them is a style decision, not a defect.
+#
+# `ruff format` is **not** a gate. Adopting it would reformat 71 of 105 files
+# in one commit and bury every real change in the diff; that is a decision to
+# take on its own, not as a side effect of adding a checker.
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+  "build",
+  # Attributed upstream history, kept deliberately and not maintained here —
+  # see legacy/upstream/README.md and THIRD_PARTY_NOTICES.md. Linting it would
+  # mean editing code the notices say came from somewhere else.
+  "legacy/upstream",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# `Depends()`, `Query()` and `Header()` in a parameter default *is* the FastAPI
+# idiom; B008 exists for the accidental case, which this is not.
+"src/x2knwldg/server/**" = ["B008"]
+
+# D-114: mypy over the package only. The tests are a different kind of code —
+# they build deliberately malformed documents to prove a validator refuses
+# them, so the annotations that would satisfy a checker there would have to
+# lie about what is being passed.
+[tool.mypy]
+python_version = "3.10"
+files = ["src/x2knwldg"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+# `legacy/upstream` is on `pythonpath` for three test modules and is not ours.
+module = ["transcribe", "transcribe_whisper", "transcribe_whisperx", "generate_video_db", "graph_extractor", "obsidian_exporter", "playlist_extractor"]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 # Explicit, so the suite does not silently depend on an editable install having
 # put src/ on sys.path. legacy/upstream/ holds the unmaintained upstream
@@ -56,6 +121,13 @@ testpaths = ["tests"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+
+# The frozen API contract is served by `server/app.py`, so it has to be *in*
+# the package: without this, no wheel carried it and `GET /api/openapi.json`
+# was permanently 404 in every installed package (D-084). Kept byte-identical
+# to `schemas/api/v1/openapi.json` by `tests/test_api_declarations.py`.
+[tool.setuptools.package-data]
+"x2knwldg.server" = ["openapi.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

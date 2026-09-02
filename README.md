@@ -98,10 +98,10 @@ they are the contract: **completion may be claimed only on `0`.**
 | `3` | `PARTIAL` | Every validator passed and coverage is honestly incomplete (`WORKFLOW.md` §4). A real deliverable — and **not** a pass |
 | `4` | `FAIL` | The run validated as failing |
 | `5` | `TRANSCRIPT_REQUIRED` | No native captions. `inbox/<video-id>/` now holds instructions; supply a timestamped transcript. Whisper is never a fallback |
-| `6` | `UI_NOT_IMPLEMENTED` | `x2knwldg ui` accepted its arguments and has no server to start yet (`T-116`) |
+| `6` | `UI_NOT_BUILT` | `x2knwldg ui` accepted its arguments and the server is ready, but `web/dist` holds no built frontend. Run `cd web && npm ci && npm run build` |
 
 `PARTIAL` used to exit `0`, so no check could tell an honestly incomplete run from a passing
-one, and the `ui` command's standing refusal shared `1` with every real error. Splitting them
+one, and the `ui` command's refusal shared `1` with every real error. Splitting them
 out is what makes `if x2knwldg finalize ...` a meaningful check: `0` is a pass, `3` and `4`
 are verdicts to act on, `1` is something broken, and `5` and `6` are "do this next".
 
@@ -137,25 +137,38 @@ pwd
 `config/*.local.json` is gitignored on purpose — the filled-in copy holds machine-local
 absolute paths and is never committed, so only the `.example.json` exists in a fresh clone.
 
-## Local web UI (in progress)
+## Local web UI
 
-A local-first Knowledge Canvas — library, reader, knowledge map, and board — is being built
-over the canonical outputs. The design is in
-[`docs/KNOWLEDGE_CANVAS_PLAN.md`](docs/KNOWLEDGE_CANVAS_PLAN.md) and
+A local-first Knowledge Canvas over the canonical outputs. Phase 1 — the **Library** and the
+**Reader** — is built and served; the knowledge map and the board are later phases. The design
+is in [`docs/KNOWLEDGE_CANVAS_PLAN.md`](docs/KNOWLEDGE_CANVAS_PLAN.md) and
 [ADR 0001](docs/adr/0001-local-web-ui.md); status and task breakdown are in
 [`docs/PROJECT_MANAGEMENT.md`](docs/PROJECT_MANAGEMENT.md).
 
-It is **optional and not yet functional.** The core package stays zero-dependency: nothing
-below is installed by `pip install x2knwldg`.
+It is **optional.** The core package stays zero-dependency: nothing below is installed by
+`pip install x2knwldg`, and the UI's Python dependencies are imported only by
+`x2knwldg.server`.
 
 ```bash
-.venv/bin/pip install -e '.[ui]'   # fastapi + uvicorn
-.venv/bin/x2knwldg ui              # reports UI_NOT_IMPLEMENTED and exits 6 today
+.venv/bin/pip install -e '.[ui]'      # fastapi + uvicorn
+(cd web && npm ci && npm run build)   # the frontend; without it, ui exits 6 UI_NOT_BUILT
+
+.venv/bin/x2knwldg ui                 # serves on 127.0.0.1 and opens a browser
 ```
 
-`x2knwldg ui` currently resolves the project root and refuses any non-loopback bind address,
-then reports that the local server does not exist yet rather than pretending to serve. The
-frontend toolchain lives in [`web/`](web/README.md); the TypeScript types for the frozen HTTP
+`x2knwldg ui` refuses any non-loopback bind address **before** anything else (ADR 0001
+invariant 9), resolves the project root, refreshes the index — incrementally, so an unchanged
+project pays a directory walk — then binds, prints the URL it actually reached, and opens a
+browser. Nothing else in the CLI builds an index, so this is where one comes from.
+
+| Flag | Meaning |
+|---|---|
+| `--root` | Project root. Defaults to `$X2KNWLDG_PROJECT_ROOT`, then the working directory |
+| `--host` | Loopback address to bind. Only `127.0.0.1`, `::1` and `localhost` are accepted |
+| `--port` | Omit to let the OS choose a free one — the URL is printed after the bind, never before |
+| `--no-open` | Do not open a browser |
+
+The frontend lives in [`web/`](web/README.md); the TypeScript types for the frozen HTTP
 contract are generated into [`schemas/api/v1/`](schemas/api/v1/README.md).
 
 ## Tests

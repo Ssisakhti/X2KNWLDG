@@ -7,6 +7,8 @@
 - Span: 00:00:00–00:00:45
 - Status: `covered`
 - Knowledge units: KU-000001
+- Omitted `sponsor`: A sponsor read; nothing in it to extract.
+- Omitted `other_explained`: The greeting states no claim and cites nothing.
 
 ## W-0002
 

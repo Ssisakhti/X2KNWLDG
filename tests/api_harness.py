@@ -25,9 +25,10 @@ import importlib.util
 import json
 import shutil
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
@@ -132,13 +133,22 @@ def client(repository: Any) -> Iterator[Any]:
     ``raise_server_exceptions=False`` so that the generic ``internal`` handler
     is exercised as a client would see it, rather than the exception being
     re-raised into the test.
+
+    ``base_url`` is a loopback address rather than TestClient's default
+    ``http://testserver``, because D-103 added a ``Host`` allowlist and the
+    default allowlist is the loopback set. Pointing the client at a real
+    loopback name keeps every test speaking to the app the way a browser on
+    this machine does — and keeps ``testserver`` *out* of the production
+    allowlist, which is the whole point of having one.
     """
     from fastapi.testclient import TestClient
 
     from x2knwldg.server.app import create_app
 
     app = create_app(repository=repository)
-    with TestClient(app, raise_server_exceptions=False) as test_client:
+    with TestClient(
+        app, base_url="http://127.0.0.1", raise_server_exceptions=False
+    ) as test_client:
         try:
             yield test_client
         finally:

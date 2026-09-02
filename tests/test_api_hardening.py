@@ -20,9 +20,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 import api_harness as h
+import pytest
 
 pytestmark = [h.requires_fastapi]
 
@@ -209,8 +208,8 @@ def test_an_indexed_path_pointing_outside_the_root_is_refused(tmp_path: Path) ->
     secret = tmp_path / "outside.txt"
     secret.write_text("this must never be served", encoding="utf-8")
 
-    from x2knwldg.server.routes.media import _resolve
     from x2knwldg.server.errors import NotFound
+    from x2knwldg.server.routes.media import _resolve
 
     resolved_root = root.resolve()
     for escape in ("../outside.txt", "output/../../outside.txt", str(secret), "/etc/passwd"):
@@ -413,3 +412,53 @@ def test_v1_is_read_only(served: Path) -> None:
             for method in ("post", "put", "patch", "delete"):
                 response = getattr(client, method)(path)
                 assert response.status_code in (404, 405), f"{method.upper()} {path} was allowed"
+
+
+# --------------------------------------------------------------------------
+# D-103 — the Host header is checked
+# --------------------------------------------------------------------------
+#
+# There was no validation at all. The bind is correctly loopback-only (ADR 0001
+# invariant 9) and there is no CORS middleware, so a page on another origin
+# cannot *read* a reply — but DNS rebinding does not need CORS: a name the
+# attacker controls, resolved to 127.0.0.1, makes their page **same-origin**
+# with this server, and every route is a readable `GET` over the whole
+# knowledge base. Binding to loopback stops other machines, not other origins
+# on this one.
+
+
+@pytest.mark.parametrize(
+    "host", ["evil.example.com", "rebind.attacker.test", "x2knwldg.attacker.test:8931"]
+)
+def test_a_rebound_name_is_refused(tmp_path: Path, host: str) -> None:
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        response = client.get("/api/status", headers={"Host": host})
+        assert response.status_code == 400, response.status_code
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "127.0.0.1:8931", "localhost:8931"])
+def test_every_loopback_name_the_cli_accepts_is_answered(tmp_path: Path, host: str) -> None:
+    """The allowlist must not refuse the hosts `x2knwldg ui` can bind."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        response = client.get("/api/status", headers={"Host": host})
+        assert response.status_code == 200, (host, response.status_code)
+
+
+def test_the_allowlist_is_never_a_wildcard(tmp_path: Path) -> None:
+    """A `*` would install the middleware and answer nothing with it."""
+    from x2knwldg.server.app import LOOPBACK_HOST_NAMES
+
+    assert "*" not in LOOPBACK_HOST_NAMES
+    assert set(LOOPBACK_HOST_NAMES) >= {"localhost", "127.0.0.1"}
+
+
+def test_the_refusal_happens_before_a_route_reads_the_index(tmp_path: Path) -> None:
+    """Installed before the routers, so nothing is looked up for a bad Host."""
+    root = h.project(tmp_path)
+    repository = h.memory_repository(root)
+    with h.client(repository) as client:
+        for path in ("/api/status", "/api/sources", "/api/search?q=x", "/api/openapi.json"):
+            response = client.get(path, headers={"Host": "evil.example.com"})
+            assert response.status_code == 400, (path, response.status_code)

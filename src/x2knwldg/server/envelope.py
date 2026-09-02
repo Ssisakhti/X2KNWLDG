@@ -13,7 +13,8 @@ part worth testing on a bare core install where `fastapi` is absent (`T-009`).
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 #: ``ApiVersion`` — a const in the frozen document. A breaking change becomes
 #: ``schemas/api/v2/`` and a ``/api/v2/`` prefix, leaving these paths on v1

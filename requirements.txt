@@ -8,13 +8,22 @@
 #
 # The extras, as declared in pyproject.toml:
 #   youtube  yt-dlp + youtube-transcript-api   caption fetching
-#   dev      pytest, jsonschema, openapi-spec-validator
+#   dev      pytest, jsonschema, openapi-spec-validator, ruff, mypy, httpx
 #   legacy   networkx + pyvis                  unskips the legacy/upstream tests
 #   mcp      the MCP server adapter
-#   ui       fastapi + uvicorn                 the local web layer (not functional yet)
+#   ui       fastapi + uvicorn                 the local web layer
 #
-# CI's test job installs `.[dev,legacy]`; add `legacy` here too if you want the
-# four legacy/upstream tests to run rather than skip.
+# D-111: this file used to describe the `ui` layer as unfinished, and to say
+# that CI's test job installs `.[dev,legacy]`. `T-116` shipped `x2knwldg ui`,
+# and CI installs `.[dev,legacy,ui]` — so both statements were wrong, and no CI
+# job installed this file at all, which is why nothing said so. The
+# `requirements` job now does, and `tests/test_ui_scaffold.py` checks that the
+# extras named here are the ones pyproject declares and that the stale claim
+# has not come back — including as a quotation, so the guard cannot be talked
+# around.
+#
+# CI's test job installs `.[dev,legacy,ui]`. Add those extras here too if you
+# want the legacy/upstream tests and the whole API layer to run rather than skip.
 #
 # The core package itself has no runtime dependencies.
 .[youtube,dev]

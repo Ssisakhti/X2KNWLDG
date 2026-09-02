@@ -589,6 +589,14 @@ export type StatusPayload = {
      * Migration version of the SQLite schema (T-101), or null when no index exists.
      */
     index_version?: number | null;
+    /**
+     * Why the index is in this state, when it has something to say. Present on `error`, and also
+     * on `ready` after a scan that failed and was rolled back — the stored records are intact and
+     * still answerable, and this is the only place that says the last scan did not finish. Absent
+     * when there is nothing to report; never an empty string. Carries no host filesystem path (ADR
+     * 0003).
+     */
+    message?: string | null;
   };
   /**
    * Records the index holds. A cache convenience, reproducible from the canonical files; a stale
@@ -618,6 +626,17 @@ export type StatusPayload = {
     discovered: number;
     indexed: number;
     skipped: Array<SkippedRun>;
+    /**
+     * Why the cross-source `library/` fragment could not be indexed, when it could not be. It is
+     * **not** a run: it is not counted in `discovered` or `indexed` and is not listed in
+     * `skipped`, so the identity above stays true — it gets a field of its own for the same reason
+     * `ScanReport.library_skipped_reason` does, so a caller can test it without matching on a
+     * path. Absent when the fragment indexed cleanly *and* when there is no fragment at all: an
+     * absent `library/` is the ordinary state of a project that has not run `rebuild-library`,
+     * while a present unreadable one is damage and says so. Carries no host filesystem path (ADR
+     * 0003).
+     */
+    library_skipped_reason?: string | null;
   };
 };
 

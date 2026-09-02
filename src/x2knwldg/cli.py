@@ -6,8 +6,8 @@ Exit codes
 The pipeline's whole point is that a run which is not a pass cannot be
 mistaken for one, and an exit code is the only thing a shell or a CI job
 reads. ``PARTIAL`` used to exit ``0``, so no check could tell it from
-``PASS``; every refusal, including the ``ui`` command's standing "not
-implemented yet", shared ``1`` with every real error. The codes below are the
+``PASS``; every refusal, including the ``ui`` command's, shared ``1`` with
+every real error. The codes below are the
 same in every command that produces them.
 
 =====  ==========================================================
@@ -30,10 +30,10 @@ Code   Meaning
 ``5``  ``TRANSCRIPT_REQUIRED`` — no native captions. ``inbox/``
        now holds instructions; supply a timestamped transcript.
        Whisper is never a fallback.
-``6``  ``UI_NOT_IMPLEMENTED`` — ``ui`` accepted its arguments and
-       has no server to start yet (``T-116``). Distinct from
-       ``1`` so a wrapper can wait for the feature rather than
-       report a broken install.
+``6``  ``UI_NOT_BUILT`` — ``ui`` accepted its arguments and the
+       server is ready, but ``web/dist`` holds no built frontend
+       to serve. Distinct from ``1`` so a wrapper can run the
+       build rather than report a broken install.
 =====  ==========================================================
 """
 
@@ -46,9 +46,11 @@ from pathlib import Path
 
 from . import __version__
 from .ids import IdError
+from .io import CanonicalValueError
 from .pipeline import (
     PipelineError,
     RunAlreadyExists,
+    VerdictRefusal,
     extract_video_id,
     import_transcript,
     is_youtube_url,
@@ -79,7 +81,7 @@ EXIT_USAGE = 2  # argparse's own, reproduced here so nothing else claims it
 EXIT_PARTIAL = 3
 EXIT_FAIL = 4
 EXIT_TRANSCRIPT_REQUIRED = 5
-EXIT_UI_NOT_IMPLEMENTED = 6
+EXIT_UI_NOT_BUILT = 6
 
 #: One mapping, so `validate`, `apply-bundle` and `finalize` cannot drift into
 #: disagreeing about what a verdict is worth.
@@ -95,6 +97,10 @@ USER_FACING_ERRORS = (
     TranscriptError,
     IdError,
     UnsearchableRun,
+    # D-074: a canonical file timed "0.0" reached `io.format_timestamp` and
+    # took `finalize` down with a raw traceback, outside this tuple and so
+    # outside the documented `{"status": "ERROR"}` stderr contract.
+    CanonicalValueError,
     OSError,
     json.JSONDecodeError,
 )
@@ -106,7 +112,7 @@ def verdict_exit_code(status: str) -> int:
 
 
 def _fail(status: str, message: str, **extra: object) -> None:
-    payload = {"status": status, "message": message}
+    payload: dict[str, object] = {"status": status, "message": message}
     payload.update(extra)
     print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
 
@@ -145,8 +151,9 @@ exit codes:
   4  FAIL                 the run validated as failing
   5  TRANSCRIPT_REQUIRED  no native captions; supply a timestamped transcript
                           in the inbox directory this command names
-  6  UI_NOT_IMPLEMENTED   `ui` accepted its arguments; the server lands with
-                          T-116
+  6  UI_NOT_BUILT         `ui` accepted its arguments and the server is
+                          ready, but web/dist holds no built frontend to
+                          serve. Build it: cd web && npm ci && npm run build
 
 Completion may be claimed only on 0."""
 
@@ -224,7 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
     library_parser.add_argument("--output", type=Path, default=Path("output"))
 
     ui_parser = commands.add_parser(
-        "ui", help="Serve the local Knowledge Canvas on loopback (not wired yet - T-116)"
+        "ui", help="Serve the local Knowledge Canvas on loopback"
     )
     ui_parser.add_argument(
         "--root",
@@ -384,19 +391,31 @@ def _missing_ui_dependencies() -> list[str]:
 
 
 def _run_ui(args: argparse.Namespace) -> int:
-    """`T-008` stub. `T-116` wires the five steps of canvas plan section 8.3.
+    """The five steps of canvas plan section 8.3, wired (`T-116`).
 
-    Steps 1 and 2 of that contract are real here — the root is resolved and the
-    bind address is checked — because both are refusals, and a refusal is worth
-    having before the thing it guards exists. Steps 3 to 5 need the server
-    (`T-105`-`T-108`), so this reports `UI_NOT_IMPLEMENTED` and exits
-    `EXIT_UI_NOT_IMPLEMENTED` rather than starting something that cannot serve.
-    It never prints a URL it is not listening on.
+    Order is the contract, not a preference:
 
-    That code is its own, not `1` and not argparse's `2`: "the feature has not
-    landed" is a different fact from "your invocation was wrong", and a wrapper
-    that cannot tell them apart reports a broken install for a feature that is
-    merely unfinished.
+    1. **The bind address is refused first**, before the dependency probe. If
+       the probe came first, ADR 0001 invariant 9 would go unenforced on every
+       machine that has not installed the extra -- the check would only run
+       where it was least needed.
+    2. The root is resolved by ``pipeline.project_root`` and nowhere else
+       (D-039), and must exist.
+    3. The ``ui`` extra is probed and named if absent.
+    4. The index is **refreshed**, not merely checked. Nothing else in the CLI
+       builds one, so a project that had never been indexed could otherwise
+       only ever be served an honest `503`; and the scan is incremental, so an
+       unchanged project pays a stat walk rather than a rebuild.
+    5. The socket is bound, and only then is a URL printed and a browser
+       opened. ``--port`` is optional so the OS may choose a free one, which
+       cannot be known before the bind.
+
+    A project with no built frontend stops between 4 and 5 with
+    ``EXIT_UI_NOT_BUILT``. That is a *next step*, not a breakage: the API is
+    fine, the index is fine, and the fix is one `npm run build`. It keeps its
+    own code for the reason exit `5` has one -- a wrapper that cannot tell
+    "run this command next" from "your install is broken" reports the wrong
+    thing to whoever reads it.
     """
     if args.host not in LOOPBACK_HOSTS:
         raise PipelineError(
@@ -417,25 +436,79 @@ def _run_ui(args: argparse.Namespace) -> int:
             "Install it with: pip install 'x2knwldg[ui]'"
         )
 
+    # Lazily, inside the dispatch branch: `server` owns every import of the
+    # `ui` extra (D-055), and importing this CLI must not pull the framework
+    # in on a bare core install.
+    from .server import serve as ui
+
+    assets = ui.assets_dir(root)
+    if assets is None:
+        print(
+            json.dumps(
+                {
+                    "status": "UI_NOT_BUILT",
+                    "root": str(root),
+                    "expected": str(Path(*ui.ASSETS_SUBPATH) / ui.ASSETS_ENTRY),
+                    "message": (
+                        "No built frontend to serve. Build it with: "
+                        "cd web && npm ci && npm run build"
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return EXIT_UI_NOT_BUILT
+
+    from .index.scanner import refresh_index
+    from .index.search import document_indexer
+
+    # `index_documents` is what fills `documents` and the FTS5 tables. Without
+    # it the scan still produces a complete, correct index of sources,
+    # artifacts, entities and relations -- and `/api/search` answers `0` for
+    # every query, because the corpus it searches was never written. Nothing
+    # else about the UI looks wrong, which is exactly why this has to be wired
+    # here rather than remembered: `T-103` pairs the two, and every other
+    # caller in the tree passes them together.
+    report = refresh_index(root, index_documents=document_indexer(root))
+
+    sock, listening = ui.bind(args.host, args.port)
     print(
         json.dumps(
             {
-                "status": "UI_NOT_IMPLEMENTED",
+                "status": "SERVING",
+                "url": listening.url,
                 "root": str(root),
-                "host": args.host,
-                "port": args.port,
+                "host": listening.host,
+                "port": listening.port,
                 "open_browser": not args.no_open,
-                "blocked_on": ["T-105", "T-106", "T-107", "T-108", "T-116"],
-                "reason": (
-                    "T-008 scaffolds the command, the 'ui' extra, and web/. "
-                    "The local server lands with T-105-T-108 and is wired here by T-116."
-                ),
+                "index": {
+                    "runs_discovered": report.runs_discovered,
+                    "runs_indexed": report.runs_indexed,
+                    "runs_skipped": report.runs_skipped,
+                    # Named, never merely counted -- the D-043 rule. An empty
+                    # list here means nothing was skipped, which is a different
+                    # claim from not having looked.
+                    "skipped_runs": [dict(entry) for entry in report.skipped_runs],
+                },
             },
             ensure_ascii=False,
             indent=2,
-        )
+        ),
+        flush=True,
     )
-    return EXIT_UI_NOT_IMPLEMENTED
+
+    try:
+        ui.serve(
+            project_root=root,
+            assets=assets,
+            sock=sock,
+            listening=listening,
+            open_browser=not args.no_open,
+        )
+    except KeyboardInterrupt:  # pragma: no cover - interactive
+        pass
+    return EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -493,6 +566,13 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK
         if args.command == "ui":
             return _run_ui(args)
+    except VerdictRefusal as exc:
+        # D-082: caught before `USER_FACING_ERRORS`, which would have made this
+        # exit `1`. A run that validated as failing is a *result* to report —
+        # the stderr envelope says `FAIL`, not `ERROR`, and the exit code comes
+        # from `VERDICT_EXIT_CODES` like every other statement of a verdict.
+        _fail(exc.status, str(exc))
+        return verdict_exit_code(exc.status)
     except USER_FACING_ERRORS as exc:
         # Not `PipelineError` alone. `parse_transcript_file` raises
         # `TranscriptError` for every malformed SRT/VTT/JSON — the *documented*

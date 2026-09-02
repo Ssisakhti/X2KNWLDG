@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from . import constants
 from .ids import is_id_part
@@ -15,17 +15,16 @@ from .io import (
     format_timestamp,
     read_json,
     timestamp_url,
-    write_bytes,
-    write_text,
+    write_group,
 )
-from .pipeline import PipelineError, validate_run
+from .pipeline import PipelineError, VerdictRefusal, validate_run
+from .transcripts import transcript_end_sec
 from .validators import (
     validate_coverage,
     validate_knowledge_units,
     validate_provenance,
     validate_relationships,
 )
-
 
 #: Report sections, in the order they are printed, and the kinds each collects.
 #: The *order* is an editorial decision and lives here; the *vocabulary* does
@@ -96,51 +95,17 @@ def _read(path: Path) -> Any:
     mistyped bundle path.
     """
     try:
-        return read_json(path)
+        document = read_json(path)
     except JsonReadError as exc:
         raise PipelineError(str(exc)) from exc
-
-
-def _write_group(entries: Sequence[tuple[Path, str]]) -> None:
-    """Write several files as one step, or leave every one of them as it was.
-
-    ``io.write_text`` is atomic for a single file, which is not the property
-    these callers need: ``apply_extraction_bundle`` replaces four canonical files
-    that are only meaningful together, and ``finalize_run`` replaces
-    ``graph.json`` and ``report.md`` in the same breath. A failure between two
-    of those writes left the run internally inconsistent — a
-    ``knowledge_units.json`` from this bundle beside a ``coverage.json`` from the
-    last one — and ``validate_run`` would then read the mismatched set and
-    report ``PASS`` on it, because each file is individually well formed.
-
-    POSIX offers no multi-file commit, so this is the honest approximation:
-    every document is serialised by the caller *before* the first write, each
-    write is an atomic replace, and if one fails the previous contents of all of
-    them are put back. The remaining window is a crash between two ``rename``
-    calls, which no userspace code can close.
-    """
-    previous: list[tuple[Path, bytes | None]] = []
-    for path, _ in entries:
-        try:
-            previous.append((path, path.read_bytes()))
-        except OSError:
-            previous.append((path, None))
-    try:
-        for path, text in entries:
-            write_text(path, text)
-    except BaseException:
-        for path, snapshot in previous:
-            try:
-                if snapshot is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    write_bytes(path, snapshot)
-            except OSError:
-                # The rollback is best effort by definition — the write that
-                # brought us here may have failed because the disk is full. The
-                # original failure is what the caller must see.
-                pass
-        raise
+    # D-077: `pipeline._read_canonical` enforced this and its twin here did
+    # not, so a `metadata.json` holding `[]` reached `metadata["video_id"]` and
+    # escaped as `TypeError: list indices must be integers`, and a
+    # `knowledge_units.json` holding `[]` reached `.get("units")` as an
+    # `AttributeError`. Both read canonical files; one reader, one rule.
+    if not isinstance(document, dict):
+        raise PipelineError(f"Canonical JSON must be an object: {path}")
+    return document
 
 
 def _checked_video_id(metadata: dict[str, Any]) -> str:
@@ -244,10 +209,27 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
     if not isinstance(bundle, dict):
         raise PipelineError("Extraction bundle must be a JSON object")
     metadata = _read(run_dir / "metadata.json")
+    # D-073: this used to read `bundle.get("knowledge_units",
+    # bundle.get("units", []))`. The bundle schema requires `knowledge_units`
+    # and sets `additionalProperties: false`, so it rejects `units` outright —
+    # while prompts 01, 02 and 04 all told the agent to return `{"units": ...}`
+    # and this line silently accepted both spellings. Nothing broke, and so the
+    # divergence between the prompts and the schema went unnoticed. Refusing
+    # here names the right key instead of guessing which one was meant.
+    if "knowledge_units" not in bundle and "units" in bundle:
+        raise PipelineError(
+            "Extraction bundle uses 'units'; the key is 'knowledge_units' "
+            "(schemas/extraction_bundle.schema.json). The canonical "
+            "knowledge_units.json file uses 'units' — the bundle does not."
+        )
+    # D-077: `metadata["video_id"]` raised a bare `KeyError` for a
+    # metadata.json that had lost the key. `finalize_run` already read it
+    # through `_checked_video_id`; apply-bundle did not.
+    video_id = _checked_video_id(metadata)
     units_document = {
         "schema_version": "1.0",
-        "video_id": metadata["video_id"],
-        "units": bundle.get("knowledge_units", bundle.get("units", [])),
+        "video_id": video_id,
+        "units": bundle.get("knowledge_units", []),
     }
     relationships_document = {
         "schema_version": "1.0",
@@ -262,19 +244,20 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
 
     unit_validation = validate_knowledge_units(units_document)
     unit_ids = {
-        unit.get("id")
+        unit["id"]
         for unit in units_document["units"]
-        if isinstance(unit, dict) and unit.get("id")
+        # D-114: `str` rather than "anything truthy" — a non-string id is
+        # already a failing run (`missing_id`), so this narrows without
+        # changing a verdict.
+        if isinstance(unit, dict) and isinstance(unit.get("id"), str) and unit["id"]
     }
     relationship_validation = validate_relationships(relationships_document, unit_ids)
     transcript = _read(run_dir / "transcript.json")
     segments = _read(run_dir / "segments.json")
     provenance_validation = validate_provenance(
-        units_document, transcript, segments, metadata["video_id"]
+        units_document, transcript, segments, video_id
     )
-    transcript_end = max(
-        (caption.get("end_sec", 0) for caption in transcript.get("captions", [])), default=0
-    )
+    transcript_end = transcript_end_sec(transcript.get("captions"))
     coverage_validation = validate_coverage(coverage_document, transcript_end)
     errors = {
         "knowledge_units": unit_validation["errors"],
@@ -311,7 +294,7 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
     # One step, not four. These four files describe the same extraction, and
     # ``validate_run`` immediately below reads all four: a half-applied bundle
     # would be validated as though it were a whole one.
-    _write_group(
+    write_group(
         [
             (run_dir / "knowledge_units.json", dumps_json(units_document)),
             (run_dir / "relationships.json", dumps_json(relationships_document)),
@@ -466,10 +449,13 @@ def finalize_run(run_dir: Path) -> dict[str, Any]:
             for name, section in validation.items()
             if isinstance(section, dict) and section.get("status") not in {None, "PASS"}
         )
-        raise PipelineError(
+        # D-082: a verdict, not a breakage. `VerdictRefusal` carries the status
+        # so the CLI exits `4` through `VERDICT_EXIT_CODES` rather than `1`.
+        raise VerdictRefusal(
+            validation["status"],
             "Refusing to finalize a run that fails validation "
             f"({failed or 'see validation.json'}). Repair the run and re-apply "
-            f"the bundle; the full report is in {run_dir / 'validation.json'}."
+            f"the bundle; the full report is in {run_dir / 'validation.json'}.",
         )
     # Everything the artifacts need, checked before anything is written. A unit
     # missing ``kind`` used to raise a bare ``KeyError`` from the middle of the
@@ -545,12 +531,21 @@ def finalize_run(run_dir: Path) -> dict[str, Any]:
     # lands together or not at all. A run whose ``graph.json`` came from this
     # finalize while its ``report.md`` came from the last one is a run that
     # describes itself two ways, and nothing downstream would notice.
-    _write_group(
+    write_group(
         [
             (run_dir / "graph.json", graph_text),
             (run_dir / "report.md", "\n".join(lines)),
             *obsidian_files,
-        ]
+        ],
+        # D-090: the three subtrees `_obsidian_files` generates into, so a unit
+        # retracted between two finalizes stops having a note. Named
+        # individually rather than as `vault/` so a file a reader put somewhere
+        # else under the vault is not something this function deletes.
+        prune=[
+            run_dir / "vault" / "videos",
+            run_dir / "vault" / "knowledge_units",
+            run_dir / "vault" / "reports",
+        ],
     )
     from .library import rebuild_library
 

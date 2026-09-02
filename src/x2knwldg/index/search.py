@@ -125,9 +125,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any
 
 from .. import ids
 from ..query import SearchDocument, rank_documents, run_documents

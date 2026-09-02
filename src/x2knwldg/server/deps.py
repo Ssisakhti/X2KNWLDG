@@ -13,7 +13,6 @@ so a route written against either is written against both.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from fastapi import Request
 

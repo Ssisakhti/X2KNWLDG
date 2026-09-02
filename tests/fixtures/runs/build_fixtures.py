@@ -19,7 +19,8 @@ apply an extraction bundle, finalize — so their shapes cannot drift from what
 the pipeline actually writes:
 
 ``pass-run``     validation PASS, coverage PASS
-``partial-run``  validators pass, coverage PARTIAL — one window left uncovered
+``partial-run``  validators pass, coverage PARTIAL — one window left uncovered,
+                 and one covered window accounting for two omitted items (D-092)
 ``fail-run``     a finalized run whose evidence excerpt no longer appears in its
                  segment, so provenance fails and validation is FAIL
 """
@@ -133,7 +134,21 @@ PARTIAL_COVERAGE = {
             "end_sec": 45.0,
             "status": "covered",
             "knowledge_units": ["KU-000001"],
-            "omitted_items": [],
+            # D-092: every committed fixture carried `omitted_items: []`, so the
+            # omission-accounting branches of `validate_coverage` - and the
+            # `type`/`note` key names they read - were unreachable in CI, and
+            # only the gitignored real sample exercised them. A `covered`
+            # window may also account for what it deliberately left out, so
+            # this costs the fixture no status change and no boundary change.
+            # `other_explained` is here because it is the one label that also
+            # requires a `note`.
+            "omitted_items": [
+                {"type": "sponsor", "note": "A sponsor read; nothing in it to extract."},
+                {
+                    "type": "other_explained",
+                    "note": "The greeting states no claim and cites nothing.",
+                },
+            ],
             "unresolved_items": [],
         },
         {

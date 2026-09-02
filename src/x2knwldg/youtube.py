@@ -18,6 +18,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any
 
+from .io import scrub_host_paths
 from .pipeline import PipelineError, extract_video_id, import_transcript
 from .transcripts import json3_duration
 
@@ -84,10 +85,10 @@ def bounded_http_client() -> Any | None:
     """
     try:
         import requests
-    except ImportError:  # pragma: no cover - requests ships with the extra
+    except ImportError:  # pragma: no cover - the `youtube` extra declares it (D-112)
         return None
 
-    class _BoundedSession(requests.Session):  # type: ignore[misc, name-defined]
+    class _BoundedSession(requests.Session):
         def request(self, *args: Any, **kwargs: Any) -> Any:
             kwargs.setdefault("timeout", NETWORK_TIMEOUT_SEC)
             return super().request(*args, **kwargs)
@@ -147,7 +148,7 @@ def fetch_native_transcript(url: str, preferred_languages: list[str] | None = No
         api_error = exc
     else:
         language = getattr(fetched, "language_code", None) or "unknown"
-        items = []
+        items: list[dict[str, Any]] = []
         for item in fetched:
             if len(items) >= MAX_CAPTIONS:
                 raise _too_many_captions()
@@ -214,12 +215,15 @@ def fetch_native_transcript(url: str, preferred_languages: list[str] | None = No
             # orphaned from every coverage window, so give it the same inferred
             # extent transcripts.py gives the file-import path.
             for position, item in enumerate(items):
-                if item["duration"] > 0:
+                start = float(item["start"])
+                if float(item["duration"]) > 0:
                     continue
                 next_start = (
-                    items[position + 1]["start"] if position + 1 < len(items) else None
+                    float(items[position + 1]["start"])
+                    if position + 1 < len(items)
+                    else None
                 )
-                item["duration"] = json3_duration(item["start"], next_start)
+                item["duration"] = json3_duration(start, next_start)
             if not items:
                 raise PipelineError("yt-dlp caption file contained no usable timed events")
             return items, {"video_id": video_id, "language": language, "url": url}
@@ -233,17 +237,32 @@ def fetch_metadata(url: str) -> dict[str, Any]:
     try:
         from yt_dlp import YoutubeDL
     except ImportError:
-        return {}
+        # D-099: named for the same reason a failed fetch is. "The extra is not
+        # installed" and "the fetch was blocked" both produce no title, and
+        # only one of them is fixed by installing something.
+        return {"metadata_error": "yt-dlp is not installed; install the `youtube` extra"}
     try:
         with YoutubeDL(ydl_options()) as ydl:
             info = ydl.extract_info(url, download=False)
-        return {
-            "title": info.get("title"),
-            "channel": info.get("uploader") or info.get("channel"),
-            "language": info.get("language"),
-        }
-    except Exception:
-        return {}
+    except Exception as exc:
+        # D-099: this was `except Exception: return {}`, which collapsed a
+        # network failure, a geo-block, an age gate, a bot check and a yt-dlp
+        # API change into the same answer — "no title, no channel, no
+        # language" — leaving three silent `None`s in `metadata.json` and no
+        # way to tell which had happened. The metadata is genuinely optional
+        # (a transcript is what this project needs); *why* it is absent is not,
+        # so it is named rather than dropped, which is D-045's rule applied to
+        # the one fetch that had escaped it.
+        #
+        # Still broad on purpose: yt-dlp raises its own hierarchy plus whatever
+        # its HTTP stack does, and the caller's contract is "carry on without
+        # the metadata". What changed is that carrying on now says so.
+        return {"metadata_error": scrub_host_paths(f"{type(exc).__name__}: {exc}")}
+    return {
+        "title": info.get("title") if info else None,
+        "channel": (info.get("uploader") or info.get("channel")) if info else None,
+        "language": info.get("language") if info else None,
+    }
 
 
 def process_youtube_url(
@@ -267,6 +286,8 @@ def process_youtube_url(
             channel=metadata.get("channel"),
             language=language,
             source="youtube_caption",
+            # D-099: so `metadata.json` can say *why* the title is unknown.
+            metadata_error=metadata.get("metadata_error"),
         )
     finally:
         temporary.unlink(missing_ok=True)

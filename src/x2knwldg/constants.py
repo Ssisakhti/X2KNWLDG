@@ -108,3 +108,14 @@ MAX_CAPTION_GAP_SEC = 120
 # are six chances for two comparisons to disagree about whether the same pair
 # of times matches, so there is one.
 TIME_TOLERANCE_SEC = 0.01
+
+#: The most rows any *remote* surface hands back for one request.
+#:
+#: Defect D-101: `server/params.py` capped a page at 500 and the MCP tool
+#: capped nothing — `query.search_knowledge` floor-checks `limit` and says, in
+#: as many words, that it has no ceiling on purpose, because a local CLI search
+#: is bounded by the corpus. That reasoning is right for the CLI and wrong for
+#: a tool an agent calls: `limit=10**18` returned the entire corpus in one
+#: reply. Two bounds for the same data was the defect, so the bound lives here
+#: and both surfaces read it.
+MAX_PAGE_LIMIT = 500

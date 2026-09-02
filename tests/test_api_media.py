@@ -8,12 +8,10 @@ asked directly; the rest of `T-108`'s traversal battery is in
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import pytest
-
 import api_harness as h
+import pytest
 
 pytestmark = [h.requires_fastapi]
 
@@ -236,3 +234,149 @@ def test_both_implementations_serve_the_same_bytes(tmp_path: Path) -> None:
         assert response.status_code == 200, label
         seen[label] = response.content
     assert len(set(seen.values())) == 1, "the two implementations served different bytes"
+
+
+# --------------------------------------------------------------------------
+# 4. D-083 — a Range header longer than `int()` will convert
+# --------------------------------------------------------------------------
+#
+# CPython refuses to convert a decimal string of more than 4300 digits and
+# raises `ValueError`, which nothing in `media.py` caught — so a long `Range`
+# header answered an undeclared `500` to any unauthenticated client, while 4299
+# digits answered `206` correctly. The route declares `200, 206, 400, 404, 416,
+# 503` and nothing else. A number that cannot be an offset into the file does
+# not need converting exactly: it is simply past the end, which is a `416`.
+
+#: Every status `GET /api/media/{artifact_id}` declares. `500` is not among them.
+DECLARED_MEDIA_STATUSES = {200, 206, 400, 404, 416, 503}
+
+
+@pytest.mark.parametrize("digits", [4299, 4301, 5000, 20000])
+def test_an_enormous_range_start_is_a_416_not_a_500(tmp_path: Path, digits: int) -> None:
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        response = client.get(
+            f"/api/media/{artifact['id']}", headers={"Range": f"bytes={'9' * digits}-"}
+        )
+        h.assert_error(response, 416, "invalid_request")
+        assert response.headers["content-range"] == f"bytes */{size}"
+
+
+@pytest.mark.parametrize("digits", [4301, 20000])
+def test_an_enormous_range_end_still_serves_the_rest(tmp_path: Path, digits: int) -> None:
+    """`bytes=0-<enormous>` is satisfiable: the end is clamped to the last byte."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        response = client.get(
+            f"/api/media/{artifact['id']}", headers={"Range": f"bytes=0-{'9' * digits}"}
+        )
+        assert response.status_code == 206, response.status_code
+        assert len(response.content) == size
+
+
+@pytest.mark.parametrize("digits", [4301, 20000])
+def test_an_enormous_suffix_range_is_the_whole_file(tmp_path: Path, digits: int) -> None:
+    """RFC 9110: a suffix larger than the representation is the whole of it."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        response = client.get(
+            f"/api/media/{artifact['id']}", headers={"Range": f"bytes=-{'9' * digits}"}
+        )
+        assert response.status_code == 206, response.status_code
+        assert len(response.content) == size
+        assert response.headers["content-range"] == f"bytes 0-{size - 1}/{size}"
+
+
+def test_no_long_range_header_answers_an_undeclared_status(tmp_path: Path) -> None:
+    """The contract drift the defect was, asserted as the property."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, _size = _sized(client)
+        headers = [
+            f"bytes={'9' * 5000}-",
+            f"bytes=0-{'9' * 5000}",
+            f"bytes=-{'9' * 5000}",
+            f"bytes={'0' * 5000}-{'9' * 5000}",
+            f"bytes={'9' * 5000}-{'9' * 5000}",
+            f"bytes={'9' * 5000}-0",
+            f"bytes=-{'0' * 5000}",
+        ]
+        for header in headers:
+            response = client.get(f"/api/media/{artifact['id']}", headers={"Range": header})
+            assert response.status_code in DECLARED_MEDIA_STATUSES, (
+                header[:32],
+                response.status_code,
+            )
+
+
+def test_a_leading_zero_padded_range_is_read_as_its_value(tmp_path: Path) -> None:
+    """The digit-length shortcut must not mistake padding for magnitude."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client, minimum=32)
+        response = client.get(
+            f"/api/media/{artifact['id']}", headers={"Range": f"bytes={'0' * 5000}0-{'0' * 20}9"}
+        )
+        assert response.status_code == 206, response.status_code
+        assert response.headers["content-range"] == f"bytes 0-9/{size}"
+
+
+# --------------------------------------------------------------------------
+# 5. D-104 — a stated media type is checked before it becomes a header
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "stated",
+    ["tëxt/plåin", "text/plain\r\nX-Injected: 1", "not-a-type", "", "text/plain\nX: 1", "a/" + "b" * 300],
+    ids=["non-latin1", "crlf", "no-slash", "empty", "lf", "overlong"],
+)
+def test_a_media_type_this_server_cannot_send_is_refused(tmp_path: Path, stated: str) -> None:
+    """It went into `Content-Type` with no validation at all.
+
+    A value outside latin-1 failed header encoding and answered an undeclared
+    `500`; one containing CRLF was placed in the header dict unchecked, with
+    only h11's wire-level refusal in the way. Not reachable without index write
+    access, which is why it is low — but "something downstream refuses it" is
+    not a check this route performed.
+    """
+    from x2knwldg.server.routes.media import MediaUnavailable, _checked_media_type
+
+    with pytest.raises(MediaUnavailable):
+        _checked_media_type({"media_type": stated})
+
+
+@pytest.mark.parametrize(
+    "stated", ["video/mp4", "text/plain; charset=utf-8", "application/octet-stream"]
+)
+def test_an_ordinary_media_type_is_sent_unchanged(stated: str) -> None:
+    from x2knwldg.server.routes.media import _checked_media_type
+
+    assert _checked_media_type({"media_type": stated}) == stated
+
+
+def test_an_unstated_media_type_is_octet_stream_not_a_refusal() -> None:
+    """`null` means "not known", which octet-stream answers honestly.
+
+    Refusal is for a *malformed* value: replacing one the index holds would be
+    guessing, and this route states a media type rather than guessing it.
+    """
+    from x2knwldg.server.routes.media import _checked_media_type
+
+    assert _checked_media_type({"media_type": None}) == "application/octet-stream"
+    assert _checked_media_type({}) == "application/octet-stream"
+
+
+def test_every_served_artifact_answers_a_declared_status(tmp_path: Path) -> None:
+    """The property, over the fixtures: 500 is not in the declared set."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        for artifact in _artifacts(client):
+            response = client.get(f"/api/media/{artifact['id']}")
+            assert response.status_code in DECLARED_MEDIA_STATUSES, (
+                artifact["id"],
+                response.status_code,
+            )

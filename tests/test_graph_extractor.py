@@ -1,6 +1,7 @@
 import json
+
 import pytest
-from pathlib import Path
+
 # These cover the unmaintained upstream scripts in legacy/upstream/, which
 # pytest reaches through the pythonpath entry in pyproject.toml (D-021).
 pytest.importorskip("networkx", reason="the legacy extra is optional")

@@ -23,9 +23,10 @@ import hashlib
 import json
 import shutil
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import pytest
 
@@ -607,24 +608,109 @@ def test_an_interrupted_build_reopens_as_building_and_never_as_ready(
     assert _state(root)[0] == "ready"
 
 
+def _fails_to_scan(monkeypatch: pytest.MonkeyPatch, message: str) -> None:
+    def boom(*args: Any, **kwargs: Any):
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(scanner, "_insert_records", boom)
+
+
 def test_a_failed_scan_records_the_error_and_leaves_the_previous_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """D-086: the second half of this test's own name was not true.
+
+    ``_apply`` does every write inside one ``with connection:``, so a failure
+    rolls all of them back — which this test already asserted. But the scan
+    then committed ``state='error'`` anyway, and ``_require_ready`` refuses
+    *every* endpoint in that state, so the records being intact bought the
+    reader nothing: adding one run that duplicated an existing ``video_id``
+    cost them the whole library until the cause was removed. A rolled-back scan
+    over a ``ready`` index leaves it ``ready``, as fresh as its ``built_at``
+    says, with a message stating that the last scan failed.
+    """
     root = _project(tmp_path, *ALL_FIXTURES, library=False)
     scanner.build_index(root)
     before = _stored_records(root)
+    _built_before = _state(root)[1]
 
-    def boom(*args: Any, **kwargs: Any):
-        raise RuntimeError("the store fell over")
-
-    monkeypatch.setattr(scanner, "_insert_records", boom)
+    _fails_to_scan(monkeypatch, "the store fell over")
     _edit(root / "output" / "pass-run" / "knowledge_units.json", lambda d: d["units"].pop())
     with pytest.raises(RuntimeError):
         scanner.refresh_index(root)
 
-    state, _built_at, message = _state(root)
-    assert state == "error" and message and "the store fell over" in message
+    state, built_at, message = _state(root)
     assert _stored_records(root) == before, "a failed scan committed part of itself"
+    assert state == "ready", "a rolled-back scan cost the reader a healthy index"
+    assert built_at == _built_before, "the index claimed to be fresher than it is"
+    assert message and "the store fell over" in message
+    assert "last scan failed" in message
+
+
+def test_a_failed_scan_leaves_the_index_answering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The consequence D-086 had: every endpoint answered 503 for every run."""
+    from x2knwldg.index.repository import SqliteRepository
+    from x2knwldg.repository.base import SourceQuery
+
+    root = _project(tmp_path, *ALL_FIXTURES, library=False)
+    scanner.build_index(root)
+    _fails_to_scan(monkeypatch, "the store fell over")
+    _edit(root / "output" / "pass-run" / "knowledge_units.json", lambda d: d["units"].pop())
+    with pytest.raises(RuntimeError):
+        scanner.refresh_index(root)
+
+    connection = schema.connect(schema.database_path(root), create=False)
+    try:
+        repository = SqliteRepository(connection)
+        status = repository.status().payload()
+        assert status["index"]["state"] == "ready"
+        # D-086: `index.message` is the only channel that says the last scan
+        # did not finish, so a `ready` state without it would be a silent zero.
+        assert "the store fell over" in status["index"].get("message", "")
+        assert "last scan failed" in status["index"]["message"]
+        # And it actually answers, rather than raising IndexUnavailable.
+        assert status["counts"]["sources"] == len(ALL_FIXTURES)
+        assert [source["id"] for source in repository.list_sources(SourceQuery()).items]
+    finally:
+        connection.close()
+
+
+def test_a_scan_that_never_succeeded_still_reports_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-086 only spares an index that *was* ready; there is nothing to spare here."""
+    root = _project(tmp_path, *ALL_FIXTURES, library=False)
+    _fails_to_scan(monkeypatch, "the store fell over")
+    with pytest.raises(RuntimeError):
+        scanner.build_index(root)
+
+    state, _built_at, message = _state(root)
+    assert state == "error"
+    assert message and "the store fell over" in message
+    assert "last scan failed" not in message
+
+
+def test_a_failed_scans_message_carries_no_host_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-085: the message is served verbatim in a 503 body (D-030, ADR-0003)."""
+    root = _project(tmp_path, *ALL_FIXTURES, library=False)
+
+    def boom(*args: Any, **kwargs: Any):
+        raise RuntimeError(f"could not read {root / 'output' / 'pass-run' / 'x.json'}")
+
+    monkeypatch.setattr(scanner, "_insert_records", boom)
+    with pytest.raises(RuntimeError):
+        scanner.build_index(root)
+
+    _state_name, _built_at, message = _state(root)
+    assert message is not None
+    assert str(root) not in message
+    assert str(root.resolve()) not in message
+    # The damage is still stated (D-063): only the path is gone.
+    assert "could not read" in message
 
 
 def test_the_documents_tables_are_left_to_the_search_module(tmp_path: Path) -> None:
@@ -796,3 +882,275 @@ def test_a_still_broken_run_being_re_edited_does_not_cost_the_library(tmp_path: 
         entity for entity in _stored_records(tmp_path)["entity_ref"] if entity["source_id"] is None
     ] == concepts, "the library fragment was evicted by a run that never had records"
     assert second.counts == first.counts
+
+
+# --------------------------------------------------------------------------
+# D-078 — a symlinked run directory is skipped and named, not fatal
+# --------------------------------------------------------------------------
+#
+# `project_relative` resolves symlinks, so a run directory that is a symlink to
+# somewhere outside the project resolves outside it and the call raises
+# `AdapterError`. It was the *first statement* of `_examine` — outside the
+# `try:` that implements the D-043 skip-and-name contract — and it appeared a
+# second time inside `_apply`'s prior-row lookup. One symlinked directory under
+# `output/` therefore took the whole index down even with `strict=False`:
+# `state='error'` with the old counts still in the row, and every endpoint
+# answering 503 for every run. `run_dirs` globs `*/metadata.json`, and `glob`
+# follows directory symlinks, so an ordinary "runs live on an external drive"
+# setup reaches it.
+
+
+def _outside_run(tmp_path: Path, name: str = "outside-run") -> Path:
+    """A real run directory that lives outside the project root."""
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir(exist_ok=True)
+    target = elsewhere / name
+    shutil.copytree(FIXTURE_RUNS / "pass-run", target)
+    _edit(target / "metadata.json", lambda d: d.update({"video_id": "fixture-outside"}))
+    return target
+
+
+def test_a_symlinked_run_is_skipped_and_named_rather_than_fatal(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    root = _project(project, "pass-run", library=False)
+    scanner.build_index(root)
+
+    (root / "output" / "linked-run").symlink_to(_outside_run(tmp_path), True)
+    report = scanner.refresh_index(root)
+
+    assert report.runs_discovered == 2
+    assert report.runs_indexed == 1
+    assert report.runs_skipped == 1
+    named = {entry["relative_path"] for entry in report.skipped_runs}
+    assert named == {"output/linked-run"}
+    # The identity ScanReport asserts about itself still holds.
+    assert report.runs_discovered == report.runs_indexed + report.runs_skipped
+
+
+def test_a_symlinked_run_leaves_the_index_readable(tmp_path: Path) -> None:
+    """The consequence the defect had: every endpoint answered 503 for every run."""
+    project = tmp_path / "project"
+    project.mkdir()
+    root = _project(project, "pass-run", library=False)
+    scanner.build_index(root)
+    before = _stored_records(root)
+
+    (root / "output" / "linked-run").symlink_to(_outside_run(tmp_path), True)
+    scanner.refresh_index(root)
+
+    state, _built_at, _message = _state(root)
+    assert state == "ready", "a skipped run must not downgrade the index"
+    assert _stored_records(root) == before, "the healthy run's records changed"
+
+
+def test_the_reason_for_a_symlinked_run_carries_no_host_path(tmp_path: Path) -> None:
+    """D-030 and ADR-0003: `skipped_runs[].reason` is served by `/api/status`."""
+    project = tmp_path / "project"
+    project.mkdir()
+    root = _project(project, "pass-run", library=False)
+    scanner.build_index(root)
+    outside = _outside_run(tmp_path)
+    (root / "output" / "linked-run").symlink_to(outside, True)
+
+    report = scanner.refresh_index(root)
+    reason = next(
+        entry["reason"] for entry in report.skipped_runs
+        if entry["relative_path"] == "output/linked-run"
+    )
+    assert "output/linked-run" in reason
+    for absolute in (str(outside), str(outside.parent), str(root.resolve())):
+        assert absolute not in reason, f"the reason leaks {absolute}"
+
+
+def test_a_symlinked_run_is_still_named_on_the_next_refresh(tmp_path: Path) -> None:
+    """Re-reporting rather than quietly dropping it — the D-043 contract."""
+    project = tmp_path / "project"
+    project.mkdir()
+    root = _project(project, "pass-run", library=False)
+    (root / "output" / "linked-run").symlink_to(_outside_run(tmp_path), True)
+
+    first = scanner.build_index(root)
+    second = scanner.refresh_index(root)
+    assert first.runs_skipped == second.runs_skipped == 1
+    assert {e["relative_path"] for e in second.skipped_runs} == {"output/linked-run"}
+
+
+def test_strict_still_refuses_a_symlinked_run(tmp_path: Path) -> None:
+    """`strict=True` agrees with `adapt_project`, which raises here too (T-104)."""
+    project = tmp_path / "project"
+    project.mkdir()
+    root = _project(project, "pass-run", library=False)
+    (root / "output" / "linked-run").symlink_to(_outside_run(tmp_path), True)
+
+    with pytest.raises(AdapterError):
+        adapt_project(root)
+    with pytest.raises(AdapterError):
+        scanner.build_index(root, strict=True)
+
+
+def test_a_symlinked_library_is_named_rather_than_fatal(tmp_path: Path) -> None:
+    """The same class, on the fragment: `library/` has a row of its own."""
+    project = tmp_path / "project"
+    project.mkdir()
+    root = _project(project, "pass-run", library=False)
+    elsewhere = tmp_path / "elsewhere-library"
+    elsewhere.mkdir()
+    (root / "output" / "library").symlink_to(elsewhere, True)
+
+    report = scanner.build_index(root)
+    assert report.runs_indexed == 1
+    assert report.library_skipped_reason is not None
+    assert "output/library" in report.library_skipped_reason
+    state, _built_at, _message = _state(root)
+    assert state == "ready"
+
+
+# --------------------------------------------------------------------------
+# D-085 — no reason names a host path
+# --------------------------------------------------------------------------
+
+
+def test_an_adapter_refusal_reason_names_no_host_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_project_relative_reason` was a single `replace(str(run_dir), …)`.
+
+    It redacted only paths *under* the run directory — while
+    `project_relative`'s own message also names the absolute project root, and
+    a symlink names a path outside the run entirely. Both reach `/api/status`.
+    """
+    root = _project(tmp_path, "pass-run", "partial-run", library=False)
+    outside = tmp_path / "elsewhere" / "secret.txt"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("x", encoding="utf-8")
+
+    def refuse(run_dir: Path, project_root: Path):
+        raise AdapterError(
+            f"{outside.resolve()} lies outside the project root "
+            f"{root.resolve()}; and {run_dir.resolve() / 'metadata.json'} is unreadable"
+        )
+
+    monkeypatch.setattr(scanner, "adapt_run", refuse)
+    report = scanner.refresh_index(root)
+
+    assert report.runs_skipped == 2
+    for entry in report.skipped_runs:
+        reason = entry["reason"]
+        for absolute in (str(root), str(root.resolve()), str(outside), str(outside.parent)):
+            assert absolute not in reason, f"the reason leaks {absolute}: {reason}"
+        # D-063: the damage is still stated, and the run is still named.
+        assert "lies outside the project root" in reason
+        assert entry["relative_path"] in reason or "metadata.json" in reason
+
+
+# --------------------------------------------------------------------------
+# D-087 — the library fragment's reason reaches /api/status
+# --------------------------------------------------------------------------
+
+
+def _status_runs(root: Path) -> dict[str, Any]:
+    from x2knwldg.index.repository import SqliteRepository
+
+    connection = schema.connect(schema.database_path(root), create=False)
+    try:
+        return SqliteRepository(connection).status().payload()["runs"]
+    finally:
+        connection.close()
+
+
+def test_a_damaged_library_is_named_on_the_status_endpoint(tmp_path: Path) -> None:
+    """`_runs_seen` filtered the library row out of `skipped` as well as the counts.
+
+    A broken `library/concepts.json` and a deleted `library/` both read as
+    `skipped: []` with the entity and relation counts quietly lower — D-043's
+    silent zero, on the one endpoint that exists to be honest.
+    """
+    root = _project(tmp_path, "pass-run", "partial-run")
+    scanner.build_index(root)
+    healthy = _status_runs(root)
+    assert healthy.get("library_skipped_reason") is None
+
+    (root / "output" / "library" / "concepts.json").write_text("{not json", encoding="utf-8")
+    report = scanner.refresh_index(root)
+    assert report.library_skipped_reason is not None
+
+    runs = _status_runs(root)
+    reason = runs.get("library_skipped_reason")
+    assert reason, "a damaged library fragment is reported nowhere"
+    assert "concepts.json" in reason
+    # Not counted as a run, so the contract's identity still holds.
+    assert runs["discovered"] == runs["indexed"] + len(runs["skipped"])
+    assert all("library" not in entry["relative_path"] for entry in runs["skipped"])
+    for absolute in (str(root), str(root.resolve())):
+        assert absolute not in reason
+
+
+def test_a_damaged_library_is_distinguishable_from_an_absent_one(tmp_path: Path) -> None:
+    """The second half of the finding: the two used to read identically."""
+    damaged = _project(tmp_path / "damaged", "pass-run")
+    (damaged / "output" / "library" / "concepts.json").write_text("{no", encoding="utf-8")
+    scanner.build_index(damaged)
+
+    absent = _project(tmp_path / "absent", "pass-run")
+    shutil.rmtree(absent / "output" / "library")
+    scanner.build_index(absent)
+
+    assert _status_runs(damaged).get("library_skipped_reason")
+    # An absent `library/` is the ordinary state of a project that has not run
+    # `rebuild-library`; it is not damage and does not claim to be.
+    assert _status_runs(absent).get("library_skipped_reason") is None
+
+
+# --------------------------------------------------------------------------
+# D-088 — a whole build discards the search corpus too
+# --------------------------------------------------------------------------
+
+
+def test_a_build_without_the_hook_leaves_no_stale_corpus(tmp_path: Path) -> None:
+    """`build_index`'s docstring promises it discards "whatever was stored".
+
+    It discarded every record family *except* the search corpus, which was left
+    to `index_documents` — a parameter defaulting to `None`. So
+    `build_index(root)`, the default signature, rebuilt the records and left the
+    previous pass's documents: measured, an edited unit's new text was
+    unfindable while its deleted text was still being returned.
+    """
+    from x2knwldg.index import search
+
+    root = _project(tmp_path, "pass-run", library=False)
+    scanner.build_index(root, index_documents=search.document_indexer(root))
+    assert len(_rows(root, "documents")) > 0, "the hook indexed nothing to go stale"
+
+    _edit(
+        root / "output" / "pass-run" / "knowledge_units.json",
+        lambda d: d["units"][0].update(
+            {"content": "zzzunique text", "normalized_statement": "zzzunique text"}
+        ),
+    )
+    scanner.build_index(root)
+
+    assert _rows(root, "documents") == [], "the previous pass's documents survived"
+    assert _rows(root, "document_tokens") == []
+    # And the FTS5 index agrees with its content table, rather than raising
+    # `fts5: missing row N from content table` on the next substring query.
+    connection = schema.connect(schema.database_path(root), create=False)
+    try:
+        found = connection.execute(
+            "SELECT count(*) FROM documents_trigrams WHERE folded MATCH ?", ("knowledge",)
+        ).fetchone()[0]
+        assert found == 0
+    finally:
+        connection.close()
+
+
+def test_a_build_with_the_hook_still_ends_up_populated(tmp_path: Path) -> None:
+    """Clearing happens before the hook, so a hooked build is unaffected."""
+    from x2knwldg.index import search
+
+    root = _project(tmp_path, "pass-run", "partial-run", library=False)
+    scanner.build_index(root, index_documents=search.document_indexer(root))
+    first = len(_rows(root, "documents"))
+    assert first > 0
+    scanner.build_index(root, index_documents=search.document_indexer(root))
+    assert len(_rows(root, "documents")) == first, "a rebuild duplicated or lost documents"

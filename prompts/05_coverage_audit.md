@@ -42,3 +42,20 @@ disagree, `WORKFLOW.md` is the source of truth.)
 
 After repairs, return a complete coverage object with contiguous windows spanning the entire transcript. Overall `PASS` requires every window to be covered or explicitly accounted for and zero unresolved important items.
 
+Each entry of a window's `omitted_items` is an object with **these key names** (D-092 — they were
+stated nowhere this prompt sends you, and `apply-bundle` rejects an entry that uses others):
+
+```json
+{
+  "type": "sponsor",
+  "note": "A sponsor read; nothing in it to extract."
+}
+```
+
+- `type` — one of the omission labels in `src/x2knwldg/constants.py` (`OMISSION_REASONS`). Not
+  `reason`, not `category`: `apply-bundle` reads `type`, and anything else is rejected as
+  `invalid_omission_reason` naming `null`.
+- `note` — free text. **Required when `type` is `other_explained`**, and rejected as
+  `missing_other_explanation` without it. Write one for every omission anyway: the note is what
+  makes an omission auditable rather than merely declared.
+

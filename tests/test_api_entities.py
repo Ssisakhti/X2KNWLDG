@@ -23,9 +23,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import api_harness
+import pytest
 from api_harness import (
     assert_contract,
     assert_error,

@@ -4,39 +4,149 @@
   "title": "X2KNWLDG extraction bundle",
   "description": "The bundle an extraction produces before it becomes canonical output. Knowledge unit ids must be usable as one segment of a three-part global id (D-011): no colon, no whitespace, no leading dot, so that '.' and '..' can never appear. src/x2knwldg/ids.py is the single implementation of that rule and validators.py enforces it at validation time (D-018).",
   "type": "object",
-  "required": ["knowledge_units", "relationships", "coverage"],
+  "required": [
+    "knowledge_units",
+    "relationships",
+    "coverage"
+  ],
   "properties": {
-    "extraction_metadata": { "type": "object" },
+    "extraction_metadata": {
+      "type": "object"
+    },
     "knowledge_units": {
       "type": "array",
-      "items": { "$ref": "#/$defs/knowledgeUnit" }
+      "items": {
+        "$ref": "#/$defs/knowledgeUnit"
+      }
     },
     "relationships": {
       "type": "array",
-      "items": { "$ref": "#/$defs/relationship" }
+      "items": {
+        "$ref": "#/$defs/relationship"
+      }
     },
     "coverage": {
       "type": "object",
-      "required": ["status", "audit_attempts", "windows"],
+      "required": [
+        "status",
+        "audit_attempts",
+        "windows"
+      ],
       "properties": {
-        "status": { "enum": ["PASS", "PARTIAL", "FAIL"] },
-        "audit_attempts": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "status": {
+          "enum": [
+            "PASS",
+            "PARTIAL",
+            "FAIL"
+          ]
+        },
+        "audit_attempts": {
+          "$comment": "minimum 0, not 1: coverage.create_pending_coverage writes 0 into every fresh run, WORKFLOW.md §4.4 and prompts/05 both describe 0 as the honest never-audited state, and validators.validate_coverage accepts 0 while refusing it alongside a PASS claim (unaudited_coverage_pass). The schema was the one artifact of the four that rejected the document the pipeline actually produces. maximum is constants.MAX_AUDIT_ATTEMPTS, asserted against it in tests/test_index_schemas.py.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
         "windows": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["window_id", "start_sec", "end_sec", "status", "knowledge_units", "omitted_items", "unresolved_items"],
+            "required": [
+              "window_id",
+              "start_sec",
+              "end_sec",
+              "status",
+              "knowledge_units",
+              "omitted_items",
+              "unresolved_items"
+            ],
             "properties": {
-              "window_id": { "type": "string" },
-              "start_sec": { "type": "number", "minimum": 0 },
-              "end_sec": { "type": "number", "minimum": 0 },
+              "window_id": {
+                "type": "string"
+              },
+              "start_sec": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end_sec": {
+                "type": "number",
+                "minimum": 0
+              },
               "status": {
                 "$comment": "The window vocabulary is constants.COVERAGE_STATUSES. `pending` was missing while coverage.py wrote it into every window of a fresh run, so the schema described a document the code does not produce.",
-                "enum": ["pending", "covered", "uncovered", "omitted", "partial"]
+                "enum": [
+                  "pending",
+                  "covered",
+                  "uncovered",
+                  "omitted",
+                  "partial"
+                ]
               },
-              "knowledge_units": { "type": "array", "items": { "type": "string" } },
-              "omitted_items": { "type": "array", "items": { "type": "object" } },
-              "unresolved_items": { "type": "array", "items": { "type": "object" } }
+              "knowledge_units": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "omitted_items": {
+                "type": "array",
+                "items": {
+                  "$comment": "D-092: this was a bare object schema with no properties, so it accepted an entry keyed `reason` that validators.validate_coverage then rejected as `invalid_omission_reason` naming null - and the key names appeared only in validators.py and an archival spec the workflow never links. The vocabulary is constants.OMISSION_REASONS, asserted against it in tests/test_index_schemas.py.",
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "audience_reaction",
+                        "housekeeping",
+                        "intro_noninformational",
+                        "off_topic",
+                        "other_explained",
+                        "repetition",
+                        "small_talk",
+                        "sponsor",
+                        "transition",
+                        "unintelligible"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "if": {
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "other_explained"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "type",
+                      "note"
+                    ],
+                    "properties": {
+                      "note": {
+                        "$comment": "`\\\\S` rather than minLength alone: validate_coverage tests str(note).strip(), so a note of only spaces is a missing explanation to it and would be an accepted one here. The two gates must not disagree.",
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "unresolved_items": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
             },
             "additionalProperties": true
           }
@@ -48,28 +158,93 @@
   "$defs": {
     "knowledgeUnit": {
       "type": "object",
-      "required": ["id", "kind", "source_class", "content", "confidence"],
+      "required": [
+        "id",
+        "kind",
+        "source_class",
+        "content",
+        "confidence"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$" },
-        "kind": { "type": "string", "minLength": 1 },
-        "source_class": { "enum": ["source", "derived"] },
-        "content": { "type": "string", "minLength": 1 },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "source": { "type": "object" },
-        "derived_from": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$" } },
-        "derivation_note": { "type": "string" }
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_class": {
+          "enum": [
+            "source",
+            "derived"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "source": {
+          "type": "object"
+        },
+        "derived_from": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$"
+          }
+        },
+        "derivation_note": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
     "relationship": {
       "type": "object",
-      "required": ["from", "relation", "to", "confidence", "source_class"],
+      "required": [
+        "from",
+        "relation",
+        "to",
+        "confidence",
+        "source_class"
+      ],
       "properties": {
-        "from": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$" },
-        "relation": { "type": "string" },
-        "to": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$" },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "source_class": { "enum": ["source", "derived"] }
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "source_class": {
+          "enum": [
+            "source",
+            "derived"
+          ]
+        }
       },
       "additionalProperties": true
     }

@@ -4,6 +4,12 @@ Track B, `T-105`–`T-108`. Eleven `GET` endpoints, frozen in
 [`schemas/api/v1/openapi.json`](../../../schemas/api/v1/README.md), served over the
 repository seam of [ADR 0002](../../../docs/adr/0002-index-repository-seam.md).
 
+`serve.py` was added later, by `T-116` (the integrator), and is the one module here that
+is not a route: it binds the socket, mounts the built frontend beneath the API, and runs
+`uvicorn`. It lives in this package rather than in `cli.py` because D-055 confines every
+import of the `ui` extra to `server/` — `cli.py` reaches it lazily, from inside its own
+dispatch branch, so importing the CLI on a bare core install still pulls in no framework.
+
 ## What it is allowed to touch
 
 `IndexRepository`, and nothing else. This layer never reads `output/`, never opens the
@@ -23,6 +29,7 @@ opens a file, because serving bytes is what it is for. See *Path safety* below.
 | `deps.py` | Which repository a request is answered from. |
 | `params.py` | The shared `limit`/`cursor` declarations and their bounds. |
 | `app.py` | `create_app`. Holds the repository on `app.state`, installs handlers, includes routers. Owns no route. |
+| `serve.py` | `T-116`: locating the built frontend, binding the socket, mounting `web/dist` beneath the API, and running `uvicorn`. The only module here that `cli.py` imports. |
 | `routes/` | One module per endpoint group. Each was written independently against the frozen document. |
 
 ## Five rules that are not negotiable
@@ -78,8 +85,16 @@ a request leaves the process, so a traversal battery that sends them proves noth
 this code. `tests/test_api_hardening.py` splits them three ways: ids that reach the wire, ids
 checked at the repository boundary, and raw paths handed straight to the ASGI app.
 
-## Not here yet
+## Serving
 
-`x2knwldg ui` is still a refusing stub. Wiring it — root resolve, index check, loopback
-serve, open browser — is `T-116`, and it belongs to the integrator because it edits
-`cli.py`.
+`x2knwldg ui` is wired end to end (`T-116`): it resolves the project root, refuses a
+non-loopback host before it probes for the extra, refreshes the index — passing
+`index_documents` so the search corpus is built and not merely the records (D-068) — binds the
+socket *before* printing a URL (D-066), and reports an unbuilt `web/dist` as its own exit code
+`6` rather than as success or as a breakage. `serve.py` owns the socket; `create_app` is
+untouched, so the document served still equals the frozen one.
+
+`GET /api/openapi.json` serves `openapi.json` from **beside this module**, not from
+`schemas/api/v1/`: the file is package data, because a path relative to a repo checkout made the
+route a permanent 404 in every installed package (D-084). `schemas/api/v1/openapi.json` remains
+the authored contract, and a test fails if the two differ by a byte.

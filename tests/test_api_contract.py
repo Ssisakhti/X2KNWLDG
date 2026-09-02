@@ -19,8 +19,9 @@ Nothing here writes to ``output/``.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
@@ -32,7 +33,6 @@ from jsonschema import Draft202012Validator  # noqa: E402
 from referencing import Registry, Resource  # noqa: E402
 from referencing.jsonschema import DRAFT202012  # noqa: E402
 
-from x2knwldg import ids  # noqa: E402
 from x2knwldg.adapters import IndexRecords, adapt_library, adapt_project, adapt_run  # noqa: E402
 from x2knwldg.query import search_knowledge  # noqa: E402
 from x2knwldg.repository import (  # noqa: E402

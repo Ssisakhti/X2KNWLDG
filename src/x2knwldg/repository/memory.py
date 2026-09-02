@@ -27,8 +27,9 @@ not serve a growing library from it.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .. import ids
 from ..adapters import ADAPTERS, IndexRecords, adapt_project
@@ -167,7 +168,7 @@ class MemoryRepository:
         *,
         output_dir: str = "output",
         hash_artifacts: bool = False,
-    ) -> "MemoryRepository":
+    ) -> MemoryRepository:
         """Read every run under ``<project_root>/<output_dir>`` and the library.
 
         ``AdapterError`` propagates: a run that cannot be mapped without
@@ -184,7 +185,7 @@ class MemoryRepository:
     @classmethod
     def unavailable(
         cls, state: str, *, project_root: Path | None = None, message: str | None = None
-    ) -> "MemoryRepository":
+    ) -> MemoryRepository:
         """A repository that can only say why it cannot answer.
 
         ``/api/status`` still works — that is the whole point of ``absent`` and
@@ -211,6 +212,7 @@ class MemoryRepository:
         return IndexStatus(
             state=self._state,
             built_at=self._built_at,
+            message=self._message,
             # There is no persisted index and so no migration to be at. Stating
             # a version here would claim a durable artifact that does not exist.
             index_version=None,
