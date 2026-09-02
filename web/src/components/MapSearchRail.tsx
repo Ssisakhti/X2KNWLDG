@@ -46,6 +46,7 @@ import type { MapPeekBinding } from "../map/useMapPeek";
 import { useMapSearch } from "../map/useMapSearch";
 import { MapResultCard } from "./MapResultCard";
 import { Mono } from "./primitives";
+import { withFocusRescue } from "../lib/focusRescue";
 
 export function MapSearchRail({
   graph,
@@ -135,10 +136,10 @@ export function MapSearchRail({
           <button
             type="button"
             className="button"
-            onClick={() => {
+            onClick={withFocusRescue(() => {
               setDraft("");
               setQuery("");
-            }}
+            })}
           >
             {t("search.clear")}
           </button>
@@ -228,7 +229,7 @@ export function MapSearchRail({
                   <button
                     type="button"
                     className="button"
-                    onClick={search.loadMore}
+                    onClick={withFocusRescue(search.loadMore)}
                     disabled={search.loadingMore}
                     data-map-search-more
                   >

@@ -770,6 +770,11 @@ export type SearchResponse = {
 
 export type GraphPayload = {
   nodes: Array<EntityRef>;
+  /**
+   * The relations among the nodes on this page, at most `maxItems` of them. `limit` bounds the
+   * *nodes*, and an edge list is quadratic in the nodes it connects, so the two are not the same
+   * size; `truncated` is true when either was cut.
+   */
   edges: Array<IndexedRelation>;
   /**
    * True when `limit` cut the result short. Stated rather than implied, so the Map never
@@ -789,6 +794,11 @@ export type NeighborhoodPayload = {
   center_id: GlobalId;
   depth: number;
   nodes: Array<EntityRef>;
+  /**
+   * The relations among the nodes on this page, at most `maxItems` of them. `limit` bounds the
+   * *nodes*, and an edge list is quadratic in the nodes it connects, so the two are not the same
+   * size; `truncated` is true when either was cut.
+   */
   edges: Array<IndexedRelation>;
   truncated: boolean;
 };

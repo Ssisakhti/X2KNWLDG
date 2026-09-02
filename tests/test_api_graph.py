@@ -573,3 +573,97 @@ def test_the_route_renders_the_repository_payload_verbatim(root: Path) -> None:
         walk = oracle.neighborhood(_questions()["neighborhood"])
         assert walk is not None
         assert neighborhood_body(test_client, CENTER, depth=2, limit=500)["data"] == walk.payload()
+
+
+# ---------------------------------------------------------------------------
+# The edge list is bounded (D-175)
+# ---------------------------------------------------------------------------
+
+
+def _all_pairs(node_count: int) -> Any:
+    """An index of *node_count* entities where every pair is related.
+
+    The shape that made the defect measurable: `limit` bounds the nodes, and an
+    edge list is quadratic in them, so 600 nodes at `limit=500` produced 349,500
+    edges in an 83 MB response built entirely in memory — with `page.total: 600`
+    giving the client no signal that anything was unusual.
+    """
+    from x2knwldg.adapters.base import IndexRecords
+
+    entities = [
+        {
+            "schema_version": "1.0",
+            "global_id": f"youtube:hub:KU-{index:06d}",
+            "source_id": "youtube:hub",
+            "source_type": "youtube",
+            "local_id": f"KU-{index:06d}",
+            "kind": "principle",
+            "provenance_class": "source",
+            "label": f"Node {index}",
+        }
+        for index in range(node_count)
+    ]
+    relations = [
+        {
+            "schema_version": "1.0",
+            "id": f"youtube:hub:R-{left:04d}-{right:04d}",
+            "source_id": "youtube:hub",
+            "from_id": entities[left]["global_id"],
+            "to_id": entities[right]["global_id"],
+            "relation": "supports",
+            "relation_vocabulary": "canonical",
+            "confidence": None,
+        }
+        for left in range(node_count)
+        for right in range(node_count)
+        if left != right
+    ]
+    return IndexRecords(entities=entities, relations=relations)
+
+
+def test_the_edge_list_is_bounded_and_says_so() -> None:
+    """`limit` bounded the nodes only, and nothing bounded the edges."""
+    from x2knwldg.constants import MAX_GRAPH_EDGES
+    from x2knwldg.repository import GraphQuery, MemoryRepository
+
+    records = _all_pairs(120)  # 14,280 edges, well past the bound
+    repository = MemoryRepository(records, project_root=Path("."))
+    page = repository.graph(GraphQuery(limit=500))
+
+    assert len(page.edges) == MAX_GRAPH_EDGES
+    assert page.truncated is True, "a cut graph is never reported as the whole one"
+    assert len({edge["id"] for edge in page.edges}) == len(page.edges)
+
+
+def test_a_graph_within_the_bound_is_not_marked_truncated() -> None:
+    """The bound must not make every honest graph look cut."""
+    from x2knwldg.repository import GraphQuery, MemoryRepository
+
+    repository = MemoryRepository(_all_pairs(10), project_root=Path("."))  # 90 edges
+    page = repository.graph(GraphQuery(limit=500))
+    assert len(page.edges) == 90
+    assert page.truncated is False
+
+
+def test_the_neighbourhood_edge_list_is_bounded_too() -> None:
+    """A hub's neighbourhood has the same shape and had the same absence of bound."""
+    from x2knwldg.constants import MAX_GRAPH_EDGES
+    from x2knwldg.repository import MemoryRepository, NeighborhoodQuery
+
+    repository = MemoryRepository(_all_pairs(120), project_root=Path("."))
+    walk = repository.neighborhood(
+        NeighborhoodQuery(entity_id="youtube:hub:KU-000000", depth=2, limit=500)
+    )
+    assert walk is not None
+    assert len(walk.edges) <= MAX_GRAPH_EDGES
+    assert walk.truncated is True
+
+
+def test_the_frozen_payload_declares_the_bound() -> None:
+    """A cap the contract does not state is a cap a client cannot rely on."""
+    from x2knwldg.constants import MAX_GRAPH_EDGES
+
+    spec = json.loads(api_harness.OPENAPI_PATH.read_text(encoding="utf-8"))
+    for name in ("GraphPayload", "NeighborhoodPayload"):
+        edges = spec["components"]["schemas"][name]["properties"]["edges"]
+        assert edges["maxItems"] == MAX_GRAPH_EDGES, name

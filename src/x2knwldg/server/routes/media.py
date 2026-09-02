@@ -87,7 +87,16 @@ def _resolve(root: Path, relative: str) -> Path:
     """
     if not relative or Path(relative).is_absolute():
         raise NotFound("That artifact has no readable local path.")
-    candidate = (root / relative).resolve()
+    try:
+        candidate = (root / relative).resolve()
+    except ValueError:
+        # D-173: a NUL in a record's `path` makes `resolve()` raise
+        # `ValueError: embedded null character`, which is **not** an `OSError`,
+        # so `posixpath.realpath`'s own handler does not catch it and neither
+        # did anything here. It reached `handle_unexpected` as an undeclared
+        # `500`. A path that cannot be named is a path this route cannot read,
+        # which is the same answer as every other unreadable one.
+        raise NotFound("That artifact has no readable local path.") from None
     if root != candidate and root not in candidate.parents:
         # Not reported in detail: which path was refused, and where the root
         # is, are both facts about the host filesystem (ADR 0003).
@@ -169,7 +178,14 @@ def _parse_range(header: str, size: int) -> tuple[int, int] | None:
         # `bytes=-N` — the final N bytes. An N larger than the file is the whole
         # file, which is what RFC 9110 asks for.
         length = _byte_count(last, size)
-        if length == 0:
+        if length == 0 or size == 0:
+            # D-173: the `size == 0` half was missing, and the `start >= size`
+            # guard below is on the explicit-first branch only. So `bytes=-5`
+            # against a zero-byte artifact returned `(0, -1)` and the route
+            # answered `206 Content-Range: bytes 0--1/0` — a satisfied range
+            # over a representation that has no bytes to satisfy it. RFC 9110
+            # requires `416` with `Content-Range: bytes */0`, which is what the
+            # sibling branch already did for `bytes=0-`.
             raise RangeNotSatisfiable("A suffix range of zero bytes is not satisfiable.", size)
         return (max(0, size - length), size - 1)
     start = _byte_count(first, size)

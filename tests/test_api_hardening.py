@@ -435,6 +435,54 @@ def test_a_rebound_name_is_refused(tmp_path: Path, host: str) -> None:
     with h.client(h.memory_repository(root)) as client:
         response = client.get("/api/status", headers={"Host": host})
         assert response.status_code == 400, response.status_code
+        # D-172: the status code was the whole of this assertion, so
+        # `assert_error`'s contract check never ran on this path — and the
+        # refusal came from `TrustedHostMiddleware`, which sits outside the
+        # exception handlers and answered `text/plain "Invalid host header"`.
+        h.assert_error(response, 400, "invalid_request")
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["[::1]", "[::1]:8931", "::1", "[::1]:80"],
+    ids=repr,
+)
+def test_an_ipv6_loopback_name_is_answered(tmp_path: Path, host: str) -> None:
+    """D-172: two of the three documented `--host` values answered nothing.
+
+    Starlette's `TrustedHostMiddleware` does
+    `headers.get("host", "").split(":")[0]`, so `Host: [::1]:8931` became `'['`.
+    The allowlist entries `"[::1]"` and `"::1"` were unreachable dead code and
+    every request to an IPv6-bound server was `400` — including the UI root, at
+    the exact URL `serve.py` prints and opens in the browser. `localhost` is one
+    of the two, because `getaddrinfo(..., AI_PASSIVE)` returns `AF_INET6` first
+    on macOS.
+    """
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        response = client.get("/api/status", headers={"Host": host})
+        assert response.status_code == 200, response.text
+
+
+def test_the_host_parser_keeps_the_address_and_drops_the_port() -> None:
+    from x2knwldg.server.app import host_name
+
+    assert host_name("127.0.0.1:8931") == "127.0.0.1"
+    assert host_name("localhost") == "localhost"
+    assert host_name("[::1]:8931") == "[::1]"
+    assert host_name("[fe80::1]:80") == "[fe80::1]"
+    assert host_name("::1") == "::1", "unbracketed, but it is still the address"
+    assert host_name("") == ""
+
+
+def test_every_endpoint_declares_the_statuses_the_host_check_can_produce() -> None:
+    """The refusal reaches every path, `/api/status` included."""
+    spec = json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))
+    for path, operations in spec["paths"].items():
+        for verb, operation in operations.items():
+            declared = set(operation["responses"])
+            assert "400" in declared, f"{verb.upper()} {path}"
+            assert "500" in declared, f"{verb.upper()} {path}"
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "127.0.0.1:8931", "localhost:8931"])

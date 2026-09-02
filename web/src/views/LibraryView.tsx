@@ -35,6 +35,7 @@ import { SearchResults } from "../components/SearchResults";
 import { SourceCard } from "../components/SourceCard";
 import { UnitsBrowser, type UnitFilters } from "../components/UnitsBrowser";
 import { useI18n } from "../i18n";
+import { withFocusRescue } from "../lib/focusRescue";
 
 type Mode = "sources" | "units";
 type Layout = "list" | "grid";
@@ -169,10 +170,10 @@ export function LibraryView() {
           <button
             type="button"
             className="button"
-            onClick={() => {
+            onClick={withFocusRescue(() => {
               setDraft("");
               setQuery("");
-            }}
+            })}
           >
             {t("search.clear")}
           </button>
@@ -318,7 +319,11 @@ export function LibraryView() {
                 ))}
               </div>
               {sources.hasMore && (
-                <button type="button" className="button" onClick={sources.loadMore}>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={withFocusRescue(sources.loadMore)}
+                >
                   {t("common.more")}
                 </button>
               )}

@@ -109,6 +109,7 @@ import { useMapFocus } from "../map/useMapFocus";
 import { useMapPeek } from "../map/useMapPeek";
 import { useNeighbourhood } from "../map/useNeighbourhood";
 import { recordLookup } from "../map/useMapSearch";
+import { withFocusRescue } from "../lib/focusRescue";
 
 /** The typed loader over the frozen operation, built once rather than per render. */
 const loadGraphPage = apiGraphPages(api);
@@ -199,6 +200,11 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   const [stageBox, setStageBox] = useState<StageBox>({ width: 0, height: 0 });
   /** Bumped when the camera settles, which is when cards are placed again. */
   const [placedAt, setPlacedAt] = useState(0);
+  //: Bumped to ask the draw effect to try again after a refusal (D-176).
+  const [retryAt, setRetryAt] = useState(0);
+  //: The stage size the last refusal was measured at, so one unusable
+  //: container is refused once rather than retried on every render.
+  const refusedBox = useRef("");
   /** Whether the camera is mid-gesture, in which case no card is drawn. */
   const [moving, setMoving] = useState(false);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -315,10 +321,17 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   useEffect(() => {
     if (drawnFocus === null || graph === null) return;
     session.current?.frame(drawnFocus, graph.neighbors(drawnFocus));
-    // The graph is mutated in place (D-118), so the page count is the
-    // dependency that says "the picture changed", not the graph's identity.
+    // D-178: `pages` was in here too, so every `Load more` re-framed the
+    // camera and threw away the reader's pan and zoom -- select a node, zoom
+    // in to read it, press `Load more`, and the camera animates back. The
+    // comment above says this fires once per selection, and with `pages` it
+    // fired once per selection *per page*. `holdingId` is what says "the
+    // renderer is holding a picture to frame", which is the condition this
+    // effect actually needs; a merged page changes the picture but not the
+    // question, and D-128 in this file is precisely about not moving the
+    // picture under the reader.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawnFocus, holdingId, pages]);
+  }, [drawnFocus, holdingId]);
 
   useEffect(() => {
     const changed = mapStyle.setView({
@@ -362,7 +375,22 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   // snapshot re-settles the layout of the graph already on screen.
   useEffect(() => {
     const live = session.current;
-    if (live === null || graph === null || pages === 0) return;
+    if (live === null) return;
+    if (graph === null || pages === 0) {
+      // D-177: this used to be a bare `return`, so on a filter change --
+      // `open()` bumps `snapshotId` and resets `pages` to 0 -- the live
+      // renderer kept snapshot N-1 on screen while the counts panel unmounted
+      // and the stage took `aria-hidden="true"`. The result was a visible,
+      // interactive-looking picture of question A, hidden from assistive
+      // technology, beside a route describing question B. Retiring the picture
+      // is what makes the empty stage and the honest state agree.
+      if (attached.current !== 0) {
+        live.kill();
+        attached.current = 0;
+        setHoldingId(0);
+      }
+      return;
+    }
     try {
       if (attached.current === snapshotId) {
         live.update();
@@ -391,7 +419,30 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         detail: cause instanceof Error ? cause.message : String(cause),
       });
     }
-  }, [graph, snapshotId, pages, factory]);
+  }, [graph, snapshotId, pages, factory, retryAt]);
+
+  // D-176: a renderer that refused its container never tried again.
+  //
+  // `mapState.ts` and the shipped string in `i18n/catalog.ts` both promise
+  // that "the next layout recovers it", and there was no path by which it
+  // could: the draw effect does not depend on `stageBox`, and the resize
+  // effect only calls `session.resize()`, which is `this.renderer?.resize()`
+  // and therefore a no-op once the refusal has killed the renderer. So
+  // `data-map-canvas="refused"` was permanent until the reader changed a
+  // filter -- on the commonest cause of a refusal, a stage that has not been
+  // laid out yet.
+  //
+  // Keyed on the box that was tried rather than on `fault`, which is a new
+  // object on every failure: a retry happens once per *size*, so a container
+  // that is genuinely unusable is refused once and not in a loop.
+  useEffect(() => {
+    if (fault === null) return;
+    if (stageBox.width === 0 || stageBox.height === 0) return;
+    const box = `${stageBox.width}x${stageBox.height}`;
+    if (refusedBox.current === box) return;
+    refusedBox.current = box;
+    setRetryAt((value) => value + 1);
+  }, [fault, stageBox]);
 
   // The container is sized in CSS, so its pixel size changes with the viewport
   // and with the panels around it. A renderer holding the previous dimensions
@@ -630,7 +681,7 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
           <button
             type="button"
             className="button"
-            onClick={walk.loadMore}
+            onClick={withFocusRescue(walk.loadMore)}
             disabled={loadingMore}
             data-map-load-more
           >
@@ -638,7 +689,7 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
           </button>
         )}
         {loadingMore && (
-          <button type="button" className="button" onClick={walk.cancel}>
+          <button type="button" className="button" onClick={withFocusRescue(walk.cancel)}>
             {t("map.stopLoading")}
           </button>
         )}

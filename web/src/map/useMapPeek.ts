@@ -32,6 +32,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import type { FocusEvent } from "react";
 
 import type { EntityRef } from "../api/contract";
 
@@ -50,7 +51,7 @@ export interface PeekHandlers {
   onMouseEnter: () => void;
   onMouseLeave: () => void;
   onFocus: () => void;
-  onBlur: () => void;
+  onBlur: (event: FocusEvent<HTMLElement>) => void;
 }
 
 export interface MapPeekBinding {
@@ -102,7 +103,17 @@ export function useMapPeek(lookup: (globalId: string) => EntityRef | null): MapP
       onMouseEnter: () => open(globalId, "pointer"),
       onMouseLeave: () => close(globalId),
       onFocus: () => open(globalId, "keyboard"),
-      onBlur: () => close(globalId),
+      // D-181: this was `() => close(globalId)`, so the very Tab that would
+      // move focus *toward* the card unmounted it first. The card's own
+      // "Close the peek" button existed in the DOM only while some other
+      // element held focus, which made it unreachable from the keyboard --
+      // the pointer path was fine and Escape worked, so nothing else showed
+      // it. Focus moving into the card is focus staying with this peek.
+      onBlur: (event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Element && next.closest("[data-map-peek]") !== null) return;
+        close(globalId);
+      },
     }),
     [open, close],
   );

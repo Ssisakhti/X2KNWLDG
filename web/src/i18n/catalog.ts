@@ -78,6 +78,10 @@ export const en = {
   "error.internal": "The server hit an error it did not expect.",
   "error.transport": "The server could not be reached.",
   "error.code": "Code",
+  "error.boundary.title": "This view stopped working",
+  "error.boundary.body":
+    "Something in this part of the page threw an error, so it was taken down rather than left half-drawn. Nothing in your library was changed.",
+  "error.boundary.retry": "Try this view again",
 
   "index.title": "Index",
   "index.state.absent": "No index has been built yet.",
@@ -459,6 +463,10 @@ export const fa: Messages = {
   "error.internal": "سرور به خطایی غیرمنتظره برخورد.",
   "error.transport": "دسترسی به سرور ممکن نشد.",
   "error.code": "کد",
+  "error.boundary.title": "این نما از کار افتاد",
+  "error.boundary.body":
+    "چیزی در این بخش از صفحه خطا داد، بنابراین به‌جای رها شدن نیمه‌کشیده، برداشته شد. هیچ‌چیزی در کتابخانهٔ شما تغییر نکرد.",
+  "error.boundary.retry": "دوباره این نما را باز کن",
 
   "index.title": "نمایه",
   "index.state.absent": "هنوز هیچ نمایه‌ای ساخته نشده است.",

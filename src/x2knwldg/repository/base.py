@@ -65,7 +65,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from .. import ids
 from ..adapters import RUN_STATUSES, UNKNOWN_STATUS
-from ..constants import KNOWLEDGE_KINDS
+from ..constants import KNOWLEDGE_KINDS, MAX_GRAPH_EDGES
 
 #: Page size bounds, copied from ``schemas/api/v1/openapi.json``. The contract
 #: is the authority; these exist so a query object cannot be constructed outside
@@ -678,6 +678,17 @@ class SourceDetail:
 
     def payload(self) -> dict[str, Any]:
         return {"source": self.source, "artifacts": list(self.artifacts)}
+
+
+def bounded_edges(edges: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    """``(edges, cut)`` — at most :data:`MAX_GRAPH_EDGES` of them (D-175).
+
+    One implementation for both repositories and both graph views, because a
+    bound that exists in one of them is not a bound.
+    """
+    if len(edges) <= MAX_GRAPH_EDGES:
+        return edges, False
+    return edges[:MAX_GRAPH_EDGES], True
 
 
 @dataclass(frozen=True)

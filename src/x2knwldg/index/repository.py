@@ -104,6 +104,7 @@ from ..repository import (
     SearchQuery,
     SourceDetail,
     SourceQuery,
+    bounded_edges,
     encode_cursor,
     graph_nodes,
     key_digest,
@@ -763,10 +764,11 @@ class SqliteRepository:
             and relation.get("to_id") in visible
             and (relation.get("from_id") in on_page or relation.get("to_id") in on_page)
         ]
+        edges, edges_cut = bounded_edges(edges)
         return GraphPage(
             nodes=page.items,
             edges=edges,
-            truncated=len(page.items) < len(nodes),
+            truncated=len(page.items) < len(nodes) or edges_cut,
             limit=page.limit,
             next_cursor=page.next_cursor,
             total=page.total,
@@ -831,12 +833,13 @@ class SqliteRepository:
             and relation.get("from_id") in collected
             and relation.get("to_id") in collected
         ]
+        edges, edges_cut = bounded_edges(edges)
         return Neighborhood(
             center_id=str(center.get("global_id")),
             depth=query.depth,
             nodes=[collected[key] for key in sorted(collected)],
             edges=edges,
-            truncated=truncated,
+            truncated=truncated or edges_cut,
         )
 
     # ------------------------------------------------------------------

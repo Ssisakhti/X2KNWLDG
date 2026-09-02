@@ -21,6 +21,17 @@
  * With React 19's `StrictMode` double-invoking effects, an attach that did not
  * kill its predecessor would leak one context per mount on the first page load.
  *
+ * D-182: **that exact scenario is asserted against the jsdom fake and nowhere
+ * else.** The browser gate serves `npm run build` through `vite preview`, which
+ * is production React, where `<StrictMode>` does not double-invoke — which is
+ * why `{ created: 1, live: 1 }` holds there on first load without this class
+ * doing anything. What the gate does prove in a real browser is the *other*
+ * half: repeated attaches across filter changes and route trips leave one
+ * renderer alive and release the contexts of the rest. The two halves together
+ * are the invariant; neither harness can state both, and pretending the gate
+ * covers the double-invoke would be a claim about coverage this project does
+ * not have.
+ *
  * The renderer is reached through `MapRenderer`/`MapRendererFactory` rather
  * than by constructing `Sigma` here, for the same reason the gate did it: jsdom
  * has no WebGL, so the *order* of these operations can only be asserted
