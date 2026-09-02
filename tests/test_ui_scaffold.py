@@ -35,7 +35,7 @@ from pathlib import Path
 import pytest
 
 from x2knwldg import cli
-from x2knwldg.pipeline import PipelineError, project_root
+from x2knwldg.pipeline import project_root
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WEB = PROJECT_ROOT / "web"
@@ -751,12 +751,32 @@ def test_ci_imports_what_each_extra_unlocks() -> None:
 
 
 def _ci_python_versions() -> list[tuple[int, ...]]:
-    matrix = re.search(r"python-version: \[([^\]]+)\]", _workflow())
-    assert matrix, "no python-version matrix in ci.yml"
-    return [
-        tuple(int(part) for part in version.split("."))
-        for version in re.findall(r'"([\d.]+)"', matrix.group(1))
-    ]
+    """Every interpreter the `tests` job runs, from its matrix.
+
+    D-115 turned the matrix from a bare `python-version: [...]` list into
+    `include:` rows so one of them could name macOS, so the versions are read
+    off those rows now.
+    """
+    rows = re.findall(r'python-version: "([\d.]+)" *\}', _workflow())
+    assert rows, "no python-version rows in ci.yml's tests matrix"
+    return [tuple(int(part) for part in version.split(".")) for version in rows]
+
+
+def _ci_platforms() -> set[str]:
+    return set(re.findall(r"\{ *os: (\S+?),", _workflow()))
+
+
+def test_ci_runs_the_platform_this_project_targets() -> None:
+    """D-115: all five jobs were `ubuntu-latest`, and this is a macOS project.
+
+    `routes/media.py`'s containment checks are the ADR-0003 boundary and they
+    resolve paths; a case-insensitive filesystem answers `Path.resolve()` and
+    `relative_to` differently from ext4, so the one boundary that most needs
+    platform evidence had none.
+    """
+    platforms = _ci_platforms()
+    assert any(name.startswith("macos") for name in platforms), sorted(platforms)
+    assert any(name.startswith("ubuntu") for name in platforms), sorted(platforms)
 
 
 def test_ci_runs_the_python_floor_pyproject_declares() -> None:
@@ -828,3 +848,399 @@ def test_both_parsers_take_the_shared_options_from_one_helper() -> None:
     assert len(seen) == 2, seen
     assert any("import-transcript" in name for name in seen), seen
     assert any("process" in name for name in seen), seen
+
+
+# ---------------------------------------------------------------------------
+# D-071 — every module the frontend imports must be in the repository
+# ---------------------------------------------------------------------------
+#
+# `.gitignore` carried an unanchored `lib/` between `develop-eggs/` and
+# `lib64/` — a stock Python packaging pattern that also matched
+# `web/src/lib/`. Six modules, 662 lines, were never committed while nine
+# tracked files imported them, so `npm run typecheck`, `npm test` and
+# `npm run build` all failed on a fresh clone and passed for everyone who had
+# the working tree. Nothing could catch it: every check in CI and every check
+# here ran against files on disk, and git was the only thing that disagreed.
+#
+# These two tests are the pair that closes it. The first is the general
+# property — what the frontend imports, the repository holds. The second is the
+# narrow guard on the rule that broke, because an unanchored pattern added to
+# `.gitignore` later would reopen the same hole somewhere else under `web/`.
+
+_RELATIVE_SPECIFIER = re.compile(
+    r"""(?:^|[\s;{(])(?:import|export)\b[^;'"]*?['"](\.[^'"]*)['"]"""
+    r"""|\bimport\s*\(\s*['"](\.[^'"]*)['"]""",
+    re.M,
+)
+# Extensionless specifiers are the TypeScript norm, `.d.ts` is how the
+# generated API declarations are reached, and Vite resolves `?raw` suffixes and
+# directory `index` files.
+_MODULE_SUFFIXES = ("", ".ts", ".tsx", ".d.ts", ".css", ".json")
+
+
+#: These two checks ask git a question, so they need a repository to ask. An
+#: sdist or a `git archive` tarball is a legitimate way to run this suite, and
+#: failing there would be a failure for an environment reason the test can
+#: detect — which is the same class of noise D-071 exists to remove. Skipped
+#: rather than passed, because passing would report agreement never established.
+def _in_a_git_repository() -> bool:
+    probe = subprocess.run(
+        ["git", "-C", str(PROJECT_ROOT), "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+    )
+    return probe.returncode == 0 and probe.stdout.strip() == "true"
+
+
+needs_git = pytest.mark.skipif(
+    not _in_a_git_repository(),
+    reason="not a git checkout, so git has nothing to say about what it tracks",
+)
+
+
+def _tracked_paths() -> set[Path]:
+    listing = subprocess.run(
+        ["git", "-C", str(PROJECT_ROOT), "ls-files", "-z"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return {(PROJECT_ROOT / name).resolve() for name in listing.stdout.split("\0") if name}
+
+
+def _resolve_specifier(importer: Path, specifier: str) -> Path | None:
+    """The file a relative import specifier names, the way Vite and tsc read it."""
+    base = importer.parent / specifier.split("?", 1)[0]
+    candidates = [Path(f"{base}{suffix}") for suffix in _MODULE_SUFFIXES]
+    candidates += [base / f"index{suffix}" for suffix in _MODULE_SUFFIXES if suffix]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def _frontend_imports() -> list[tuple[Path, str, Path | None]]:
+    found: list[tuple[Path, str, Path | None]] = []
+    for module in sorted((WEB / "src").rglob("*")):
+        if not module.is_file() or module.suffix not in {".ts", ".tsx"}:
+            continue
+        for match in _RELATIVE_SPECIFIER.finditer(module.read_text(encoding="utf-8")):
+            specifier = match.group(1) or match.group(2)
+            found.append((module, specifier, _resolve_specifier(module, specifier)))
+    return found
+
+
+def test_the_import_scanner_actually_finds_the_frontends_imports() -> None:
+    """Guards the guard: a regex that silently stops matching asserts nothing."""
+    imports = _frontend_imports()
+    assert len(imports) > 100, f"only {len(imports)} relative imports found in web/src"
+    importers = {module for module, _, _ in imports}
+    assert len(importers) > 20, f"only {len(importers)} importing modules found"
+    assert any(
+        specifier.endswith("readerLink") for _, specifier, _ in imports
+    ), "the readerLink grammar D-069 owns is imported by nothing — the scan is broken"
+
+
+def test_every_relative_import_resolves_to_a_file_on_disk() -> None:
+    unresolved = [
+        f"{module.relative_to(PROJECT_ROOT)} imports {specifier!r}"
+        for module, specifier, target in _frontend_imports()
+        if target is None
+    ]
+    assert not unresolved, "frontend imports that resolve to nothing:\n" + "\n".join(unresolved)
+
+
+@needs_git
+def test_every_module_the_frontend_imports_is_tracked_by_git() -> None:
+    """A fresh clone must be able to type-check, test and build ``web/``.
+
+    Fails on the pre-fix tree with the six ``web/src/lib`` modules that nine
+    tracked files import.
+    """
+    tracked = _tracked_paths()
+    missing = sorted(
+        {
+            f"{target.relative_to(PROJECT_ROOT)} "
+            f"(imported by {module.relative_to(PROJECT_ROOT)} as {specifier!r})"
+            for module, specifier, target in _frontend_imports()
+            if target is not None and target not in tracked
+        }
+    )
+    assert not missing, (
+        "the frontend imports files git does not track, so a fresh clone "
+        "cannot build it:\n" + "\n".join(missing)
+    )
+
+
+@needs_git
+def test_no_frontend_source_file_is_excluded_by_gitignore() -> None:
+    """The narrow guard on the rule that broke.
+
+    ``web/dist`` stays ignored — it is build output — so this looks only at
+    ``web/src``, where every file is input.
+    """
+    sources = sorted(path for path in (WEB / "src").rglob("*") if path.is_file())
+    assert sources, "no files found under web/src"
+    check = subprocess.run(
+        ["git", "-C", str(PROJECT_ROOT), "check-ignore", "-v", "--stdin"],
+        input="\n".join(str(path) for path in sources),
+        capture_output=True,
+        text=True,
+    )
+    # Exit 1 with no output is "nothing matched", which is the passing case.
+    assert check.returncode == 1 and not check.stdout.strip(), (
+        "a .gitignore rule excludes frontend source files:\n" + check.stdout
+    )
+
+
+# ---------------------------------------------------------------------------
+# D-108 — a translated string with nothing rendering it
+# ---------------------------------------------------------------------------
+#
+# The audit found 19 catalogue keys referenced nowhere, and one was not merely
+# clutter: `nav.skipToContent` was translated in both locales and
+# `<main id="content">` was rendered, and nothing linked the two — so a
+# keyboard user tabbed through the brand, the nav and the language switch on
+# every page while the string that would have spared them sat in the
+# catalogue. For accessibility a half-built affordance is the same as none, and
+# the catalogue read as though the work were done.
+#
+# Checked from here rather than from vitest because reading the tree is what
+# this file already does (see D-071 above), and the frontend has no
+# `@types/node` to read files with.
+
+I18N_CATALOG = WEB / "src" / "i18n" / "catalog.ts"
+#: ``"some.key": "text",`` at the start of a catalogue line.
+_CATALOG_KEY = re.compile(r'^\s+"([a-zA-Z0-9_.]+)":', re.M)
+
+
+def _catalog_keys() -> set[str]:
+    keys = set(_CATALOG_KEY.findall(I18N_CATALOG.read_text(encoding="utf-8")))
+    assert len(keys) > 100, f"only {len(keys)} catalogue keys found; the regex has gone stale"
+    return keys
+
+
+def _frontend_source(exclude_i18n: bool = True) -> str:
+    files = [
+        path
+        for path in sorted((WEB / "src").rglob("*"))
+        if path.is_file()
+        and path.suffix in {".ts", ".tsx"}
+        and not (exclude_i18n and "i18n" in path.parts)
+    ]
+    assert len(files) > 20, f"only {len(files)} frontend modules found"
+    return "\n".join(path.read_text(encoding="utf-8") for path in files)
+
+
+def test_the_catalogue_scanner_finds_what_it_is_looking_for() -> None:
+    """Guards the guard: an empty corpus would make every key look referenced."""
+    assert "nav.skipToContent" in _catalog_keys()
+    assert "nav.skipToContent" in _frontend_source()
+
+
+def test_no_catalogue_key_is_rendered_by_nothing() -> None:
+    body = _frontend_source()
+    dead = sorted(key for key in _catalog_keys() if f'"{key}"' not in body)
+    assert not dead, (
+        "these translated strings are rendered by nothing, so the catalogue "
+        f"reads as though the feature shipped: {dead}"
+    )
+
+
+def test_the_skip_link_the_catalogue_promises_exists() -> None:
+    """The one dead key that was a missing feature, not clutter."""
+    shell = (WEB / "src" / "components" / "Shell.tsx").read_text(encoding="utf-8")
+    assert "nav.skipToContent" in shell, "the skip link is still not rendered"
+    assert 'id="content"' in shell, "the skip link has nowhere to skip to"
+    assert shell.index("nav.skipToContent") < shell.index('className="shell__bar"'), (
+        "the skip link must come before the header it exists to skip"
+    )
+    assert ".shell__skip" in (
+        WEB / "src" / "styles" / "base.css"
+    ).read_text(encoding="utf-8"), "the skip link has no style, so it is always visible"
+
+
+# ---------------------------------------------------------------------------
+# D-113 — the legacy/upstream boundary, enforced rather than stated
+# ---------------------------------------------------------------------------
+#
+# `legacy/upstream/README.md` says three things, and until now said them only
+# in prose: nothing under `src/x2knwldg/` imports these scripts, the three
+# Whisper drivers must never be run (`CLAUDE.md`: "Do not install or run
+# Whisper or WhisperX"), and three of the scripts still have tests.
+#
+# They are deliberately *kept* rather than deleted — they are attributed
+# upstream history, see `THIRD_PARTY_NOTICES.md` — so the fix for "unreferenced
+# files inviting use" is not removal but a guard that says so, which is this
+# project's stated preference over an intention in a comment.
+
+UPSTREAM = PROJECT_ROOT / "legacy" / "upstream"
+WHISPER_MODULES = ("transcribe", "transcribe_whisper", "transcribe_whisperx")
+
+
+def test_the_upstream_scripts_are_still_where_the_notices_say() -> None:
+    """Guards the guard, and the attribution: removing them is not the fix."""
+    assert (UPSTREAM / "README.md").is_file()
+    for name in WHISPER_MODULES:
+        assert (UPSTREAM / f"{name}.py").is_file(), f"{name}.py is attributed upstream history"
+    assert (PROJECT_ROOT / "THIRD_PARTY_NOTICES.md").is_file()
+
+
+def test_nothing_in_the_package_imports_an_upstream_script() -> None:
+    modules = sorted(path.stem for path in UPSTREAM.glob("*.py"))
+    assert modules, "no upstream scripts found; this guard would pass vacuously"
+    offenders: list[str] = []
+    for path in sorted((PROJECT_ROOT / "src").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            names: list[str] = []
+            if isinstance(node, ast.Import):
+                names = [alias.name.split(".")[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                names = [node.module.split(".")[0]]
+            for name in names:
+                if name in modules:
+                    offenders.append(f"{path.relative_to(PROJECT_ROOT)} imports {name}")
+    assert not offenders, offenders
+
+
+def test_no_whisper_driver_is_reachable_from_the_package_or_the_cli() -> None:
+    """`CLAUDE.md` forbids running Whisper; nothing may make it reachable."""
+    tree = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((PROJECT_ROOT / "src").rglob("*.py"))
+    )
+    for token in (*WHISPER_MODULES, "whisperx", "faster_whisper"):
+        # Named in prose is fine — several modules explain *why* Whisper is
+        # refused. An import or a subprocess call is not.
+        assert f"import {token}" not in tree, f"the package imports {token}"
+        assert f"from {token}" not in tree, f"the package imports from {token}"
+
+
+def test_the_upstream_readme_names_the_scripts_that_still_have_tests() -> None:
+    """The README's third claim, which is the one that rots when a test moves."""
+    readme = (UPSTREAM / "README.md").read_text(encoding="utf-8")
+    tests = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((PROJECT_ROOT / "tests").glob("test_*.py"))
+    )
+    for name in ("generate_video_db", "obsidian_exporter", "graph_extractor"):
+        assert name in readme, f"the README no longer names {name}"
+        assert name in tests, f"the README claims {name} has tests and it does not"
+
+
+def test_ci_lints_and_type_checks_the_package() -> None:
+    """D-114: the largest asymmetry in the project, and now a job.
+
+    `web/` had `tsc --strict` with `noUncheckedIndexedAccess` and a CI job of
+    its own; `src/` had no ruff, black or mypy config, no CI step and no mention
+    in the docs. The cost was not hypothetical — four imports left dead by a
+    refactor were found by running pyflakes by hand.
+    """
+    workflow = _workflow()
+    assert "ruff check ." in workflow, "no ruff step in ci.yml"
+    assert re.search(r"^\s+run: mypy\s*$", workflow, re.MULTILINE), "no mypy step in ci.yml"
+
+    config = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "[tool.ruff.lint]" in config, "ruff has no configured rule set"
+    assert "[tool.mypy]" in config, "mypy is unconfigured, so its strictness is the default"
+    # Declared, so a contributor's `pip install -e '.[dev]'` runs what CI runs.
+    assert '"ruff' in config and '"mypy' in config
+
+
+def test_ci_runs_the_frontend_against_a_real_server() -> None:
+    """D-116: 13 integration tests gated on a variable nothing set.
+
+    They exist because "a mock agrees with whatever the frontend assumed", so
+    skipping everywhere made them the only tests in the tree that could not
+    fail. The job must both set the variable and refuse a silent skip.
+    """
+    workflow = _workflow()
+    assert "X2KNWLDG_API_BASE" in workflow, "no job sets X2KNWLDG_API_BASE"
+    assert "dev_api.py" in workflow, "no job serves an API for them to talk to"
+    assert "did not take" in workflow, (
+        "the job does not check the integration tests actually ran; a skip "
+        "would pass it"
+    )
+
+
+def test_ci_installs_requirements_txt() -> None:
+    """D-111: nothing installed it, so nothing noticed it was wrong."""
+    assert "pip install -r requirements.txt" in _workflow()
+
+
+def test_requirements_txt_names_the_extras_pyproject_declares() -> None:
+    """The file describes the extras in prose; the prose has to be true."""
+    text = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    for extra in sorted(_declared_extras()):
+        assert re.search(rf"^#\s+{re.escape(extra)}\b", text, re.MULTILINE), (
+            f"requirements.txt does not describe the {extra!r} extra"
+        )
+    assert "not functional yet" not in text, "the `ui` layer shipped in T-116"
+
+
+# ---------------------------------------------------------------------------
+# D-105 — no API-supplied URL reaches an `href` unchecked
+# ---------------------------------------------------------------------------
+#
+# Five sites rendered `hit.source_url`, `source.url` and `artifact.url`
+# straight into `href`, with `target` and `rel` repeated at each one and no
+# scheme check, while the markdown path a few lines away had used `isSafeHref`
+# all along. The behaviour is tested in `primitives.test.tsx`; what is checked
+# here is the shape, because the defect *was* a shape — a bare `<a>` over a
+# value the server supplied — and it is the recurrence that matters.
+
+#: A bare anchor whose href is an API-supplied value.
+_UNGUARDED_HREF = re.compile(
+    r"<a\s[^>]*href=\{(?:hit\.source_url|source\.url|artifact\.url|watchUrl|node\.href)\}"
+)
+
+
+def test_no_component_renders_an_api_url_through_a_bare_anchor() -> None:
+    offenders: list[str] = []
+    for path in sorted((WEB / "src").rglob("*.tsx")):
+        if path.name.endswith(".test.tsx"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for match in _UNGUARDED_HREF.finditer(text):
+            line = text[: match.start()].count("\n") + 1
+            # `Markdown` guards `node.href` with `isSafeHref` inline and has
+            # since it was written; it is the precedent, not an offender.
+            if path.name == "Markdown.tsx" and "isSafeHref" in text:
+                continue
+            offenders.append(f"{path.relative_to(PROJECT_ROOT)}:{line}")
+    assert not offenders, (
+        "these render a server-supplied URL into an href with no scheme check; "
+        f"use `ExternalLink`: {offenders}"
+    )
+
+
+def test_the_guarded_link_primitive_exists_and_checks_the_scheme() -> None:
+    """Guards the guard: the test above passes trivially if nothing uses it."""
+    primitives = (WEB / "src" / "components" / "primitives.tsx").read_text(encoding="utf-8")
+    assert "export function ExternalLink" in primitives
+    assert "isSafeHref" in primitives
+
+    users = [
+        path.name
+        for path in sorted((WEB / "src").rglob("*.tsx"))
+        if not path.name.endswith(".test.tsx")
+        and "ExternalLink" in path.read_text(encoding="utf-8")
+        and path.name != "primitives.tsx"
+    ]
+    assert len(users) >= 3, f"only {users} use the guarded link"
+
+
+def test_this_suite_runs_where_git_can_be_asked() -> None:
+    """Guards the two skips above.
+
+    A `skipif` that is always true turns a check into a claim nobody made, so
+    the development checkout — and CI, which runs `actions/checkout` — must be
+    a place where git answers. Only a tarball may skip.
+    """
+    if not (PROJECT_ROOT / ".git").exists():
+        pytest.skip("running from an export rather than a checkout")
+    assert _in_a_git_repository(), (
+        "there is a .git here but git will not answer, so the D-071 checks "
+        "would silently skip in the one place they must run"
+    )

@@ -76,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"serving {root}")
 
     import uvicorn
+
     from x2knwldg.server.app import create_app
 
     if not args.no_index:

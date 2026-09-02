@@ -19,8 +19,9 @@ content (canvas plan §15).
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -94,6 +95,63 @@ def _resolve(root: Path, relative: str) -> Path:
     return candidate
 
 
+#: A media type this route is willing to put in a header: ``type/subtype``
+#: with optional parameters, ASCII only, no control characters.
+#:
+#: Defect D-104: ``record["media_type"]`` went into the ``Content-Type`` header
+#: with no validation at all. A value outside latin-1 (``"tëxt/plåin"``) failed
+#: header encoding and answered an undeclared ``500``; one containing CRLF was
+#: placed in the header dict unchecked, and only h11's own wire-level refusal
+#: stood between that and a split response. Neither is reachable without index
+#: write access, which is why it is a low finding and not a high one — but the
+#: route performed no validation of its own, and "something else refuses it
+#: downstream" is not a check.
+_MEDIA_TYPE = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+/[!#$%&'*+.^_`|~0-9A-Za-z-]+"
+                         r"(?:\s*;\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+=[^\x00-\x1f\x7f;]*)*$")
+
+
+def _checked_media_type(record: Mapping[str, Any]) -> str:
+    """The artifact's stated media type, or a refusal naming why it cannot be sent.
+
+    Refused rather than replaced with ``application/octet-stream`` (D-104): the
+    comment two lines below says a media type is *stated, never guessed*, and
+    substituting one for a value the index holds would be guessing on behalf of
+    a damaged record. ``null`` is different — the schema says it means "not
+    known", and octet-stream is the honest answer to that.
+    """
+    stated = record.get("media_type")
+    if stated is None:
+        return "application/octet-stream"
+    if not isinstance(stated, str) or not _MEDIA_TYPE.match(stated) or len(stated) > 255:
+        raise MediaUnavailable(
+            "That artifact states a media type this server cannot send; "
+            "the index record is damaged."
+        )
+    return stated
+
+
+def _byte_count(digits: str, size: int) -> int:
+    """A Range header's digits as an int, without tripping ``int()``'s limit.
+
+    Defect D-083: CPython refuses to convert a decimal string of more than
+    4300 digits and raises ``ValueError``, which nothing in this module caught
+    — so ``Range: bytes=<5000 nines>-`` answered an undeclared ``500`` to any
+    unauthenticated client, while 4299 digits answered ``206`` correctly. The
+    route declares ``200, 206, 400, 404, 416, 503`` and nothing else.
+
+    A number that cannot be an offset into a file of *size* bytes does not need
+    to be converted exactly — it is simply larger, and the satisfiability
+    checks below already know what to do with that. So a digit string longer
+    than *size* has digits is answered with ``size + 1``, which is past the end
+    by construction, and no conversion of more than a few characters is ever
+    attempted.
+    """
+    stripped = digits.lstrip("0") or "0"
+    if len(stripped) > len(str(size)):
+        return size + 1
+    return int(stripped)
+
+
 def _parse_range(header: str, size: int) -> tuple[int, int] | None:
     """``(start, end)`` inclusive, or ``None`` to serve the whole file.
 
@@ -108,13 +166,14 @@ def _parse_range(header: str, size: int) -> tuple[int, int] | None:
     if not first and not last:
         return None
     if not first:
-        # `bytes=-N` — the final N bytes.
-        length = int(last)
+        # `bytes=-N` — the final N bytes. An N larger than the file is the whole
+        # file, which is what RFC 9110 asks for.
+        length = _byte_count(last, size)
         if length == 0:
             raise RangeNotSatisfiable("A suffix range of zero bytes is not satisfiable.", size)
         return (max(0, size - length), size - 1)
-    start = int(first)
-    end = int(last) if last else size - 1
+    start = _byte_count(first, size)
+    end = _byte_count(last, size) if last else size - 1
     if start >= size or end < start:
         raise RangeNotSatisfiable(f"Range is outside the artifact's {size} bytes.", size)
     return (start, min(end, size - 1))
@@ -160,8 +219,9 @@ def get_artifact_media(
 
     size = path.stat().st_size
     # A media type is stated, never guessed: `mimetypes` would infer one from
-    # the extension, and the schema already says null means "not known".
-    media_type = record.get("media_type") or "application/octet-stream"
+    # the extension, and the schema already says null means "not known". What
+    # is stated is now also checked before it becomes a header (D-104).
+    media_type = _checked_media_type(record)
     headers = {"Accept-Ranges": "bytes"}
 
     try:

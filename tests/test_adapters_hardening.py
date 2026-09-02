@@ -31,8 +31,9 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
@@ -811,3 +812,68 @@ def test_the_package_has_one_tolerant_json_reader() -> None:
     ).read_text(encoding="utf-8")
     assert "json.loads(" not in source
     assert "read_json_or_reason" in source
+
+
+# ---------------------------------------------------------------------------
+# D-100 — a symlinked artifact is named, not fatal to its run
+# ---------------------------------------------------------------------------
+#
+# `Adapter.relative` resolves symlinks, so a canonical file that *is* a symlink
+# to somewhere outside the project resolved outside it and raised — taking the
+# whole run down over one file. Since D-078 that is a skipped-and-named run
+# rather than a dead index, which is better and still wrong:
+# `adapter_metadata.unmappable_artifacts` is the channel that already exists
+# for a thing the index model cannot address (D-045).
+
+
+@pytest.mark.parametrize(
+    "where",
+    ["report.md", "raw/source.srt", "vault/knowledge_units/source/KU-LINK.md"],
+)
+def test_a_symlinked_artifact_does_not_take_its_run_down(tmp_path: Path, where: str) -> None:
+    import shutil
+
+    from x2knwldg.adapters import adapt_run
+
+    root = tmp_path / "project"
+    run_dir = root / "output" / "pass-run"
+    shutil.copytree(FIXTURE_RUNS / "pass-run", run_dir)
+    outside = tmp_path / "elsewhere" / "notes.md"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("# outside the project\n", encoding="utf-8")
+    target = run_dir / where
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() or target.is_symlink():
+        target.unlink()
+    target.symlink_to(outside)
+
+    records = adapt_run(run_dir, root)
+    source = records.by_model()["source"][0]
+    unmappable = source.get("adapter_metadata", {}).get("unmappable_artifacts", [])
+    assert unmappable, f"the symlinked {where} was neither indexed nor named"
+    assert any(where.rsplit("/", 1)[-1] in entry["path"] for entry in unmappable), unmappable
+    # D-085: the reason reaches `/api/status`, so no host path may survive.
+    blob = json.dumps(unmappable)
+    for absolute in (str(outside), str(outside.parent), str(root.resolve())):
+        assert absolute not in blob, f"the reason leaks {absolute}"
+
+
+def test_a_symlinked_file_is_not_in_the_runs_digest(tmp_path: Path) -> None:
+    """`path.is_file()` follows symlinks, so the *target* went into the digest
+    and `io.sha256_file` read it in full on every scan — for a file the run does
+    not own, whose changes moved the digest and whose repointing did not."""
+    import shutil
+
+    from x2knwldg.index import scanner
+
+    root = tmp_path / "project"
+    run_dir = root / "output" / "pass-run"
+    shutil.copytree(FIXTURE_RUNS / "pass-run", run_dir)
+    outside = tmp_path / "elsewhere" / "big.bin"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_bytes(b"x" * 1024)
+    (run_dir / "linked.bin").symlink_to(outside)
+
+    walked = scanner._run_files(run_dir)
+    assert all(not path.is_symlink() for path in walked)
+    assert not any(path.name == "linked.bin" for path in walked)

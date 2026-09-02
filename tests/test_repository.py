@@ -13,8 +13,9 @@ install (ADR 0001 invariant 5) and these tests run there.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 

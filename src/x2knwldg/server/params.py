@@ -18,8 +18,11 @@ from typing import Any
 
 from fastapi import Query
 
+from ..constants import MAX_PAGE_LIMIT
+
 MIN_LIMIT = 1
-MAX_LIMIT = 500
+#: D-101: stated once, in `constants`, so the MCP surface cannot disagree.
+MAX_LIMIT = MAX_PAGE_LIMIT
 DEFAULT_LIMIT = 50
 MAX_CURSOR_LENGTH = 512
 MAX_QUERY_LENGTH = 512

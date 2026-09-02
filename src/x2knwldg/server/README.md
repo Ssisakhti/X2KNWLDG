@@ -85,8 +85,16 @@ a request leaves the process, so a traversal battery that sends them proves noth
 this code. `tests/test_api_hardening.py` splits them three ways: ids that reach the wire, ids
 checked at the repository boundary, and raw paths handed straight to the ASGI app.
 
-## Not here yet
+## Serving
 
-`x2knwldg ui` is still a refusing stub. Wiring it — root resolve, index check, loopback
-serve, open browser — is `T-116`, and it belongs to the integrator because it edits
-`cli.py`.
+`x2knwldg ui` is wired end to end (`T-116`): it resolves the project root, refuses a
+non-loopback host before it probes for the extra, refreshes the index — passing
+`index_documents` so the search corpus is built and not merely the records (D-068) — binds the
+socket *before* printing a URL (D-066), and reports an unbuilt `web/dist` as its own exit code
+`6` rather than as success or as a breakage. `serve.py` owns the socket; `create_app` is
+untouched, so the document served still equals the frozen one.
+
+`GET /api/openapi.json` serves `openapi.json` from **beside this module**, not from
+`schemas/api/v1/`: the file is package data, because a path relative to a repo checkout made the
+route a permanent 404 in every installed package (D-084). `schemas/api/v1/openapi.json` remains
+the authored contract, and a test fails if the two differ by a byte.

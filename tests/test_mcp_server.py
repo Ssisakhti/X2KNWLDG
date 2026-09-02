@@ -411,6 +411,86 @@ def test_no_successful_reply_carries_an_absolute_host_path(project: Path) -> Non
 
 
 # ---------------------------------------------------------------------------
+# D-091 — rule 2 applies to replies, not only to failures
+# ---------------------------------------------------------------------------
+#
+# `_redact` was called exclusively inside `_boundary`'s `except` arms, so a
+# successful return was passed through verbatim — violating this module's own
+# rule 2, "absolute paths never appear in a successful reply either". The test
+# above covered exactly one tool, which is why the leak survived in the others:
+# `rebuild_cross_video_library` returned `skipped_runs[].reason` and `path`
+# naming the operator's checkout, and `finalize_video` returned `report` and
+# `graph` as absolute paths.
+
+
+def _leaked(project: Path, value: object) -> list[str]:
+    """Every host path in *value*, so a failure names what escaped."""
+    text = json.dumps(value, default=str)
+    roots = [str(project), str(project.resolve()), str(project.resolve().parent)]
+    return [root for root in roots if len(root) > 1 and root in text]
+
+
+def test_rebuild_cross_video_library_redacts_its_reply(project: Path) -> None:
+    broken = project / "output" / "broken-run"
+    broken.mkdir(parents=True, exist_ok=True)
+    (broken / "metadata.json").write_text("{not json", encoding="utf-8")
+
+    reply = mcp_server.rebuild_cross_video_library()
+    assert _leaked(project, reply) == [], reply
+    assert reply["skipped_runs"], "the broken run was not reported at all"
+    reason = reply["skipped_runs"][0]["reason"]
+    # D-063: the reason still states the damage. Redacting by deleting the
+    # sentence would satisfy this test's first assertion and close D-045's
+    # diagnostic channel.
+    assert "Malformed JSON" in reason
+    assert "<project>" in reason
+    assert not str(reply["path"]).startswith("/"), reply["path"]
+
+
+def test_finalize_video_redacts_the_paths_it_reports(project: Path) -> None:
+    reply = mcp_server.finalize_video(PASS_RUN)
+    assert _leaked(project, reply) == [], reply
+    for key in ("report", "graph"):
+        assert not str(reply[key]).startswith("/"), (key, reply[key])
+        assert str(reply[key]).endswith((".md", ".json"))
+
+
+def test_every_tool_that_answers_at_all_answers_without_a_host_path(project: Path) -> None:
+    """The property, over the tools that need no arguments to run."""
+    calls = (
+        ("list_ingested_videos", lambda: mcp_server.list_ingested_videos()),
+        ("validate_video_output", lambda: mcp_server.validate_video_output(PASS_RUN)),
+        ("get_extraction_segment", lambda: mcp_server.get_extraction_segment(PASS_RUN, 1)),
+        ("get_coverage_window", lambda: mcp_server.get_coverage_window(PASS_RUN, 1)),
+        ("extract_video_knowledge", lambda: mcp_server.extract_video_knowledge(PASS_RUN)),
+        ("search_video_knowledge", lambda: mcp_server.search_video_knowledge("knowledge")),
+        ("rebuild_cross_video_library", lambda: mcp_server.rebuild_cross_video_library()),
+        ("finalize_video", lambda: mcp_server.finalize_video(PASS_RUN)),
+    )
+    for name, call in calls:
+        try:
+            reply = call()
+        except mcp_server.McpToolError:
+            continue
+        assert _leaked(project, reply) == [], (name, reply)
+
+
+def test_extracted_content_is_not_mangled_by_the_redaction(project: Path) -> None:
+    """The reason there are two rules and not one.
+
+    A named root can never be meaningful content, so it is substituted
+    everywhere. The catch-all is applied only to a string that is *entirely* a
+    path — otherwise a unit quoting a filesystem path mid-sentence would come
+    back with its text rewritten.
+    """
+    from x2knwldg.mcp_server import _redact_reply
+
+    prose = "Install it under /usr/local/bin/tool and then run it."
+    assert _redact_reply({"content": prose}) == {"content": prose}
+    assert _redact_reply(["/usr/local/bin/tool"]) == ["<path>/tool"]
+
+
+# ---------------------------------------------------------------------------
 # The tools do their job
 # ---------------------------------------------------------------------------
 
@@ -644,3 +724,43 @@ def test_the_prompt_never_authorises_claiming_a_pass() -> None:
     assert "pass-run" in text
     assert "Never report complete unless" in text
     assert "PASS" in text
+
+
+# ---------------------------------------------------------------------------
+# D-101 — one page bound, honoured by every remote surface
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("limit", [0, -1, 10**18, 501, 2**63], ids=repr)
+def test_an_out_of_range_limit_is_refused(project: Path, limit: int) -> None:
+    """`query.search_knowledge` floor-checks and says it has no ceiling on
+    purpose — right for a local CLI search, wrong for a tool an agent calls,
+    where `limit=10**18` returned the entire corpus in one reply. The HTTP side
+    has capped at 500 all along, so this was two bounds for the same data."""
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.search_video_knowledge("knowledge", limit=limit)
+    assert caught.value.code == "invalid_request"
+
+
+@pytest.mark.parametrize("limit", [True, 1.5, "10", None], ids=repr)
+def test_a_limit_of_the_wrong_type_is_refused(project: Path, limit: object) -> None:
+    with pytest.raises(mcp_server.McpToolError) as caught:
+        mcp_server.search_video_knowledge("knowledge", limit=limit)  # type: ignore[arg-type]
+    assert caught.value.code == "invalid_request"
+
+
+@pytest.mark.parametrize("limit", [1, 10, 500])
+def test_a_limit_within_the_bound_still_answers(project: Path, limit: int) -> None:
+    answer = mcp_server.search_video_knowledge("knowledge", limit=limit)
+    assert isinstance(answer["results"], list)
+    assert len(answer["results"]) <= limit
+
+
+def test_the_bound_is_the_one_the_http_surface_uses() -> None:
+    """Stated once, in `constants`, so the two cannot drift apart again."""
+    from x2knwldg.constants import MAX_PAGE_LIMIT
+
+    params = pytest.importorskip(
+        "x2knwldg.server.params", reason="the HTTP layer is the `ui` extra"
+    )
+    assert params.MAX_LIMIT == MAX_PAGE_LIMIT

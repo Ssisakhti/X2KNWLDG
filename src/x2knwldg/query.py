@@ -17,9 +17,10 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from .io import timestamp_url
 from .pipeline import PipelineError, resolve_run_dir
@@ -102,7 +103,7 @@ class SearchDocument:
     @classmethod
     def of(
         cls, hit: Mapping[str, Any], text: str, *, weight: float = 1.0
-    ) -> "SearchDocument":
+    ) -> SearchDocument:
         return cls(hit=hit, folded=_fold(text), tokens=frozenset(_tokens(text)), weight=weight)
 
     def score(self, folded_query: str, query_tokens: frozenset[str] | set[str]) -> float:

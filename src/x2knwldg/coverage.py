@@ -31,7 +31,14 @@ def create_pending_coverage(
     for index in range(window_count):
         start = index * window_sec
         is_last = index == window_count - 1
-        end = duration if is_last else min(duration, (index + 1) * window_sec)
+        # D-097: this was `min(duration, (index + 1) * window_sec)`, and the
+        # `min` could never bind — `window_count = ceil(duration / window_sec)`,
+        # so for every index below the last, `(index + 1) * window_sec` is
+        # strictly less than `duration` by construction. A guard that cannot
+        # fire reads as a bound the caller has to think about, and there is
+        # exactly one real edge here: the final window, which owns whatever
+        # remains and is handled on the other branch.
+        end = duration if is_last else (index + 1) * window_sec
         caption_ids = [
             caption["segment_id"]
             for caption in captions

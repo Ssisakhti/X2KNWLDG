@@ -20,7 +20,7 @@ import type {
   RunStatus,
 } from "./contract";
 
-function keysOf<T extends string>(record: Record<T, true>): readonly T[] {
+export function keysOf<T extends string>(record: Record<T, true>): readonly T[] {
   return Object.keys(record) as T[];
 }
 

@@ -547,3 +547,24 @@ input {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/*
+  D-108: the skip link. Off-screen until focused, then the first thing on the
+  page — logical properties only (D-012), so it lands in the right corner in
+  both directions.
+*/
+.shell__skip {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  z-index: 10;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: var(--border-width) solid var(--border-strong);
+  transform: translateY(-200%);
+}
+
+.shell__skip:focus {
+  transform: translateY(0);
+}

@@ -22,6 +22,7 @@ from x2knwldg.transcripts import (
     clean_text,
     parse_timestamp,
     parse_transcript_file,
+    transcript_end_sec,
     transcript_integrity,
 )
 
@@ -407,5 +408,162 @@ class TimestampAndTimedTextTests(unittest.TestCase):
             self.assertEqual(captions[1]["start_sec"], 5.0)
 
 
+class CueTimingLineTests(unittest.TestCase):
+    """D-076 — ``-->`` inside a caption is text, not a cue timing line.
+
+    ``_cue_chunks`` located cues with ``if "-->" in line``, so a caption whose
+    own words contain ``-->`` was read as a timing line and
+    ``parse_timestamp`` rejected the **whole file** with
+    ``Invalid timestamp: 'The'``. The module had already solved this exact
+    class of problem for ``[Applause - laughter]`` by restricting
+    ``_TIMED_TEXT`` to timestamp shapes; the same guard was simply missing here.
+    """
+
+    def test_an_arrow_in_a_caption_does_not_reject_the_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write(
+                directory,
+                "arrow.srt",
+                "1\n00:00:00,000 --> 00:00:05,000\nThe mapping A --> B is important.\n",
+            )
+            captions = parse_transcript_file(path, language="en")
+            self.assertEqual(len(captions), 1)
+            self.assertEqual(captions[0]["text"], "The mapping A --> B is important.")
+            self.assertEqual(captions[0]["end_sec"], 5.0)
+
+    def test_an_arrow_in_a_vtt_caption_keeps_every_cue(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write(
+                directory,
+                "arrow.vtt",
+                "WEBVTT\n\n"
+                "00:00:00.000 --> 00:00:05.000\nInput --> output is the whole idea.\n\n"
+                "00:00:05.000 --> 00:00:10.000\nAnd A --> B --> C chains.\n",
+            )
+            captions = parse_transcript_file(path, language="en")
+            self.assertEqual(len(captions), 2)
+            self.assertEqual(captions[0]["text"], "Input --> output is the whole idea.")
+            self.assertEqual(captions[1]["text"], "And A --> B --> C chains.")
+
+    def test_a_cue_whose_end_is_damaged_is_still_reported(self):
+        """Only the *left* side is anchored, so a real cue with a broken end
+        still reaches ``parse_timestamp`` instead of becoming body text."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write(directory, "broken.srt", "1\n00:00:00,000 --> oops\ntext\n")
+            with self.assertRaises(TranscriptError):
+                parse_transcript_file(path, language="en")
+
+    def test_the_timing_detector_and_the_parser_accept_the_same_timestamps(self):
+        """Two patterns for one grammar, so they are asserted equal here."""
+        from x2knwldg.transcripts import _CUE_TIMING, _TIMESTAMP
+
+        accepted = ["0:00", "00:00", "00:00:00", "00:00:00,000", "1:02:03.45", "9999:00:00.000"]
+        rejected = ["The", "A --> B", "", "00", "x:00:00", "00:000:00"]
+        for value in accepted:
+            self.assertIsNotNone(_TIMESTAMP.match(value), value)
+            self.assertIsNotNone(_CUE_TIMING.match(f"{value} --> {value}"), value)
+        for value in rejected:
+            self.assertIsNone(_CUE_TIMING.match(f"{value} --> 00:00:01,000"), value)
+
+
+class CorruptCanonicalTests(unittest.TestCase):
+    """D-077 — a damaged canonical file is a finding, not a traceback.
+
+    ``max((c.get("end_sec", 0) for c in captions), default=0)`` existed four
+    times at three different guard levels. The loose copies raised
+    ``AttributeError`` on a caption that is a string and ``TypeError`` on one
+    whose ``end_sec`` is ``null`` — because ``max`` then compares ``None`` with
+    a float — and both escaped ``validate`` and ``finalize`` as raw tracebacks.
+    There is now one implementation, ``transcripts.transcript_end_sec``.
+    """
+
+    def test_a_caption_that_is_not_an_object_is_named(self):
+        result = transcript_integrity(["not a caption"])
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("caption_not_object", {e["code"] for e in result["errors"]})
+
+    def test_captions_that_are_not_an_array_are_named(self):
+        for captions in ({"cap_1": {}}, "captions", 7, None):
+            with self.subTest(captions=captions):
+                result = transcript_integrity(captions)
+                self.assertEqual(result["status"], "FAIL")
+                self.assertIn("captions_not_array", {e["code"] for e in result["errors"]})
+
+    def test_the_duration_of_a_damaged_transcript_is_zero_not_a_crash(self):
+        for captions in (
+            ["oops"],
+            [{"start_sec": 0.0, "end_sec": None}],
+            [{"start_sec": 0.0, "end_sec": "5"}],
+            [{"start_sec": 0.0, "end_sec": float("nan")}],
+            [{"start_sec": 0.0, "end_sec": True}],
+            "captions",
+            None,
+        ):
+            with self.subTest(captions=captions):
+                self.assertEqual(transcript_end_sec(captions), 0.0)
+
+    def test_a_damaged_caption_does_not_hide_a_healthy_one(self):
+        captions = ["oops", {"start_sec": 0.0, "end_sec": 12.5, "text": "hi"}]
+        self.assertEqual(transcript_end_sec(captions), 12.5)
+        self.assertEqual(transcript_integrity(captions)["stats"]["duration_sec"], 12.5)
+
+    def test_the_duration_helper_is_the_one_every_caller_uses(self):
+        """The consolidation itself: no caller may keep a private copy."""
+        import re
+        from pathlib import Path
+
+        import x2knwldg.artifacts
+        import x2knwldg.pipeline
+        import x2knwldg.transcripts
+        import x2knwldg.validators
+
+        pattern = re.compile(r'max\(\s*\(?\s*caption\.get\("end_sec"')
+        for module in (
+            x2knwldg.artifacts,
+            x2knwldg.pipeline,
+            x2knwldg.validators,
+            x2knwldg.transcripts,
+        ):
+            source = Path(module.__file__).read_text(encoding="utf-8")
+            self.assertIsNone(
+                pattern.search(source),
+                f"{module.__name__} has its own copy of the duration expression",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class CoverageWindowBoundTests(unittest.TestCase):
+    """D-097 — the window end has one real edge, not two.
+
+    `min(duration, (index + 1) * window_sec)` could never bind: with
+    `window_count = ceil(duration / window_sec)`, every index below the last
+    puts `(index + 1) * window_sec` strictly below `duration`. A guard that
+    cannot fire reads as a bound the caller has to think about.
+    """
+
+    def test_windows_are_contiguous_and_end_at_the_duration(self):
+        for duration in (1.0, 59.9, 60.0, 60.1, 119.0, 600.0, 3601.0):
+            with self.subTest(duration=duration):
+                captions = [
+                    {"segment_id": "cap_000001", "start_sec": 0.0, "end_sec": duration, "text": "x"}
+                ]
+                windows = create_pending_coverage(captions, "vid")["windows"]
+                self.assertEqual(windows[0]["start_sec"], 0.0)
+                self.assertEqual(windows[-1]["end_sec"], round(duration, 3))
+                for previous, following in zip(windows, windows[1:], strict=False):
+                    self.assertEqual(previous["end_sec"], following["start_sec"])
+
+    def test_no_window_reaches_past_the_duration(self):
+        """What the dead `min` was there to prevent, asserted directly."""
+        for duration in (0.5, 30.0, 60.0, 90.0, 601.0):
+            with self.subTest(duration=duration):
+                captions = [
+                    {"segment_id": "cap_000001", "start_sec": 0.0, "end_sec": duration, "text": "x"}
+                ]
+                windows = create_pending_coverage(captions, "vid")["windows"]
+                for window in windows:
+                    self.assertLessEqual(window["end_sec"], round(duration, 3))
+                    self.assertLess(window["start_sec"], window["end_sec"] + 1e-9)

@@ -42,9 +42,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import api_harness as h
+import pytest
 import ts_declarations as ts
 
 #: The declarations the frontend imports. Only the live half of this file needs
@@ -427,3 +426,80 @@ def test_comments_do_not_reach_the_grammar(tmp_path: Path) -> None:
     declarations = ts.parse(write(tmp_path, source))
     assert set(declarations.types) == {"Probe"}
     assert ts.violations({"a": "x"}, declarations.types["Probe"], declarations) == []
+
+
+# --------------------------------------------------------------------------
+# 5. D-084 — the frozen spec is *in* the package, or it is served to nobody
+# --------------------------------------------------------------------------
+#
+# `_FROZEN_SPEC` was `Path(__file__).resolve().parents[3] / "schemas" / …`,
+# documented as "relative to the installed package" and in fact relative to a
+# repo checkout — and there was no `[tool.setuptools.package-data]` and no
+# `MANIFEST.in`, so no wheel carried the file. `GET /api/openapi.json` was
+# permanently `404 {"detail": "spec not packaged"}` in every installed package,
+# and CI could not see it: the `ui` job installs with `-e`, and the
+# non-editable job has no fastapi and never touches the route.
+
+
+def test_the_packaged_spec_is_byte_identical_to_the_authored_one() -> None:
+    """Two copies, one contract. `schemas/api/v1/` stays the authored home.
+
+    Located by path rather than by importing ``server.app``, so this runs on a
+    bare core install: whether the package *carries* the file is a question
+    about the distribution, not about fastapi being present.
+    """
+    import x2knwldg
+
+    packaged = Path(x2knwldg.__file__).resolve().parent / "server" / "openapi.json"
+    authored = Path(__file__).resolve().parents[1] / "schemas" / "api" / "v1" / "openapi.json"
+    assert packaged.is_file(), "the package does not carry the spec it serves"
+    assert packaged.read_bytes() == authored.read_bytes(), (
+        "src/x2knwldg/server/openapi.json is stale; copy "
+        "schemas/api/v1/openapi.json over it and commit the result"
+    )
+
+
+@h.requires_fastapi
+def test_the_spec_resolves_from_beside_the_module_that_serves_it() -> None:
+    """Not up the tree: `parents[3]` only exists in a checkout."""
+    import x2knwldg.server.app as app_module
+    from x2knwldg.server.app import _FROZEN_SPEC
+
+    assert _FROZEN_SPEC.parent == Path(app_module.__file__).resolve().parent
+    assert _FROZEN_SPEC.is_file()
+
+
+def test_the_wheel_carries_the_spec() -> None:
+    """The only check that actually proves an *installed* package can serve it."""
+    import subprocess
+    import sys
+    import tempfile
+    import zipfile
+
+    project = Path(__file__).resolve().parents[1]
+    with tempfile.TemporaryDirectory() as directory:
+        built = subprocess.run(
+            [sys.executable, "-m", "pip", "wheel", "--no-deps", "-q", "-w", directory, str(project)],
+            capture_output=True,
+            text=True,
+        )
+        if built.returncode != 0:
+            pytest.skip(f"pip wheel unavailable here: {built.stderr.strip()[:200]}")
+        wheels = list(Path(directory).glob("*.whl"))
+        assert wheels, "pip wheel produced nothing"
+        names = zipfile.ZipFile(wheels[0]).namelist()
+    assert "x2knwldg/server/openapi.json" in names, (
+        "the wheel does not carry the frozen spec, so /api/openapi.json is a 404 "
+        f"in every installed package; wheel holds: {sorted(names)[:20]}"
+    )
+
+
+@h.requires_fastapi
+def test_the_route_serves_the_spec_rather_than_refusing(tmp_path: Path) -> None:
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        response = client.get("/api/openapi.json")
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["openapi"].startswith("3.1")
+        assert body["paths"], "the served spec declares no paths"

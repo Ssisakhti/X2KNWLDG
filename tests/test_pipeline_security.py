@@ -46,6 +46,7 @@ from x2knwldg.pipeline import (
     resolve_run_dir,
     validate_run,
 )
+from x2knwldg.transcripts import TranscriptError
 
 FIXTURES = Path(__file__).parent / "fixtures"
 RUNS = FIXTURES / "runs"
@@ -537,7 +538,10 @@ def test_a_retry_with_a_bad_transcript_destroys_nothing(tmp_path: Path) -> None:
     untimed = tmp_path / "untimed.txt"
     untimed.write_text("Plain transcript with no timings at all.", encoding="utf-8")
 
-    with pytest.raises(Exception):
+    # The point is that the debris survives the refusal, but naming the type
+    # makes it a stronger claim: a transcript with no timings is refused by the
+    # documented import path, not by something incidental.
+    with pytest.raises(TranscriptError):
         import_transcript(untimed, output, video_id="abc123def45")
     assert (debris / "source.srt").exists()
 

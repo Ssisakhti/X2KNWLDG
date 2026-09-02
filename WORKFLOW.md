@@ -61,7 +61,17 @@ When the coverage audit finds missing meaningful content:
 
 ## 5. Apply and finalize
 
-Assemble `extraction_bundle.json` using `schemas/extraction_bundle.schema.json`, then run:
+Assemble `extraction_bundle.json` using `schemas/extraction_bundle.schema.json`. It has
+exactly three required keys, and the schema sets `additionalProperties: false`, so no other
+top-level key is accepted:
+
+| Bundle key | Comes from | Note |
+|---|---|---|
+| `knowledge_units` | passes 1, 2 and 4 | The **bundle** key is `knowledge_units`. The canonical `knowledge_units.json` file writes the same list under `units`; do not carry that spelling into the bundle (D-073) |
+| `relationships` | pass 3 | |
+| `coverage` | pass 5 | `audit_attempts` is required; `0` is the honest never-audited state and may not accompany a `PASS` (§4.4) |
+
+Then run:
 
 ```bash
 x2knwldg apply-bundle output/<video-id> extraction_bundle.json

@@ -13,6 +13,11 @@
  * environment (jsdom, and therefore the tests) reports zero heights, so the
  * estimate is what holds there -- which is why the tests assert *which rows
  * render*, not where they sit.
+ *
+ * That blind spot hid D-080 for a release: with `offsetHeight` always `0`,
+ * `measure` never bumped `version`, so no test could observe what happened
+ * when it did. The tests that cover the scroll request now stub `offsetHeight`
+ * to drive real measurement rather than working around its absence.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -69,19 +74,36 @@ export function VirtualList<T>({
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(600);
 
-  if (measured.current.length !== items.length) {
+  // D-094: the rebuild was keyed on `items.length` alone, so a changed
+  // `estimateHeight` was ignored for the life of the list -- five rows at 44px
+  // re-rendered as five rows at 99px kept a 220px runway instead of 495px,
+  // because every entry was already filled in at the old estimate and no
+  // length had changed. The estimate is part of what the array *is*, so it is
+  // part of what decides whether the array is still valid. Measured rows are
+  // still carried over: a real height beats any estimate, old or new.
+  const estimatedAt = useRef(estimateHeight);
+  if (measured.current.length !== items.length || estimatedAt.current !== estimateHeight) {
+    const previousEstimate = estimatedAt.current;
     const next = new Array<number>(items.length);
     for (let index = 0; index < items.length; index += 1) {
-      next[index] = measured.current[index] ?? estimateHeight;
+      const stored = measured.current[index];
+      // An entry still sitting at the *old* estimate was never measured, so it
+      // takes the new one.
+      next[index] = stored === undefined || stored === previousEstimate ? estimateHeight : stored;
     }
     measured.current = next;
+    estimatedAt.current = estimateHeight;
   }
 
   const offsets = useMemo(
     () => prefixSums(measured.current),
     // `version` is bumped whenever a measurement changes a row's height.
+    // `items` by identity rather than by length, and `estimateHeight`, because
+    // the rebuild above reacts to both and the sums have to be re-read after it
+    // (D-094) — with `items.length` alone, a new estimate rebuilt the array and
+    // this memo went on returning the previous prefix sums.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [version, items.length],
+    [version, items, estimateHeight],
   );
 
   const total = offsets[offsets.length - 1] ?? 0;
@@ -100,12 +122,47 @@ export function VirtualList<T>({
     return () => observer.disconnect();
   }, []);
 
+  /**
+   * D-080: `scrollToIndex` is a *request*, and answering it takes more than one
+   * pass — `offsets[scrollToIndex]` is only an estimate until the rows above
+   * the target have been on screen and measured, so the position has to be
+   * re-applied as measurements land. That is why the effect below depends on
+   * `offsets`.
+   *
+   * What it must not do is keep re-applying for the life of the list. `offsets`
+   * is a `useMemo` keyed on `version`, and `measure` bumps `version` on every
+   * row whose height changes, so the effect re-fired and forced `scrollTop`
+   * back each time — a user who scrolled away from a deep-linked caption was
+   * dragged back to it, repeatedly. `pending` holds the request until the
+   * reader scrolls somewhere we did not put them, and `enforced` is how their
+   * scroll is told apart from the event our own assignment provokes.
+   */
+  const pending = useRef<number | null>(scrollToIndex);
+  const enforced = useRef<number | null>(null);
+
   useEffect(() => {
-    if (scrollToIndex === null || container.current === null) return;
-    if (scrollToIndex < 0 || scrollToIndex >= items.length) return;
-    container.current.scrollTop = offsets[scrollToIndex] ?? 0;
-    setScrollTop(offsets[scrollToIndex] ?? 0);
+    pending.current = scrollToIndex;
+    enforced.current = null;
+  }, [scrollToIndex]);
+
+  useEffect(() => {
+    const target = pending.current;
+    if (target === null || container.current === null) return;
+    if (target < 0 || target >= items.length) return;
+    const top = offsets[target] ?? 0;
+    enforced.current = top;
+    container.current.scrollTop = top;
+    setScrollTop(top);
   }, [scrollToIndex, offsets, items.length]);
+
+  const handleScroll = useCallback((top: number) => {
+    setScrollTop(top);
+    if (pending.current === null) return;
+    if (enforced.current !== null && Math.abs(top - enforced.current) <= 1) return;
+    // Somewhere we did not put them. The request is answered; stop enforcing it.
+    pending.current = null;
+    enforced.current = null;
+  }, []);
 
   const measure = useCallback((index: number, element: HTMLDivElement | null) => {
     if (element === null) return;
@@ -132,7 +189,7 @@ export function VirtualList<T>({
       className="virtual"
       ref={container}
       style={{ blockSize }}
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      onScroll={(event) => handleScroll(event.currentTarget.scrollTop)}
       role="list"
       aria-label={label}
     >

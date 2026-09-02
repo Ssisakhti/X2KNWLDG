@@ -15,15 +15,13 @@ including on a bare core install. Only the tests that build the app need the
 from __future__ import annotations
 
 import json
-import socket
 from pathlib import Path
 
+import api_harness as h
 import pytest
 
-import api_harness as h
 from x2knwldg import cli
 from x2knwldg.server import serve as ui
-
 
 # ---------------------------------------------------------------------------
 # Locating the built frontend
@@ -164,7 +162,9 @@ def served(tmp_path: Path):
 
     refresh_index(root)
     app = ui.build_app(root, dist)
-    with TestClient(app) as client:
+    # A loopback `base_url` rather than TestClient's `http://testserver`: D-103
+    # added a `Host` allowlist, and `testserver` is deliberately not in it.
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         yield root, client
 
 
@@ -238,9 +238,12 @@ def _raw_request(app, raw: str) -> tuple[int, bytes]:
         "raw_path": raw.encode(),
         "root_path": "",
         "query_string": b"",
-        "headers": [(b"host", b"testserver")],
+        # A loopback `Host`, because D-103 put an allowlist in front of every
+        # route and the probe has to get *past* it to reach the mount it is
+        # testing. Refused at the boundary would answer 400 and prove nothing.
+        "headers": [(b"host", b"127.0.0.1")],
         "client": ("127.0.0.1", 12345),
-        "server": ("testserver", 80),
+        "server": ("127.0.0.1", 80),
     }
     asyncio.run(app(scope, receive, send))
     return int(seen["status"]), bytes(seen.get("body", b""))
@@ -354,7 +357,9 @@ def test_the_command_builds_a_searchable_index(tmp_path: Path, monkeypatch) -> N
     try:
         from x2knwldg.server.app import create_app
 
-        with TestClient(create_app(repository=repository)) as client:
+        with TestClient(
+            create_app(repository=repository), base_url="http://127.0.0.1"
+        ) as client:
             response = client.get("/api/search", params={"q": "evidence"})
             assert response.status_code == 200
             body = response.json()

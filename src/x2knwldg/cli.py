@@ -46,9 +46,11 @@ from pathlib import Path
 
 from . import __version__
 from .ids import IdError
+from .io import CanonicalValueError
 from .pipeline import (
     PipelineError,
     RunAlreadyExists,
+    VerdictRefusal,
     extract_video_id,
     import_transcript,
     is_youtube_url,
@@ -95,6 +97,10 @@ USER_FACING_ERRORS = (
     TranscriptError,
     IdError,
     UnsearchableRun,
+    # D-074: a canonical file timed "0.0" reached `io.format_timestamp` and
+    # took `finalize` down with a raw traceback, outside this tuple and so
+    # outside the documented `{"status": "ERROR"}` stderr contract.
+    CanonicalValueError,
     OSError,
     json.JSONDecodeError,
 )
@@ -106,7 +112,7 @@ def verdict_exit_code(status: str) -> int:
 
 
 def _fail(status: str, message: str, **extra: object) -> None:
-    payload = {"status": status, "message": message}
+    payload: dict[str, object] = {"status": status, "message": message}
     payload.update(extra)
     print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
 
@@ -560,6 +566,13 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK
         if args.command == "ui":
             return _run_ui(args)
+    except VerdictRefusal as exc:
+        # D-082: caught before `USER_FACING_ERRORS`, which would have made this
+        # exit `1`. A run that validated as failing is a *result* to report —
+        # the stderr envelope says `FAIL`, not `ERROR`, and the exit code comes
+        # from `VERDICT_EXIT_CODES` like every other statement of a verdict.
+        _fail(exc.status, str(exc))
+        return verdict_exit_code(exc.status)
     except USER_FACING_ERRORS as exc:
         # Not `PipelineError` alone. `parse_transcript_file` raises
         # `TranscriptError` for every malformed SRT/VTT/JSON — the *documented*

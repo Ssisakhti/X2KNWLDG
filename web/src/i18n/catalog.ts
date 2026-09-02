@@ -37,13 +37,11 @@ export const en = {
   "common.retry": "Retry",
   "common.notStated": "not stated",
   "common.notRecorded": "not recorded",
-  "common.none": "none",
   "common.any": "any",
   "common.yes": "yes",
   "common.no": "no",
   "common.back": "Back to the library",
   "common.total": "{count} total",
-  "common.showing": "Showing {count}",
   "common.more": "More results exist beyond this page.",
   "common.unknownTotal": "The server did not count the matches.",
 
@@ -56,11 +54,9 @@ export const en = {
   "status.PARTIAL": "PARTIAL",
   "status.FAIL": "FAIL",
   "status.UNKNOWN": "UNKNOWN",
-  "status.readFrom": "Read from {path}",
   "status.note":
     "Copied from validation.json and coverage.json. Never recomputed, never raised toward PASS.",
 
-  "provenance.label": "Provenance",
   "provenance.source": "Source-grounded",
   "provenance.derived": "Derived",
   "provenance.user": "User-authored",
@@ -111,13 +107,10 @@ export const en = {
   "library.filter.kind": "Kind",
   "library.filter.sourceClass": "Source class",
   "library.filter.minConfidence": "Minimum confidence",
-  "library.filter.scope": "Scope",
-  "library.scope.all": "All listed sources",
   "library.empty": "The index holds no source matching these filters.",
   "library.unitsEmpty": "No knowledge unit in scope matches these filters.",
   "library.unitsScopeNote":
     "The frozen contract filters knowledge units per source, so each source below was queried separately and reports its own total.",
-  "library.openReader": "Open in the reader",
 
   "search.label": "Search",
   "search.placeholder": "Search knowledge units and transcripts",
@@ -177,13 +170,9 @@ export const en = {
   "reader.transcript.noCaptionAt":
     "No caption covers the linked timestamp, so none is highlighted.",
 
-  "reader.report.title": "Report",
   "reader.report.unavailable": "This source has no report artifact.",
 
-  "reader.units.title": "Knowledge units",
-  "reader.units.kind": "Kind",
   "reader.units.confidence": "Confidence",
-  "reader.units.evidence": "Evidence excerpt",
   "reader.units.locator": "Locator",
   "reader.units.locatorNone": "No locator is recorded for this unit.",
   "reader.units.derivedFrom": "Derived from",
@@ -192,17 +181,10 @@ export const en = {
   "reader.units.canonicalPath": "Canonical file",
   "reader.units.empty": "No knowledge unit matches these filters.",
 
-  "reader.relations.title": "Relations",
-  "reader.relations.from": "From",
-  "reader.relations.to": "To",
-  "reader.relations.relation": "Relation",
   "reader.relations.confidence": "Confidence",
   "reader.relations.vocabulary": "Vocabulary",
   "reader.relations.empty": "No relation matches this filter.",
 
-  "reader.artifacts.title": "Artifacts",
-  "reader.artifacts.kind": "Kind",
-  "reader.artifacts.role": "Role",
   "reader.artifacts.mediaType": "Media type",
   "reader.artifacts.path": "Path",
   "reader.artifacts.bytes": "Bytes",
@@ -248,13 +230,11 @@ export const fa: Messages = {
   "common.retry": "تلاش دوباره",
   "common.notStated": "بیان نشده",
   "common.notRecorded": "ثبت نشده",
-  "common.none": "هیچ",
   "common.any": "همه",
   "common.yes": "بله",
   "common.no": "خیر",
   "common.back": "بازگشت به کتابخانه",
   "common.total": "در مجموع {count}",
-  "common.showing": "نمایش {count}",
   "common.more": "نتایج بیشتری فراتر از این صفحه وجود دارد.",
   "common.unknownTotal": "سرور تعداد نتایج را نشمرده است.",
 
@@ -267,11 +247,9 @@ export const fa: Messages = {
   "status.PARTIAL": "PARTIAL",
   "status.FAIL": "FAIL",
   "status.UNKNOWN": "UNKNOWN",
-  "status.readFrom": "خوانده‌شده از {path}",
   "status.note":
     "از validation.json و coverage.json عیناً نقل شده است؛ هرگز بازمحاسبه یا به PASS ارتقا داده نمی‌شود.",
 
-  "provenance.label": "خاستگاه",
   "provenance.source": "متکی بر منبع",
   "provenance.derived": "استنتاجی",
   "provenance.user": "نوشتهٔ کاربر",
@@ -322,13 +300,10 @@ export const fa: Messages = {
   "library.filter.kind": "گونه",
   "library.filter.sourceClass": "ردهٔ منبع",
   "library.filter.minConfidence": "کمینهٔ اطمینان",
-  "library.filter.scope": "دامنه",
-  "library.scope.all": "همهٔ منابع فهرست‌شده",
   "library.empty": "نمایه هیچ منبعی مطابق این صافی‌ها ندارد.",
   "library.unitsEmpty": "هیچ واحد دانشی در این دامنه با این صافی‌ها همخوان نیست.",
   "library.unitsScopeNote":
     "قرارداد منجمد، واحدهای دانش را به‌ازای هر منبع صافی می‌کند؛ پس هر منبع جداگانه پرس‌وجو شده و مجموع خودش را گزارش می‌کند.",
-  "library.openReader": "گشودن در خواننده",
 
   "search.label": "جست‌وجو",
   "search.placeholder": "جست‌وجو در واحدهای دانش و رونویس‌ها",
@@ -388,13 +363,9 @@ export const fa: Messages = {
   "reader.transcript.noCaptionAt":
     "هیچ زیرنویسی زمانِ پیوند داده‌شده را در بر نمی‌گیرد، پس چیزی برجسته نشده است.",
 
-  "reader.report.title": "گزارش",
   "reader.report.unavailable": "این منبع قلم گزارش ندارد.",
 
-  "reader.units.title": "واحدهای دانش",
-  "reader.units.kind": "گونه",
   "reader.units.confidence": "اطمینان",
-  "reader.units.evidence": "گزیدهٔ شاهد",
   "reader.units.locator": "مکان‌یاب",
   "reader.units.locatorNone": "برای این واحد مکان‌یابی ثبت نشده است.",
   "reader.units.derivedFrom": "برگرفته از",
@@ -403,17 +374,10 @@ export const fa: Messages = {
   "reader.units.canonicalPath": "فایل متعارف",
   "reader.units.empty": "هیچ واحد دانشی با این صافی‌ها همخوان نیست.",
 
-  "reader.relations.title": "روابط",
-  "reader.relations.from": "از",
-  "reader.relations.to": "به",
-  "reader.relations.relation": "رابطه",
   "reader.relations.confidence": "اطمینان",
   "reader.relations.vocabulary": "واژگان",
   "reader.relations.empty": "هیچ رابطه‌ای با این صافی همخوان نیست.",
 
-  "reader.artifacts.title": "اقلام",
-  "reader.artifacts.kind": "گونه",
-  "reader.artifacts.role": "نقش",
   "reader.artifacts.mediaType": "نوع رسانه",
   "reader.artifacts.path": "مسیر",
   "reader.artifacts.bytes": "بایت",

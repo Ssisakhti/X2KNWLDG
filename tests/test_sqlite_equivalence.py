@@ -57,14 +57,16 @@ import json
 import re
 import shutil
 import sqlite3
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Iterator, Mapping, Sequence
+from typing import Any
 
 import pytest
 
+from x2knwldg import query as query_module
 from x2knwldg.adapters import AdapterError
 from x2knwldg.index import (
     DATABASE_DIRNAME,
@@ -80,7 +82,6 @@ from x2knwldg.index import (
     refresh_index,
 )
 from x2knwldg.index.search import document_indexer, search_retrieval
-from x2knwldg import query as query_module
 from x2knwldg.library import rebuild_library
 from x2knwldg.repository import (
     MAX_LIMIT,
@@ -302,7 +303,9 @@ def crossed(dimensions: Mapping[str, Sequence[Any]]) -> tuple[dict[str, Any], ..
     """The whole cross product of *dimensions* — every filter against every other."""
     names = list(dimensions)
     return tuple(
-        dict(zip(names, values))
+        # `strict`: one value per named dimension, which `product` guarantees —
+        # asserted rather than assumed.
+        dict(zip(names, values, strict=True))
         for values in itertools.product(*(dimensions[name] for name in names))
     )
 

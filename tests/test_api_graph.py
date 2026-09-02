@@ -26,12 +26,12 @@ that only checks ``response.status_code == 200`` is not a contract test.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
-
-import pytest
+from typing import Any
 
 import api_harness
+import pytest
 from api_harness import (
     assert_contract,
     assert_error,

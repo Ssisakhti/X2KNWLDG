@@ -4,10 +4,12 @@ import html
 import json
 import math
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, TypeGuard
 
 from .constants import MAX_CAPTION_GAP_SEC
+from .io import is_finite_seconds
 
 
 class TranscriptError(ValueError):
@@ -18,6 +20,17 @@ _TIMESTAMP = re.compile(
     r"^(?:(?P<hours>\d+):)?(?P<minutes>\d{1,2}):(?P<seconds>\d{1,2})"
     r"(?P<fraction>[.,]\d{1,3})?$"
 )
+# The same grammar without the capture names, so the cue-timing detector below
+# cannot drift from the parser that then has to accept what it found. Their
+# agreement is asserted in tests/test_transcripts_hardening.py.
+_TIMESTAMP_TOKEN = r"(?:\d+:)?\d{1,2}:\d{1,2}(?:[.,]\d{1,3})?"
+# A cue timing line is one whose **left side** is a timestamp. Judging it by the
+# bare presence of ``-->`` read ``The mapping A --> B is important.`` as a
+# timing line and rejected the entire file with ``Invalid timestamp: 'The'``
+# (D-076). Only the left side is anchored: a line that really is a cue timing
+# line but has a damaged *end* must still reach ``parse_timestamp`` and be
+# reported, rather than silently becoming body text.
+_CUE_TIMING = re.compile(rf"^\s*{_TIMESTAMP_TOKEN}\s*-->")
 # A timed-text header is ``[HH:MM:SS - HH:MM:SS]``. The groups are restricted to
 # timestamp shapes so that ordinary bracketed caption text — ``[Applause - laughter]``
 # — is read as text instead of being mistaken for a header, which used to reject
@@ -52,12 +65,9 @@ _JSON3_FALLBACK_DURATION_SEC = 2.0
 _JSON3_MAX_INFERRED_DURATION_SEC = 10.0
 
 
-def _is_finite_number(value: Any) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+def _is_finite_number(value: Any) -> TypeGuard[float]:
+    """Module-local alias for ``io.is_finite_seconds``; see it for the rule."""
+    return is_finite_seconds(value)
 
 
 def _finite(value: Any, message: str) -> float:
@@ -181,9 +191,13 @@ def _cue_chunks(block: str) -> Iterable[tuple[str | None, str, list[str]]]:
 
     A block may hold several cues when the separator line between them carried
     stray whitespace, so every timing line in the block starts a cue.
+
+    A *timing line* is one matching ``_CUE_TIMING``, not merely one containing
+    ``-->``: a caption whose text says ``The mapping A --> B is important.``
+    used to be read as a cue timing and took the whole file down with it.
     """
     lines = block.split("\n")
-    timing_indexes = [index for index, line in enumerate(lines) if "-->" in line]
+    timing_indexes = [index for index, line in enumerate(lines) if _CUE_TIMING.match(line)]
     consumed_until = 0
     for position, timing_index in enumerate(timing_indexes):
         next_timing = (
@@ -204,7 +218,7 @@ def _cue_chunks(block: str) -> Iterable[tuple[str | None, str, list[str]]]:
         identifier = None
         if timing_index > 0 and timing_index - 1 >= consumed_until:
             candidate = lines[timing_index - 1].strip()
-            if candidate and "-->" not in candidate and not _HEADER_LINE.match(candidate):
+            if candidate and not _CUE_TIMING.match(candidate) and not _HEADER_LINE.match(candidate):
                 identifier = candidate
         consumed_until = timing_index + 1 + len(body)
         yield identifier, lines[timing_index], body
@@ -408,6 +422,37 @@ def parse_transcript_file(
     raise TranscriptError(f"Unsupported transcript format: {suffix or '(no extension)'}")
 
 
+def transcript_end_sec(captions: Any) -> float:
+    """Where the transcript ends: the largest finite ``end_sec`` among *captions*.
+
+    Defect D-077: this expression existed four times — in ``transcript_integrity``
+    below, ``validators.validate_provenance``, ``pipeline.validate_run`` and
+    ``artifacts.apply_extraction_bundle`` — at three different guard levels. The
+    strictest filtered non-finite values; the other three were
+    ``max((c.get("end_sec", 0) for c in captions), default=0)``, which raises
+    ``AttributeError`` on a caption that is a string and ``TypeError`` on one
+    whose ``end_sec`` is ``null``, because ``max`` then compares ``None`` with a
+    float. Both escaped as raw tracebacks from ``validate`` and ``finalize``.
+
+    Tolerant on purpose, and the only tolerant thing here: this answers "how
+    long is the medium" for callers that go on to *report* what is wrong with
+    the document. Whether a damaged caption is an error is
+    ``transcript_integrity``'s decision, and it is not made twice.
+    """
+    if not isinstance(captions, list):
+        return 0.0
+    return float(
+        max(
+            (
+                caption["end_sec"]
+                for caption in captions
+                if isinstance(caption, dict) and is_finite_seconds(caption.get("end_sec"))
+            ),
+            default=0.0,
+        )
+    )
+
+
 def transcript_integrity(
     captions: list[dict[str, Any]], max_gap_sec: float = MAX_CAPTION_GAP_SEC
 ) -> dict[str, Any]:
@@ -417,7 +462,27 @@ def transcript_integrity(
     previous_end = 0.0
     previous_text = ""
     duplicate_count = 0
-    for caption in captions:
+    if not isinstance(captions, list):
+        # D-077: `for caption in captions` iterated a dict's keys and raised on
+        # anything else. A transcript.json whose `captions` is not an array is
+        # a finding to report, not a traceback.
+        return {
+            "status": "FAIL",
+            "errors": [{"code": "captions_not_array"}],
+            "warnings": [],
+            "stats": {
+                "caption_count": 0,
+                "duration_sec": 0.0,
+                "character_count": 0,
+                "adjacent_duplicate_count": 0,
+            },
+        }
+    for index, caption in enumerate(captions):
+        if not isinstance(caption, dict):
+            # D-077: `caption.get(...)` on a string caption was an
+            # `AttributeError` out of the middle of `validate`.
+            errors.append({"code": "caption_not_object", "caption": index})
+            continue
         caption_id = caption.get("segment_id")
         start = caption.get("start_sec")
         end = caption.get("end_sec")
@@ -458,18 +523,10 @@ def transcript_integrity(
         "warnings": warnings,
         "stats": {
             "caption_count": len(captions),
-            "duration_sec": round(
-                max(
-                    (
-                        c["end_sec"]
-                        for c in captions
-                        if _is_finite_number(c.get("end_sec"))
-                    ),
-                    default=0,
-                ),
-                3,
+            "duration_sec": round(transcript_end_sec(captions), 3),
+            "character_count": sum(
+                len(str(c.get("text") or "")) for c in captions if isinstance(c, dict)
             ),
-            "character_count": sum(len(str(c.get("text") or "")) for c in captions),
             "adjacent_duplicate_count": duplicate_count,
         },
     }

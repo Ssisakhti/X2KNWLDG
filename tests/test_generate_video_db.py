@@ -1,6 +1,5 @@
 import json
-import pytest
-from pathlib import Path
+
 # These cover the unmaintained upstream scripts in legacy/upstream/, which
 # pytest reaches through the pythonpath entry in pyproject.toml (D-021).
 from generate_video_db import build_database

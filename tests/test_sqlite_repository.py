@@ -38,8 +38,9 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
 import pytest
 
@@ -67,6 +68,7 @@ from x2knwldg.repository import (
     identity,
     order_key,
 )
+
 # Not on the package surface: the prefix budget is an internal of the cursor
 # encoding, and this file asserts which branch of it a page boundary took.
 from x2knwldg.repository.base import CURSOR_PREFIX_LENGTH
@@ -192,7 +194,8 @@ def _sharp_records(records: IndexRecords) -> IndexRecords:
                 confidence=0.7,
             )
         )
-    for left, right in zip(long_ids, long_ids[1:]):
+    # Pairwise, so the shorter sequence is the intended stop.
+    for left, right in zip(long_ids, long_ids[1:], strict=False):
         relations.append(
             _relation(left, right, vocabulary="canonical", source_id=LONG_SOURCE)
         )

@@ -30,20 +30,25 @@ module came to have no tests at all.
 from __future__ import annotations
 
 import json
-import re
 import tempfile
+from collections.abc import Callable, Mapping
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
-from .pipeline import PipelineError, import_transcript, project_root, resolve_run_dir, validate_run
-from .io import write_json
+from .constants import MAX_PAGE_LIMIT
 from .coverage import caption_in_window
+from .io import _ABSOLUTE_PATH_ONLY, scrub_host_paths, scrub_host_paths_roots_only, write_json
+from .pipeline import PipelineError, import_transcript, project_root, resolve_run_dir, validate_run
 
 try:
     from mcp.server import MCPServer
 except ImportError:  # pragma: no cover - exercised only without optional dependency
-    MCPServer = None  # type: ignore[assignment]
+    # D-114: the `type: ignore[assignment]` that used to sit here was reported
+    # as unused — mypy already accepts this, because the module is missing and
+    # the import is untyped. A stale ignore is a claim about the checker that
+    # is no longer true.
+    MCPServer = None
 
 
 #: The one root-resolution rule (D-039): explicit, then ``X2KNWLDG_PROJECT_ROOT``,
@@ -68,9 +73,6 @@ ERROR_CODES = frozenset(
 #: Anything still shaped like an absolute path after the named roots are
 #: replaced. The lookbehind keeps it off the tail of a placeholder we just
 #: wrote, so ``<project>/output/x`` survives intact.
-_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w>])(?:/[A-Za-z0-9._\- ]+){2,}")
-
-
 class McpToolError(RuntimeError):
     """The only error type a tool lets out.
 
@@ -96,7 +98,16 @@ def _redact(text: str) -> str:
     absolute afterwards is a path we did not anticipate and is reduced to its
     last segment.
     """
-    replacements: list[tuple[str, str]] = []
+    replacements = _known_roots()
+    # D-085: the substitution and the catch-all live in `io.scrub_host_paths`,
+    # because the scanner needs the same rule for `/api/status` reasons and
+    # 503 bodies. What stays here is which roots this process knows to name.
+    return scrub_host_paths(text, replacements)
+
+
+def _known_roots() -> list[tuple[str, str]]:
+    """The roots this process can name, longest first. See :func:`_redact`."""
+    roots: list[tuple[str, str]] = []
     for label, candidate in (
         ("<project>", PROJECT_ROOT),
         ("<home>", Path.home()),
@@ -107,10 +118,43 @@ def _redact(text: str) -> str:
         except (OSError, RuntimeError):  # pragma: no cover - unreadable home
             continue
         if len(resolved) > 1:
-            replacements.append((resolved, label))
-    for needle, label in sorted(replacements, key=lambda pair: len(pair[0]), reverse=True):
-        text = text.replace(needle, label)
-    return _ABSOLUTE_PATH_RE.sub(lambda match: f"<path>/{match.group(0).rsplit('/', 1)[-1]}", text)
+            roots.append((resolved, label))
+    return roots
+
+
+def _redact_reply(value: Any) -> Any:
+    """Every string in a *successful* reply, with host paths taken out.
+
+    Defect D-091: :func:`_redact` was called exclusively inside
+    :func:`_boundary`'s ``except`` arms, so a successful return was passed
+    through verbatim — violating this module's own rule 2, "absolute paths
+    never appear in a successful reply either". Measured:
+    ``rebuild_cross_video_library`` returned ``skipped_runs[].reason`` and
+    ``path`` naming the operator's checkout, and ``finalize_video`` returned
+    ``report`` and ``graph`` as absolute paths. The producers are ``io``'s
+    ``JsonReadError`` reason and ``artifacts.finalize_run``'s return, and
+    neither is wrong to do that — the CLI prints them to a user standing on
+    that machine. It is *this* boundary that has the constraint, so this is
+    where it is met.
+
+    Two rules rather than one, because a reply carries extracted knowledge and
+    an error message does not. The named roots are substituted **everywhere**:
+    those strings are the operator's filesystem and can never be meaningful
+    content. The catch-all is applied only to a string that is *entirely* a
+    path, which is what a ``path``/``report``/``graph`` field is — so a unit
+    quoting ``/usr/local/bin/foo`` mid-sentence keeps its text, while a field
+    whose whole value is an unanticipated absolute path still does not escape.
+    """
+    if isinstance(value, str):
+        redacted = scrub_host_paths_roots_only(value, _known_roots())
+        if _ABSOLUTE_PATH_ONLY.fullmatch(redacted):
+            return f"<path>/{redacted.rsplit('/', 1)[-1]}"
+        return redacted
+    if isinstance(value, Mapping):
+        return {key: _redact_reply(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_reply(item) for item in value]
+    return value
 
 
 def _checked_project_root() -> Path:
@@ -215,7 +259,8 @@ def _boundary(function: _Tool) -> _Tool:
     @wraps(function)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
-            return function(*args, **kwargs)
+            # D-091: the reply is redacted too, not only the failures.
+            return _redact_reply(function(*args, **kwargs))
         except McpToolError:
             raise
         except PipelineError as exc:
@@ -369,6 +414,19 @@ def search_video_knowledge(
     """Search canonical knowledge first and raw captions second, preserving source links."""
     from .query import search_knowledge
 
+    # D-101: the same ceiling the HTTP surface applies. `search_knowledge`
+    # floor-checks and deliberately does not cap — right for the CLI, wrong for
+    # a tool an agent calls, where `limit=10**18` returned the whole corpus in
+    # one reply. Refused rather than clamped: a silently reduced page is a
+    # different answer to the one asked for (D-020).
+    if isinstance(limit, bool) or not isinstance(limit, int):
+        raise McpToolError(
+            "invalid_request", f"limit must be an integer, got {type(limit).__name__}"
+        )
+    if not 1 <= limit <= MAX_PAGE_LIMIT:
+        raise McpToolError(
+            "invalid_request", f"limit must be between 1 and {MAX_PAGE_LIMIT}, got {limit}"
+        )
     unreadable: list[dict[str, str]] = []
     results = search_knowledge(
         _output_root(),

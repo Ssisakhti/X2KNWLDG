@@ -122,6 +122,16 @@ const THREE = JSON.stringify({
   ],
 });
 
+// A transcript with a real gap: nothing claims 5s-10s, and a caption follows
+// it. That is what tells a gap apart from the end of the medium (D-093).
+const GAPPED = JSON.stringify({
+  schema_version: "1.0",
+  captions: [
+    { segment_id: "cap_000001", start_sec: 0, end_sec: 5, text: "before the gap" },
+    { segment_id: "cap_000002", start_sec: 10, end_sec: 15, text: "after the gap" },
+  ],
+});
+
 describe("the linked timestamp (D-069)", () => {
   it("marks the caption covering the linked offset", async () => {
     vi.stubGlobal("fetch", serve(THREE));
@@ -163,9 +173,33 @@ describe("the linked timestamp (D-069)", () => {
       />,
     );
     await waitFor(() => expect(screen.getByText("third caption")).not.toBeNull());
-    // 9999 is past the last caption's end, so containment fails -- but it is
-    // after that caption's start, so the "was playing" fallback claims it.
-    expect(document.querySelectorAll('[data-linked="true"]')).toHaveLength(1);
+    // D-093: this used to assert `toHaveLength(1)` — the "was playing"
+    // fallback claimed an offset past the last caption's *end* — while this
+    // test's own name and the comment above it both described the opposite.
+    // The fallback exists for a gap the transcript spans; past the end is
+    // outside the medium, and marking the final caption for it is a rendered
+    // position no data supports.
+    expect(document.querySelectorAll('[data-linked="true"]')).toHaveLength(0);
+    expect(screen.getByText(/no caption/i)).not.toBeNull();
+  });
+
+  it("still marks the caption that was playing across a gap", async () => {
+    // The behaviour D-093 kept: an offset the transcript spans but no caption
+    // claims lands on the caption that was playing, because a later caption
+    // proves the offset is inside the medium.
+    vi.stubGlobal("fetch", serve(GAPPED));
+    renderApp(
+      <TranscriptPanel
+        artifact={ARTIFACT}
+        sourceUrl={null}
+        onSeek={() => {}}
+        highlightSec={7}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("before the gap")).not.toBeNull());
+    const marked = document.querySelectorAll('[data-linked="true"]');
+    expect(marked).toHaveLength(1);
+    expect(marked[0]?.textContent).toContain("before the gap");
   });
 
   it("marks nothing for an offset before the transcript starts", async () => {

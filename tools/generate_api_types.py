@@ -58,8 +58,9 @@ import argparse
 import json
 import sys
 import textwrap
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 V1_DIR = PROJECT_ROOT / "schemas" / "v1"

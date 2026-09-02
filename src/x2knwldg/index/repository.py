@@ -74,13 +74,14 @@ or ``sqlite3.version`` (removed in 3.14).
 
 from __future__ import annotations
 
-import json
 import functools
+import json
 import sqlite3
 import threading
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
+from typing import Any
 
 from .. import ids
 from ..adapters import ADAPTERS, LIBRARY_DIR_NAME
@@ -195,7 +196,7 @@ def _serialized(method: Callable[..., Any]) -> Callable[..., Any]:
     """
 
     @functools.wraps(method)
-    def guarded(self: "SqliteRepository", *args: Any, **kwargs: Any) -> Any:
+    def guarded(self: SqliteRepository, *args: Any, **kwargs: Any) -> Any:
         with self._lock:
             return method(self, *args, **kwargs)
 
@@ -241,7 +242,7 @@ class SqliteRepository:
         project_root: Path,
         *,
         search: SearchRetrieval | None = None,
-    ) -> "SqliteRepository":
+    ) -> SqliteRepository:
         """Open the index of *project_root*, or report that there is none.
 
         Nothing is created. ``schema.connect(create=False)`` is what makes "no
@@ -356,7 +357,7 @@ class SqliteRepository:
         **empty** for a database that cannot be read, because the payload renders
         an absent count as ``0`` and an unknown count is not zero.
         """
-        state, built_at, _ = self._index_state()
+        state, built_at, message = self._index_state()
         version: int | None = None
         counts: dict[str, int] = {}
         tally: dict[str, int] = {}
@@ -372,6 +373,10 @@ class SqliteRepository:
         return IndexStatus(
             state=state,
             built_at=built_at,
+            # D-086: on `ready` this says the last scan failed and was rolled
+            # back. Reported, because the alternative was refusing every
+            # endpoint to make the same point.
+            message=message,
             index_version=version,
             counts=counts,
             sources_by_status=tally,
@@ -407,11 +412,11 @@ class SqliteRepository:
             "SELECT canonical_dir, source_id, skipped_reason FROM runs "
             "ORDER BY canonical_dir"
         ).fetchall()
-        runs = [
-            row
-            for row in rows
-            if PurePosixPath(row["canonical_dir"]).name != LIBRARY_DIR_NAME
-        ]
+
+        def _is_library(row: sqlite3.Row) -> bool:
+            return PurePosixPath(row["canonical_dir"]).name == LIBRARY_DIR_NAME
+
+        runs = [row for row in rows if not _is_library(row)]
         skipped = [
             {
                 "relative_path": row["canonical_dir"],
@@ -423,10 +428,19 @@ class SqliteRepository:
             for row in runs
             if row["source_id"] is None
         ]
+        # D-087: the fragment's own reason, which used to be filtered out with
+        # the row and reported nowhere. Its `source_id` is always NULL — it is
+        # not an ingested source (D-016) — so a reason, not a missing id, is
+        # what says it failed.
+        library_reason = next(
+            (row["skipped_reason"] for row in rows if _is_library(row) and row["skipped_reason"]),
+            None,
+        )
         return {
             "discovered": len(runs),
             "indexed": len(runs) - len(skipped),
             "skipped": skipped,
+            "library_skipped_reason": library_reason,
         }
 
     def _counts(self) -> dict[str, int]:

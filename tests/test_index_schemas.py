@@ -29,6 +29,7 @@ tests would skip and the suite would be green having proved nothing.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -599,7 +600,17 @@ def test_a_scaffolded_run_produces_a_valid_source_record(
     records = adapt_run(run_dir, tmp_path).by_model()
     source = records["source"][0]
     assert source["status"]["audit_attempts"] == 0, "the scaffolded state changed"
-    assert source["status"]["overall"] == "UNKNOWN", "an unvalidated run is not PASS"
+    # D-089: this asserted `UNKNOWN`, and the reason it could was a defect —
+    # `import_transcript` wrote a `validation.json` with no top-level `status`,
+    # so `read_status` had nothing to read and a run the pipeline had just
+    # validated described itself as unchecked. It now states the verdict its
+    # own sections support: every validator passes over an empty unit set and
+    # `coverage.json` says `PARTIAL` about itself, so the run is an honest
+    # `PARTIAL`. The guarantee this test exists for is unchanged and is now
+    # asserted directly: a scaffolded run is never a `PASS`.
+    assert source["status"]["overall"] == "PARTIAL"
+    assert source["status"]["overall"] != "PASS", "an unaudited run is not a pass"
+    assert source["status"]["coverage"] == "PARTIAL"
     for model, model_records in records.items():
         for record in model_records:
             errors = _check(validators[model], record)
@@ -632,7 +643,17 @@ def test_the_bundle_window_statuses_are_the_shared_vocabulary() -> None:
 
 
 def test_a_fresh_run_writes_windows_the_bundle_schema_accepts() -> None:
-    """The check the missing enum value would have failed."""
+    """The check the missing enum value would have failed.
+
+    D-081: this test carried that name while asserting only that the statuses
+    written are in ``COVERAGE_STATUSES`` — it never ran ``jsonschema`` against
+    the document, so it could not see that the schema bounded
+    ``audit_attempts`` at ``minimum: 1`` while ``create_pending_coverage``
+    writes ``0`` into every fresh run. Three artifacts blessed ``0`` as the
+    honest never-audited state — ``validate_coverage``, WORKFLOW.md §4.4 and
+    ``prompts/05`` — and the schema was the outlier. It now validates the real
+    document, which is what the name promised.
+    """
     from x2knwldg.constants import COVERAGE_STATUSES
     from x2knwldg.coverage import create_pending_coverage
 
@@ -643,3 +664,219 @@ def test_a_fresh_run_writes_windows_the_bundle_schema_accepts() -> None:
     written = {window["status"] for window in coverage["windows"]}
     assert written == {"pending"}
     assert written <= COVERAGE_STATUSES
+
+    bundle_schema = json.loads(
+        (PROJECT_ROOT / "schemas" / "extraction_bundle.schema.json").read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(bundle_schema)
+    bundle = {"knowledge_units": [], "relationships": [], "coverage": coverage}
+    errors = sorted(
+        Draft202012Validator(bundle_schema).iter_errors(bundle), key=lambda e: e.json_path
+    )
+    assert not errors, [
+        f"{error.json_path}: {error.message}" for error in errors
+    ]
+
+
+def test_the_schemas_audit_attempt_cap_is_the_constant() -> None:
+    """D-081: the bound is stated twice, so the two must be asserted equal."""
+    from x2knwldg.constants import MAX_AUDIT_ATTEMPTS
+
+    bundle_schema = json.loads(
+        (PROJECT_ROOT / "schemas" / "extraction_bundle.schema.json").read_text(encoding="utf-8")
+    )
+    attempts = bundle_schema["properties"]["coverage"]["properties"]["audit_attempts"]
+    assert attempts["maximum"] == MAX_AUDIT_ATTEMPTS
+    # Zero is the honest never-audited state; `validate_coverage` refuses it
+    # only alongside a `PASS` claim, and the schema must not refuse it outright.
+    assert attempts["minimum"] == 0
+
+
+def test_every_prompt_returns_a_key_the_bundle_schema_accepts() -> None:
+    """D-073: the prompts and the schema named different keys, and code hid it.
+
+    Prompts 01, 02 and 04 all said ``Return JSON only: {"units": [...]}`` while
+    the bundle schema requires ``knowledge_units`` and sets
+    ``additionalProperties: false`` — so the schema rejected the literal output
+    of the prompts WORKFLOW.md §5 sends the agent to. Nothing broke only
+    because ``artifacts.apply_extraction_bundle`` silently accepted both
+    spellings, which is exactly why it went unnoticed.
+    """
+    bundle_schema = json.loads(
+        (PROJECT_ROOT / "schemas" / "extraction_bundle.schema.json").read_text(encoding="utf-8")
+    )
+    accepted = set(bundle_schema["properties"])
+    assert bundle_schema["additionalProperties"] is False, (
+        "this test only means something while the schema forbids other keys"
+    )
+
+    prompts = sorted((PROJECT_ROOT / "prompts").glob("*.md"))
+    assert len(prompts) == 5, [path.name for path in prompts]
+
+    declared: dict[str, set[str]] = {}
+    for path in prompts:
+        text = path.read_text(encoding="utf-8")
+        keys: set[str] = set()
+        # The contract is stated two ways — inline as `{ "key": [...] }` and as
+        # a fenced JSON block — so read the first object key after each marker
+        # rather than matching one layout.
+        for marker in re.finditer(r"Return JSON only:", text):
+            found = re.search(r'\{\s*"([a-z_]+)"', text[marker.end() : marker.end() + 300])
+            if found is not None:
+                keys.add(found.group(1))
+        if keys:
+            declared[path.name] = keys
+
+    # `prompts/05` states its output in prose — "return a complete coverage
+    # object" — rather than with a JSON contract, so it has no key to compare.
+    assert sorted(declared) == [
+        "01_segment_extraction.md",
+        "02_normalize_deduplicate.md",
+        "03_relationships.md",
+        "04_derived_synthesis.md",
+    ], sorted(declared)
+
+    wrong = {
+        name: sorted(keys - accepted) for name, keys in declared.items() if keys - accepted
+    }
+    assert not wrong, (
+        "these prompts tell the agent to return a top-level key the bundle "
+        f"schema rejects: {wrong} (accepted: {sorted(accepted)})"
+    )
+    # And the mapping is complete in the other direction: the passes between
+    # them must name the two array keys the bundle is assembled from, or
+    # WORKFLOW.md §5 sends the agent to a schema nothing produces.
+    named = set().union(*declared.values())
+    assert {"knowledge_units", "relationships"} <= named, sorted(named)
+
+
+def test_the_omission_item_schema_states_the_keys_validators_read() -> None:
+    """D-092: the schema typed an omission as a bare object with no properties.
+
+    ``validate_coverage`` reads ``omission["type"]`` and ``omission["note"]``,
+    and those key names appeared only in ``validators.py`` and an archival spec
+    the workflow never links — so a model emitting ``{"reason": "sponsor"}``
+    passed the schema and was then rejected by ``apply-bundle`` as
+    ``invalid_omission_reason`` naming ``null``.
+    """
+    from x2knwldg.constants import OMISSION_REASONS
+
+    bundle_schema = json.loads(
+        (PROJECT_ROOT / "schemas" / "extraction_bundle.schema.json").read_text(encoding="utf-8")
+    )
+    window = bundle_schema["properties"]["coverage"]["properties"]["windows"]["items"]
+    omission = window["properties"]["omitted_items"]["items"]
+    assert omission["required"] == ["type"]
+    assert set(omission["properties"]["type"]["enum"]) == set(OMISSION_REASONS)
+    # `other_explained` is the one label `validate_coverage` also requires a
+    # note for, and the schema now says so rather than leaving it to be found.
+    assert omission["then"]["required"] == ["type", "note"]
+
+
+def test_the_omission_schema_agrees_with_the_validator_case_by_case() -> None:
+    """Both gates, over the same entries. Neither may accept what the other refuses."""
+    from x2knwldg.validators import validate_coverage
+
+    bundle_schema = json.loads(
+        (PROJECT_ROOT / "schemas" / "extraction_bundle.schema.json").read_text(encoding="utf-8")
+    )
+    validator = Draft202012Validator(bundle_schema)
+
+    def coverage(omitted: list[dict[str, object]]) -> dict[str, object]:
+        return {
+            "status": "PARTIAL",
+            "audit_attempts": 1,
+            "windows": [
+                {
+                    "window_id": "CW-0001",
+                    "start_sec": 0.0,
+                    "end_sec": 10.0,
+                    "status": "covered",
+                    "knowledge_units": ["KU-000001"],
+                    "omitted_items": omitted,
+                    "unresolved_items": [],
+                }
+            ],
+        }
+
+    cases: list[tuple[list[dict[str, object]], bool]] = [
+        ([], True),
+        ([{"type": "sponsor"}], True),
+        ([{"type": "sponsor", "note": "a sponsor read"}], True),
+        ([{"type": "other_explained", "note": "why"}], True),
+        # The audit's case: the schema used to accept this and apply-bundle did not.
+        ([{"reason": "sponsor"}], False),
+        ([{"type": "boring"}], False),
+        ([{"type": "other_explained"}], False),
+        ([{"type": "other_explained", "note": "   "}], False),
+    ]
+    for omitted, expected in cases:
+        document = coverage(omitted)
+        schema_ok = validator.is_valid({
+            "knowledge_units": [],
+            "relationships": [],
+            "coverage": document,
+        })
+        validator_ok = validate_coverage(document, 10.0)["status"] == "PASS"
+        assert schema_ok == validator_ok == expected, (
+            omitted,
+            {"schema": schema_ok, "validators": validator_ok, "expected": expected},
+        )
+
+
+def test_a_committed_fixture_carries_a_non_empty_omitted_items() -> None:
+    """D-092: all three carried `omitted_items: []`, so CI never reached this path.
+
+    Only the gitignored real sample had entries, which is exactly how the key
+    mismatch above stayed invisible.
+    """
+    from x2knwldg.constants import OMISSION_REASONS
+
+    entries = [
+        omission
+        for path in sorted((PROJECT_ROOT / "tests" / "fixtures" / "runs").glob("*/coverage.json"))
+        for window in json.loads(path.read_text(encoding="utf-8"))["windows"]
+        for omission in window.get("omitted_items") or []
+    ]
+    assert entries, "no committed fixture exercises omitted_items"
+    assert {entry["type"] for entry in entries} <= set(OMISSION_REASONS)
+    assert any(entry["type"] == "other_explained" and entry.get("note") for entry in entries), (
+        "no fixture exercises the one label that also requires a note"
+    )
+
+
+def test_every_prompt_that_emits_units_names_the_fields_the_schema_requires() -> None:
+    """D-110: `prompts/04` stated three obligations and omitted four.
+
+    It named `source_class`, `derived_from` and `derivation_note` — the three a
+    derived unit owes beyond an ordinary one — and left out `id`, `kind`,
+    `content` and `confidence`, which the bundle schema *requires* of every
+    unit. Prompt 01 spells out a full template; prompt 04 did not, so a model
+    reading only pass 4 emitted units `apply-bundle` rejects.
+    """
+    bundle_schema = json.loads(
+        (PROJECT_ROOT / "schemas" / "extraction_bundle.schema.json").read_text(encoding="utf-8")
+    )
+    required = set(bundle_schema["$defs"]["knowledgeUnit"]["required"])
+    assert required, "the schema requires nothing of a unit; this test asserts nothing"
+
+    emitting = ("01_segment_extraction.md", "04_derived_synthesis.md")
+    for name in emitting:
+        text = (PROJECT_ROOT / "prompts" / name).read_text(encoding="utf-8")
+        missing = sorted(field for field in required if f'"{field}"' not in text)
+        assert not missing, (
+            f"{name} tells the agent to return units without naming "
+            f"{missing}, which the bundle schema requires"
+        )
+
+
+def test_the_derived_prompt_does_not_ask_for_a_source_block() -> None:
+    """A derived unit cites units, not the transcript.
+
+    `validate_knowledge_units` refuses a derived unit that carries a source
+    kind (`kind_source_class_mismatch`), and a `source` block on a synthesis is
+    how it comes to look like a quotation.
+    """
+    text = (PROJECT_ROOT / "prompts" / "04_derived_synthesis.md").read_text(encoding="utf-8")
+    assert "evidence_excerpt" not in text
+    assert "no** `source` block" in text or "no `source` block" in text

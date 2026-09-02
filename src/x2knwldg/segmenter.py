@@ -162,15 +162,36 @@ def create_segments(
 
         selected = captions[start_index : end_index + 1]
         segment_end = selected[-1]["end_sec"]
-        segments.append(
-            {
-                "segment_id": f"seg_{len(segments) + 1:04d}",
-                "start_sec": selected[0]["start_sec"],
-                "end_sec": segment_end,
-                "caption_ids": [caption["segment_id"] for caption in selected],
-                "text": " ".join(caption["text"] for caption in selected),
-            }
+        caption_ids = [caption["segment_id"] for caption in selected]
+        # D-098: a long non-speech cue could make the walk emit a segment whose
+        # captions are a *subset* of the previous segment's and whose text is
+        # empty — an input segment with nothing in it to extract from, offered
+        # to passes 1 and 4 as though it held content. The specific shape is a
+        # `[music]` cue long enough to reach `max_sec` on its own: the previous
+        # segment already ended on it, and `start_index` advances by one, so
+        # the next span is the tail of the one just emitted.
+        #
+        # Skipped rather than merged, and only when it is a **subset**: those
+        # captions are already carried by the previous segment, so nothing is
+        # lost — which is what keeps the no-caption-loss invariant true. A
+        # text-empty segment that covers captions no other segment does is
+        # still emitted, because dropping it *would* lose them.
+        previous_ids = set(segments[-1]["caption_ids"]) if segments else set()
+        redundant = (
+            bool(segments)
+            and set(caption_ids) <= previous_ids
+            and not " ".join(caption["text"] for caption in selected).strip()
         )
+        if not redundant:
+            segments.append(
+                {
+                    "segment_id": f"seg_{len(segments) + 1:04d}",
+                    "start_sec": selected[0]["start_sec"],
+                    "end_sec": segment_end,
+                    "caption_ids": caption_ids,
+                    "text": " ".join(caption["text"] for caption in selected),
+                }
+            )
 
         if end_index >= len(captions) - 1:
             break

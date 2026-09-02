@@ -18,6 +18,7 @@
  */
 
 import type { ErrorCode, ErrorResponse } from "./contract";
+import { keysOf } from "./vocabulary";
 
 export type FailureCode = ErrorCode | "transport";
 
@@ -45,14 +46,20 @@ export function isIndexUnavailable(error: unknown): boolean {
   return error instanceof ApiFailure && error.code === "index_unavailable";
 }
 
-const CODES: readonly ErrorCode[] = [
-  "invalid_id",
-  "invalid_request",
-  "not_found",
-  "unavailable",
-  "index_unavailable",
-  "internal",
-];
+// D-107: `readonly ErrorCode[]` accepts a *subset*, so adding a seventh
+// `ErrorCode` compiled silently and `failureFromBody` reclassified it as
+// `internal` — discarding the server's own code and message on the one path
+// whose job is to carry them. `keysOf` takes a `Record<T, true>`, so a missing
+// member is a compile error; `vocabulary.ts` documents exactly this and has
+// used it since D-058. It is the same helper, imported, not a second copy.
+const CODES = keysOf<ErrorCode>({
+  invalid_id: true,
+  invalid_request: true,
+  not_found: true,
+  unavailable: true,
+  index_unavailable: true,
+  internal: true,
+});
 
 function isErrorCode(value: unknown): value is ErrorCode {
   return typeof value === "string" && (CODES as readonly string[]).includes(value);

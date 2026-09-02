@@ -47,7 +47,7 @@ import { MediaPanel, type SeekRequest } from "../components/MediaPanel";
 import { RelationRow } from "../components/RelationRow";
 import { RunStatusPanel } from "../components/Provenance";
 import { TranscriptPanel } from "../components/TranscriptPanel";
-import { DefinitionList, Missing, Mono } from "../components/primitives";
+import { DefinitionList, ExternalLink, Missing, Mono } from "../components/primitives";
 import { useI18n } from "../i18n";
 import type { MessageKey } from "../i18n";
 import { formatBytes, formatSeconds, formatTimestamp } from "../lib/format";
@@ -85,9 +85,9 @@ function Overview({ source }: { source: Source }) {
           {
             label: t("reader.meta.url"),
             value: source.url ? (
-              <a href={source.url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink href={source.url}>
                 {source.url}
-              </a>
+              </ExternalLink>
             ) : null,
           },
           {
@@ -350,9 +350,9 @@ function ArtifactsPanel({ artifacts }: { artifacts: readonly Artifact[] }) {
               )
             )}
             {artifact.url != null && (
-              <a href={artifact.url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink href={artifact.url}>
                 {artifact.url}
-              </a>
+              </ExternalLink>
             )}
           </div>
         </article>
@@ -365,10 +365,19 @@ export function ReaderView() {
   const { t } = useI18n();
   const { sourceId = "" } = useParams();
   const [search, setSearch] = useSearchParams();
-  const [seek, setSeek] = useState<SeekRequest | null>(null);
-
   const tab = parseTab(search.get("tab")) ?? DEFAULT_TAB;
   const linkedSeconds = parseSeconds(search.get("t"));
+
+  // D-095: D-069 carried the offset into the Reader and then dropped it here.
+  // `linkedSeconds` went only to `TranscriptPanel`'s `highlightSec`, so
+  // `?tab=transcript&t=300` highlighted the right caption and then "Load
+  // player" started the embed at 0 -- `embedUrl` has supported `start` all
+  // along. Seeding the seek request with the linked offset is the whole fix:
+  // `MediaPanel` already turns a request made before the player exists into
+  // the frame's `start`, and one made after it into a seek.
+  const [seek, setSeek] = useState<SeekRequest | null>(
+    linkedSeconds === null ? null : { seconds: linkedSeconds, nonce: 0 },
+  );
 
   // `replace` rather than `push`: the Reader is one page, and six tabs would
   // otherwise put six entries between the reader and the library they came

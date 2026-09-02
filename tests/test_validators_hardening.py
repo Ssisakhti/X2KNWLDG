@@ -26,17 +26,23 @@ Three bypasses are covered:
 
 from __future__ import annotations
 
+import json
+import shutil
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from x2knwldg.artifacts import apply_extraction_bundle
 from x2knwldg.constants import DERIVED_KINDS, SOURCE_KINDS
+from x2knwldg.pipeline import PipelineError
 from x2knwldg.validators import (
     MAX_AUDIT_ATTEMPTS,
     MIN_EVIDENCE_EXCERPT_CHARS,
     validate_coverage,
     validate_knowledge_units,
     validate_provenance,
+    validate_relationships,
 )
 
 VIDEO_ID = "vid12345678"
@@ -415,3 +421,506 @@ def test_zero_attempts_is_honest_for_a_pending_document_but_never_a_pass() -> No
     claimed = validate_coverage(_coverage(audit_attempts=0, status="PASS"), TRANSCRIPT_END)
     assert claimed["status"] == "FAIL"
     assert "unaudited_coverage_pass" in _codes(claimed)
+
+
+# ---------------------------------------------------------------------------
+# 4. D-070 — a source timestamp that is not a number
+# ---------------------------------------------------------------------------
+#
+# ``validate_knowledge_units`` tested the five provenance fields for
+# *presence* only — ``source.get(field) in (None, "")`` — so the string
+# ``"99999"`` counted as provided. ``validate_provenance`` then guarded both of
+# its range checks behind ``isinstance(start, (int, float))`` and **skipped**
+# them when the guard failed rather than erroring. A unit citing a moment the
+# video does not contain therefore passed both validators, cleared
+# ``apply-bundle``, and rendered in ``report.md`` as ``[27:46:39-27:46:39]``
+# with a working deep link.
+#
+# The asymmetry was the tell: the *float* ``99999.0`` failed, the *string*
+# ``"99999"`` passed, and ``validate_coverage`` already emitted
+# ``invalid_window_timing`` for exactly this shape one function away. The rule
+# now lives in ``_is_seconds`` and both validators consult it.
+
+# Each of these was accepted as a source timestamp before the fix.
+UNUSABLE_TIMESTAMPS: list[Any] = [
+    "99999",  # the audit's case: out of range, and never compared
+    "0.0",  # float-shaped, and the shape that later crashes format_timestamp
+    "",  # empty string — caught as missing, never as the wrong type
+    "twelve",
+    True,  # bool is an int in Python, and True is not a time
+    False,
+    float("nan"),  # every comparison against NaN is False
+    float("inf"),
+    float("-inf"),
+    [0.0],
+    {"start": 0.0},
+]
+
+
+@pytest.mark.parametrize("timestamp", UNUSABLE_TIMESTAMPS, ids=repr)
+def test_an_unusable_start_time_fails_the_provenance_validator(timestamp: Any) -> None:
+    document = _units(_source_unit(source=_source(start_sec=timestamp)))
+    result = validate_provenance(document, TRANSCRIPT, SEGMENTS, VIDEO_ID)
+    assert result["status"] == "FAIL", f"{timestamp!r} was accepted as a start time"
+    assert "invalid_source_timing" in _codes(result)
+
+
+@pytest.mark.parametrize("timestamp", UNUSABLE_TIMESTAMPS, ids=repr)
+def test_an_unusable_end_time_fails_the_provenance_validator(timestamp: Any) -> None:
+    document = _units(_source_unit(source=_source(end_sec=timestamp)))
+    result = validate_provenance(document, TRANSCRIPT, SEGMENTS, VIDEO_ID)
+    assert result["status"] == "FAIL", f"{timestamp!r} was accepted as an end time"
+    assert "invalid_source_timing" in _codes(result)
+
+
+@pytest.mark.parametrize("timestamp", UNUSABLE_TIMESTAMPS, ids=repr)
+def test_an_unusable_timestamp_fails_the_unit_validator_too(timestamp: Any) -> None:
+    """The unit validator is the one ``import_transcript`` runs on its own.
+
+    ``""`` is reported as ``incomplete_provenance`` rather than as bad timing —
+    either code is a refusal, which is all this asserts.
+    """
+    document = _units(_source_unit(source=_source(start_sec=timestamp)))
+    result = validate_knowledge_units(document)
+    assert result["status"] == "FAIL", f"{timestamp!r} was accepted as a start time"
+    assert _codes(result) & {"invalid_source_timing", "incomplete_provenance"}
+
+
+def test_the_string_and_the_float_spelling_of_a_bad_time_agree() -> None:
+    """The asymmetry that hid the defect: both spellings must now be refused."""
+    as_float = validate_provenance(
+        _units(_source_unit(source=_source(start_sec=99999.0, end_sec=99999.0))),
+        TRANSCRIPT,
+        SEGMENTS,
+        VIDEO_ID,
+    )
+    as_string = validate_provenance(
+        _units(_source_unit(source=_source(start_sec="99999", end_sec="99999"))),
+        TRANSCRIPT,
+        SEGMENTS,
+        VIDEO_ID,
+    )
+    assert as_float["status"] == as_string["status"] == "FAIL"
+    # The float can be compared, so it is refused for being out of range; the
+    # string cannot be compared at all, so it is refused for being unusable.
+    assert "source_time_outside_transcript" in _codes(as_float)
+    assert "invalid_source_timing" in _codes(as_string)
+
+
+def test_a_time_outside_the_transcript_is_still_named_as_such() -> None:
+    """The new guard must not swallow the checks it stopped skipping."""
+    result = validate_provenance(
+        _units(_source_unit(source=_source(start_sec=0.0, end_sec=TRANSCRIPT_END + 100))),
+        TRANSCRIPT,
+        SEGMENTS,
+        VIDEO_ID,
+    )
+    assert result["status"] == "FAIL"
+    assert "source_time_outside_transcript" in _codes(result)
+
+
+@pytest.mark.parametrize("timestamp", [0, 0.0, 5, 5.0, TRANSCRIPT_END], ids=repr)
+def test_an_honest_numeric_timestamp_is_still_accepted(timestamp: Any) -> None:
+    """``int`` and ``float``, including ``0``, remain usable times."""
+    document = _units(_source_unit(source=_source(start_sec=0, end_sec=timestamp)))
+    assert validate_knowledge_units(document)["status"] == "PASS"
+    assert validate_provenance(document, TRANSCRIPT, SEGMENTS, VIDEO_ID)["status"] == "PASS"
+
+
+def test_the_timestamp_rule_matches_the_one_the_id_builder_enforces() -> None:
+    """One rule, three modules: ``ids`` raises where ``validators`` collects.
+
+    Compared over non-negative values only, because ``ids._require_seconds``
+    additionally refuses a negative time while ``_is_seconds`` leaves that to
+    the range check that follows it.
+    """
+    from x2knwldg.ids import IdError, _require_seconds
+    from x2knwldg.validators import _is_seconds
+
+    non_negative = [
+        value
+        for value in [*UNUSABLE_TIMESTAMPS, 0, 0.0, 1, 1.5, 600.0]
+        if not (isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0)
+    ]
+    for value in non_negative:
+        try:
+            _require_seconds(value, "start_sec")
+        except IdError:
+            id_builder_refuses = True
+        else:
+            id_builder_refuses = False
+        assert id_builder_refuses == (not _is_seconds(value)), (
+            f"{value!r}: ids refuses={id_builder_refuses}, "
+            f"validators accepts={_is_seconds(value)}"
+        )
+
+
+def test_a_string_timestamp_cannot_clear_apply_bundle(tmp_path: Path) -> None:
+    """The end of the path the defect opened.
+
+    ``apply_extraction_bundle`` raises when any validator reports an error, so
+    proving the validators refuse also proves ``apply-bundle`` refuses — and it
+    is ``apply-bundle`` exiting ``0`` that let a fabricated citation reach
+    ``report.md``. Built from the committed ``pass-run`` fixture so the *only*
+    difference from an honest run is the one timestamp.
+    """
+    fixture = Path(__file__).resolve().parent / "fixtures" / "runs" / "pass-run"
+    run_dir = tmp_path / "run"
+    shutil.copytree(fixture, run_dir)
+
+    units = json.loads((fixture / "knowledge_units.json").read_text())["units"]
+    bundle = {
+        "schema_version": "1.0",
+        "knowledge_units": units,
+        "relationships": json.loads((fixture / "relationships.json").read_text())[
+            "relationships"
+        ],
+        "coverage": json.loads((fixture / "coverage.json").read_text()),
+    }
+
+    honest = tmp_path / "honest.json"
+    honest.write_text(json.dumps(bundle))
+    apply_extraction_bundle(run_dir, honest)  # the fixture is a real PASS run
+
+    # One field, one type. Everything else is byte-identical to the above.
+    units[0]["source"]["start_sec"] = str(units[0]["source"]["start_sec"])
+    fabricated = tmp_path / "fabricated.json"
+    fabricated.write_text(json.dumps(bundle))
+    with pytest.raises(PipelineError) as refusal:
+        apply_extraction_bundle(run_dir, fabricated)
+    assert "invalid_source_timing" in str(refusal.value)
+
+
+def test_a_unit_wrong_in_two_ways_is_reported_as_wrong_in_two_ways() -> None:
+    """The timing refusal must not shadow the excerpt refusal on the same unit."""
+    result = validate_provenance(
+        _units(_source_unit(source=_source(start_sec="99999", evidence_excerpt="<b>"))),
+        TRANSCRIPT,
+        SEGMENTS,
+        VIDEO_ID,
+    )
+    assert result["status"] == "FAIL"
+    assert {"invalid_source_timing", "empty_evidence_excerpt"} <= _codes(result)
+
+
+# ---------------------------------------------------------------------------
+# 5. D-072 — coverage windows that fail open
+# ---------------------------------------------------------------------------
+#
+# ``isinstance(True, (int, float))`` is ``True`` in Python, so a window bounded
+# by booleans validated as the range ``[0, 1]``; a ``NaN`` bound slipped past
+# ``end < start`` because every comparison against ``NaN`` is ``False``. And
+# three window fields were read as collections — ``len(unresolved_items)``,
+# iteration over ``omitted_items``, a truthiness test on ``knowledge_units`` —
+# with no type check, so ``unresolved_items: 5`` crashed ``len()`` and
+# ``knowledge_units: "u1"`` satisfied ``covered_window_without_accounting``
+# because a non-empty string is truthy.
+
+
+def _window(**overrides: Any) -> dict[str, Any]:
+    window = {
+        "window_id": "CW-0001",
+        "start_sec": 0.0,
+        "end_sec": TRANSCRIPT_END,
+        "status": "covered",
+        "knowledge_units": ["KU-000001"],
+        "omitted_items": [],
+        "unresolved_items": [],
+    }
+    window.update(overrides)
+    return window
+
+
+@pytest.mark.parametrize(
+    "bound", ["0", True, False, float("nan"), float("inf"), None, [0.0], {}], ids=repr
+)
+def test_a_window_bound_that_is_not_a_number_fails(bound: Any) -> None:
+    result = validate_coverage(_coverage(windows=[_window(start_sec=bound)]), TRANSCRIPT_END)
+    assert result["status"] == "FAIL", f"{bound!r} was accepted as a window bound"
+    assert "invalid_window_timing" in _codes(result)
+
+
+def test_a_boolean_window_is_not_the_range_zero_to_one() -> None:
+    """The audit's case, verbatim: ``start_sec: False``, ``end_sec: True``."""
+    document = {
+        "status": "PASS",
+        "audit_attempts": 1,
+        "windows": [_window(start_sec=False, end_sec=True)],
+    }
+    result = validate_coverage(document, 1.0)
+    assert result["status"] == "FAIL"
+    assert "invalid_window_timing" in _codes(result)
+
+
+@pytest.mark.parametrize(
+    "field", ["knowledge_units", "omitted_items", "unresolved_items"]
+)
+@pytest.mark.parametrize("value", ["u1", 5, {"id": "u1"}, None], ids=repr)
+def test_a_window_collection_that_is_not_an_array_fails(field: str, value: Any) -> None:
+    """``unresolved_items: 5`` used to crash ``len()`` from inside the validator."""
+    result = validate_coverage(_coverage(windows=[_window(**{field: value})]), TRANSCRIPT_END)
+    assert result["status"] == "FAIL", f"{field}={value!r} was accepted"
+    assert "window_field_not_array" in _codes(result)
+
+
+def test_a_string_of_unit_ids_is_not_accounting_for_units() -> None:
+    """The truthiness bypass: a `covered` window whose units are the string "u1"."""
+    document = {"status": "PASS", "audit_attempts": 1, "windows": [
+        _window(start_sec=0.0, end_sec=1.0, knowledge_units="u1")
+    ]}
+    result = validate_coverage(document, 1.0)
+    assert result["status"] == "FAIL"
+    assert {"window_field_not_array", "covered_window_without_accounting"} <= _codes(result)
+
+
+def test_an_honest_window_still_passes() -> None:
+    assert validate_coverage(_coverage(windows=[_window()]), TRANSCRIPT_END)["status"] == "PASS"
+
+
+# ---------------------------------------------------------------------------
+# 6. Every rejection code this module can emit
+# ---------------------------------------------------------------------------
+#
+# The audit measured `validators.py` as the least-covered module in the package
+# — 81.7%, its uncovered lines almost entirely the rejection branches — and
+# found 29 emittable codes that appeared in *no* test. Those branches are the
+# ones that exist to stop a bad run claiming `PASS`, so an inverted or
+# misspelled predicate in any of them was invisible to 2142 passing tests.
+#
+# The parametrisation below names a code and the smallest document that must
+# produce it. `test_every_emittable_code_is_covered_here` then reads the codes
+# out of the module's own source and fails when one of them is not named — so
+# a *new* rejection branch cannot be added without a case, which is the part
+# that keeps this list from going stale.
+
+
+def _relationship(**overrides: Any) -> dict[str, Any]:
+    edge = {
+        "from": "KU-000001",
+        "relation": "supports",
+        "to": "KU-000002",
+        "confidence": 0.9,
+        "source_class": "derived",
+    }
+    edge.update(overrides)
+    return edge
+
+
+def _edges(*edges: Any) -> dict[str, Any]:
+    return {"schema_version": "1.0", "video_id": VIDEO_ID, "relationships": list(edges)}
+
+
+TWO_IDS = {"KU-000001", "KU-000002"}
+
+UNIT_CODES: list[tuple[str, Any]] = [
+    ("units_not_array", {"units": "KU-000001"}),
+    ("unit_not_object", _units("not a unit")),  # type: ignore[arg-type]
+    ("missing_id", _units(_source_unit(id=""))),
+    ("duplicate_id", _units(_source_unit(), _source_unit(content="A second unit."))),
+    ("invalid_id", _units(_source_unit(id="KU:000001"))),
+    ("invalid_kind", _units(_source_unit(kind="anecdote"))),
+    ("invalid_source_class", _units(_source_unit(source_class="quoted"))),
+    ("kind_source_class_mismatch", _units(_source_unit(kind="synthesis"))),
+    ("invalid_confidence", _units(_source_unit(confidence=1.5))),
+    ("missing_content", _units(_source_unit(content="   "))),
+    ("missing_source", _units(_source_unit(source="seg_000001"))),
+    ("incomplete_provenance", _units(_source_unit(source=_source(segment_id=None)))),
+    ("invalid_source_timing", _units(_source_unit(source=_source(start_sec="0")))),
+    ("empty_evidence_excerpt", _units(_source_unit(source=_source(evidence_excerpt=" ")))),
+    (
+        "evidence_excerpt_not_a_string",
+        _units(_source_unit(source=_source(evidence_excerpt=7))),
+    ),
+    ("missing_derived_from", _units(_derived_unit(derived_from=[]))),
+    ("missing_derivation_note", _units(_derived_unit(derivation_note=""))),
+    ("unknown_derived_source", _units(_derived_unit(derived_from=["KU-999999"]))),
+]
+
+RELATIONSHIP_CODES: list[tuple[str, Any]] = [
+    ("relationships_not_array", {"relationships": "supports"}),
+    ("relationship_not_object", _edges("supports")),
+    ("unknown_from", _edges(_relationship(**{"from": "KU-999999"}))),
+    ("unknown_to", _edges(_relationship(to="KU-999999"))),
+    ("invalid_relation", _edges(_relationship(relation="mentions"))),
+    ("unintentional_self_loop", _edges(_relationship(to="KU-000001"))),
+    ("invalid_confidence", _edges(_relationship(confidence="high"))),
+    ("invalid_source_class", _edges(_relationship(source_class="quoted"))),
+]
+
+PROVENANCE_CODES: list[tuple[str, Any]] = [
+    ("source_video_mismatch", _units(_source_unit(source=_source(video_id="other-video")))),
+    ("unknown_source_segment", _units(_source_unit(source=_source(segment_id="seg_999999")))),
+    (
+        "source_time_outside_transcript",
+        _units(_source_unit(source=_source(end_sec=TRANSCRIPT_END + 60))),
+    ),
+    (
+        "evidence_excerpt_not_in_segment",
+        _units(_source_unit(source=_source(evidence_excerpt="never said this"))),
+    ),
+    ("evidence_excerpt_too_short", _units(_source_unit(source=_source(evidence_excerpt="a")))),
+    (
+        "missing_evidence_excerpt",
+        _units(_source_unit(source=_source(evidence_excerpt=None))),
+    ),
+]
+
+COVERAGE_CODES: list[tuple[str, Any]] = [
+    ("coverage_windows_not_array", {"audit_attempts": 1, "windows": "CW-0001"}),
+    ("window_not_object", _coverage(windows=["CW-0001"])),
+    ("invalid_window_timing", _coverage(windows=[_window(start_sec=True)])),
+    ("window_field_not_array", _coverage(windows=[_window(unresolved_items=1)])),
+    ("missing_audit_attempts", {"status": "PARTIAL", "windows": [_window()]}),
+    ("invalid_audit_attempts", _coverage(audit_attempts="1")),
+    ("audit_attempts_over_cap", _coverage(audit_attempts=MAX_AUDIT_ATTEMPTS + 1)),
+    ("unaudited_coverage_pass", _coverage(audit_attempts=0, status="PASS")),
+    (
+        "coverage_gap_or_overlap",
+        _coverage(
+            windows=[
+                _window(window_id="CW-0001", start_sec=0.0, end_sec=4.0),
+                _window(window_id="CW-0002", start_sec=6.0, end_sec=TRANSCRIPT_END),
+            ]
+        ),
+    ),
+    ("invalid_window_status", _coverage(windows=[_window(status="done")])),
+    ("timeline_not_fully_covered", _coverage(windows=[_window(end_sec=TRANSCRIPT_END - 3)])),
+    (
+        "invalid_omission_reason",
+        _coverage(windows=[_window(omitted_items=[{"type": "boring"}])]),
+    ),
+    (
+        "missing_other_explanation",
+        _coverage(windows=[_window(omitted_items=[{"type": "other_explained"}])]),
+    ),
+    ("false_coverage_pass", _coverage(status="PASS", windows=[_window(status="pending")])),
+    (
+        "omitted_window_without_accounting",
+        _coverage(status="PASS", windows=[_window(status="omitted", omitted_items=[])]),
+    ),
+    (
+        "covered_window_without_accounting",
+        _coverage(status="PASS", windows=[_window(knowledge_units=[], omitted_items=[])]),
+    ),
+    (
+        "pass_with_unresolved_items",
+        _coverage(
+            status="PASS",
+            windows=[_window(unresolved_items=[{"type": "unclear", "note": "n"}])],
+        ),
+    ),
+]
+
+WARNING_CODES: list[tuple[str, Any]] = [
+    ("unstructured_statistic", _units(_source_unit(kind="statistic"))),
+    (
+        "claim_evidence_status_missing",
+        _units(_source_unit(kind="claim", importance="high")),
+    ),
+    (
+        "possible_duplicate_unit",
+        _units(_source_unit(), _source_unit(id="KU-000002")),
+    ),
+]
+
+
+@pytest.mark.parametrize("code,document", UNIT_CODES, ids=[code for code, _ in UNIT_CODES])
+def test_the_unit_validator_emits(code: str, document: Any) -> None:
+    result = validate_knowledge_units(document)
+    assert result["status"] == "FAIL", f"{code}: the document was accepted"
+    assert code in _codes(result), f"{code} not in {sorted(_codes(result))}"
+
+
+@pytest.mark.parametrize(
+    "code,document", RELATIONSHIP_CODES, ids=[code for code, _ in RELATIONSHIP_CODES]
+)
+def test_the_relationship_validator_emits(code: str, document: Any) -> None:
+    result = validate_relationships(document, TWO_IDS)
+    assert result["status"] == "FAIL", f"{code}: the document was accepted"
+    assert code in _codes(result), f"{code} not in {sorted(_codes(result))}"
+
+
+@pytest.mark.parametrize(
+    "code,document", PROVENANCE_CODES, ids=[code for code, _ in PROVENANCE_CODES]
+)
+def test_the_provenance_validator_emits(code: str, document: Any) -> None:
+    result = validate_provenance(document, TRANSCRIPT, SEGMENTS, VIDEO_ID)
+    assert result["status"] == "FAIL", f"{code}: the document was accepted"
+    assert code in _codes(result), f"{code} not in {sorted(_codes(result))}"
+
+
+@pytest.mark.parametrize(
+    "code,document", COVERAGE_CODES, ids=[code for code, _ in COVERAGE_CODES]
+)
+def test_the_coverage_validator_emits(code: str, document: Any) -> None:
+    result = validate_coverage(document, TRANSCRIPT_END)
+    assert result["status"] == "FAIL", f"{code}: the document was accepted"
+    assert code in _codes(result), f"{code} not in {sorted(_codes(result))}"
+
+
+@pytest.mark.parametrize("code,document", WARNING_CODES, ids=[code for code, _ in WARNING_CODES])
+def test_the_unit_validator_warns(code: str, document: Any) -> None:
+    """A warning is not a refusal: the status stays ``PASS`` and the note is made."""
+    result = validate_knowledge_units(document)
+    assert result["status"] == "PASS", result["errors"]
+    assert code in {warning["code"] for warning in result["warnings"]}
+
+
+def test_every_emittable_code_is_covered_here() -> None:
+    """The guard that keeps the lists above from going stale.
+
+    Reads the codes out of the module's own source, so a rejection branch added
+    later without a case fails this test rather than joining the 29 the audit
+    found sitting untested.
+    """
+    import re
+    from pathlib import Path
+
+    import x2knwldg.validators as module
+
+    emittable = set(
+        re.findall(r'"code":\s*"([a-z_]+)"', Path(module.__file__).read_text(encoding="utf-8"))
+    )
+    # The two codes chosen by `_evidence_excerpt_error` and returned through a
+    # variable rather than written at the append site.
+    emittable |= {
+        "missing_evidence_excerpt",
+        "evidence_excerpt_not_a_string",
+        "empty_evidence_excerpt",
+        "evidence_excerpt_too_short",
+    }
+    covered = {
+        code
+        for code, _ in (
+            *UNIT_CODES,
+            *RELATIONSHIP_CODES,
+            *PROVENANCE_CODES,
+            *COVERAGE_CODES,
+            *WARNING_CODES,
+        )
+    }
+    # Named elsewhere in this file, by the tests that introduced them.
+    covered |= {"source_time_outside_segment", "invalid_source_timing"}
+    missing = sorted(emittable - covered)
+    assert not missing, (
+        "these rejection codes have no case in this file, so nothing proves the "
+        f"branch that emits them still fires: {missing}"
+    )
+
+
+def test_a_source_time_outside_its_own_segment_is_named() -> None:
+    """Inside the transcript, outside the segment the unit cites."""
+    segments = {
+        "segments": [
+            {"segment_id": "seg_000001", "start_sec": 0.0, "end_sec": 4.0, "text": SEGMENT_TEXT},
+            {"segment_id": "seg_000002", "start_sec": 4.0, "end_sec": TRANSCRIPT_END, "text": "x"},
+        ]
+    }
+    result = validate_provenance(
+        _units(_source_unit(source=_source(start_sec=0.0, end_sec=8.0))),
+        TRANSCRIPT,
+        segments,
+        VIDEO_ID,
+    )
+    assert result["status"] == "FAIL"
+    assert "source_time_outside_segment" in _codes(result)

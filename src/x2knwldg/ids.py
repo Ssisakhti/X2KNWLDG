@@ -28,9 +28,9 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
-
+from typing import Any
 
 # --------------------------------------------------------------------------
 # Vocabulary mirrored from schemas/v1/common.schema.json — drift-tested
@@ -164,7 +164,15 @@ class SourceId:
         return make_global_id(self.source_type, self.external_id, local_id)
 
 
-def make_source_id(source_type: str, external_id: str) -> SourceId:
+def make_source_id(source_type: Any, external_id: Any) -> SourceId:
+    """D-114: ``Any``, not ``str``, because refusing junk is the contract.
+
+    ``validate_id_part`` has always taken ``Any`` and raised ``IdError`` for
+    anything that is not a usable segment, and every caller reads its argument
+    out of an untrusted JSON document and wraps the call in ``except IdError``
+    for exactly that reason. A ``str`` annotation described a precondition no
+    caller could satisfy, so it made the checker complain about the one thing
+    the function exists to handle."""
     validate_source_type(source_type)
     validate_id_part(external_id, "external_id")
     source_id = SourceId(source_type, external_id)
@@ -179,14 +187,6 @@ def parse_source_id(value: str) -> SourceId:
     if len(parts) != 2:
         raise IdError(f"source id {text!r} must have exactly two colon-separated parts")
     return make_source_id(parts[0], parts[1])
-
-
-def is_source_id(value: Any) -> bool:
-    try:
-        parse_source_id(value)
-    except IdError:
-        return False
-    return True
 
 
 # --------------------------------------------------------------------------
@@ -231,7 +231,7 @@ class GlobalId:
         return library_id_from_global_id(self)
 
 
-def make_global_id(source_type: str, external_id: str, local_id: str) -> GlobalId:
+def make_global_id(source_type: Any, external_id: Any, local_id: Any) -> GlobalId:
     validate_source_type(source_type)
     validate_id_part(external_id, "external_id")
     validate_id_part(local_id, "local_id")
@@ -268,8 +268,11 @@ def concept_global_id(concept_hash: str) -> GlobalId:
 # --------------------------------------------------------------------------
 
 
-def make_library_id(external_id: str, local_id: str) -> str:
-    """``<video-id>:<knowledge-unit-id>``, the form ``library.py`` emits."""
+def make_library_id(external_id: Any, local_id: Any) -> str:
+    """``<video-id>:<knowledge-unit-id>``, the form ``library.py`` emits.
+
+    ``Any`` for the reason :func:`make_source_id` gives.
+    """
     validate_id_part(external_id, "external_id")
     validate_id_part(local_id, "local_id")
     library_id = f"{external_id}:{local_id}"

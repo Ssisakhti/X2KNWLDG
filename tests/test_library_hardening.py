@@ -40,7 +40,6 @@ from x2knwldg.io import JsonReadError, read_json, read_json_or_reason, write_jso
 from x2knwldg.library import rebuild_library
 from x2knwldg.pipeline import PipelineError, validate_run
 
-
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 

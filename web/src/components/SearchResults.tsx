@@ -28,7 +28,7 @@ import { formatConfidence, formatSeconds } from "../lib/format";
 import { ErrorState } from "./ErrorState";
 import { ProvenanceBadge } from "./Provenance";
 import { readerPath, type ReaderTab } from "../lib/readerLink";
-import { Bidi, Missing, Mono } from "./primitives";
+import { Bidi, ExternalLink, Missing, Mono } from "./primitives";
 
 function hitKey(hit: SearchHit, index: number): string {
   const local = hit.type === "knowledge_unit" ? hit.id : hit.caption_id;
@@ -76,9 +76,9 @@ function Hit({ hit }: { hit: SearchHit }) {
         <p className="faint">{t("search.captionNotAddressable")}</p>
         <div className="row">
           <SourceLink sourceId={hit.source_id} tab="transcript" seconds={hit.start_sec} />
-          <a href={hit.source_url} target="_blank" rel="noopener noreferrer">
+          <ExternalLink href={hit.source_url}>
             {t("search.openExternal")}
-          </a>
+          </ExternalLink>
         </div>
       </article>
     );
@@ -107,9 +107,9 @@ function Hit({ hit }: { hit: SearchHit }) {
         {start !== null && <span className="faint">{t("time.at", { time: start })}</span>}
         <SourceLink sourceId={hit.source_id} tab="units" />
         {hit.source_url !== undefined && (
-          <a href={hit.source_url} target="_blank" rel="noopener noreferrer">
+          <ExternalLink href={hit.source_url}>
             {t("search.openExternal")}
-          </a>
+          </ExternalLink>
         )}
       </div>
     </article>

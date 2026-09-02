@@ -15,14 +15,17 @@ from .coverage import create_pending_coverage
 from .ids import ID_PART_MAX_LENGTH, is_id_part
 from .io import (
     JsonReadError,
+    dumps_json,
     format_timestamp,
     read_json,
     sha256_file,
     timestamp_url,
+    write_group,
     write_json,
+    write_text,
 )
 from .segmenter import create_segments
-from .transcripts import parse_transcript_file, transcript_integrity
+from .transcripts import parse_transcript_file, transcript_end_sec, transcript_integrity
 from .validators import (
     validate_coverage,
     validate_knowledge_units,
@@ -33,6 +36,26 @@ from .validators import (
 
 class PipelineError(RuntimeError):
     pass
+
+
+class VerdictRefusal(PipelineError):
+    """A command refused *because a run validated as failing*, not because it broke.
+
+    Defect D-082: `finalize_run` refuses a `FAIL` run with a `PipelineError`,
+    which `cli.main` maps to `EXIT_ERROR` (`1`, "the command refused or
+    failed"). The same run, read from the same `validation.json`, exits `4`
+    through `validate`. `VERDICT_EXIT_CODES` exists so the three commands
+    cannot disagree about what a verdict is worth, and the refusal path went
+    around it — so a wrapper read "broken install" for a run that simply
+    validated as failing.
+
+    Carries the verdict so the CLI can map it through the one table rather
+    than restate the mapping at the refusal site.
+    """
+
+    def __init__(self, status: str, message: str) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class RunAlreadyExists(PipelineError):
@@ -198,8 +221,9 @@ def _metadata(
     transcript_source: str,
     transcript_hash: str,
     integrity: dict[str, Any],
+    metadata_error: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    document: dict[str, Any] = {
         "schema_version": "1.0",
         "pipeline_version": __version__,
         "video_id": video_id,
@@ -212,6 +236,13 @@ def _metadata(
         "imported_at": datetime.now(timezone.utc).isoformat(),
         "duration_sec": integrity["stats"]["duration_sec"],
     }
+    if metadata_error:
+        # D-099: `title` and `channel` fall back to "Unknown ...", and without
+        # this there was no way to tell an unknown title from a fetch that
+        # failed — the two look identical in `metadata.json`. Absent when
+        # nothing went wrong; never an empty string.
+        document["metadata_error"] = metadata_error
+    return document
 
 
 def _transcript_markdown(captions: list[dict[str, Any]], video_id: str) -> str:
@@ -264,6 +295,7 @@ def import_transcript(
     channel: str | None = None,
     language: str = "unknown",
     source: str | None = None,
+    metadata_error: str | None = None,
     target_segment_sec: float = SEGMENT_TARGET_SEC,
     overlap_sec: float = SEGMENT_OVERLAP_SEC,
 ) -> Path:
@@ -297,6 +329,7 @@ def import_transcript(
         transcript_source,
         transcript_hash,
         integrity,
+        metadata_error,
     )
     transcript_document = {
         "schema_version": "1.0",
@@ -339,29 +372,50 @@ def import_transcript(
         raw_dir.unlink()
     raw_dir.mkdir(parents=True, exist_ok=False)
     shutil.copy2(transcript_path, raw_dir / f"source{transcript_path.suffix.lower()}")
-    write_json(raw_dir / "transcript.json", transcript_document)
-    (raw_dir / "transcript.md").write_text(
-        _transcript_markdown(captions, video_id), encoding="utf-8"
-    )
-    write_json(run_dir / "metadata.json", metadata)
-    write_json(run_dir / "transcript.json", transcript_document)
-    write_json(run_dir / "segments.json", segment_document)
-    write_json(run_dir / "knowledge_units.json", knowledge_document)
-    write_json(run_dir / "relationships.json", relationship_document)
-    write_json(run_dir / "coverage.json", coverage)
-    write_json(run_dir / "graph.json", {"nodes": [], "edges": []})
-    write_json(
-        run_dir / "validation.json",
-        {
-            "transcript": integrity,
-            "evidence": _evidence_integrity(run_dir, metadata, transcript_document),
-            "knowledge_units": validate_knowledge_units(knowledge_document),
-            "relationships": validate_relationships(relationship_document, set()),
-            "coverage": validate_coverage(coverage, metadata["duration_sec"]),
-        },
-    )
-    (run_dir / "report.md").write_text(
-        _initial_report(metadata, integrity, len(segments)), encoding="utf-8"
+    # D-089: the same shape `validate_run` writes, verdict and all. This used
+    # to omit both the top-level `status` and the `provenance` section, so
+    # `adapters.base.read_status` reported `UNKNOWN` for a run the pipeline had
+    # just validated. A fresh import is an honest `PARTIAL`: every validator
+    # passes over an empty unit set, and `coverage.json` says `PARTIAL` about
+    # itself because nothing has been audited yet.
+    initial_validation: dict[str, Any] = {
+        "transcript": integrity,
+        "evidence": _evidence_integrity(run_dir, metadata, transcript_document),
+        "knowledge_units": validate_knowledge_units(knowledge_document),
+        "provenance": validate_provenance(
+            knowledge_document, transcript_document, segment_document, video_id
+        ),
+        "relationships": validate_relationships(relationship_document, set()),
+        "coverage": validate_coverage(coverage, metadata["duration_sec"]),
+    }
+    initial_validation["status"] = _run_verdict(initial_validation, coverage)
+
+    # D-090: these eleven files *are* the run, and they used to be written one
+    # at a time. A failure part way through left a directory that could be
+    # neither validated — `Missing JSON file: segments.json` — nor re-imported,
+    # because `RunAlreadyExists` keys on `transcript.json` and that was the
+    # second file written. Only a manual `rm -rf` recovered. `io.write_group`
+    # is the mechanism that already existed for exactly this, and every
+    # document is serialised before the first write, so a value that cannot be
+    # represented fails with nothing on disk changed.
+    #
+    # `report.md` and `raw/transcript.md` go through it too, which also stops
+    # them being written through a text-mode handle whose `newline=None`
+    # rewrites every `\n` as `os.linesep`.
+    write_group(
+        [
+            (raw_dir / "transcript.json", dumps_json(transcript_document)),
+            (raw_dir / "transcript.md", _transcript_markdown(captions, video_id)),
+            (run_dir / "metadata.json", dumps_json(metadata)),
+            (run_dir / "transcript.json", dumps_json(transcript_document)),
+            (run_dir / "segments.json", dumps_json(segment_document)),
+            (run_dir / "knowledge_units.json", dumps_json(knowledge_document)),
+            (run_dir / "relationships.json", dumps_json(relationship_document)),
+            (run_dir / "coverage.json", dumps_json(coverage)),
+            (run_dir / "graph.json", dumps_json({"nodes": [], "edges": []})),
+            (run_dir / "validation.json", dumps_json(initial_validation)),
+            (run_dir / "report.md", _initial_report(metadata, integrity, len(segments))),
+        ]
     )
     return run_dir
 
@@ -387,7 +441,12 @@ Video URL: {video_url or 'not provided'}
 Plain text without timestamps cannot pass strict provenance and coverage checks.
 Whisper and WhisperX are intentionally disabled.
 """
-    (inbox / "README.md").write_text(instructions, encoding="utf-8")
+    # D-102: through `io.write_text`, like every other file this package
+    # writes. A text-mode handle's `newline=None` rewrites every `\n` as
+    # `os.linesep`, and the write was not atomic — invisible on macOS, certain
+    # on Windows. `raw/transcript.md` and `report.md` were the other two and
+    # joined `write_group` with D-090.
+    write_text(inbox / "README.md", instructions)
     return inbox
 
 
@@ -508,6 +567,30 @@ def _evidence_integrity(run_dir: Path, metadata: Any, transcript: Any) -> dict[s
     return {"status": "PASS" if not errors else "FAIL", "errors": errors, "warnings": []}
 
 
+def _run_verdict(sections: dict[str, Any], coverage: Any) -> str:
+    """The run's overall status, from its sections and coverage's own claim.
+
+    Defect D-089: this lived only inside :func:`validate_run`, and
+    :func:`import_transcript` wrote a ``validation.json`` with **no top-level
+    ``status``** at all — keys ``['transcript', 'evidence', 'knowledge_units',
+    'relationships', 'coverage']`` and nothing else. ``adapters.base.read_status``
+    reads the top-level ``status``, so every imported run reported
+    ``overall: UNKNOWN`` until somebody happened to run ``validate`` — a run
+    the pipeline had just checked, describing itself as unchecked. Extracted so
+    the two writers of that file cannot disagree about what its sections mean.
+    """
+    if not all(section["status"] == "PASS" for section in sections.values()):
+        # Any section failing is a failed run. Never softened to PARTIAL:
+        # PARTIAL means "honestly incomplete", not "invalid but tolerable".
+        return "FAIL"
+    coverage_status = coverage.get("status") if isinstance(coverage, dict) else None
+    if coverage_status != "PASS":
+        # Every validator passed and coverage says so itself: an honest
+        # PARTIAL (WORKFLOW.md section 4.5), a deliverable but not a pass.
+        return "PARTIAL"
+    return "PASS"
+
+
 def validate_run(run_dir: Path) -> dict[str, Any]:
     run_dir = run_dir.expanduser().resolve()
     transcript = _read_canonical(run_dir / "transcript.json")
@@ -519,8 +602,15 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
     captions = transcript.get("captions", [])
     integrity = transcript_integrity(captions)
     units = knowledge.get("units", []) if isinstance(knowledge, dict) else []
-    unit_ids = {unit.get("id") for unit in units if isinstance(unit, dict) and unit.get("id")}
-    result = {
+    # D-114: `str` rather than "anything truthy". A non-string id is already a
+    # failing run — `validate_knowledge_units` emits `missing_id` for it — so
+    # narrowing here changes no verdict and lets the set say what it holds.
+    unit_ids = {
+        unit["id"]
+        for unit in units
+        if isinstance(unit, dict) and isinstance(unit.get("id"), str) and unit["id"]
+    }
+    result: dict[str, Any] = {
         "transcript": integrity,
         "evidence": _evidence_integrity(run_dir, metadata, transcript),
         "knowledge_units": validate_knowledge_units(knowledge),
@@ -528,9 +618,7 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
             knowledge, transcript, segments, metadata.get("video_id", "")
         ),
         "relationships": validate_relationships(relationships, unit_ids),
-        "coverage": validate_coverage(
-            coverage, max((caption.get("end_sec", 0) for caption in captions), default=0)
-        ),
+        "coverage": validate_coverage(coverage, transcript_end_sec(captions)),
     }
     # The one check no single-file validator can make: coverage.json and
     # knowledge_units.json describing the same run.
@@ -539,17 +627,6 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
         result["coverage"]["errors"] = list(result["coverage"]["errors"]) + link_errors
         result["coverage"]["status"] = "FAIL"
 
-    validators_pass = all(section["status"] == "PASS" for section in result.values())
-    coverage_status = coverage.get("status") if isinstance(coverage, dict) else None
-    if not validators_pass:
-        # Any section failing is a failed run. Never softened to PARTIAL:
-        # PARTIAL means "honestly incomplete", not "invalid but tolerable".
-        result["status"] = "FAIL"
-    elif coverage_status != "PASS":
-        # Every validator passed and coverage says so itself: an honest
-        # PARTIAL (WORKFLOW.md §4.5), which is a deliverable but not a pass.
-        result["status"] = "PARTIAL"
-    else:
-        result["status"] = "PASS"
+    result["status"] = _run_verdict(result, coverage)
     write_json(run_dir / "validation.json", result)
     return result

@@ -215,7 +215,8 @@ def test_overlap_is_a_floor_quantised_to_one_caption(overlap: float) -> None:
     length = 5.0
     captions = uniform(200, length)
     segments = create_segments(captions, overlap_sec=overlap)
-    for previous, following in zip(segments, segments[1:]):
+    # Pairwise: the two sequences differ in length by one on purpose.
+    for previous, following in zip(segments, segments[1:], strict=False):
         if len(previous["caption_ids"]) == 1:
             continue
         realised = previous["end_sec"] - following["start_sec"]
@@ -254,3 +255,80 @@ def test_every_caption_survives_and_the_walk_is_deterministic(seed: int) -> None
 
 def test_an_empty_caption_list_is_an_empty_segment_list() -> None:
     assert create_segments([]) == []
+
+
+# ---------------------------------------------------------------------------
+# D-098 — a redundant, text-empty segment is not offered as extraction input
+# ---------------------------------------------------------------------------
+
+
+def test_a_long_non_speech_cue_does_not_mint_an_empty_subset_segment() -> None:
+    """The walk could emit a segment whose captions are a *subset* of the
+    previous one's and whose text is empty — an input segment with nothing in
+    it to extract from, handed to passes 1 and 4 as though it held content.
+
+    Zero occurrences over the 500 realistic transcripts the audit fuzzed;
+    specifically a `[music]` cue long enough to reach `max_sec` on its own.
+    """
+    captions = [
+        {"segment_id": "cap_000001", "start_sec": 0.0, "end_sec": 20.0, "text": "Real speech."},
+        # A single non-speech cue that spans more than max_sec on its own.
+        {"segment_id": "cap_000002", "start_sec": 20.0, "end_sec": 400.0, "text": "",
+         "non_speech": True},
+        {"segment_id": "cap_000003", "start_sec": 400.0, "end_sec": 420.0, "text": "More speech."},
+    ]
+    segments = create_segments(captions)
+
+    empty_subsets = [
+        segment
+        for index, segment in enumerate(segments)
+        if index > 0
+        and not segment["text"].strip()
+        and set(segment["caption_ids"]) <= set(segments[index - 1]["caption_ids"])
+    ]
+    assert not empty_subsets, empty_subsets
+
+
+def test_no_caption_is_lost_when_a_redundant_segment_is_skipped() -> None:
+    """The invariant the skip must not break: every caption is in some segment.
+
+    Skipped only when the captions are already carried by the previous
+    segment — a text-empty segment covering captions nothing else does is still
+    emitted, because dropping *that* would lose them.
+    """
+    captions = [
+        {"segment_id": "cap_000001", "start_sec": 0.0, "end_sec": 20.0, "text": "Real speech."},
+        {"segment_id": "cap_000002", "start_sec": 20.0, "end_sec": 400.0, "text": "",
+         "non_speech": True},
+        {"segment_id": "cap_000003", "start_sec": 400.0, "end_sec": 420.0, "text": "More speech."},
+    ]
+    segments = create_segments(captions)
+    covered = {caption_id for segment in segments for caption_id in segment["caption_ids"]}
+    assert covered == {caption["segment_id"] for caption in captions}
+
+
+def test_a_transcript_of_only_silence_still_produces_a_segment() -> None:
+    """There is no previous segment to be a subset of, so nothing is skipped."""
+    captions = [
+        {"segment_id": "cap_000001", "start_sec": 0.0, "end_sec": 400.0, "text": "",
+         "non_speech": True},
+    ]
+    segments = create_segments(captions)
+    assert len(segments) == 1
+    assert segments[0]["caption_ids"] == ["cap_000001"]
+
+
+def test_segment_ids_stay_contiguous_when_one_is_skipped() -> None:
+    """`seg_0001, seg_0002, …` with no gap: the id is the count, not the loop."""
+    captions = [
+        {"segment_id": "cap_000001", "start_sec": 0.0, "end_sec": 20.0, "text": "One."},
+        {"segment_id": "cap_000002", "start_sec": 20.0, "end_sec": 400.0, "text": "",
+         "non_speech": True},
+        {"segment_id": "cap_000003", "start_sec": 400.0, "end_sec": 420.0, "text": "Two."},
+        {"segment_id": "cap_000004", "start_sec": 420.0, "end_sec": 800.0, "text": "",
+         "non_speech": True},
+    ]
+    segments = create_segments(captions)
+    assert [segment["segment_id"] for segment in segments] == [
+        f"seg_{index + 1:04d}" for index in range(len(segments))
+    ]

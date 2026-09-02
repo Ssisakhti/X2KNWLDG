@@ -36,6 +36,30 @@ export function Shell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   return (
     <div className="shell">
+      {/*
+        D-108: `nav.skipToContent` was translated in both catalogs and
+        `<main id="content">` was rendered, and nothing linked the two — a
+        half-built affordance, which for accessibility is the same as none: a
+        keyboard user still tabs through the brand, the nav and the language
+        switch on every page. `HashRouter` puts the whole location after `#`
+        (D-060), so an `href="#content"` would be read as a route; this scrolls
+        and focuses the target itself instead of asking the browser to follow a
+        fragment that means something else here.
+      */}
+      <a
+        className="shell__skip"
+        href="#content"
+        onClick={(event) => {
+          event.preventDefault();
+          const main = document.getElementById("content");
+          if (main === null) return;
+          main.setAttribute("tabindex", "-1");
+          main.focus();
+          main.scrollIntoView();
+        }}
+      >
+        {t("nav.skipToContent")}
+      </a>
       <header className="shell__bar">
         <Link className="shell__brand" to="/">
           {t("app.title")}

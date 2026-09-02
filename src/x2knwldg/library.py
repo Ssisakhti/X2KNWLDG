@@ -8,7 +8,6 @@ from typing import Any
 from . import ids
 from .io import read_json_or_reason, write_json
 
-
 CONCEPT_KINDS = {"concept", "definition", "framework", "principle", "mental_model"}
 
 #: The ``kind`` given to the cross-source nodes this module synthesises. It is

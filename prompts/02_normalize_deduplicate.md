@@ -12,5 +12,5 @@ Tasks:
 6. Keep separate experiments, populations, baselines, and statistics separate.
 7. Give final stable IDs in transcript order.
 
-Return JSON only: `{ "units": [...] }`.
+Return JSON only: `{ "knowledge_units": [...] }`.
 

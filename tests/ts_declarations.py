@@ -25,9 +25,10 @@ reporting agreement it never established.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 __all__ = [
     "TypeExpression",
@@ -88,11 +89,11 @@ class TypeExpression:
     form: str  # name | literal | union | object | array | record
     name: str = ""
     literal: str = ""
-    options: tuple["TypeExpression", ...] = ()
-    members: tuple[tuple[str, bool, "TypeExpression"], ...] = ()  # (name, optional, type)
-    element: "TypeExpression | None" = None
+    options: tuple[TypeExpression, ...] = ()
+    members: tuple[tuple[str, bool, TypeExpression], ...] = ()  # (name, optional, type)
+    element: TypeExpression | None = None
 
-    def member(self, name: str) -> "TypeExpression":
+    def member(self, name: str) -> TypeExpression:
         """The type of object member *name*."""
         for member_name, _, member_type in self.members:
             if member_name == name:

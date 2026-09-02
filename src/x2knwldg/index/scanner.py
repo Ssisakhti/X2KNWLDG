@@ -89,12 +89,14 @@ mode a page-for-page equivalence proof wants.
 from __future__ import annotations
 
 import json
+import os.path
 import sqlite3
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any
 
 from ..adapters import (
     LIBRARY_DIR_NAME,
@@ -105,7 +107,7 @@ from ..adapters import (
     project_relative,
     read_optional_json_or_reason,
 )
-from ..io import sha256_file
+from ..io import scrub_host_paths, sha256_file
 from ..repository import (
     RepositoryError,
     check_index_integrity,
@@ -162,7 +164,12 @@ _LIBRARY_FILES = ("graph.json", "concepts.json")
 #: Signature of the hook that fills ``documents`` and the two FTS5 tables.
 #: ``T-103``'s ``x2knwldg.index.search.index_documents`` is the intended
 #: argument; this module never imports it (see :func:`build_index`).
-DocumentIndexer = Callable[[sqlite3.Connection, IndexRecords], None]
+#: The hook `T-103` wires in. Its return value is deliberately unconstrained
+#: and unread here: `search.document_indexer` returns an `IndexReport` because
+#: a caller that wants to know what one pass did should not have to re-query,
+#: and this module ignores it. `None` in the alias made every real
+#: implementation the wrong type (D-114).
+DocumentIndexer = Callable[[sqlite3.Connection, IndexRecords], object]
 
 
 # --------------------------------------------------------------------------
@@ -282,7 +289,50 @@ def run_dirs(output_root: Path) -> list[Path]:
     ]
 
 
-def _project_relative_reason(reason: str, run_dir: Path, canonical_dir: str) -> str:
+def _canonical_key(path: Path, project_root: Path) -> tuple[str, str | None]:
+    """``(canonical_dir, reason)`` for a discovered run or the library fragment.
+
+    Defect D-078: ``project_relative`` calls ``.resolve()``, so a run directory
+    that is a *symlink* to somewhere outside the project resolves outside it and
+    the call raises ``AdapterError``. That call was the first statement of
+    ``_examine`` — **outside** the ``try:`` that implements the D-043
+    skip-and-name contract — and it appeared a second time inside ``_apply``'s
+    prior-row lookup. So one symlinked directory under ``output/`` took the
+    entire index down even with ``strict=False``: the scan left
+    ``state='error'`` with the old counts still in the row, and every endpoint
+    answered ``503`` for every run. ``run_dirs`` globs ``*/metadata.json`` and
+    ``glob`` follows directory symlinks, so an ordinary "runs live on an
+    external drive" setup reaches it.
+
+    The directory still has a place *in the project*: where the scan found it,
+    before resolution. That is the row's key — computed lexically, so a
+    symlink's target cannot change it — and the reason says why nothing can be
+    read through it. The reason names the project-relative key only: the
+    resolved target is a host path, and ``skipped_runs[].reason`` is served by
+    ``/api/status`` (D-030, ADR-0003).
+    """
+    try:
+        return project_relative(path, project_root), None
+    except AdapterError:
+        root = Path(os.path.abspath(project_root.expanduser()))
+        lexical = Path(os.path.abspath(path.expanduser()))
+        try:
+            key = lexical.relative_to(root).as_posix()
+        except ValueError:
+            # Not under the project root even before resolution. `run_dirs`
+            # globs under `output_root`, so this needs an `output_root` from
+            # outside the project; the bare name still keys a row and still
+            # names the run.
+            key = path.name
+        return key, (
+            f"{key} resolves outside the project root; index records carry "
+            "project-relative paths only (risk R15)"
+        )
+
+
+def _project_relative_reason(
+    reason: str, run_dir: Path, canonical_dir: str, project_root: Path
+) -> str:
     """*reason* with the host path replaced by the project-relative one.
 
     ``AdapterError`` names the directory it refused, and it names it
@@ -298,15 +348,43 @@ def _project_relative_reason(reason: str, run_dir: Path, canonical_dir: str) -> 
     the same string the row is keyed by, so the two cannot disagree about
     which directory failed.
     """
-    return reason.replace(str(run_dir), canonical_dir)
+    # D-085: this was that `replace` alone, which redacts only paths *under*
+    # the run directory — while `project_relative`'s own message also names the
+    # absolute project root, and a symlink names a path outside the run
+    # entirely. Both spellings of the run directory are offered because
+    # `AdapterError` names the *resolved* one, and `scrub_host_paths` reduces
+    # whatever is still absolute afterwards rather than trusting this list to
+    # be complete.
+    return scrub_host_paths(
+        reason,
+        [
+            (run_dir.expanduser().resolve(), canonical_dir),
+            (run_dir, canonical_dir),
+            (project_root.expanduser().resolve(), "the project root"),
+            (project_root, "the project root"),
+        ],
+    )
 
 
 def _run_files(run_dir: Path) -> list[Path]:
-    """Every regular file the adapter could observe, sorted by path."""
+    """Every regular file **of the run**, sorted by path. Symlinks excluded.
+
+    Defect D-100: ``path.is_file()`` follows symlinks, so a symlinked file
+    inside a run put its *target* into the digest — and ``io.sha256_file`` then
+    read that target in full on every scan, for a file the run does not own.
+    Worse, the digest changed when something outside the run changed and did
+    not change when the link was repointed at identical bytes, so "unchanged"
+    stopped meaning what the incremental scan needs it to mean.
+
+    A run's digest is the bytes the run holds. What a link points at is
+    reported by the adapter as an unmappable artifact instead (see
+    ``youtube._file_artifact``), which is where a thing the index cannot
+    address belongs.
+    """
     return sorted(
         path
         for path in run_dir.rglob("*")
-        if path.name not in IGNORED_FILENAMES and path.is_file()
+        if path.name not in IGNORED_FILENAMES and path.is_file() and not path.is_symlink()
     )
 
 
@@ -594,14 +672,27 @@ def _examine(
     run_dir: Path,
     *,
     project_root: Path,
+    canonical_dir: str,
+    unindexable: str | None,
     prior: sqlite3.Row | None,
     strict: bool,
 ) -> _Run:
-    """Decide one run: unchanged, re-adapted, or skipped and named."""
-    canonical_dir = project_relative(run_dir, project_root)
+    """Decide one run: unchanged, re-adapted, or skipped and named.
+
+    D-078: ``canonical_dir`` arrives as a parameter rather than being computed
+    here, so the string that keys the prior-row lookup in ``_apply`` and the
+    string that keys the row written below are the same one, and neither can
+    raise from outside the skip-and-name path.
+    """
     stored = prior["digest"] if prior is not None else None
     digest = _digest_of(run_dir, stored)
     had_records = prior is not None and prior["skipped_reason"] is None
+    if unindexable is not None:
+        # D-078. `strict` refuses the whole project so that `T-104`'s oracle,
+        # which raises here too, still agrees record for record.
+        if strict:
+            raise AdapterError(unindexable)
+        return _Run(canonical_dir, _SKIPPED, digest, reason=unindexable, had_records=had_records)
     _stored_fingerprint, stored_content = _split(stored)
 
     # Only the content half decides. A file whose mtime moved but whose bytes
@@ -639,7 +730,9 @@ def _examine(
             canonical_dir,
             _SKIPPED,
             digest,
-            reason=_project_relative_reason(str(exc), run_dir, canonical_dir),
+            reason=_project_relative_reason(
+                str(exc), run_dir, canonical_dir, project_root
+            ),
             had_records=had_records,
         )
 
@@ -771,8 +864,17 @@ def _write_state(
 
 
 def _stored_state(connection: sqlite3.Connection) -> str:
-    row = connection.execute("SELECT state FROM index_state WHERE id = 1").fetchone()
-    return row["state"] if row is not None else "absent"
+    return _stored_state_row(connection)[0]
+
+
+def _stored_state_row(connection: sqlite3.Connection) -> tuple[str, str | None]:
+    """``(state, built_at)`` as stored, or ``("absent", None)``."""
+    row = connection.execute(
+        "SELECT state, built_at FROM index_state WHERE id = 1"
+    ).fetchone()
+    if row is None:
+        return "absent", None
+    return row["state"], row["built_at"]
 
 
 def _stored_runs(connection: sqlite3.Connection) -> dict[str, sqlite3.Row]:
@@ -837,7 +939,8 @@ def _scan(
         # incremental against, so a refresh over one degrades to a full build
         # rather than carrying rows forward on the strength of a state that
         # already says they cannot be trusted.
-        whole = not incremental or _stored_state(connection) != "ready"
+        previous_state, previous_built_at = _stored_state_row(connection)
+        whole = not incremental or previous_state != "ready"
         # Committed on its own, before any work: a crash from here on reopens as
         # `building`, never as a `ready` half-full index.
         with connection:
@@ -853,10 +956,35 @@ def _scan(
                 version=version,
             )
         except Exception as exc:
-            # Reported, not swallowed. The state becomes `error` with the
-            # message, so a reader can say *why* rather than saying `absent`.
+            # Reported, not swallowed — and D-085: the message is served
+            # verbatim in a 503 body, so no host path may survive into it.
+            message = scrub_host_paths(
+                f"{type(exc).__name__}: {exc}",
+                [
+                    (project_root.expanduser().resolve(), "the project root"),
+                    (project_root, "the project root"),
+                ],
+            )
             with connection:
-                _write_state(connection, "error", message=f"{type(exc).__name__}: {exc}")
+                if previous_state == "ready":
+                    # D-086: `_apply` does every write inside one `with
+                    # connection:`, so a failure rolls all of them back and the
+                    # stored records are exactly what they were. Committing
+                    # `error` here anyway made `_require_ready` refuse every
+                    # endpoint for every run — so adding one run that
+                    # duplicates an existing `video_id` cost the reader the
+                    # whole library until the cause was removed. The index is
+                    # still readable and still as fresh as its `built_at` says;
+                    # what failed is *this scan*, and that is what the message
+                    # now says.
+                    _write_state(
+                        connection,
+                        "ready",
+                        built_at=previous_built_at,
+                        message=f"the last scan failed and was rolled back: {message}",
+                    )
+                else:
+                    _write_state(connection, "error", message=message)
             raise
     finally:
         connection.close()
@@ -875,17 +1003,22 @@ def _apply(
     previous = {} if whole else _stored_runs(connection)
     discovered = run_dirs(output_root)
 
-    runs = [
-        _examine(
-            run_dir,
-            project_root=project_root,
-            prior=previous.get(project_relative(run_dir, project_root)),
-            strict=strict,
+    runs = []
+    for run_dir in discovered:
+        # D-078: one computation of the key, used for the lookup and the row.
+        canonical_dir, unindexable = _canonical_key(run_dir, project_root)
+        runs.append(
+            _examine(
+                run_dir,
+                project_root=project_root,
+                canonical_dir=canonical_dir,
+                unindexable=unindexable,
+                prior=previous.get(canonical_dir),
+                strict=strict,
+            )
         )
-        for run_dir in discovered
-    ]
     library_dir = output_root / LIBRARY_DIR_NAME
-    library_key = project_relative(library_dir, project_root)
+    library_key, library_unindexable = _canonical_key(library_dir, project_root)
     # The library keeps a `runs` row of its own, keyed by its own
     # project-relative directory. It is not a run — `run_dirs` never yields it —
     # but the row is exactly what the table is for: what the scanner remembers so
@@ -932,7 +1065,19 @@ def _apply(
         # Nothing the fragment is derived from moved, so the stored records — or
         # the stored refusal — are still the answer.
         library = _records_of(connection, [None])
-        library_reason = prior_library["skipped_reason"]
+        # `rebuild_library_fragment` is false only when `prior_library` exists —
+        # it is one of the disjuncts that sets it — but the checker cannot see
+        # that, and neither can a reader in a hurry.
+        library_reason = prior_library["skipped_reason"] if prior_library is not None else None
+    elif library_unindexable is not None:
+        # D-078: the same class as a symlinked run. A `library/` that resolves
+        # outside the project has no project-relative form, and this used to
+        # raise out of the middle of the scan rather than be named. Not raised
+        # under `strict` because `_library_damage` below is not either: the
+        # fragment is a projection, and a project whose runs are all readable
+        # is still a readable project.
+        library = IndexRecords()
+        library_reason = library_unindexable
     else:
         library_reason = _library_damage(output_root)
         if library_reason is not None:
@@ -941,6 +1086,16 @@ def _apply(
             library, library_reason = _checked_library(
                 adapt_library(library_dir, project_root), combined
             )
+    if library_reason is not None:
+        # D-085/D-087: `_library_damage` builds its reason out of
+        # `io.JsonReadError`, which names the file absolutely — and D-087 put
+        # that reason on `/api/status`, so surfacing it without this would have
+        # traded a silent zero for a host-path leak. The fragment's own
+        # directory is offered as a replacement so the sentence still says
+        # which file, and the catch-all takes care of the rest.
+        library_reason = _project_relative_reason(
+            library_reason, library_dir, library_key, project_root
+        )
     combined = combined + library
 
     try:
@@ -957,6 +1112,27 @@ def _apply(
             connection.execute("DELETE FROM runs")
             for _model, table in MODELS:
                 connection.execute(f"DELETE FROM {table}")
+            # D-088: `build_index`'s docstring promises it discards "whatever
+            # was stored", and this loop discarded everything *except* the
+            # search corpus — `documents` and the two FTS5 tables were left to
+            # `index_documents`, which defaults to `None`. So
+            # `build_index(root)`, the default signature, rebuilt every record
+            # family and left the corpus from the previous pass: measured, a
+            # unit's edited content was unfindable while its deleted text was
+            # still being returned, with `total` counting it.
+            #
+            # This is not the "half-populating" the note below rules out. It is
+            # the same discard as the lines above, and it needs none of
+            # `search`'s per-source logic: `delete-all` is FTS5's own bulk
+            # command for retiring an external-content index, so no old text
+            # has to be read back and this module gains no dependency on the
+            # one that fills the tables. A hook, when there is one, then
+            # repopulates from the records this scan committed.
+            connection.execute(
+                "INSERT INTO documents_trigrams (documents_trigrams) VALUES ('delete-all')"
+            )
+            connection.execute("DELETE FROM document_tokens")
+            connection.execute("DELETE FROM documents")
         else:
             # Both loops evict by the id the *previous* scan recorded, so a run
             # that changed its `video_id` does not leave its old records behind

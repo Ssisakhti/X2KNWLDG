@@ -10,7 +10,16 @@
       "knowledge_units": [
         "KU-000001"
       ],
-      "omitted_items": [],
+      "omitted_items": [
+        {
+          "type": "sponsor",
+          "note": "A sponsor read; nothing in it to extract."
+        },
+        {
+          "type": "other_explained",
+          "note": "The greeting states no claim and cites nothing."
+        }
+      ],
       "unresolved_items": []
     },
     {

@@ -35,12 +35,12 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
-
-import pytest
+from typing import Any
 
 import api_harness as h
+import pytest
 
 pytestmark = h.requires_fastapi
 

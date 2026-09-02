@@ -123,7 +123,7 @@ def _ytdlp_module(
             self.options = options
             recorded.append(options)
 
-        def __enter__(self) -> "YoutubeDL":
+        def __enter__(self) -> YoutubeDL:
             return self
 
         def __exit__(self, *exc: object) -> bool:
@@ -647,14 +647,44 @@ def test_a_corrupt_caption_file_is_a_pipeline_error(
 # ---------------------------------------------------------------------------
 
 
-def test_metadata_is_empty_without_ytdlp(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_metadata_names_the_missing_extra(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-099: this asserted `== {}`, which is what hid the reason.
+
+    `title` and `channel` fall back to "Unknown ...", so an absent fetch and an
+    unknown title were indistinguishable in `metadata.json` — and a network
+    failure, a geo-block, an age gate, a bot check and a yt-dlp API change were
+    indistinguishable from each other.
+    """
     _install(monkeypatch, "yt_dlp", None)
-    assert youtube.fetch_metadata(REAL_URL) == {}
+    answer = youtube.fetch_metadata(REAL_URL)
+    assert answer.get("title") is None
+    assert "not installed" in answer["metadata_error"]
 
 
-def test_metadata_is_empty_when_the_fetch_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_metadata_names_the_failure_when_the_fetch_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _install(monkeypatch, "yt_dlp", _ytdlp_module(error=RuntimeError("boom")))
-    assert youtube.fetch_metadata(REAL_URL) == {}
+    answer = youtube.fetch_metadata(REAL_URL)
+    assert answer.get("title") is None
+    assert "RuntimeError" in answer["metadata_error"]
+    assert "boom" in answer["metadata_error"]
+
+
+def test_the_two_metadata_failures_are_distinguishable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only one of them is fixed by installing something."""
+    _install(monkeypatch, "yt_dlp", None)
+    absent = youtube.fetch_metadata(REAL_URL)["metadata_error"]
+    _install(monkeypatch, "yt_dlp", _ytdlp_module(error=RuntimeError("geo-blocked")))
+    blocked = youtube.fetch_metadata(REAL_URL)["metadata_error"]
+    assert absent != blocked
+
+
+def test_a_successful_fetch_names_no_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install(monkeypatch, "yt_dlp", _ytdlp_module(info={"title": "T", "channel": "C"}))
+    assert "metadata_error" not in youtube.fetch_metadata(REAL_URL)
 
 
 def test_metadata_falls_back_from_uploader_to_channel(

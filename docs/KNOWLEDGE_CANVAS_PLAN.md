@@ -1066,7 +1066,7 @@ The next execution session must start Phase 0 only:
    contract from the adapters today, so Track B can start before Track A finishes.
 8. ~~Scaffold `web/` plus the `ui` extra (`T-008`), then re-confirm the no-extras install
    (`T-009`).~~ Done — [`web/`](../web/README.md) holds the TypeScript toolchain and nothing
-   more (D-038); the `ui` extra is `fastapi` + `uvicorn`; `x2knwldg ui` is a refusing stub
+   more (D-038); the `ui` extra is `fastapi` + `uvicorn`; `x2knwldg ui` was a refusing stub until `T-116` wired it
    that `T-116` wires (D-037); and CI now type-checks the generated declarations, which
    closes risk R17. The core package still reports 333 passed, 4 skipped with no extras.
 

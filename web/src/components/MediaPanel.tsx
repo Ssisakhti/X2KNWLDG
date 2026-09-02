@@ -27,6 +27,7 @@ import { externalMedium, localMedium } from "../api/canonical";
 import { api } from "../api/client";
 import type { Artifact, Source } from "../api/contract";
 import { useI18n } from "../i18n";
+import { ExternalLink } from "./primitives";
 import { formatSeconds } from "../lib/format";
 
 /** The one allowlisted embed host, keyed by source type. */
@@ -169,9 +170,9 @@ export function MediaPanel({
         </>
       )}
       {watchUrl !== null && (
-        <a href={watchUrl} target="_blank" rel="noopener noreferrer">
+        <ExternalLink href={watchUrl}>
           {t("player.openExternal")}
-        </a>
+        </ExternalLink>
       )}
     </section>
   );
