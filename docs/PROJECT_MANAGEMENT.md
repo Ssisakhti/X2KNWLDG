@@ -98,7 +98,7 @@ Exit criteria live in canvas plan §16; this table tracks state only.
 | Phase | Name | Status | Parallelizable | Gate to next phase |
 |---|---|---|---|---|
 | **0** | Contracts & scaffolding | ✅ `done` | ❌ **No — serialization point** | Schemas validate; contract frozen |
-| **1** | Read-only Library & Reader | ✅ `done` — four tracks + `T-116` | — | Search works; status honest; rebuild is equivalent |
+| **1** | Read-only Library & Reader | ◐ `built, gate not met` — four tracks + `T-116` shipped; §7.4 scenario 2 is half met (D-069) | — | Search works; status honest; rebuild is equivalent |
 | **2** | Knowledge Map | `not started` | ✅ Partial (renderer vs inspector) | Provenance distinguishable; empty graph honest |
 | **3** | Canvas & board persistence | `not started` | ⚠️ Sequential with Phase 4 | Layout survives restart; partial corruption tolerated |
 | **4** | Pen & annotation | `not started` | ⚠️ Sequential with Phase 3 | Strokes stable under zoom/pan; no canonical leakage |
@@ -234,6 +234,8 @@ repeated here.
 | D-065 | `x2knwldg ui` **refreshes** the index on every start, rather than checking it or building it only when absent | accepted | Canvas plan §8.3 step 2 says "check or rebuild the index if needed", and nothing else in the CLI builds one — without this, a project that had never been indexed could only ever be served an honest `503`, with no command to fix it. Refresh rather than build-if-absent because `T-102`'s scan is incremental: `(mtime_ns, size)` prefilters and `io.sha256_file` arbitrates, so an unchanged project pays a directory walk, while build-if-absent would show knowledge older than the files on disk after any `finalize`. The scan's own report is printed, `skipped_runs` named rather than merely counted (D-043) |
 | D-066 | Serving lives in `src/x2knwldg/server/serve.py`, and the socket is **bound before** a URL is printed or a browser opened | accepted | D-055 confines every import of the `ui` extra to `server/`, and serving needs `uvicorn` and `starlette` — putting them in `cli.py` would have broken the rule that keeps the core zero-dependency, so the module goes where the extra is allowed to live and `cli.py` reaches it lazily from inside its dispatch branch. Binding first is what makes D-037's "never prints a URL it is not listening on" true rather than intended, and it is *required* by `--port` being optional: a port the OS chooses is not knowable before the bind. A port already in use therefore fails as a refusal, before a browser opens on a URL nothing answers. `SO_REUSEPORT` is deliberately unset — it would let a second `ui` bind the same port and split requests between two servers. `create_app` is untouched: the static mount is added to the app it returns, so the generated document still equals the frozen one |
 | D-067 | The "nothing outside `server/` imports it eagerly" check parses the AST and flags an import only when no function encloses it | accepted | The rule was a regex over stripped lines, which cannot tell `from .server import serve` at column 0 from the same line indented inside a function — and the second is the lazy import the CLI convention *requires*, while the first is the eager one D-055 forbids. Matching unstripped lines instead fixes that but misses a module-scope import nested in a `try:`, which is eager and would slip through. The AST distinguishes them exactly, and the checker is itself tested against all four cases, because a structural rule that silently stops matching leaves the invariant unguarded while staying green. The behavioural guard — importing the CLI in a fresh interpreter and reading `sys.modules` — is unchanged and remains what actually proves the property |
+| D-068 | `x2knwldg ui` passes `index_documents=document_indexer(root)` to `refresh_index`; a scan without it builds an index whose search corpus is empty | accepted | `T-116` called `refresh_index(root)` bare. The scan then indexes sources, artifacts, entities and relations correctly and leaves `documents` and both FTS5 tables at zero — so the UI came up, every count matched, and `/api/search` answered `0` for every query. On the real sample: 86 entities, **0 documents**. No test caught it and none could have: `search.build_searchable_index`, `tests/api_harness` and the equivalence tests all pass the hook themselves, so they prove the indexer works and cannot prove the *CLI* asks for it. `test_the_command_builds_a_searchable_index` goes through `cli.main` for that reason and fails without the fix. The general lesson is the one D-052 already taught in another key: a helper that every test supplies is a helper production can forget |
+| D-069 | **Open** — a search hit must carry its timestamp into the Reader | proposed | Canvas plan §17.3 scenario 2 is "search a transcript phrase and **jump to the timestamp**", and today the jump is lost: `SearchResults.SourceLink` links to `/sources/{id}` with no timestamp, and `ReaderView` initialises `tab` to `overview` and `seek` to `null` with no URL input, so the reader opens on Overview having discarded the offset the hit was found at. Only the external YouTube link preserves it, which satisfies the scenario by leaving the application. The mechanism already exists — `requestSeek` and `Play from here` work inside the reader — so what is needed is a deep link the Reader reads (tab + seconds) and the hit writes. Left open rather than decided here because the link grammar is Track C's design surface, and because D-060's hash routing means the format chosen becomes the app's first shareable URL |
 
 ### ⚠️ D-011 is **additive** — do not "clean up" the 2-part ID
 
@@ -377,13 +379,30 @@ print({q: repo.search(SearchQuery(q=q, limit=1)).total for q in ('learning', 'mo
 ```
 
 ### 7.4 End-to-end scenarios (canvas plan §17.3)
-1. Open a source and see its **real** status.
-2. Search a transcript phrase and jump to the timestamp.
-3. Select a knowledge unit and see its actual evidence.
-4. Move an entity from Map to Canvas.
-5. Create a user relation without touching any canonical file.
-6. Draw with the pen, reload, strokes survive.
-7. Delete the cache, rebuild, boards intact.
+
+**Walked 2026-09-02** against `x2knwldg ui` serving the three committed fixtures, driven
+through a real headless browser rather than through jsdom — the point of the exercise being
+to test what a person meets, not what a test harness meets. It earned its keep: scenario 2
+was unwalkable on the first attempt (D-068), and no test in the suite could have said so.
+
+| # | Scenario | Verdict |
+|---|---|---|
+| 1 | Open a source with `PARTIAL` status and see the real warning | ✅ **pass** — `Overall/Validation/Coverage: PARTIAL`, `audit_attempts: 3`, both file paths cited, and the panel states in the UI that the values are copied and never raised toward `PASS`. `fail-run` shows `Validation: FAIL` beside `Coverage: PASS` unreconciled, which is what R11's fixture exists to prove |
+| 2 | Search a transcript phrase and **jump to the timestamp** | ⚠️ **partial** — searching works (after D-068). The jump does not: a hit's *Open the source* link carries no timestamp, and `ReaderView` holds `tab` and `seek` as local state initialised to `overview`/`null`, so the reader opens on Overview having discarded the `0:30` the hit was found at. The only link that preserves it leaves the app for YouTube. The seek machinery exists and works *inside* the reader (`Play from here · 0:00` on a unit); what is missing is the handoff. See D-069 |
+| 3 | Select a knowledge unit and see its actual evidence | ✅ **pass** — statement, evidence excerpt, locator (`0:00 – 0:30`, `segment_id`, `artifact_id`), `Play from here`, and the canonical file named. The derived unit reads *No locator is recorded for this unit* rather than borrowing one, and the two classes differ by glyph (◆/◇), label, **and** rail style (solid/dashed), not by colour alone |
+| 4 | Move an entity from Map to Canvas | ⛔ **out of scope** — Phase 2/3 |
+| 5 | Create a user relation without touching any canonical file | ⛔ **out of scope** — Phase 3 |
+| 6 | Draw with the pen, reload, strokes survive | ⛔ **out of scope** — Phase 4 |
+| 7 | Delete the cache, rebuild, boards intact | ◐ **half met** — the cache half passes: `.x2knwldg/` deleted, the command rebuilt it on the next start to identical counts, search still answered, and nothing under `output/` was modified. *Boards intact* has nothing to assert against until Phase 3 |
+
+Also checked while the browser was open, because both are Phase 1 claims that only a
+rendered page can settle: the Persian switch flips `lang`/`dir` to `fa`/`rtl` and the layout
+mirrors — sidebar, tabs and every label/value pair — while Latin identifiers, paths and URLs
+stay LTR inside it (D-012, D-014); and the embed stays a facade, naming its host and
+requesting nothing until asked (D-061).
+
+**Phase 1's gate is therefore not fully met.** Scenarios 1, 3 and the testable half of 7
+pass; scenario 2 is half of a criterion, and D-069 is what closes it.
 
 ---
 
@@ -511,14 +530,19 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 `web/` holds a Library and a Reader built against the real API (`T-109`–`T-114`); and
 `T-115` closed the two gaps Tracks A and B did not own.
 
-**`T-116` is done, so every Phase 1 task is.** `x2knwldg ui` serves the Library and the
-Reader on loopback over a freshly refreshed index.
+**Every Phase 1 task is done and the scenarios have been walked** (§7.4, 2026-09-02).
+`x2knwldg ui` serves the Library and the Reader on loopback over a freshly refreshed index.
 
-**Next: walk §7.4's six end-to-end scenarios against the running UI.** They are Phase 1's
-exit gate and none of them has been performed by a person yet — every claim above rests on
-automated tests, which is not the same evidence. Scenarios 1–3 (open the library, open a
-video, select a unit and see its evidence) are in scope today; 4–7 belong to Phases 2–4 and
-will not pass yet.
+**The gate is not fully met, and one thing closes it: D-069.** Scenarios 1 and 3 pass, and
+so does the testable half of 7. Scenario 2 — *search a transcript phrase and jump to the
+timestamp* — searches but does not jump: the hit's link drops the offset and the Reader has
+no URL input for a tab or a seek. The machinery exists inside the Reader already, so this is
+a link grammar, not a feature.
+
+The walk also found D-068, which is the more instructive of the two: `ui` built an index
+with an **empty search corpus**, so every query returned nothing while every count on
+every page was correct. 2141 passing tests did not see it, because each of them supplied
+the hook the CLI had forgotten.
 
 **Then Phase 2 — Map** (`T-201`). Its first real consumers are the pieces Track C
 deliberately left unused: `GET /api/graph`, `GET /api/graph/neighborhood/{id}`, and
