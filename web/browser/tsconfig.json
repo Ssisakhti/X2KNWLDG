@@ -11,13 +11,20 @@
     "`vite.config.ts` already declares it.",
     "",
     "`npm run typecheck:browser` runs it. Playwright itself transpiles specs",
-    "without type-checking them, so without this the gate's own code would be",
-    "the only unchecked TypeScript in the repository."
+    "without type-checking them, so without this the gate's own code would go",
+    "unchecked.",
+    "",
+    "`vite.config.ts` is included here for the same reason (D-156). It was in",
+    "neither program -- `web/tsconfig.json` includes only `src` plus the",
+    "generated declarations -- while it owns the `/api` proxy the `integration`",
+    "and `browser` jobs both depend on. It belongs to this program rather than",
+    "the application's because it is build tooling, not shipped code, and it",
+    "needs the same `skipLibCheck` for Vite's own declarations."
   ],
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": [".", "../playwright.config.ts"]
+  "include": [".", "../playwright.config.ts", "../vite.config.ts"]
 }

@@ -41,14 +41,22 @@ from .coverage import caption_in_window
 from .io import _ABSOLUTE_PATH_ONLY, scrub_host_paths, scrub_host_paths_roots_only, write_json
 from .pipeline import PipelineError, import_transcript, project_root, resolve_run_dir, validate_run
 
+#: D-155 amends D-114. The bare ``MCPServer = None`` rebound an imported *name*
+#: to ``None``, which mypy refuses two ways once the module is actually there —
+#: `Cannot assign to a type` and `Incompatible types in assignment`. It checked
+#: clean only because CI's lint job did not install the `mcp` extra, so the
+#: import was unresolved and `ignore_missing_imports` made it `Any`: the one
+#: module that failed the check was the one module the check could not see. The
+#: annotation plus an aliased import is a form that passes under *both*
+#: dependency sets, so no `type: ignore` is needed and `warn_unused_ignores`
+#: stays satisfied whether or not the extra is installed.
+MCPServer: Any | None
 try:
-    from mcp.server import MCPServer
+    from mcp.server import MCPServer as _ImportedMCPServer
 except ImportError:  # pragma: no cover - exercised only without optional dependency
-    # D-114: the `type: ignore[assignment]` that used to sit here was reported
-    # as unused — mypy already accepts this, because the module is missing and
-    # the import is untyped. A stale ignore is a claim about the checker that
-    # is no longer true.
     MCPServer = None
+else:
+    MCPServer = _ImportedMCPServer
 
 
 #: The one root-resolution rule (D-039): explicit, then ``X2KNWLDG_PROJECT_ROOT``,
@@ -528,6 +536,7 @@ RESOURCES: tuple[tuple[str, Callable[..., Any]], ...] = (
 PROMPTS: tuple[Callable[..., Any], ...] = (extract_video_knowledge,)
 
 
+mcp: Any | None
 if MCPServer is not None:
     mcp = MCPServer("X2KNWLDG")
     for _tool in TOOLS:

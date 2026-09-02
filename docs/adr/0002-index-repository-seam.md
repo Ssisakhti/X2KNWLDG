@@ -115,7 +115,13 @@ shape *reachable* without making anything reach it.
   exercise, and the source type is read from the indexed source rather than
   assumed to be `youtube`.
 - The seam is stdlib-only, so it runs on a bare core install (ADR 0001
-  invariant 5) and the contract tests over it run in the zero-dependency CI job.
+  invariant 5). Correction of record: this bullet used to add "and the contract
+  tests over it run in the zero-dependency CI job". They do not. The contract
+  tests need `jsonschema` to validate a payload against a frozen component, and
+  that job's own dependency-creep check *guarantees* `jsonschema` is absent — so
+  `test_api_contract.py` skips there wholesale. What the zero-dependency job
+  proves about the seam is that it *imports and runs* with no extras, which is
+  invariant 5 and is the claim that belongs here.
 
 **Negative / accepted costs**
 

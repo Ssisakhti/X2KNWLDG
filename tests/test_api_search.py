@@ -59,29 +59,16 @@ def root(tmp_path_factory: pytest.TempPathFactory) -> Path:
 )
 def api(request: pytest.FixtureRequest, root: Path) -> Any:
     """A ``TestClient`` over each implementation in turn."""
+    # The `_skip_if_thread_bound` guard that used to stand here probed for a
+    # `503` naming a thread-bound connection. `SqliteRepository.open` passes
+    # `multithreaded=True`, so that `503` cannot occur and the guard reported
+    # `0 skipped` on every run — a defence over a defect that was fixed, whose
+    # docstring still asserted the defect was live. Its only remaining effect
+    # was the risk of silently skipping this whole parameterisation if some
+    # *other* `503` ever carried the words "same thread".
     build = h.memory_repository if request.param == "memory" else h.sqlite_repository
     with h.client(build(root)) as test_client:
-        _skip_if_thread_bound(test_client, request.param)
         yield test_client
-
-
-def _skip_if_thread_bound(test_client: Any, label: str) -> None:
-    """Skip rather than fail on a defect that is not this route's.
-
-    Starlette runs a sync endpoint in a worker thread, and
-    ``index.schema.connect`` opens SQLite with the default
-    ``check_same_thread=True`` — so a ``SqliteRepository`` built in the test's
-    own thread reports ``state: error`` for every request. That is a seam
-    defect affecting all four Track B route modules, reported rather than
-    worked around here (`T-106` owns two files, and neither is that one). The
-    probe is narrow on purpose: any *other* ``503`` is still a failure.
-    """
-    response = test_client.get("/api/search", params={"q": BROAD})
-    if response.status_code != 503:
-        return
-    message = response.json()["error"]["message"]
-    if "same thread" in message:
-        pytest.skip(f"{label}: the repository's SQLite connection is thread-bound — {message}")
 
 
 def search(test_client: Any, **params: Any) -> Any:
