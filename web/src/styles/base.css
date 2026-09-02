@@ -485,6 +485,33 @@ input {
   border-radius: var(--radius-md);
 }
 
+/* Map (T-204) ---------------------------------------------------------- */
+
+/*
+ * The renderer needs a container with a real size. Sigma is created with
+ * `allowInvalidContainer: false`, so a stage with no block size is a stated
+ * refusal rather than a blank canvas nobody can explain -- which means the
+ * size lives here, in one place, and `MapView`'s ResizeObserver hands every
+ * change of it to the renderer.
+ */
+.map__stage {
+  position: relative;
+  inline-size: 100%;
+  block-size: min(70vh, 640px);
+  min-block-size: 320px;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  overflow: hidden;
+  /* The renderer owns pan and zoom inside the stage; the browser must not
+     also scroll the page from a gesture that started on the graph. */
+  touch-action: none;
+}
+
+.map__state .definitions {
+  margin-block: 0;
+}
+
 /* States --------------------------------------------------------------- */
 
 .notice {

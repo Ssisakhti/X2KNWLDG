@@ -244,6 +244,132 @@ this task.
   `T-204`'s to create. `web/src/map/gate/gateGraph.ts` is a single-page conversion for this
   gate and is explicitly **not** the `T-203` projection.
 
+## Projection result (`T-203`, 2026-09-02)
+
+The projection and the progressive snapshot are built, in
+[`web/src/map/`](../../web/src/map/README.md) and behind no route: `graphProjection.ts`,
+`graphSnapshot.ts` and `graphWalk.ts`, with 48 hermetic tests and 3 against a running server.
+
+**What was measured.** The same walk over the **real 86-node/118-edge graph**, at four page
+sizes, served by `create_app(project_root=…)` over the real ingested project:
+
+| Nodes per page | Pages | Edges held at once, peak | Accumulated | `truncated` on the last page | `complete` |
+|---|---|---|---|---|---|
+| 1 | 86 | 54 | 86 nodes / 118 edges | `true` | `true` |
+| 10 | 9 | 46 | 86 / 118 | `true` | `true` |
+| 50 | 2 | 35 | 86 / 118 | `true` | `true` |
+| 500 | 1 | 0 | 86 / 118 | `false` | `true` |
+
+Page size does not change the graph, which is invariant 3 stated as a measurement rather than
+as an intention. The peak column is what a renderer would otherwise have drawn as dangling
+edges or invented nodes: 54 of them at one node per page, and none left at the end.
+
+**What the walk settled that this ADR left ambiguous.** Invariant 4 says `truncated: true`
+cannot be hidden by reaching a null cursor. The table shows the other half of it: *every* page
+of a multi-page walk reports `truncated`, the last one included, because both repository
+implementations compare the page against the whole filtered node set. So partiality cannot be
+accumulated from that flag either, and D-123 is the rule that came out of it — finished walk,
+nothing pending, and either `truncated: false` or the loaded count reaching the stated
+`total`, with an uncounted `total` leaving the question open.
+
+Two decisions follow from building it, and both bind `T-204`–`T-208`: node and edge
+attributes are the API's record verbatim plus a seeded position, with styling left to the
+renderer's reducers (**D-124**); and a repeated identity that disagrees in any field is a
+refusal naming that field, with absent and `null` read as the same statement (**D-125**).
+
+`GraphWalk` is the one graph store this phase gets. §8.6 of
+[`PROJECT_MANAGEMENT.md`](../PROJECT_MANAGEMENT.md) forbids a second one, and the reason is
+invariant 5: two snapshots never share a graph object, so a filter change cannot mix two
+questions even if a component forgets that it should not.
+
+## Shell result (`T-204`, 2026-09-02)
+
+The Map has an address. `#/map` is a declared route with a navigation entry,
+[`web/src/views/MapView.tsx`](../../web/src/views/MapView.tsx) composes it, and
+the renderer lifecycle is one class — `MapSession` in
+[`web/src/map/mapSession.ts`](../../web/src/map/mapSession.ts) — reached through
+an injected factory whose only production implementation is
+`web/src/map/sigmaRenderer.ts`. `GraphWalk` is driven through
+`web/src/map/useGraphWalk.ts`, a binding that owns *when* a question is asked
+and nothing about what a page means. No second store, no second projection, no
+second Sigma wrapper.
+
+**What it draws, and what it says.** The first request is `GRAPH_PAGE_LIMIT`
+nodes — the contract's own maximum — so the real 86-node/118-edge sample
+arrives as one page. Beside the canvas, read from `GraphSnapshot.state` and
+never recomputed: nodes loaded against the total the server counted, edges
+drawn, edges **held** for an endpoint that has not arrived (D-059), pages
+applied, and whether the accumulated graph is whole (D-123). A next page is a
+button, never automatic, and it re-settles the graph already on screen instead
+of creating a second renderer.
+
+That statement is rendered *before* the canvas. It is the description that
+survives when the picture cannot be read at all — by a screen reader, or in a
+browser with no WebGL2 — and a Map whose only honest account came after the
+drawing would read as complete to anyone who never reached the drawing.
+
+**Styling is still `T-205`'s.** The graph carries `x`, `y` and the record and
+nothing else (D-124), so Sigma draws its own uniform default size and colour.
+`renderLabels` is off, because D-122's truncation policy does not exist yet and
+a knowledge unit's label is its whole `normalized_statement`. No placeholder
+palette was written: it would be the second style table §8.6 forbids.
+
+**Measured.** The frontend suite is **267 hermetic tests in 27 files**, plus
+**17** against a running server — 21 of them new here, 11 over the lifecycle
+and 10 over the view. Against the real ingested project the Map states 86 nodes
+/ 86 counted, 118 edges, 0 held, `truncated: false`, complete; against the
+committed fixtures it states whatever that server returns, compared field by
+field with the payload rather than to a constant. `npm run build` splits the
+renderer into a 362 kB chunk (94 kB gzipped) the Library and the Reader never
+load.
+
+`#/map` has not yet been walked in a browser: `T-202` proved the renderer over
+this graph on this machine, and the route's own browser walk — including a real
+`ResizeObserver`, a real camera and 21 more create/kill cycles — is `T-209`'s.
+
+### Findings
+
+Four, all fixed inside this task, and the first two are the ones a later task
+would otherwise rediscover.
+
+1. **`sigma` cannot be imported statically in a jsdom program.** Its default
+   primitives call `layerFill` while the module body evaluates, and `layerFill`
+   destructures `UNSIGNED_BYTE` off the global `WebGL2RenderingContext` — which
+   jsdom does not define. So a static `import Sigma from "sigma"` anywhere in
+   the application's module graph is a `ReferenceError` at load, and it takes
+   down the suites of every component that has nothing to do with the Map.
+   `MapView` reaches the renderer through a dynamic `import` instead (D-127),
+   which is also why the Library and the Reader no longer carry it. A test
+   fails if a static import reappears.
+2. **`useState` calls a function it is handed.** Holding the renderer factory
+   in state stored it unwrapped, so React invoked it as a lazy initialiser and
+   constructed a renderer *during render*, before the container existed. What
+   caught it was a test asserting that an `index_unavailable` refusal creates
+   no renderer at all — the counting test, not the drawing one.
+3. **A merged page cannot keep the picture still.** A continuation page's nodes
+   arrive on their identity seeds, which say nothing about the structure the
+   layout already found, so the whole graph is relaxed again and the drawing
+   moves (D-128). Pinning the placed nodes is what
+   `graphology-layout-forceatlas2` offers instead, and it needs a third node
+   attribute — which D-124 does not let the graph carry.
+4. **`allowInvalidContainer: false` makes the stage's size load-bearing.** The
+   refusal is the behaviour worth keeping — a graph drawn into a zero-sized box
+   is the failure nobody can explain — but it means an unsized container has to
+   be a state the Map can render. It is: the renderer's refusal is caught and
+   stated beside counts that are still true (D-129).
+
+### What the shell hands to later tasks
+
+- `MapView` takes `createRenderer`, and the tests inject a fake. `T-205`–`T-208`
+  extend the same seam rather than reaching for Sigma themselves.
+- Styling arrives as reducers passed to `createSigmaRenderer`, and `T-205` owns
+  both that and the label policy `renderLabels: false` is holding open.
+- Selection is deliberately absent: `enableEdgeEvents` is off and nothing
+  listens for `clickNode`, so `T-206` defines the selection grammar once and
+  `T-207` consumes it, with no interim identity to migrate.
+- The `data-map-*` attributes on the state panel are the test seam for
+  "partial is not whole"; keep them true if the panel is restyled.
+
 ## References
 
 - Sigma v4 beta site: <https://v4.sigmajs.org/>

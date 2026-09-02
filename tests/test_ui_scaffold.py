@@ -1458,3 +1458,155 @@ def test_the_third_party_notices_record_every_map_dependency() -> None:
     for name in MAP_RUNTIME_PINS + MAP_DEV_PINS:
         version = package["dependencies"].get(name) or package["devDependencies"][name]
         assert f"{name}@{version}" in notices, f"{name}@{version} is not recorded"
+
+
+# ---------------------------------------------------------------------------
+# T-203 — the Map asks for a page the contract will actually serve
+# ---------------------------------------------------------------------------
+
+
+def test_the_map_requests_no_more_than_the_contract_maximum() -> None:
+    """``GRAPH_PAGE_LIMIT`` is the frozen document's ``limit`` maximum.
+
+    D-118 bounds the Map's first request by the contract maximum rather than by
+    a number the frontend liked. Written out in TypeScript it is a second copy
+    of a value the OpenAPI document owns, and the two would drift silently: a
+    larger literal is a ``400`` on the Map's very first request, and the client
+    would have been refused by the bound it was supposed to respect.
+    """
+    walk = (WEB / "src" / "map" / "graphWalk.ts").read_text(encoding="utf-8")
+    match = re.search(r"GRAPH_PAGE_LIMIT = (\d+)", walk)
+    assert match is not None, "the Map no longer states the page size it asks for"
+
+    document = json.loads(
+        (PROJECT_ROOT / "schemas" / "api" / "v1" / "openapi.json").read_text(encoding="utf-8")
+    )
+    maximum = document["components"]["parameters"]["Limit"]["schema"]["maximum"]
+    assert int(match.group(1)) == maximum, (
+        f"the Map asks for {match.group(1)} nodes per page and the contract's "
+        f"maximum is {maximum}"
+    )
+    # And the contract's own maximum is the package's, so this reaches the one
+    # constant rather than agreeing with a second copy of it (D-101).
+    from x2knwldg.constants import MAX_PAGE_LIMIT
+
+    assert maximum == MAX_PAGE_LIMIT
+
+
+# ---------------------------------------------------------------------------
+# T-204 — the Map has one address, one renderer, and one lifecycle
+# ---------------------------------------------------------------------------
+
+
+def _web_modules(exclude_gate: bool = True) -> list[Path]:
+    return [
+        path
+        for path in sorted((WEB / "src").rglob("*"))
+        if path.is_file()
+        and path.suffix in {".ts", ".tsx"}
+        and not (exclude_gate and "map/gate" in path.as_posix())
+    ]
+
+
+def test_the_map_is_addressable_and_linked() -> None:
+    """``#/map`` is a route and a navigation entry, not a panel.
+
+    The acceptance for `T-204` is that direct navigation and reload work, and
+    under ``HashRouter`` those are the same event — so what has to exist is a
+    declared route and something that links to it. A Map reachable only by
+    typing the fragment is a Map `T-206`'s URL grammar would have nothing to
+    hang selection and filters off.
+    """
+    app = (WEB / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert re.search(r'path="/map"\s+element=\{<MapView\s*/>\}', app), (
+        "App.tsx no longer routes /map to the Map view"
+    )
+    shell = (WEB / "src" / "components" / "Shell.tsx").read_text(encoding="utf-8")
+    assert 'to="/map"' in shell, "the Shell no longer links to the Map"
+
+
+def test_the_application_constructs_the_renderer_in_exactly_one_module() -> None:
+    """§8.6: no second Sigma lifecycle wrapper.
+
+    The gate is excluded because it is a development harness outside the
+    application (`T-202`), and it already has a test of its own saying so. What
+    this forbids is a *second* place in the app that constructs a renderer,
+    because two constructors are two lifecycles, and ADR 0005 invariant 10 —
+    every renderer killed on unmount and on replacement — is a property of one.
+    """
+    builders = [
+        path.relative_to(WEB).as_posix()
+        for path in _web_modules()
+        if re.search(r"\bnew Sigma\b", path.read_text(encoding="utf-8"))
+    ]
+    assert builders == ["src/map/sigmaRenderer.ts"], (
+        f"the application constructs Sigma in {builders}; §8.6 allows one place"
+    )
+
+
+def test_the_renderer_module_is_never_imported_statically() -> None:
+    """`sigma` evaluates ``WebGL2RenderingContext`` at module scope.
+
+    So a static import anywhere in the application's module graph throws a
+    ``ReferenceError`` the moment jsdom loads it — and takes the Library's and
+    the Reader's suites down with it, for a module neither of them uses. The
+    Map reaches the renderer through a dynamic ``import`` instead, which is
+    also what keeps a 360 kB chunk out of the two routes that draw no graph.
+    """
+    offenders: list[str] = []
+    for path in _web_modules():
+        text = path.read_text(encoding="utf-8")
+        name = path.relative_to(WEB).as_posix()
+        if name != "src/map/sigmaRenderer.ts" and re.search(r'^\s*import .*"sigma"', text, re.M):
+            offenders.append(f"{name} imports sigma statically")
+        if re.search(r'^\s*import .*"(?:\./|\.\./map/)sigmaRenderer"', text, re.M):
+            offenders.append(f"{name} imports the renderer module statically")
+    assert not offenders, "\n".join(offenders)
+
+    # And the dynamic reach is really there, so this pair cannot both pass by
+    # the Map having stopped loading a renderer at all.
+    view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
+    assert 'import("../map/sigmaRenderer")' in view, (
+        "MapView no longer loads the renderer on demand"
+    )
+
+
+def test_the_map_writes_no_display_attribute_onto_the_graph() -> None:
+    """D-124: node attributes are ``x``, ``y`` and the API's record.
+
+    A label, size or colour stored on the graph would put presentation inside
+    the data the inspector reads back, and would break the field-by-field
+    comparison D-125's refusal depends on. `T-205`'s style matrix belongs in
+    the renderer's reducers, so nothing outside the `T-202` gate — which is not
+    the Map — may set a graph attribute at all.
+    """
+    offenders = [
+        path.relative_to(WEB).as_posix()
+        for path in _web_modules()
+        if re.search(r"\bset(?:Node|Edge)Attributes?\b", path.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, (
+        f"these modules write graph attributes outside the projection: {offenders}"
+    )
+
+
+def test_the_map_stage_states_a_size() -> None:
+    """Sigma is created with ``allowInvalidContainer: false``.
+
+    That is deliberate — a container with no size should be a refusal the Map
+    states rather than a blank canvas nobody can explain — but it means the
+    stage's size is load-bearing. It is stated once, in the stylesheet, and the
+    renderer is told about every change to it.
+    """
+    renderer = (WEB / "src" / "map" / "sigmaRenderer.ts").read_text(encoding="utf-8")
+    assert "allowInvalidContainer: false" in renderer
+    base = (WEB / "src" / "styles" / "base.css").read_text(encoding="utf-8")
+    stage = re.search(r"\.map__stage\s*\{[^}]*\}", base)
+    assert stage is not None, "the Map's stage has no style, so it has no size"
+    assert "block-size" in stage.group(0), (
+        "the Map's stage declares no block size, so `allowInvalidContainer: "
+        "false` will refuse the renderer"
+    )
+    view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
+    assert 'className="map__stage"' in view
+    assert "ResizeObserver" in view, "nothing hands a container resize to the renderer"
