@@ -1610,3 +1610,138 @@ def test_the_map_stage_states_a_size() -> None:
     view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
     assert 'className="map__stage"' in view
     assert "ResizeObserver" in view, "nothing hands a container resize to the renderer"
+
+
+# ---------------------------------------------------------------------------
+# T-207 — the constellation is bounded, the depth is the contract's, and the
+#         overlay owns nothing
+# ---------------------------------------------------------------------------
+
+
+def test_the_map_asks_for_a_depth_the_contract_will_serve() -> None:
+    """``MAP_DEPTH_MIN``/``MAP_DEPTH_MAX`` are the frozen document's own bounds.
+
+    The same rule as ``GRAPH_PAGE_LIMIT`` (`T-203`), for the same reason: a
+    bound written out in TypeScript is a second copy of a value the OpenAPI
+    document owns, and the two drift silently. Here the drift is worse than a
+    refused request — the neighbourhood response *echoes ``depth`` back*, so a
+    client asking beyond the maximum is refused, and one that clamped would
+    report a bound the reader never set.
+    """
+    module = (WEB / "src" / "map" / "neighbourhood.ts").read_text(encoding="utf-8")
+    low = re.search(r"MAP_DEPTH_MIN = (\d+)", module)
+    high = re.search(r"MAP_DEPTH_MAX = (\d+)", module)
+    assert low is not None and high is not None, (
+        "the Map no longer states the depth bounds it asks within"
+    )
+
+    document = json.loads(
+        (PROJECT_ROOT / "schemas" / "api" / "v1" / "openapi.json").read_text(encoding="utf-8")
+    )
+    operation = document["paths"]["/api/graph/neighborhood/{entity_id}"]["get"]
+    depth = next(
+        parameter
+        for parameter in operation["parameters"]
+        if parameter.get("name") == "depth"
+    )
+    assert int(low.group(1)) == depth["schema"]["minimum"]
+    assert int(high.group(1)) == depth["schema"]["maximum"]
+    # And the package's own bounds are the document's, so this reaches one
+    # constant rather than agreeing with a second copy of it.
+    from x2knwldg.repository.base import MAX_DEPTH, MIN_DEPTH
+
+    assert depth["schema"]["minimum"] == MIN_DEPTH
+    assert depth["schema"]["maximum"] == MAX_DEPTH
+
+    # The neighbourhood is not paged — the response carries no `page` — so
+    # `limit` is the only bound there is, and it must be one the server serves.
+    hook = (WEB / "src" / "map" / "useNeighbourhood.ts").read_text(encoding="utf-8")
+    requested = re.search(r"NEIGHBOURHOOD_LIMIT = (\d+)", hook)
+    assert requested is not None, "the Map no longer states how many neighbours it asks for"
+    assert int(requested.group(1)) <= document["components"]["parameters"]["Limit"]["schema"][
+        "maximum"
+    ]
+
+
+def test_the_card_overlay_owns_no_control_the_dom_does_not() -> None:
+    """D-132's overlay is presentation, and `T-208` depends on it staying so.
+
+    Two failures are being held off at once. A focusable card over a canvas
+    builds a second accessibility tree over entities the related list already
+    lists, and a *control* that exists only inside the overlay makes the canvas
+    the only way to reach it — which is the "essential content only on hover or
+    WebGL" that `T-208`'s gate forbids. So the overlay renders no button, link
+    or field, takes no pointer events, and is hidden from the accessibility
+    tree; selecting a neighbour is a click on its mark (the same `focusEntity`
+    the rail calls) or a real control in the related list.
+    """
+    overlay = (WEB / "src" / "components" / "MapConstellation.tsx").read_text(encoding="utf-8")
+    for element in ("<button", "<a ", "<input", "<select", "onClick"):
+        assert element not in overlay, (
+            f"the card overlay renders {element!r}; D-132's overlay is presentation, "
+            "and a control that exists only over the canvas is unreachable without it"
+        )
+    assert 'aria-hidden="true"' in overlay, "the overlay is not hidden from the accessibility tree"
+
+    base = (WEB / "src" / "styles" / "base.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.map__overlay\s*\{[^}]*\}", base)
+    assert rule is not None, "the card overlay has no style, so it has no box over the stage"
+    assert "pointer-events: none" in rule.group(0), (
+        "the overlay would swallow the clicks that select a node on the canvas"
+    )
+    assert "position: absolute" in rule.group(0)
+
+
+def test_the_stage_overlay_is_not_inside_the_container_the_renderer_owns() -> None:
+    """``MapSession.kill()`` empties the renderer's container.
+
+    It has to: Sigma appends its own canvases there, and a killed renderer's
+    leftovers would otherwise sit under the next one's. So a React subtree
+    rendered *inside* that container is removed from under React the first time
+    a filter replaces the renderer — the cards would vanish and never come
+    back, with nothing in the console to say why. The overlay is a sibling.
+    """
+    session = (WEB / "src" / "map" / "mapSession.ts").read_text(encoding="utf-8")
+    assert "replaceChildren()" in session, (
+        "the session no longer clears the container, so this guard is guarding nothing"
+    )
+    view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
+    stage = view.index('className="map__stage"')
+    overlay = view.index("<MapConstellation")
+    closing = view.index("/>", stage)
+    assert closing < overlay, (
+        "the card overlay is rendered inside the container the renderer owns; "
+        "`MapSession.kill()` would remove it from under React"
+    )
+
+
+def test_the_map_builds_its_card_content_in_exactly_one_place() -> None:
+    """§8.6 allows one card-content formatter, and one text cutter.
+
+    The rail's cards, the Peek, the on-stage cards and the related list all
+    render one record shape, and every one of them builds it through
+    ``previewOfEntity``/``previewOfHit``. A second builder would be a second
+    set of decisions about what a missing confidence renders as — and the
+    integration that closed the `T-205`/`T-206` fan-out already found one:
+    the DOM card had grown its own cutter, which counted UTF-16 units and
+    would halve a surrogate pair in the Persian half of this library.
+    """
+    builders = [
+        path.relative_to(WEB).as_posix()
+        for path in _web_modules()
+        if re.search(r"unaddressable:\s*(?:null|\"|')", path.read_text(encoding="utf-8"))
+    ]
+    assert builders == ["src/map/useMapSearch.ts"], (
+        f"these modules build a Map preview themselves: {builders}; §8.6 allows one"
+    )
+
+    # Application modules only: a test naming the ellipsis is asserting on the
+    # cut, not performing one.
+    cutters = [
+        path.relative_to(WEB).as_posix()
+        for path in _web_modules()
+        if ".test." not in path.name
+        and path.name != "labelPolicy.ts"
+        and "MAP_LABEL_ELLIPSIS" in path.read_text(encoding="utf-8")
+    ]
+    assert not cutters, f"these modules cut display text themselves: {cutters}"

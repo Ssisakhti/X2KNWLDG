@@ -16,11 +16,14 @@
  *   zero-sized container is a defect to see rather than a graph quietly drawn
  *   into nothing. `MapView` renders the refusal instead of crashing the route
  *   (D-129).
- * - `enableEdgeEvents: false`. Nothing yet responds to a pointer on an edge,
- *   and edge picking costs a hit-test pass per frame. `T-207` turns it on when
- *   there is something for it to select. Note that this does *not* affect edge
- *   styling: an edge's interaction state is derived from its own endpoints, so
- *   the active path lights up without any edge ever being hit-tested.
+ * - `enableEdgeEvents: false`. `T-207` looked at this and **kept it off**
+ *   (D-135). The Map's selection is an entity's `global_id` and the URL
+ *   grammar can address nothing else (D-119), so a click on an edge has
+ *   nowhere to go; turning the events on would buy a hit-test pass per frame
+ *   and a pointer target that cannot be selected. Note that this does *not*
+ *   affect edge styling: an edge's interaction state is derived from its own
+ *   endpoints, so the active path lights up without any edge ever being
+ *   hit-tested, and `T-207`'s cards name the relation in words.
  * - The label settings come from `MAP_LABEL_SETTINGS`, which is D-122's policy.
  *   `renderLabels` is now `true`, which it was not in `T-204`: the blanket
  *   `false` was holding the door until a truncation and density policy existed,
@@ -58,6 +61,20 @@
  * hover into `mapStyle` and `MapSession.refresh()` redraws with the layout
  * untouched. `sigmaRendererFor` exists so a caller with its own `MapStyle` --
  * a test, or a second view -- can have one without reaching for Sigma itself.
+ *
+ * ## The adapter (`T-207`)
+ *
+ * The factory returns an *adapter* over the Sigma instance rather than the
+ * instance itself, which is new. `MapRenderer` used to be a structural subset
+ * Sigma happened to satisfy; `onNode`, `onRender` and `graphToViewport` are
+ * where that stops being free -- Sigma's emitter is typed per event name, so
+ * spelling the events here is what keeps `sigma`'s types inside the one module
+ * that is allowed to name them (D-127) and keeps the injected fakes in the
+ * tests down to four small functions.
+ *
+ * The adapter adds no behaviour and no state. It renames three calls and
+ * unwraps one event payload, so that the Map's own boundary says `onNode` and
+ * a `global_id` where Sigma says `clickNode` and `{ node }`.
  */
 
 import Sigma from "sigma";
@@ -78,7 +95,7 @@ import {
 
 import { MAP_LABEL_SETTINGS } from "./labelPolicy";
 import type { MapGraph } from "./graphProjection";
-import type { MapRenderer, MapRendererFactory } from "./mapSession";
+import type { MapNodeEvent, MapPoint, MapRenderer, MapRendererFactory } from "./mapSession";
 import { MapStyle, mapStyle } from "./mapStyle";
 
 /**
@@ -111,8 +128,8 @@ export const MAP_PRIMITIVES = {
 
 /** A renderer factory over one style table. */
 export function sigmaRendererFor(style: MapStyle): MapRendererFactory {
-  return (graph: MapGraph, container: HTMLElement): MapRenderer =>
-    new Sigma(graph, container, {
+  return (graph: MapGraph, container: HTMLElement): MapRenderer => {
+    const sigma = new Sigma(graph, container, {
       primitives: MAP_PRIMITIVES,
       settings: {
         allowInvalidContainer: false,
@@ -122,6 +139,23 @@ export function sigmaRendererFor(style: MapStyle): MapRendererFactory {
       nodeReducer: style.nodeReducer,
       edgeReducer: style.edgeReducer,
     });
+    return {
+      resize: (force?: boolean) => sigma.resize(force),
+      refresh: () => sigma.refresh(),
+      kill: () => sigma.kill(),
+      getCamera: () => sigma.getCamera(),
+      // The node key *is* the `global_id` (D-124), so no lookup is needed and
+      // none is done: an adapter that resolved a record here would be a second
+      // place the Map decides what a mark means.
+      onNode: (event: MapNodeEvent, handler: (globalId: string) => void) => {
+        sigma.on(event, ({ node }) => handler(node));
+      },
+      onRender: (handler: () => void) => {
+        sigma.on("afterRender", handler);
+      },
+      graphToViewport: (point: MapPoint) => sigma.graphToViewport(point),
+    };
+  };
 }
 
 /** The application's renderer, over the application's one style table. */

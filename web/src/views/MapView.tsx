@@ -21,11 +21,22 @@
  * node around a selection that is not on screen would be a picture of a focus
  * that does not exist. The canvas stays unfocused and the rail says why.
  *
- * What is still not begun here: nothing selects on the *canvas* yet. The
- * renderer boundary carries no event surface, and §8.6 gives its event and
- * coordinate adapters to `T-207` along with the bounded constellation. So
- * pointer and keyboard reach `focusEntity` through the rail, and `T-207` adds
- * the third caller without adding a second identity.
+ * **The canvas is now a third caller, not a second identity** (`T-207`,
+ * §8.6). `MapSession` reports a click, an enter and a leave; this view answers
+ * them with the *same* `focus.focusEntity` the rail's buttons call and the
+ * *same* `peek.open`/`peek.close` its rows call. Nothing about selection lives
+ * in the renderer, which is why the canvas can be absent -- no WebGL, no
+ * measured container -- and the whole journey still works from the DOM.
+ *
+ * **A selection also asks two questions of its own** (`T-207`): what the
+ * entity is (`/api/entities/{id}`) and what it is connected to
+ * (`/api/graph/neighborhood/{id}`, depth 1..3). Those answers are the
+ * neighbourhood, and they never touch the drawn graph: `GraphSnapshot`
+ * accumulates the pages these filters describe (D-118) and merging a
+ * neighbourhood into it would draw nodes the filters exclude and make the
+ * counts beside the canvas uncomparable. So the bounded overlay is anchored to
+ * the marks the snapshot *does* hold, and every returned neighbour -- drawn or
+ * not, carded or not -- is in the related list (D-132, R20).
  *
  * **What the drawing is allowed to claim.** A graph page is not a graph
  * (D-059), and the last page of a paged walk still reports `truncated`
@@ -60,15 +71,24 @@
  * two routes that never draw a graph.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import { ApiFailure } from "../api/errors";
 import { ErrorState } from "../components/ErrorState";
+import { MapConstellation } from "../components/MapConstellation";
 import { MapFilters } from "../components/MapFilters";
 import { MapLegend } from "../components/MapLegend";
+import { MapQuickRead } from "../components/MapQuickRead";
+import { MapRelatedList } from "../components/MapRelatedList";
 import { MapSearchRail } from "../components/MapSearchRail";
 import { useI18n } from "../i18n";
+import {
+  MAP_STAGE_SETTLE_MS,
+  placeConstellation,
+  type StageBox,
+  type StagePlacement,
+} from "../map/constellation";
 import { GraphConflictError } from "../map/graphProjection";
 import type { GraphFilters } from "../map/graphSnapshot";
 import { apiGraphPages } from "../map/graphWalk";
@@ -77,6 +97,7 @@ import { MapSession, type MapRendererFactory } from "../map/mapSession";
 import { useGraphWalk } from "../map/useGraphWalk";
 import { useMapFocus } from "../map/useMapFocus";
 import { useMapPeek } from "../map/useMapPeek";
+import { useNeighbourhood } from "../map/useNeighbourhood";
 import { recordLookup } from "../map/useMapSearch";
 
 /** The typed loader over the frozen operation, built once rather than per render. */
@@ -136,6 +157,49 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   // never attribute a statement to a node no request returned (D-131).
   const peek = useMapPeek(recordLookup(graph));
 
+  // The selection's own two questions (`T-207`). Keyed on the focus and the
+  // depth, so a re-render asks nothing and a new selection asks once.
+  const hood = useNeighbourhood(focus.focus);
+
+  /** The stage's measured box, in pixels. Zero until the container is laid out. */
+  const [stageBox, setStageBox] = useState<StageBox>({ width: 0, height: 0 });
+  /** Bumped when the camera settles, which is when cards are placed again. */
+  const [placedAt, setPlacedAt] = useState(0);
+  /** Whether the camera is mid-gesture, in which case no card is drawn. */
+  const [moving, setMoving] = useState(false);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The same fact, readable without a render, so a frame can check it. */
+  const isMoving = useRef(false);
+
+  /**
+   * The renderer drew a frame.
+   *
+   * Called once per frame while the camera moves, so it must not re-render per
+   * frame: the state change is guarded by a ref, and the trailing timer is one
+   * too. Two renders per gesture -- one to hide the cards, one to place them
+   * again -- rather than sixty (`MAP_STAGE_SETTLE_MS`).
+   */
+  const onRendered = useCallback(() => {
+    if (!isMoving.current) {
+      isMoving.current = true;
+      setMoving(true);
+    }
+    if (settle.current !== null) clearTimeout(settle.current);
+    settle.current = setTimeout(() => {
+      settle.current = null;
+      isMoving.current = false;
+      setMoving(false);
+      setPlacedAt((value) => value + 1);
+    }, MAP_STAGE_SETTLE_MS);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (settle.current !== null) clearTimeout(settle.current);
+    },
+    [],
+  );
+
   // Only a selection the graph *holds* is drawn as one. `hasFocus` dims
   // everything unrelated, so a focus naming an entity these pages have not
   // reached would dim the whole picture around nothing. The rail states that
@@ -144,24 +208,69 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     focus.focus !== null && graph !== null && graph.hasNode(focus.focus) ? focus.focus : null;
   const hoveredNode = peek.peek?.globalId ?? null;
 
+  /**
+   * What the canvas reports to, kept in a ref and refreshed on every render.
+   *
+   * The same device `useMapPeek` uses for its lookup, and for the same reason:
+   * these close over the current URL and the current Peek, while the
+   * renderer's subscription is made once when the renderer is created. A
+   * session re-created to pick up a new closure would kill a live renderer --
+   * and the accumulated picture with it -- on every render.
+   *
+   * Note what is *not* here: any decision. `select` is `focus.focusEntity`
+   * itself, which is the function the search rail's buttons call, so the
+   * canvas is a third caller of one selection identity rather than a second
+   * identity (§8.6, invariant 8).
+   */
+  const canvas = useRef({
+    select: focus.focusEntity as (globalId: string) => void,
+    enter: peek.open,
+    leave: peek.close,
+    rendered: onRendered,
+  });
+  canvas.current = {
+    select: focus.focusEntity,
+    enter: peek.open,
+    leave: peek.close,
+    rendered: onRendered,
+  };
+
+  // Always this focus's own, never a previous selection's: `useNeighbourhood`
+  // reports only an answer to the question currently being asked, so nothing
+  // downstream has to re-check the centre.
+  const neighbourhood = hood.neighbourhood;
+  // Which marks are lit as neighbours of the focus: the edges actually drawn,
+  // plus the bounded neighbourhood's own answer restricted to nodes the Map
+  // holds (`T-207`). Both are the API's statements about relatedness, so the
+  // union is not a guess -- and it only ever *grows* as the neighbourhood
+  // arrives, so a selection does not flicker between two highlight sets. A
+  // node that is not drawn cannot be styled at all, which is why the related
+  // list, not this set, is the completeness path (D-132).
+  const relatedIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (graph === null || drawnFocus === null) return ids;
+    for (const id of graph.neighbors(drawnFocus)) ids.add(id);
+    if (neighbourhood !== null) {
+      for (const entity of neighbourhood.related) {
+        if (graph.hasNode(entity.globalId)) ids.add(entity.globalId);
+      }
+    }
+    return ids;
+    // The graph is mutated in place (D-118), so its identity is not the
+    // dependency -- the snapshot and the page count are.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, snapshotId, pages, drawnFocus, neighbourhood]);
+
   useEffect(() => {
-    // The neighbours are the ones already accumulated -- what is on screen to
-    // light up. The *bounded* neighbourhood over `/api/graph/neighborhood/{id}`
-    // is `T-207`'s, and this is not a preview of it: it claims only that these
-    // edges are drawn, never that they are all of them.
-    const neighbours =
-      graph !== null && drawnFocus !== null
-        ? new Set<string>(graph.neighbors(drawnFocus))
-        : new Set<string>();
     const changed = mapStyle.setView({
       selectedNode: drawnFocus,
       hoveredNode,
-      neighbourNodes: neighbours,
+      neighbourNodes: relatedIds,
     });
     // `refresh`, never `update`: `update` re-settles the layout (D-128), which
     // would make the graph jump every time the pointer crossed a result row.
     if (changed) session.current?.refresh();
-  }, [graph, snapshotId, pages, drawnFocus, hoveredNode]);
+  }, [drawnFocus, hoveredNode, relatedIds]);
 
   // One session for the life of the route. The cleanup is the only thing
   // standing between a filter/reload loop and a pile of WebGL contexts, and
@@ -169,7 +278,18 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   useEffect(() => {
     const container = stage.current;
     if (container === null || factory === null) return;
-    const live = new MapSession({ container, createRenderer: factory });
+    const live = new MapSession({
+      container,
+      createRenderer: factory,
+      // Stable trampolines over the ref above, so the handlers can change
+      // every render without the session ever being rebuilt.
+      handlers: {
+        onSelectNode: (globalId) => canvas.current.select(globalId),
+        onEnterNode: (globalId) => canvas.current.enter(globalId, "pointer"),
+        onLeaveNode: (globalId) => canvas.current.leave(globalId),
+        onRender: () => canvas.current.rendered(),
+      },
+    });
     session.current = live;
     attached.current = 0;
     return () => {
@@ -191,6 +311,13 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         attached.current = snapshotId;
       }
       setRendererError(null);
+      // The renderer now holds this graph, so its marks have positions to
+      // anchor cards to (`T-207`). This is the *first* placement: without it
+      // the overlay would wait for a frame event, and the placement computed
+      // during the render that preceded this effect asked a renderer that had
+      // not been given the graph yet -- which reads as "no neighbour is
+      // drawn", which would be a report about the wrong thing.
+      setPlacedAt((value) => value + 1);
     } catch (cause) {
       // A renderer that cannot be created -- no WebGL2, or a container with no
       // size -- is a state to state, not an exception to take the route down
@@ -208,12 +335,24 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   useEffect(() => {
     const container = stage.current;
     if (container === null) return;
+    // One callback, two consumers: the renderer needs the new size, and the
+    // overlay needs the box to decide which anchors are inside the stage. A
+    // second observer would be a second answer to one question.
+    const measure = () => {
+      session.current?.resize();
+      const box = container.getBoundingClientRect();
+      setStageBox((current) =>
+        current.width === box.width && current.height === box.height
+          ? current
+          : { width: box.width, height: box.height },
+      );
+    };
+    measure();
     if (typeof ResizeObserver === "undefined") {
-      const onResize = () => session.current?.resize();
-      window.addEventListener("resize", onResize);
-      return () => window.removeEventListener("resize", onResize);
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
     }
-    const observer = new ResizeObserver(() => session.current?.resize());
+    const observer = new ResizeObserver(measure);
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
@@ -240,6 +379,32 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   /** Whether there is a camera to drive: a live renderer over a loaded page. */
   const drawn = pages > 0 && factory !== null && rendererError === null;
   const conflict = error instanceof GraphConflictError ? error : null;
+
+  /**
+   * Which cards the stage may carry, and why the rest have none (`T-207`).
+   *
+   * `null` -- not "an empty placement" -- whenever there is no stage to place
+   * anything on: nothing selected, or no live renderer over a measured
+   * container. The distinction matters because the omission report is a
+   * statement *about the stage*, and reporting every neighbour as "not drawn"
+   * when the whole canvas is missing would explain the wrong thing. The
+   * renderer's own refusal is already stated above, and the related list is
+   * complete either way.
+   *
+   * Recomputed when the selection, the neighbourhood, the graph or the stage's
+   * size changes -- and when the camera settles (`placedAt`), which is what
+   * makes a card follow its mark.
+   */
+  const placement = useMemo<StagePlacement | null>(() => {
+    if (!drawn || focus.focus === null) return null;
+    return placeConstellation({
+      centreId: drawnFocus,
+      related: neighbourhood?.related ?? [],
+      position: (globalId) => session.current?.nodePosition(globalId) ?? null,
+      stage: stageBox,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawn, focus.focus, drawnFocus, neighbourhood, stageBox, placedAt, snapshotId, pages]);
 
   return (
     <div className="stack map">
@@ -354,17 +519,55 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
       )}
 
       {/*
-        The WebGL surface. One label, and one label is not accessibility: it
-        describes the existence of a graph rather than its selectable entities,
-        which is why ADR 0005 (D-120) pairs it with a DOM surface and why the
-        counts above are rendered as text. `T-208` owns the rest of that pairing.
+        The WebGL surface, and the overlay anchored to it.
+
+        One label, and one label is not accessibility: it describes the
+        existence of a graph rather than its selectable entities, which is why
+        ADR 0005 (D-120) pairs it with a DOM surface and why the counts above
+        are rendered as text. `T-208` owns the rest of that pairing.
+
+        The overlay is a *sibling* of the stage rather than a child of it, and
+        that is not layout taste: `MapSession.kill()` empties the container,
+        because Sigma appends its own canvases to it and a killed renderer's
+        leftovers would otherwise sit under the next one's. A React subtree
+        inside that container would be removed from under React the first time
+        a filter changed.
+
+        While the camera is moving nothing is drawn here at all -- the same
+        rule `hideLabelsOnMove` applies to labels, for the same reason.
       */}
-      <div
-        ref={stage}
-        className="map__stage"
-        role="img"
-        aria-label={t("map.stage.label")}
-        data-map-stage
+      <div className="map__canvas">
+        <div
+          ref={stage}
+          className="map__stage"
+          role="img"
+          aria-label={t("map.stage.label")}
+          data-map-stage
+        />
+        {!moving && <MapConstellation placement={placement} centre={hood.centre} />}
+      </div>
+
+      <MapQuickRead
+        focus={focus.focus}
+        entity={hood.centre}
+        error={hood.centreError}
+        onRetry={hood.reload}
+        relations={neighbourhood?.active ?? []}
+        loading={hood.status === "loading"}
+      />
+
+      <MapRelatedList
+        focus={focus.focus}
+        neighbourhood={neighbourhood}
+        status={hood.status}
+        error={hood.neighbourhoodError}
+        onRetry={hood.reload}
+        depth={hood.depth}
+        onDepthChange={hood.setDepth}
+        graph={graph}
+        onFocus={focus.focusEntity}
+        peek={peek}
+        placement={placement}
       />
 
       <MapLegend />

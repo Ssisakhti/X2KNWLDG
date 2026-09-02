@@ -1,6 +1,7 @@
 /**
  * The Map's renderer lifecycle: lay out, draw, refresh, resize, zoom, and kill
- * (`T-204`; `refresh` added by `T-205`).
+ * (`T-204`; `refresh` added by `T-205`, the event and coordinate adapters by
+ * `T-207`).
  *
  * There is exactly one of these in the application (§8.6 forbids a second
  * Sigma wrapper), and it is deliberately framework-free. React decides *when*
@@ -40,15 +41,66 @@ export interface MapCamera {
   reset(): unknown;
 }
 
+/**
+ * The node events the Map listens for (`T-207`).
+ *
+ * Three, and no edge event. An edge has no address in the Map's URL grammar --
+ * `focus` is an entity's `global_id` (D-119) -- so a pointer on an edge would
+ * have nowhere to go, and `enableEdgeEvents` stays off (D-135). Edge
+ * *styling* needs no event at all: an edge's interaction state is derived from
+ * its own endpoints in `mapStyle`.
+ */
+export type MapNodeEvent = "clickNode" | "enterNode" | "leaveNode";
+
+/** A point in either coordinate system. Graph units going in, container pixels coming out. */
+export interface MapPoint {
+  x: number;
+  y: number;
+}
+
 /** The part of the renderer the Map uses, and nothing wider. */
 export interface MapRenderer {
   resize(force?: boolean): unknown;
   refresh(): unknown;
   kill(): unknown;
   getCamera(): MapCamera;
+  /**
+   * Subscribe to a node event (`T-207`). Released by `kill()`, which is why
+   * there is no unsubscribe: the renderer's life *is* the subscription's.
+   */
+  onNode(event: MapNodeEvent, handler: (globalId: string) => void): void;
+  /** Subscribe to "the picture has just been drawn" -- pan, zoom, resize, refresh. */
+  onRender(handler: () => void): void;
+  /** Graph coordinates to pixels inside the container. */
+  graphToViewport(point: MapPoint): MapPoint;
 }
 
 export type MapRendererFactory = (graph: MapGraph, container: HTMLElement) => MapRenderer;
+
+/**
+ * What the view wants to know when the canvas is used (`T-207`).
+ *
+ * Every one of these is a *report*, never a decision: the session says a node
+ * was clicked, and the view calls the same `focusEntity` the search rail's
+ * button calls. That is what keeps pointer, keyboard and URL on one selection
+ * identity (ADR 0005 invariant 8, §8.6) -- a handler here that navigated
+ * would be the second one.
+ *
+ * Held in a mutable slot rather than captured at construction, because these
+ * close over React state and change identity on nearly every render, while the
+ * renderer's own subscription must be made once when it is created. `attach`
+ * subscribes a trampoline that reads the current slot.
+ */
+export interface MapSessionHandlers {
+  /** A node was clicked. The argument is its `global_id`, which is its node key. */
+  onSelectNode?: (globalId: string) => void;
+  /** The pointer entered a node. */
+  onEnterNode?: (globalId: string) => void;
+  /** The pointer left a node. */
+  onLeaveNode?: (globalId: string) => void;
+  /** The picture was drawn, so anything anchored to a node has moved. */
+  onRender?: () => void;
+}
 
 /**
  * ForceAtlas2 iterations per pass.
@@ -75,6 +127,8 @@ export interface MapSessionOptions {
   iterations?: number;
   /** Injected for tests; `performance.now` in the browser. */
   now?: () => number;
+  /** What to report to (`T-207`). Replaceable through `setHandlers`. */
+  handlers?: MapSessionHandlers;
 }
 
 /**
@@ -92,6 +146,7 @@ export class MapSession {
 
   private renderer: MapRenderer | null = null;
   private graph: MapGraph | null = null;
+  private handlers: MapSessionHandlers;
 
   /** Every create and every kill, counted, so a leak shows up as a mismatch. */
   private created = 0;
@@ -101,6 +156,19 @@ export class MapSession {
     this.options = options;
     this.iterations = options.iterations ?? MAP_LAYOUT_ITERATIONS;
     this.now = options.now ?? (() => performance.now());
+    this.handlers = options.handlers ?? {};
+  }
+
+  /**
+   * Replace what the canvas reports to (`T-207`).
+   *
+   * Called on render rather than at construction: the handlers close over the
+   * view's current state, and re-creating the session to change them would
+   * kill a live renderer -- and with it the accumulated picture -- every time
+   * a callback's identity changed.
+   */
+  setHandlers(next: MapSessionHandlers): void {
+    this.handlers = next;
   }
 
   get live(): boolean {
@@ -132,9 +200,40 @@ export class MapSession {
     if (this.renderer !== null) this.kill();
     const layout = this.relax(graph);
     this.graph = graph;
-    this.renderer = this.options.createRenderer(graph, this.options.container);
+    const renderer = this.options.createRenderer(graph, this.options.container);
+    // Subscribed once, here, and released with the renderer by `kill()`. Each
+    // one reads the *current* handler slot, so a re-render can change what a
+    // click does without touching the renderer that reports it.
+    renderer.onNode("clickNode", (id) => this.handlers.onSelectNode?.(id));
+    renderer.onNode("enterNode", (id) => this.handlers.onEnterNode?.(id));
+    renderer.onNode("leaveNode", (id) => this.handlers.onLeaveNode?.(id));
+    renderer.onRender(() => this.handlers.onRender?.());
+    this.renderer = renderer;
     this.created += 1;
     return layout;
+  }
+
+  /**
+   * Where a node's mark is on screen, in pixels inside the container, or
+   * `null` (`T-207`).
+   *
+   * The coordinate half of D-132: a card is anchored to its node by asking the
+   * renderer where that node currently is, so a pan or a zoom moves the card
+   * with the mark rather than leaving it behind. `null` is returned rather than
+   * a guess in every case where there is no answer -- no live renderer, a node
+   * the graph does not hold, or coordinates that are not finite -- because a
+   * card placed at an invented position would claim to point at a mark that is
+   * somewhere else entirely.
+   */
+  nodePosition(globalId: string): MapPoint | null {
+    const renderer = this.renderer;
+    const graph = this.graph;
+    if (renderer === null || graph === null || !graph.hasNode(globalId)) return null;
+    const { x, y } = graph.getNodeAttributes(globalId);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const point = renderer.graphToViewport({ x, y });
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+    return point;
   }
 
   /**

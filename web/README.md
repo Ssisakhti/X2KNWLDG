@@ -26,9 +26,9 @@ npm run build      # production bundle into dist/
 | `src/api/useAsync.ts`, `src/api/usePaged.ts` | One request, and cursor paging |
 | `src/i18n/` | Catalogues and the locale/`dir` provider (`T-110`) |
 | `src/styles/` | Design tokens and the stylesheet, logical properties throughout |
-| `src/components/` | Provenance and status badges (`T-113`), the media panel (`T-114`), the virtualized list, the report renderer |
+| `src/components/` | Provenance and status badges (`T-113`), the media panel (`T-114`), the virtualized list, the report renderer, and the Map's DOM surfaces — legend and filters (`T-205`), search rail, result card and Peek (`T-206`), card overlay, related list, Quick Read and the one relation cue (`T-207`) |
 | `src/views/` | Library (`T-111`), Reader (`T-112`) and Map (`T-204`) |
-| [`src/map/`](src/map/README.md) | The Knowledge Map's machinery: deterministic seed positions (`T-202`), the graph projection, progressive snapshot and page walk (`T-203`), the renderer lifecycle and the one Sigma constructor (`T-204`), and the `T-202` renderer gate |
+| [`src/map/`](src/map/README.md) | The Knowledge Map's machinery: deterministic seed positions (`T-202`), the graph projection, progressive snapshot and page walk (`T-203`), the renderer lifecycle and the one Sigma constructor (`T-204`), the style table and label policy (`T-205`), the URL grammar, search and focus/Peek state (`T-206`), the bounded neighbourhood and the on-stage density policy (`T-207`), and the `T-202` renderer gate |
 | `scripts/dev_api.py` | Stands up the real server over the committed fixtures |
 | `gate.html` | The `T-202` gate harness, development-only and outside the production build ([why](src/map/README.md)) |
 
@@ -136,6 +136,10 @@ preferences, and each one has a test:
 | The adapter's `unmappable_artifacts` and `unreadable_files` — D-045 | `SourceCard` flags them, `AdapterDiagnostics` names them |
 | A graph **page** vs the graph (D-059, D-123) | `MapView` states loaded / counted total, edges drawn, edges **held** for an endpoint that has not arrived, and whether the accumulated graph is whole — from `GraphSnapshot.state`, never recomputed |
 | A graph that is empty vs one that could not be **drawn** (D-129) | `MapView` renders the counts before the canvas, and a renderer refusal (no WebGL2, unsized container) as its own stated state |
+| An entity id that names **nothing** vs one the Map has not **loaded** (`T-207`) | `/api/entities/{id}`'s `404` is stated in Quick Read; "not loaded on the Map yet" is read from the accumulated graph and said in the related row |
+| A neighbour with **no card** on the stage vs no neighbour at all (D-132, R20) | `placeConstellation` returns a counted reason per refusal — not drawn, off the stage, crowded, over budget — and the related list holds every returned neighbour regardless |
+| A neighbour that is **two hops** out vs one with a real relation to the focus | The related row names the relation and direction when there is one, and states the hop distance instead of borrowing another entity's relation |
+| A neighbourhood the server **cut short** vs a complete one | `truncated` is the server's own statement and is rendered as one; the client never infers it from a length |
 
 ## Known gaps
 
@@ -144,14 +148,26 @@ preferences, and each one has a test:
   by asking each listed source separately, and each group reports its own total.
   No aggregate count is shown, because the server never computed one. A
   cross-source entity list taking those filters would be a contract change.
-- **No entity page.** `/api/entities/{entity_id}` is served and unused: nothing
-  in the Library, the Reader or the Map shell needs to address one entity on its
-  own yet. `T-207`'s inspector is its first consumer.
-- **The Map is a shell.** `#/map` draws the graph and states what it holds, and
-  that is all `T-204` was: nothing is styled (Sigma's own uniform default size
-  and colour, no labels at all until D-122's policy), nothing is selectable,
-  there are no filters, and there is no URL state beyond the route itself. Those
-  are `T-205`–`T-207`. `/api/graph/neighborhood/{entity_id}` is still untouched.
+- **The Map is not yet accessible.** `#/map` draws the graph, states what it
+  holds, styles provenance and vocabulary without relying on colour, carries its
+  selection and filters in the URL, and reads a selection whole — but the
+  keyboard and touch walk, the responsive disclosure of three panels that now
+  compete for one screen, and the complete bidi pass are `T-208`'s. The card
+  overlay is deliberately presentation only (D-137): it holds no control, so
+  nothing on it is unreachable without WebGL, and every action lives in the DOM
+  beside it.
+- **The related list is not windowed.** It renders one card per returned
+  neighbour, and it is meant to: the number is bounded by the neighbourhood's
+  own `limit` and by `depth`, and on the real 86-node graph the widest fan-out
+  is eight. A library large enough for depth 3 to return hundreds would want
+  `VirtualList` here — the component exists and measures its rows — but
+  windowing means most rows are not in the DOM, which is a deliberate trade
+  against "no neighbour silently disappears" and belongs to `T-208`'s
+  disclosure pass rather than to a speculative fix.
+- **Every frozen endpoint now has a caller.** `T-207` was the last gap:
+  `/api/entities/{entity_id}` backs Quick Read and
+  `/api/graph/neighborhood/{entity_id}` backs the constellation and the related
+  list.
 - **The Map has not been walked in a real browser.** `T-202` proved the renderer
   over this graph in Chrome on the target machine, and `#/map` itself is checked
   in jsdom against an injected fake and against a real server. The route's own

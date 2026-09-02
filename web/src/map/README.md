@@ -1,7 +1,8 @@
 # `web/src/map/` — the Knowledge Map
 
-Phase 2: `T-202`'s seeding and compatibility harness, `T-203`'s projection, and
-`T-204`'s renderer lifecycle
+Phase 2: `T-202`'s seeding and compatibility harness, `T-203`'s projection,
+`T-204`'s renderer lifecycle, `T-205`'s style table, `T-206`'s URL grammar and
+`T-207`'s bounded neighbourhood
 ([ADR 0005](../../../docs/adr/0005-knowledge-map-client.md)):
 
 | Path | Holds |
@@ -11,12 +12,14 @@ Phase 2: `T-202`'s seeding and compatibility harness, `T-203`'s projection, and
 | `graphSnapshot.ts` | `GraphSnapshot` — pages accumulate into one `MultiDirectedGraph`, edges wait for their endpoints, and the snapshot states what it does and does not yet hold |
 | `graphWalk.ts` | `GraphWalk` — the cancellable, framework-free driver: one question at a time, opaque cursors carried and never read |
 | `useGraphWalk.ts` | That walk bound to a component: `deps` name the question, unmount disposes it, and nothing here decides what a page means |
-| `mapSession.ts` | `MapSession` — **the** renderer lifecycle: lay out, draw, resize, zoom, reset, kill. Framework-free, and reached through an injected factory |
+| `mapSession.ts` | `MapSession` — **the** renderer lifecycle: lay out, draw, refresh, resize, zoom, reset, kill, plus the canvas's event and coordinate adapters. Framework-free, and reached through an injected factory |
 | `sigmaRenderer.ts` | The only module that imports `sigma`, and the only place the application constructs it |
 | `gate/` | The `T-202` compatibility harness: a single-page graph builder and the renderer lifecycle it exercises |
 
-The route itself is [`../views/MapView.tsx`](../views/MapView.tsx). The style
-matrix, `mapLink`, the neighbourhood and the inspector are `T-205`–`T-208`.
+The route itself is [`../views/MapView.tsx`](../views/MapView.tsx), and it is
+the join rather than a fourth copy of anything. Accessibility, responsive
+disclosure and the complete bidi pass are `T-208`'s; the real-browser walk is
+`T-209`'s.
 
 ## Seeding is not decoration
 
@@ -240,10 +243,10 @@ one would claim the address exists and is merely unavailable.
 Card text is the record's, verbatim (D-131). `previewText` cuts a long
 statement on a word boundary and returns a **prefix**, and the card renders a
 visible marker beside the cut — nothing is summarised, and nothing is cut
-inside a data structure. `T-207`'s on-stage cards must call the same function
-rather than write a second policy (§8.6: one card-content formatter).
+inside a data structure. `T-207`'s on-stage cards call the same function
+rather than a second policy (§8.6: one card-content formatter).
 
-## What `MapView` wires (`T-206` → the integrator)
+## What `MapView` wires
 
 ```tsx
 const focus = useMapFocus();                       // URL ⇄ selection, history
@@ -260,11 +263,13 @@ const peek = useMapPeek(recordLookup(walk.graph)); // one Peek, above both surfa
 
 `useGraphWalk` then takes `focus.filters` and `[focus.state.source,
 focus.state.provenance, focus.state.vocabulary]` as its `deps`, so a filter in
-the URL is the question the walk asks. A Sigma `clickNode` handler calls
+the URL is the question the walk asks. The canvas's `clickNode` handler calls
 `focus.focusEntity(id)` — the *same* function the rail's buttons call, which is
-what keeps pointer and keyboard on one identity — and `enterNode`/`leaveNode`
-call `peek.open(id)`/`peek.close(id)`. Render `peek.peek` in exactly one place:
-two components reading one binding would draw the same Peek twice.
+what keeps pointer, keyboard and URL on one identity — and
+`enterNode`/`leaveNode` call `peek.open(id)`/`peek.close(id)`, which
+`MapSession`'s handler slot routes for it (`T-207`). Render `peek.peek` in
+exactly one place: two components reading one binding would draw the same Peek
+twice, and it is rendered in the search rail.
 
 ## Visual semantics: one style table, in reducers (`T-205`)
 
@@ -341,8 +346,8 @@ holding the door until this policy existed, and it has two halves:
   smaller words.
 
 Exceeding the neighbour budget costs legibility, never data: the labels return
-to `"auto"`, every neighbour keeps its mark, and `T-207`'s related list still
-names all of them (invariant 13).
+to `"auto"`, every neighbour keeps its mark, and `T-207`'s related list names
+all of them (invariant 13).
 
 ### Primitives, and what `T-209` has to look at
 
@@ -374,3 +379,146 @@ at all — only what the reducers compute from it — so it goes through `refres
 which redraws with the positions untouched. `mapStyle.setView` returns whether
 anything actually changed, so a pointer moving inside the node it is already on
 costs nothing.
+
+## A selection asks two questions (`T-207`)
+
+| Path | Holds |
+|---|---|
+| `neighbourhood.ts` | One `/api/graph/neighborhood/{id}` response, projected: hops from the centre, each relation's own direction, and the complete related list in a deterministic order |
+| `constellation.ts` | D-132's stated density policy: which cards the stage may carry, and a **counted reason** for every neighbour it refuses |
+| `useNeighbourhood.ts` | The two requests bound to a component — the entity and its neighbourhood, failing separately |
+| `../components/MapConstellation.tsx` | The overlay itself: presentation over the marks, and nothing else |
+| `../components/MapRelatedList.tsx` | The surface that cannot omit anything |
+| `../components/MapQuickRead.tsx` | The complete stored record, in D-131's order |
+| `../components/MapRelation.tsx` | The one place a connection is named |
+
+`/api/entities/{entity_id}` says what the selected entity **is** — even when
+the loaded pages do not hold it, which happens whenever a focus arrives from a
+URL, from a search hit no page has reached, or under a filter that excludes the
+entity's own provenance class. It is also the only way a `404 not_found` can be
+*stated*: "this id names nothing" and "this Map has not loaded it" are
+different answers, and until now the rail could not tell them apart.
+
+### The neighbourhood is not the graph
+
+It goes through the same projection — `nodeAttributes`, `edgeAttributes` and
+`recordDifference`, refusal included — but into a structure of its own, which
+is replaced whole when the selection or the depth changes and is never handed
+to a renderer (D-134). `GraphSnapshot` answers one question, the pages the
+URL's three filters describe, and its counts are read against the `total` the
+server counted *for that question*. A neighbourhood ignores those filters and
+reaches whatever is within `depth` hops, so merging it would draw nodes the
+filters exclude and turn `complete` into a claim about a set nobody asked for.
+
+A `MultiDirectedGraph` is still used, for adjacency and nothing else: hop
+distance is a walk over the returned edges, and the walk is **undirected**,
+because a reader following `supports` backwards has still reached the
+neighbour. Direction is not lost — it is stated per relation, where it belongs.
+
+A neighbour more than one hop out therefore states *that* rather than
+borrowing the near neighbour's relation, which would be an edge no request
+returned.
+
+### Every returned neighbour is listed, always
+
+The stage can only place the cards that fit, so the list that cannot omit
+anything is the one that carries completeness (invariant 13, R20). Nothing in
+`neighbourhood.ts` filters, slices or caps, and `MapRelatedList` renders all of
+it. The order is a **sort key, not a score**: hops, then the relation as the
+record spells it, then the `global_id` — three stated facts compared in a fixed
+order, so the list is identical on every run and on every machine and says
+nothing about importance (invariant 15). `localeCompare` is deliberately not
+used: it is locale dependent, and the Map's order must not change when the UI
+language does.
+
+The list is **not windowed**, deliberately. Its length is bounded by the
+neighbourhood's own `limit` and by `depth`, and the real graph's widest fan-out
+is eight; `VirtualList` would be the tool if a library ever made that hundreds,
+but windowing keeps most rows out of the DOM, which trades against the very
+claim this list exists to make. That trade is `T-208`'s to make, not this
+task's.
+
+### The density policy is four clauses, each of them counted
+
+`placeConstellation` walks the related list in its own order and answers, for
+each entity: no mark on this Map (`not_loaded`), a mark outside the stage at
+this camera position (`off_stage`), a card that would overlap one already
+placed — one per 240 px cell, the same device Sigma's `labelDensity` uses for
+labels — (`crowded`), or beyond the four-card budget (`budget`). Crowding is
+checked *before* the budget, so the budget is spent on cards a reader can
+actually read.
+
+The budget is four, not `MAP_LABEL_NEIGHBOUR_BUDGET`'s twelve, and the two are
+deliberately different numbers for different things: a label is a line of text
+beside a mark, a card is a block with a statement, a relation and a badge row.
+Both are stated once and are `T-209`'s to measure.
+
+Cards placed plus omissions counted equals the neighbours returned. That is
+tested, on fixtures and on the real fan-out, and it is the whole answer to
+"does a viewport budget become silent omission".
+
+### The overlay owns nothing
+
+No button, no link, no field, `pointer-events: none`, `aria-hidden` (D-137).
+Every card on the stage is a second view of a row in the related list, so
+hiding it from the accessibility tree costs nothing and avoids building a
+second tree over the same entities; taking no pointer events means a click
+reaches the *mark*, which is what keeps selection on one identity.
+
+Two consequences worth knowing:
+
+- The overlay is a **sibling** of the stage, never a child. `MapSession.kill()`
+  calls `container.replaceChildren()` — it has to, because Sigma appends its own
+  canvases there — so a React subtree inside the container would be removed
+  from under React the first time a filter replaced the renderer.
+- Cards are positioned in **physical** `left`/`top` pixels, which is the one
+  place in this codebase that is deliberate rather than a lapse from D-012's
+  logical properties: the coordinates come out of the renderer's viewport, and
+  a logical inset would mirror a card away from its own mark in Persian.
+
+### Cards move when the camera stops
+
+Anchoring is per node, and the placement feeds the omission report, so
+re-placing on every frame would re-render the related list and the search rail
+sixty times a second for one pan. `hideLabelsOnMove: true` already answers this
+question for labels; cards follow the same rule (D-138). `MAP_STAGE_SETTLE_MS`
+is the trailing delay, and the first placement does not wait for it — the draw
+effect marks the graph as placed as soon as the renderer holds it, because a
+placement computed *before* `attach` would report every neighbour as "not
+drawn", which is a true statement about the wrong situation.
+
+### The canvas is a third caller, not a second identity
+
+`MapSession` reports; it never decides. `onNode("clickNode")` reaches
+`useMapFocus.focusEntity` — the same function the rail's buttons call —
+`enterNode`/`leaveNode` reach the one `useMapPeek` binding, and `onRender` says
+only that a frame was drawn. The handlers live in a mutable slot read by a
+trampoline subscribed once per renderer, so what a click does can change on
+every render without the renderer being rebuilt; rebuilding it would kill the
+live one and the accumulated picture with it (D-126).
+
+`enableEdgeEvents` is still `false`. `T-204` left it off "until something
+selects an edge", and `T-207` is the task that would have: it does not, because
+an edge has no address in `mapLink`'s grammar (D-119) and a pointer target with
+nowhere to go is worse than none. The relation is named in words instead, in
+`MapRelation.tsx` (D-135).
+
+Depth is a view control rather than a fifth URL parameter (D-136), for the same
+reason the search query is not in the grammar: it bounds one request and
+changes nothing about which graph is drawn. The bound is the contract's own
+1–3, and `parseDepth` **ignores** anything outside it rather than clamping —
+the response echoes `depth` back, so a clamped value would report a bound the
+reader never set.
+
+### Quick Read shows the record, in a stated order
+
+The complete stored statement, the recorded excerpt and locator, the active
+relations, the derivation, provenance and source, and only then the identifiers.
+The order is D-131's and is asserted *as an order*. Nothing is summarised,
+nothing absent is filled in, and `readerPath` carries the locator's real
+`start_sec` where one exists and none where it does not (D-069).
+
+It is not `EntityCard`: the Reader's card renders the same record correctly for
+the Reader, leading with the provenance badge row, and D-131 fixes a different
+order here. Two components, one record, two stated orders — and the atoms are
+shared.

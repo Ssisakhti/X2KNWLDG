@@ -227,6 +227,64 @@ export const en = {
   "map.filters.sourcesFailed":
     "The source list could not be read, so the other two filters are the ones offered.",
 
+  "map.relation.thisEntity": "this entity",
+  "map.relation.theFocus": "the focus",
+  "map.relation.self": "a relation the pipeline recorded onto the entity itself",
+
+  "map.stage.primary": "Focused",
+  "map.stage.neighbour": "Related",
+  "map.stage.omitted":
+    "{count} related entities have no card on the stage. Every one of them is listed below.",
+  "map.stage.omitted.notLoaded":
+    "{count} are not drawn on this Map yet, so there is no mark to anchor a card to.",
+  "map.stage.omitted.offStage": "{count} are outside the visible stage at this camera position.",
+  "map.stage.omitted.crowded":
+    "{count} would have overlapped a card already placed, so the card was not drawn.",
+  "map.stage.omitted.budget":
+    "{count} are beyond the on-stage card budget, which exists so the graph stays visible.",
+
+  "map.quickRead.title": "Quick Read",
+  "map.quickRead.hint":
+    "The stored record, in full and in order. Nothing here is summarised or completed.",
+  "map.quickRead.noFocus": "Nothing is focused, so there is no record to read.",
+  "map.quickRead.statement": "Stored statement",
+  "map.quickRead.statementNote":
+    "The complete statement as the index stores it — not shortened here.",
+  "map.quickRead.evidence": "Recorded evidence",
+  "map.quickRead.relations": "Active relations",
+  "map.quickRead.noRelations":
+    "The bounded neighbourhood returned no relation for this entity at this depth.",
+  "map.quickRead.derivation": "Derivation",
+  "map.quickRead.noDerivation": "This entity records no derivation.",
+  "map.quickRead.provenance": "Provenance and source",
+  "map.quickRead.provenanceClass": "Provenance class",
+  "map.quickRead.source": "Source",
+  "map.quickRead.technical": "Technical metadata",
+  "map.quickRead.kind": "Kind",
+  "map.quickRead.openReader": "Open the full source",
+  "map.quickRead.readerAt": "The Reader opens at {time}, the time the locator records.",
+  "map.quickRead.readerNoTime":
+    "This entity records no time, so the Reader opens at the start of the source.",
+
+  "map.related.title": "Related knowledge",
+  "map.related.hint":
+    "Every entity the bounded neighbourhood returned, listed in full. The stage carries only the cards that fit.",
+  "map.related.noFocus": "Nothing is focused, so there is no neighbourhood to list.",
+  "map.related.depth": "Depth",
+  "map.related.depthNote": "Hops from the focus. The server refuses more than three.",
+  "map.related.count": "{count} related entities within {depth} hops, over {edges} returned relations.",
+  "map.related.none": "The index records no relation for this entity at this depth.",
+  "map.related.truncated":
+    "The server cut the walk short at its own limit, so more neighbours exist than were returned.",
+  "map.related.hops": "{count} hops from the focus",
+  "map.related.viaPath":
+    "Reached through another entity {hops} hops out; it states no relation to the focus itself.",
+  "map.related.onStage": "its card is on the stage",
+  "map.related.unjoinable":
+    "{count} returned relations name an endpoint the response did not return, so they are counted rather than drawn.",
+  "map.related.unreachable":
+    "{count} returned entities have no path to the focus over the relations this response returned.",
+
   "reader.tab.overview": "Overview",
   "reader.tab.transcript": "Transcript",
   "reader.tab.report": "Report",
@@ -520,6 +578,64 @@ export const fa: Messages = {
   "map.filters.moreSources": "منبع‌های بیشتری از آنچه اینجا فهرست شده وجود دارد.",
   "map.filters.sourcesFailed":
     "فهرست منبع‌ها خوانده نشد، پس تنها دو صافی دیگر ارائه می‌شود.",
+
+  "map.relation.thisEntity": "این هستار",
+  "map.relation.theFocus": "کانون",
+  "map.relation.self": "رابطه‌ای که خط لوله بر خودِ هستار ثبت کرده است",
+
+  "map.stage.primary": "کانونی",
+  "map.stage.neighbour": "مرتبط",
+  "map.stage.omitted":
+    "{count} هستار مرتبط کارتی بر صحنه ندارند. هر یک از آن‌ها در فهرست زیر آمده است.",
+  "map.stage.omitted.notLoaded":
+    "{count} مورد هنوز بر این نقشه ترسیم نشده‌اند، پس نشانی برای لنگر انداختن کارت وجود ندارد.",
+  "map.stage.omitted.offStage": "{count} مورد در این موقعیت دوربین بیرون از صحنهٔ دیدنی‌اند.",
+  "map.stage.omitted.crowded":
+    "{count} مورد بر کارتی که پیش‌تر جای گرفته هم‌پوشانی می‌کردند، پس کارتشان ترسیم نشد.",
+  "map.stage.omitted.budget":
+    "{count} مورد بیش از سهمیهٔ کارت‌های صحنه‌اند؛ این سهمیه هست تا گراف دیدنی بماند.",
+
+  "map.quickRead.title": "خوانش سریع",
+  "map.quickRead.hint":
+    "رکورد ذخیره‌شده، کامل و به ترتیب. هیچ‌چیز اینجا خلاصه یا تکمیل نشده است.",
+  "map.quickRead.noFocus": "چیزی کانونی نیست، پس رکوردی برای خواندن وجود ندارد.",
+  "map.quickRead.statement": "گزارهٔ ذخیره‌شده",
+  "map.quickRead.statementNote":
+    "گزارهٔ کامل، همان‌گونه که نمایه ذخیره کرده است — اینجا کوتاه نشده.",
+  "map.quickRead.evidence": "شاهد ثبت‌شده",
+  "map.quickRead.relations": "رابطه‌های فعال",
+  "map.quickRead.noRelations":
+    "همسایگی کران‌دار در این عمق هیچ رابطه‌ای برای این هستار بازنگرداند.",
+  "map.quickRead.derivation": "استنتاج",
+  "map.quickRead.noDerivation": "این هستار هیچ استنتاجی ثبت نکرده است.",
+  "map.quickRead.provenance": "خاستگاه و منبع",
+  "map.quickRead.provenanceClass": "ردهٔ خاستگاه",
+  "map.quickRead.source": "منبع",
+  "map.quickRead.technical": "فراداده‌های فنی",
+  "map.quickRead.kind": "گونه",
+  "map.quickRead.openReader": "گشودن منبع کامل",
+  "map.quickRead.readerAt": "خواننده از {time} آغاز می‌شود، همان زمانی که مکان‌یاب ثبت کرده است.",
+  "map.quickRead.readerNoTime":
+    "این هستار زمانی ثبت نکرده است، پس خواننده از آغاز منبع باز می‌شود.",
+
+  "map.related.title": "دانش مرتبط",
+  "map.related.hint":
+    "هر هستاری که همسایگی کران‌دار بازگردانده، به‌طور کامل فهرست شده است. صحنه تنها کارت‌هایی را نگه می‌دارد که جا می‌شوند.",
+  "map.related.noFocus": "چیزی کانونی نیست، پس همسایگی‌ای برای فهرست کردن وجود ندارد.",
+  "map.related.depth": "عمق",
+  "map.related.depthNote": "گام‌ها از کانون. کارساز بیش از سه را نمی‌پذیرد.",
+  "map.related.count": "{count} هستار مرتبط تا {depth} گام، بر پایهٔ {edges} رابطهٔ بازگردانده‌شده.",
+  "map.related.none": "نمایه در این عمق هیچ رابطه‌ای برای این هستار ثبت نکرده است.",
+  "map.related.truncated":
+    "کارساز پیمایش را در سقف خودش برید، پس همسایه‌های بیشتری از آنچه بازگردانده شد وجود دارد.",
+  "map.related.hops": "{count} گام از کانون",
+  "map.related.viaPath":
+    "از راه هستار دیگری در {hops} گام رسیده است؛ خودش هیچ رابطه‌ای با کانون بیان نمی‌کند.",
+  "map.related.onStage": "کارتش بر صحنه است",
+  "map.related.unjoinable":
+    "{count} رابطهٔ بازگردانده‌شده سرِ یالی را نام می‌برند که پاسخ بازنگرداند، پس شمرده شده‌اند و ترسیم نشده‌اند.",
+  "map.related.unreachable":
+    "{count} هستارِ بازگردانده‌شده بر پایهٔ رابطه‌های همین پاسخ هیچ مسیری به کانون ندارند.",
 
   "reader.tab.overview": "نمای کلی",
   "reader.tab.transcript": "رونویس",

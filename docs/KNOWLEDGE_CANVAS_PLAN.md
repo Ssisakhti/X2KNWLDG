@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map under way — `T-202`–`T-206` complete: the Map has a renderer, a graph, an address, a visual grammar and a search rail. `T-207`–`T-209` remain: the bounded card constellation, Quick Read, accessibility and the phase gate
+**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map under way — `T-202`–`T-207` complete: the Map has a renderer, a graph, an address, a visual grammar, a search rail, a bounded card constellation, a complete related list and Quick Read. `T-208` (accessibility, bidi, responsive disclosure) and `T-209` (the real-browser phase gate) remain
 **Last updated:** 2026-09-02
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -1197,13 +1197,19 @@ An agent must not guess the answers to these if the decision would cause a notic
 - [x] Phase 2 / T-204: the addressable Map shell — `#/map`, the navigation entry, one renderer
   lifecycle through an injected factory, container sizing and resize, zoom/reset, deliberate
   progressive loading, and the snapshot's own counts stated before the canvas (D-126–D-129)
+- [x] Phase 2 / T-207: the reading itself — the bounded neighbourhood over the last two
+  uncalled endpoints, projected through `T-203` and never merged into the drawn graph
+  (D-134); the stated on-stage density policy with a counted reason for every card it
+  cannot place, and a related list that holds every returned neighbour regardless (R20);
+  Quick Read over the complete stored statement, the recorded evidence and the derivation
+  in D-131's order; and the canvas's event and coordinate adapters as a *third* caller of
+  one selection identity (D-135–D-138)
 - [x] Translate this document to English per D-014
 
 ### Planned / not started
 
-- [ ] `T-207`–`T-209`: bounded card constellation and complete related list; Quick Read over
-  the stored statement and recorded evidence; accessibility, bidi and responsive disclosure;
-  and the real-browser anti-pogo phase gate
+- [ ] `T-208`–`T-209`: accessibility, bidi and responsive disclosure over everything
+  `T-202`–`T-207` built; and the real-browser anti-pogo phase gate
 - [ ] Canvas
 - [ ] Pen annotations
 - [ ] Adapters for future sources
@@ -1212,34 +1218,34 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-The next execution session claims **`T-207`**, the last implementation task in the approved
-`T-201` Knowledge Map epic before accessibility (`T-208`) and the phase gate (`T-209`).
-`T-202` chose the renderer, `T-203` built the data underneath it, `T-204` put the Map on
-screen, `T-205` gave it a visual grammar and `T-206` gave it an address and a search rail.
-What is still missing is the reading itself.
+The next execution session claims **`T-208`**. Every *implementation* task in the approved
+`T-201` Knowledge Map epic is done: `T-202` chose the renderer, `T-203` built the data
+underneath it, `T-204` put the Map on screen, `T-205` gave it a visual grammar, `T-206` gave
+it an address and a search rail, and `T-207` gave it the reading — a selection loads what the
+entity is and what it is connected to, the stage carries a bounded constellation anchored to
+the marks, and the related list carries every neighbour the server returned.
+
+What is missing is the guarantee that all of it works without a pointer, without WebGL, and
+in Persian.
 
 1. Read [ADR 0005](adr/0005-knowledge-map-client.md) — including *Gate result*, *Projection
-   result*, *Shell result* and *Approved browsing experience* — `PROJECT_MANAGEMENT.md` §5
-   Phase 2, §8.6 (which now records what the `T-205`/`T-206` integration settled) and §11,
-   D-059, and D-117–D-133.
-2. **`T-207`** calls `/api/entities/{entity_id}` and `GET /api/graph/neighborhood/{id}`,
-   merges both through `T-203`'s projection, and builds the bounded overlay of D-132: one
-   primary selected Knowledge Card, at most one transient Peek, labelled active relations,
-   and only the neighbour previews the density policy can place. Every returned neighbour
-   stays in the semantic related list even when its card cannot fit — a viewport budget is
-   never allowed to become silent omission (R20).
-3. Quick Read orders the **complete** stored statement, the recorded evidence and locator,
-   the active relation, the derivation, provenance and source, and only then the technical
-   identifiers. It never writes a summary (D-131). `readerPath` stays the full-source escape
-   hatch and carries a real timestamp where one exists.
-4. `T-207` also adds the renderer's **event and coordinate adapters** — `clickNode`,
-   `enterNode`/`leaveNode`, and `graphToViewport` to anchor a card to its node. These call
-   the *existing* `focusEntity` and `useMapPeek`; they do not introduce a second selection
-   identity, and they do not construct a renderer (D-126, §8.6).
-5. Reuse rather than rebuild: `cutToBudget` is the one text cutter, `previewOfHit` /
-   `previewOfEntity` are the one card-content formatter, `mapStyle.setView` +
-   `MapSession.refresh()` is how the picture responds to a selection, and `mapLink` is the
-   only grammar. §8.6 forbids a second of any of them.
+   result*, *Shell result*, *Approved browsing experience* and *Constellation result* —
+   `PROJECT_MANAGEMENT.md` §5 Phase 2, §8.6, §9 (R20) and §11, D-059, and D-117–D-138.
+2. **`T-208`** distinguishes loading, empty, partial, API error and WebGL-unavailable states
+   across every surface, and makes the whole Search → Preview/Peek → Focus → Quick Read
+   journey reachable by keyboard and touch. Three things `T-207` deliberately left it are
+   listed in `PROJECT_MANAGEMENT.md` §11 and are not to be rediscovered: the overlay is
+   presentation *by decision* (D-137), three panels now compete for one screen, and the
+   transient Peek is rendered in exactly one place.
+3. Reuse rather than rebuild. The relevant rules have not moved: `cutToBudget` is the one
+   text cutter, `previewOfEntity`/`previewOfHit` the one card-content formatter, `mapLink`
+   the only URL grammar, `useMapFocus.focusEntity` the only selection entry point (now with
+   three callers), `placeConstellation` the only density policy, and `MapSession` the only
+   renderer lifecycle. §8.6 forbids a second of any of them, and
+   `tests/test_ui_scaffold.py` fails if one appears.
+4. `T-209` then walks the whole task in a real browser and is where every number chosen by
+   argument gets measured: the declared Sigma primitives, the halo and the four label numbers
+   (`T-205`), and the card budget, cell size, inset and settle delay (`T-207`).
 
 ## 24. Research references
 

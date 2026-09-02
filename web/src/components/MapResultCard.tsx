@@ -31,6 +31,7 @@
  * one would suggest the address exists and is merely unavailable.
  */
 
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { useI18n } from "../i18n";
@@ -104,6 +105,7 @@ export function MapResultCard({
   onFocus,
   peek,
   limit = PREVIEW_LIMIT,
+  children,
 }: {
   preview: MapPreview;
   focused?: boolean;
@@ -112,6 +114,17 @@ export function MapResultCard({
   /** Pointer *and* keyboard peek handlers for this node, when it is loaded. */
   peek?: PeekHandlers;
   limit?: number;
+  /**
+   * What this result *is to the reader*, rendered under the statement
+   * (`T-207`).
+   *
+   * The slot exists so the related list can name a neighbour's real relation
+   * and direction on the same card the search rail uses, rather than growing a
+   * second card that would drift from this one. It carries context about the
+   * record, never content from it: everything above and below is still the
+   * API's own text, cut by the one cutter (D-131).
+   */
+  children?: ReactNode;
 }) {
   const { t } = useI18n();
   const isCaption = preview.unaddressable === "caption";
@@ -151,6 +164,8 @@ export function MapResultCard({
       </div>
 
       <PreviewStatement text={preview.text} limit={limit} />
+
+      {children}
 
       <div className="row">
         {start !== null && <span className="faint">{t("time.at", { time: start })}</span>}

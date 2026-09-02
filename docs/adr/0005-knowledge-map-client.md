@@ -444,11 +444,123 @@ Explore                         Focus + Quick Read
 ```
 
 `T-205` supplies renderer states and semantic density, `T-206` supplies preview/Peek and
-focus history, `T-207` supplies the bounded constellation/related list/Quick Read, `T-208`
-ensures the same journey exists without hover or WebGL, and `T-209` walks the complete task in
-a real browser. The acceptance question is behavioural: before opening a related node, can
+focus history, `T-207` supplies the bounded constellation/related list/Quick Read (delivered;
+see *Constellation result*), `T-208` ensures the same journey exists without hover or WebGL,
+and `T-209` walks the complete task in a real browser. The acceptance question is behavioural: before opening a related node, can
 the user state what it says and why its real relation makes it worth opening? No numeric UX
 threshold is fixed until the pre-card experience is observed as a baseline.
+
+## Constellation result (`T-207`, 2026-09-02)
+
+The Map can be read. A selection now loads what the entity *is*
+(`/api/entities/{entity_id}`) and what it is connected to
+(`GET /api/graph/neighborhood/{entity_id}`, depth 1 by default and 1–3
+exposed) — the last two operations of the frozen contract that nothing had
+called — and turns both into three surfaces: a bounded card constellation over
+the marks, a related list that cannot omit anything, and Quick Read over the
+whole stored record.
+
+**The neighbourhood is not the graph.** Both answers go through `T-203`'s
+projection, refusal included, but into a structure of their own that is
+replaced whole when the selection or the depth changes and is never handed to a
+renderer (D-134). Merging it into `GraphSnapshot` would draw nodes the URL's
+filters exclude, push the loaded count past the `total` the server counted for
+a different question, and make `complete` a claim about a set nobody asked for
+— invariants 4 and 5, from the other direction.
+
+**The bounded overlay is presentation, and that is the design.** It has no
+button, no link and no focusable element; it takes no pointer events, so a
+click passes through to the mark underneath; and it is hidden from the
+accessibility tree, because every card on it is a second view of a row in the
+related list beside it (D-137). What that buys is worth stating plainly: the
+overlay cannot build a duplicate accessibility tree over the same entities, it
+cannot own an action that is unreachable without WebGL, and it cannot introduce
+a second selection identity, because it holds no handler at all. It is also a
+*sibling* of the container the renderer owns, since `MapSession.kill()` empties
+that container and a React subtree inside it would be removed from under React
+the first time a filter changed.
+
+**The density policy is a function, and its refusals are counted.**
+[`placeConstellation`](../../web/src/map/constellation.ts) applies four clauses
+to the related list in its own deterministic order — the neighbour is not drawn
+on this Map, its mark is off the stage at this camera position, its card would
+overlap one already placed (one card per 240 px cell, the same device Sigma's
+`labelDensity` uses for labels), or it is beyond the four-card budget — and
+each of them returns a *reason* that is counted and rendered in words. Cards
+placed plus omissions counted equals the neighbours returned: asserted on
+fixtures and on the real fan-out. That is R20's mitigation in one sentence, and
+it is why the risk is now green rather than "controlled by design gate".
+
+**The canvas is a third caller.** `MapSession` grew `onNode`, `onRender`,
+`graphToViewport` and `nodePosition`, with the handlers in a mutable slot read
+by a trampoline subscribed once per renderer — so a click reaches the same
+`useMapFocus.focusEntity` the search rail's buttons call, and what a click
+*does* can change on every render without the live renderer being rebuilt
+(rebuilding it would kill the accumulated picture, D-126). `enableEdgeEvents`
+stays off: `T-204` left it "until something selects an edge", and this is the
+task that would have — an edge has no address in D-119's grammar, so its
+relation is named in words instead (D-135).
+
+**Measured.** The frontend suite is **491 hermetic tests in 44 files**, plus
+**22** against a running server — 85 of them new here, and 5 of the 22. Against
+the real ingested project, the graph's most connected entity is a derived unit
+with **8 neighbours and 13 edges** among them, spanning both relation
+vocabularies and including a canonical concept that belongs to no source: the
+related list holds exactly those 8, every edge is joined, nothing is
+unreachable, and Quick Read renders the server's own statement without
+shortening it.
+
+The build cost is measured against the same commit's own before-and-after on
+this machine: the application bundle goes from 421.05 kB to 445.13 kB (121.02
+to 127.48 kB gzipped) and the stylesheet from 10.81 kB to 11.36 kB, while the
+renderer chunk moves by 0.23 kB — 371.67 to 371.90 kB — which is the adapter
+and nothing else. None of `T-207` is in the chunk the Library and the Reader
+never load. (The absolute renderer figure differs slightly from the 377 kB
+`T-205` recorded; the 371.67 kB above is that same chunk re-measured here, so
+the delta is the number to read, not the difference between the two rows.)
+
+### Findings
+
+Three, all fixed inside this task.
+
+1. **A placement computed during render asks a renderer that has not been given
+   the graph yet.** React runs a render, then its effects; the effect that
+   calls `MapSession.attach` runs *after* the render that first sees the page.
+   So the first placement asked `nodePosition` for every node and got `null`
+   for all of them — which the policy correctly reports as "not drawn on this
+   Map", a true statement about the wrong situation. The draw effect now marks
+   the graph as placed once the renderer holds it. Without that, the overlay
+   waited for a frame event to correct itself, and the omission report was
+   wrong until it arrived.
+2. **Following the camera exactly means re-rendering the DOM per frame.** Cards
+   are anchored per node, and the placement feeds the omission report, so
+   re-placing on every `afterRender` would re-render the related list and the
+   search rail sixty times a second for one pan. The Map had already answered
+   this question for labels — `hideLabelsOnMove: true` — so cards follow the
+   same rule: hidden while the camera moves, placed when it settles (D-138).
+3. **TypeScript does not check a hyphenated JSX attribute against a
+   component's props.** `data-map-statement="complete"` on a component that
+   does not forward it compiles cleanly and renders nothing, so a test asserting
+   on that attribute is asserting on something that was never there. `Bidi`
+   takes its marks explicitly, the way `MapLegend`'s `Row` already did.
+
+### What the constellation hands to later tasks
+
+- **The overlay stays presentation.** `T-208` makes the DOM path primary; it
+  must not answer that by giving the overlay controls, and a scaffold test
+  fails if a button, link or field appears there.
+- **Three panels now compete for one screen** — the search rail, Quick Read and
+  the related list. `T-207` made Quick Read a `<details>` and stopped:
+  "collapsible rather than permanent competing panels" is `T-208`'s sentence.
+- **The transient Peek is rendered in exactly one place**, the search rail, and
+  a pointer on a mark now opens it there. Moving it to a better surface is
+  allowed; rendering it twice is not (invariant 13).
+- **Four more numbers for `T-209` to measure**: the card budget, the cell size,
+  the stage inset and the settle delay. They are stated once, in
+  `constellation.ts`, beside the reasoning for each.
+- The `data-map-card`, `data-map-related-entity`, `data-map-stage-omission` and
+  `data-map-quickread` attributes are the test seam for "no neighbour silently
+  disappears"; keep them true if these surfaces are restyled.
 
 ## References
 

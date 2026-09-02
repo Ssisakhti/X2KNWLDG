@@ -109,15 +109,31 @@ function timeRangeOf(entity: EntityRef): { start: number | null; end: number | n
   return { start: locator.start_sec ?? null, end: locator.end_sec ?? null };
 }
 
-/** A loaded node as a preview. Always addressable: a graph node *is* its `global_id`. */
-export function previewOfEntity(entity: EntityRef): MapPreview {
+/**
+ * An entity record as a preview. Always addressable: an entity *is* its
+ * `global_id`.
+ *
+ * The `options` are `T-207`'s, and they exist so that the bounded
+ * neighbourhood can use this formatter rather than write a second one (§8.6
+ * allows one card-content formatter). A record that arrived from
+ * `/api/graph/neighborhood/{id}` came from the *index*, and whether the Map
+ * has it drawn is a separate fact read from the accumulated graph -- so both
+ * are parameters here instead of the two constants that were right when the
+ * only caller was the loaded snapshot. The defaults are those constants, so
+ * every existing call means exactly what it meant.
+ */
+export function previewOfEntity(
+  entity: EntityRef,
+  options: { origin?: MapPreview["origin"]; loaded?: boolean } = {},
+): MapPreview {
   const { start, end } = timeRangeOf(entity);
+  const origin = options.origin ?? "graph";
   return {
-    key: `graph|${entity.global_id}`,
-    origin: "graph",
+    key: `${origin}|${entity.global_id}`,
+    origin,
     globalId: entity.global_id,
     unaddressable: null,
-    loaded: true,
+    loaded: options.loaded ?? true,
     kind: entity.kind ?? null,
     provenance: provenanceOf(entity.provenance_class),
     provenanceRaw: entity.provenance_class,
