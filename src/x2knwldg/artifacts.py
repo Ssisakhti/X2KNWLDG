@@ -17,8 +17,7 @@ from .io import (
     timestamp_url,
     write_group,
 )
-from .pipeline import PipelineError, VerdictRefusal, validate_run
-from .transcripts import transcript_end_sec
+from .pipeline import PipelineError, VerdictRefusal, run_duration_sec, validate_run
 from .validators import (
     validate_coverage,
     validate_coverage_links,
@@ -107,6 +106,11 @@ def _read(path: Path) -> Any:
     if not isinstance(document, dict):
         raise PipelineError(f"Canonical JSON must be an object: {path}")
     return document
+
+
+#: The three keys ``schemas/extraction_bundle.schema.json`` requires, stated
+#: here because nothing applies that schema at runtime (D-169).
+_REQUIRED_BUNDLE_KEYS = ("knowledge_units", "relationships", "coverage")
 
 
 def _carry_coverage_scaffold_forward(run_dir: Path, coverage: dict[str, Any]) -> None:
@@ -281,6 +285,32 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
             "(schemas/extraction_bundle.schema.json). The canonical "
             "knowledge_units.json file uses 'units' — the bundle does not."
         )
+    # D-169: the schema requires all three of these and sets
+    # `additionalProperties: false`, and two of them were guarded here —
+    # `units` above for D-073, `coverage` below — while `relationships` was
+    # `bundle.get("relationships", [])`. So a bundle that misspelled it
+    # (`relations`, `edges`) or dropped it applied cleanly and wiped
+    # `relationships.json` to `[]`, reporting `PASS` over a run that had just
+    # lost every relationship it had. The schema cannot catch this: nothing
+    # applies it at runtime — `jsonschema` is a dev extra and appears nowhere
+    # in the package — so the required keys are required here or nowhere.
+    missing = [key for key in _REQUIRED_BUNDLE_KEYS if key not in bundle]
+    if missing:
+        raise PipelineError(
+            f"Extraction bundle is missing required key(s): {', '.join(missing)}. "
+            f"The schema requires {', '.join(_REQUIRED_BUNDLE_KEYS)} and accepts "
+            "no other top-level key but the optional extraction_metadata "
+            "(schemas/extraction_bundle.schema.json)"
+        )
+    unknown = sorted(set(bundle) - set(_REQUIRED_BUNDLE_KEYS) - {"extraction_metadata"})
+    if unknown:
+        # `additionalProperties: false`, enforced where the bundle is read. A
+        # key nobody consumes is a key whose content was silently discarded.
+        raise PipelineError(
+            f"Extraction bundle has unknown top-level key(s): {', '.join(unknown)}. "
+            f"Accepted: {', '.join((*_REQUIRED_BUNDLE_KEYS, 'extraction_metadata'))}"
+        )
+
     # D-077: `metadata["video_id"]` raised a bare `KeyError` for a
     # metadata.json that had lost the key. `finalize_run` already read it
     # through `_checked_video_id`; apply-bundle did not.
@@ -288,14 +318,14 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
     units_document = {
         "schema_version": "1.0",
         "video_id": video_id,
-        "units": bundle.get("knowledge_units", []),
+        "units": bundle["knowledge_units"],
     }
     relationships_document = {
         "schema_version": "1.0",
         "video_id": units_document["video_id"],
-        "relationships": bundle.get("relationships", []),
+        "relationships": bundle["relationships"],
     }
-    coverage_document = bundle.get("coverage")
+    coverage_document = bundle["coverage"]
     if not isinstance(coverage_document, dict):
         raise PipelineError("Extraction bundle must contain a coverage object")
     coverage_document.setdefault("schema_version", "1.0")
@@ -317,8 +347,13 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
     provenance_validation = validate_provenance(
         units_document, transcript, segments, video_id
     )
-    transcript_end = transcript_end_sec(transcript.get("captions"))
-    coverage_validation = validate_coverage(coverage_document, transcript_end)
+    # D-168: the run's recorded duration, which is the video's own length when
+    # yt-dlp reported one. `validate_run` reaches the same number the same way,
+    # so the gate and the standing verdict cannot disagree about how long the
+    # run is.
+    coverage_validation = validate_coverage(
+        coverage_document, run_duration_sec(metadata, transcript.get("captions"))
+    )
     errors = {
         "knowledge_units": unit_validation["errors"],
         "provenance": provenance_validation["errors"],
@@ -342,7 +377,15 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
         )
 
     extraction_metadata = bundle.get("extraction_metadata")
-    if isinstance(extraction_metadata, dict):
+    if extraction_metadata is not None:
+        if not isinstance(extraction_metadata, dict):
+            # D-169: a non-dict used to be discarded in silence while
+            # `extracted_at` was stamped anyway, so the run looked as though it
+            # had recorded provenance it had not.
+            raise PipelineError(
+                "Extraction bundle's extraction_metadata must be an object, got "
+                f"{type(extraction_metadata).__name__}"
+            )
         metadata["extraction"] = extraction_metadata
     metadata["extracted_at"] = datetime.now(timezone.utc).isoformat()
     # One step, not four. These four files describe the same extraction, and

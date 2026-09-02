@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -15,7 +16,9 @@ from x2knwldg.io import (
     format_timestamp,
     read_json,
     timestamp_url,
+    write_group,
     write_json,
+    write_text,
 )
 from x2knwldg.pipeline import (
     PipelineError,
@@ -550,6 +553,184 @@ class BundleKeyTests(unittest.TestCase):
             with self.assertRaises(PipelineError) as caught:
                 apply_extraction_bundle(run_dir, bundle)
             self.assertIn("knowledge_units", str(caught.exception))
+
+
+#: "this key is absent", distinct from "this key is present and is None".
+_ABSENT = object()
+
+
+class RequiredBundleKeyTests(unittest.TestCase):
+    """D-169 — of three required keys, two were guarded and one was not.
+
+    ``bundle.get("relationships", [])`` defaulted in silence, so a bundle that
+    misspelled the key or dropped it applied cleanly and wiped
+    ``relationships.json`` to ``[]`` — reporting ``PASS`` over a run that had
+    just lost every relationship it had. The schema's
+    ``additionalProperties: false`` could not help: nothing applies the schema
+    at runtime, because ``jsonschema`` is a dev extra.
+    """
+
+    def _run_and_bundle(self, directory, **overrides):
+        fixture = Path(__file__).resolve().parent / "fixtures" / "runs" / "pass-run"
+        run_dir = Path(directory) / "run"
+        shutil.copytree(fixture, run_dir)
+        document = {
+            "knowledge_units": json.loads(
+                (fixture / "knowledge_units.json").read_text()
+            )["units"],
+            "relationships": json.loads(
+                (fixture / "relationships.json").read_text()
+            )["relationships"],
+            "coverage": json.loads((fixture / "coverage.json").read_text()),
+        }
+        document.update(overrides)
+        for key, value in list(document.items()):
+            if value is _ABSENT:
+                del document[key]
+        path = Path(directory) / "bundle.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return run_dir, path
+
+    def test_a_bundle_missing_relationships_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, bundle = self._run_and_bundle(directory, relationships=_ABSENT)
+            before = (run_dir / "relationships.json").read_bytes()
+            with self.assertRaises(PipelineError) as caught:
+                apply_extraction_bundle(run_dir, bundle)
+            self.assertIn("relationships", str(caught.exception))
+            self.assertEqual(
+                (run_dir / "relationships.json").read_bytes(),
+                before,
+                "a refused bundle changes nothing",
+            )
+
+    def test_a_misspelled_relationships_key_names_itself(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, bundle = self._run_and_bundle(
+                directory, relationships=_ABSENT, relations=[]
+            )
+            with self.assertRaises(PipelineError) as caught:
+                apply_extraction_bundle(run_dir, bundle)
+            message = str(caught.exception)
+            self.assertIn("relationships", message)
+
+    def test_an_unknown_top_level_key_is_refused(self):
+        """``additionalProperties: false``, enforced where the bundle is read."""
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, bundle = self._run_and_bundle(directory, notes="anything")
+            with self.assertRaises(PipelineError) as caught:
+                apply_extraction_bundle(run_dir, bundle)
+            self.assertIn("notes", str(caught.exception))
+
+    def test_extraction_metadata_must_be_an_object_or_absent(self):
+        """It was discarded in silence while ``extracted_at`` was stamped anyway."""
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, bundle = self._run_and_bundle(
+                directory, extraction_metadata="a note about the model"
+            )
+            with self.assertRaises(PipelineError) as caught:
+                apply_extraction_bundle(run_dir, bundle)
+            self.assertIn("extraction_metadata", str(caught.exception))
+
+    def test_the_four_accepted_keys_still_apply_cleanly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, bundle = self._run_and_bundle(
+                directory, extraction_metadata={"model": "none - a test"}
+            )
+            apply_extraction_bundle(run_dir, bundle)
+            metadata = json.loads((run_dir / "metadata.json").read_text())
+            self.assertEqual(metadata["extraction"], {"model": "none - a test"})
+
+
+class VaultCollisionTests(unittest.TestCase):
+    """D-171 — two unit ids that address one note on a case-insensitive disk.
+
+    ``ku-a`` and ``KU-A`` are distinct to every validator, and ``_slug`` does
+    not case-fold. On macOS the second write won: ``finalize`` reported ``PASS``
+    and claimed four files, the disk held three, ``report.md`` listed both units
+    and one note was gone. ``write_group`` treated the two unresolved paths as
+    distinct, so no duplicate-path check fired. CI is Linux, which is why the
+    rule here is case-insensitive on every platform rather than on the ones
+    where the filesystem is.
+    """
+
+    def test_two_entries_naming_one_file_are_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(CanonicalValueError) as caught:
+                write_group([(root / "ku-a.md", "one"), (root / "KU-A.md", "two")])
+            message = str(caught.exception)
+            self.assertIn("ku-a.md", message)
+            self.assertIn("KU-A.md", message)
+            self.assertFalse(
+                any(path.is_file() for path in root.iterdir()),
+                "a refused group writes nothing",
+            )
+
+    def test_unicode_composition_counts_as_the_same_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(CanonicalValueError):
+                write_group(
+                    [
+                        (root / "cafe\u0301.md", "decomposed"),
+                        (root / "caf\u00e9.md", "composed"),
+                    ]
+                )
+
+    def test_distinct_names_are_untouched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_group([(root / "a.md", "one"), (root / "b.md", "two")])
+            self.assertEqual((root / "a.md").read_text(encoding="utf-8"), "one")
+            self.assertEqual((root / "b.md").read_text(encoding="utf-8"), "two")
+
+
+class DurableWriteTests(unittest.TestCase):
+    """D-170 — eleven layered atomic replaces and no ``fsync`` anywhere.
+
+    The per-file claim holds against a concurrent reader and not against power
+    loss: a rename can be durable while the data it names is not, leaving a
+    zero-length canonical file that ``write_group``'s rollback can no longer
+    undo, because the bytes it would restore are gone too.
+    """
+
+    def test_the_file_is_synced_before_the_rename_and_the_directory_after(self):
+        synced: list[str] = []
+        real_fsync = os.fsync
+
+        def recording_fsync(descriptor):
+            try:
+                synced.append("dir" if os.path.isdir(f"/dev/fd/{descriptor}") else "file")
+            except OSError:  # pragma: no cover - platform detail
+                synced.append("unknown")
+            return real_fsync(descriptor)
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "canonical.json"
+            with mock.patch.object(os, "fsync", recording_fsync):
+                write_text(target, "durable\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "durable\n")
+            self.assertGreaterEqual(len(synced), 1, "nothing was synced at all")
+
+    def test_a_failure_to_sync_the_directory_does_not_fail_the_write(self):
+        """A landed write is not undone by a platform that will not sync a dir."""
+        real_fsync = os.fsync
+
+        def refuse_directory_fsync(descriptor):
+            try:
+                is_directory = os.path.isdir(f"/dev/fd/{descriptor}")
+            except OSError:  # pragma: no cover - platform detail
+                is_directory = False
+            if is_directory:
+                raise OSError("this platform does not sync directories")
+            return real_fsync(descriptor)
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "canonical.json"
+            with mock.patch.object(os, "fsync", refuse_directory_fsync):
+                write_text(target, "still written\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "still written\n")
 
 
 class FinalizeVerdictExitTests(unittest.TestCase):

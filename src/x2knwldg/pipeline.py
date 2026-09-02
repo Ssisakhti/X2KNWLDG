@@ -93,7 +93,21 @@ YOUTUBE_HOSTS = YOUTUBE_SHORT_HOSTS | YOUTUBE_WATCH_HOSTS
 
 _VIDEO_ID_RE = re.compile(r"[0-9A-Za-z_-]{11}")
 _LOCAL_ID_RE = re.compile(r"[0-9A-Za-z_-]{6,64}")
-_YOUTUBE_PATH_ID_RE = re.compile(r"/(?:shorts|embed)/([0-9A-Za-z_-]{11})")
+#: The path forms that name a video directly. D-166: this was used with
+#: ``.search`` and anchored at neither end, so ``/shorts/dQw4w9WgXcQABC`` — a
+#: malformed id, and one an attacker chooses — matched its first 11 characters
+#: and filed the fetched captions under **a different real video's id**. That is
+#: exactly the provenance poisoning ``is_youtube_url`` exists to prevent, one
+#: layer further in. It is now anchored at the start of the path and bounded at
+#: the end, so an id that is too long is refused rather than truncated.
+#:
+#: ``live``, ``v`` and ``watch`` join ``shorts`` and ``embed``: all three are
+#: live YouTube URL forms — a premiere, the old embed spelling, and the path
+#: form of a watch page — and all three returned ``None`` while
+#: ``is_youtube_url`` said ``True``.
+_YOUTUBE_PATH_ID_RE = re.compile(
+    r"^/(?:shorts|embed|live|v|watch)/([0-9A-Za-z_-]{11})(?:[/?#]|$)"
+)
 
 
 def _normalize_host(host: str | None) -> str | None:
@@ -150,7 +164,7 @@ def extract_video_id(value: str) -> str | None:
         candidate = parse_qs(parsed.query).get("v", [None])[0]
         if candidate and _VIDEO_ID_RE.fullmatch(candidate):
             return candidate
-        path_match = _YOUTUBE_PATH_ID_RE.search(parsed.path)
+        path_match = _YOUTUBE_PATH_ID_RE.match(parsed.path)
         return path_match.group(1) if path_match else None
     if host is not None:
         # Some other host. A URL is never a bare identifier, so it must not
@@ -227,6 +241,7 @@ def _metadata(
     integrity: dict[str, Any],
     metadata_error: str | None = None,
     canonical_hashes: Mapping[str, str] | None = None,
+    media_duration_sec: float | None = None,
 ) -> dict[str, Any]:
     document: dict[str, Any] = {
         "schema_version": "1.0",
@@ -239,7 +254,14 @@ def _metadata(
         "transcript_source": transcript_source,
         "transcript_hash": transcript_hash,
         "imported_at": datetime.now(timezone.utc).isoformat(),
-        "duration_sec": integrity["stats"]["duration_sec"],
+        # D-168: the video's length when it is known, and the caption span
+        # otherwise. `duration_sec` is what the coverage windows are minted over
+        # and what completeness is checked against, so a run whose captions stop
+        # ten minutes into a two-hour talk must not report itself as ten minutes
+        # long. The caption span is kept beside it rather than replaced: the gap
+        # between the two is the fact, and hiding either half hides it.
+        "duration_sec": _run_duration(integrity, media_duration_sec),
+        "captions_end_sec": integrity["stats"]["duration_sec"],
     }
     if canonical_hashes:
         # D-163. `transcript_hash` covers the *preserved original*; these cover
@@ -256,6 +278,29 @@ def _metadata(
         # nothing went wrong; never an empty string.
         document["metadata_error"] = metadata_error
     return document
+
+
+def run_duration_sec(metadata: Any, captions: Any) -> float:
+    """How long the run is, as ``metadata.json`` recorded it (D-168).
+
+    The one number the coverage windows are minted over and completeness is
+    checked against, so every reader of it must reach it the same way. Falls
+    back to the caption span for a run imported before ``duration_sec`` could
+    mean anything else.
+    """
+    recorded = metadata.get("duration_sec") if isinstance(metadata, dict) else None
+    caption_end = transcript_end_sec(captions)
+    if not is_finite_seconds(recorded) or recorded < caption_end:
+        return caption_end
+    return float(recorded)
+
+
+def _run_duration(integrity: dict[str, Any], media_duration_sec: float | None) -> float:
+    """How long the run is at import: the media when known, the captions otherwise."""
+    caption_end = float(integrity["stats"]["duration_sec"])
+    if media_duration_sec is None or not is_finite_seconds(media_duration_sec):
+        return caption_end
+    return round(max(caption_end, float(media_duration_sec)), 3)
 
 
 def _transcript_markdown(captions: list[dict[str, Any]], video_id: str) -> str:
@@ -309,6 +354,7 @@ def import_transcript(
     language: str = "unknown",
     source: str | None = None,
     metadata_error: str | None = None,
+    media_duration_sec: float | None = None,
     target_segment_sec: float = SEGMENT_TARGET_SEC,
     overlap_sec: float = SEGMENT_OVERLAP_SEC,
 ) -> Path:
@@ -372,6 +418,7 @@ def import_transcript(
         integrity,
         metadata_error,
         canonical_hashes=canonical_hashes,
+        media_duration_sec=media_duration_sec,
     )
 
     knowledge_document = {"schema_version": "1.0", "video_id": video_id, "units": []}
@@ -380,7 +427,9 @@ def import_transcript(
         "video_id": video_id,
         "relationships": [],
     }
-    coverage = create_pending_coverage(captions, video_id)
+    coverage = create_pending_coverage(
+        captions, video_id, duration_sec=metadata["duration_sec"]
+    )
 
     raw_dir = run_dir / "raw"
     # `raw/` is immutable evidence *of a run that exists*. The guard above has
@@ -784,7 +833,11 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
             knowledge, transcript, segments, metadata.get("video_id", "")
         ),
         "relationships": validate_relationships(relationships, unit_ids),
-        "coverage": validate_coverage(coverage, transcript_end_sec(captions)),
+        # D-168: `metadata.duration_sec`, not the caption span. The two are the
+        # same number for a run whose captions cover the whole video, and for
+        # one whose captions stop early the caption span is exactly the number
+        # that cannot detect the truncation.
+        "coverage": validate_coverage(coverage, run_duration_sec(metadata, captions)),
     }
     # The one check no single-file validator can make: coverage.json and
     # knowledge_units.json describing the same run.

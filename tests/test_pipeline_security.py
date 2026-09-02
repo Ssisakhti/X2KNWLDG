@@ -907,6 +907,53 @@ def test_a_symlink_that_stays_inside_the_output_root_is_accepted(tmp_path: Path)
 
 
 # ---------------------------------------------------------------------------
+# A URL names one video, or it names none
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        # D-166: the regex was unanchored and used with `.search`, so a
+        # malformed id was truncated to its first 11 characters and the fetched
+        # captions were filed under **a different real video's id**.
+        ("https://www.youtube.com/shorts/dQw4w9WgXcQABC", None),
+        ("https://www.youtube.com/embed/dQw4w9WgXcQXYZ123", None),
+        ("https://www.youtube.com/anything/shorts/dQw4w9WgXcQ", None),
+        # And the three live URL forms that returned `None` while
+        # `is_youtube_url` said `True`.
+        ("https://www.youtube.com/live/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/v/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/watch/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        # Unchanged, and asserted here so the anchoring cannot have narrowed
+        # them by accident.
+        ("https://www.youtube.com/shorts/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/embed/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else repr(value),
+)
+def test_a_youtube_path_names_one_video_or_none(url: str, expected: str | None) -> None:
+    assert is_youtube_url(url), "every case here is a YouTube host"
+    assert extract_video_id(url) == expected
+
+
+def test_a_truncated_id_is_never_a_different_real_video(tmp_path: Path) -> None:
+    """The consequence, stated as the property that matters.
+
+    `is_youtube_url` exists to stop captions from an attacker's host being
+    filed under a real 11-character id. Truncation did the same thing one layer
+    in, from a host that really is YouTube.
+    """
+    real = "dQw4w9WgXcQ"
+    assert extract_video_id(f"https://www.youtube.com/shorts/{real}") == real
+    for suffix in ("A", "AB", "ABC", "XYZ123", "_", "-"):
+        assert extract_video_id(f"https://www.youtube.com/shorts/{real}{suffix}") is None
+
+
+# ---------------------------------------------------------------------------
 # "Immutable evidence" now has a detection story
 # ---------------------------------------------------------------------------
 

@@ -570,8 +570,10 @@ def test_a_string_timestamp_cannot_clear_apply_bundle(tmp_path: Path) -> None:
     shutil.copytree(fixture, run_dir)
 
     units = json.loads((fixture / "knowledge_units.json").read_text())["units"]
+    # D-169: exactly the schema's keys. This bundle used to carry a
+    # `schema_version` the schema does not declare, and `additionalProperties:
+    # false` was enforced nowhere at runtime, so it was silently accepted.
     bundle = {
-        "schema_version": "1.0",
         "knowledge_units": units,
         "relationships": json.loads((fixture / "relationships.json").read_text())[
             "relationships"

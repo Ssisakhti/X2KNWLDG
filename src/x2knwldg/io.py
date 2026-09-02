@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -267,11 +268,22 @@ def dumps_json(value: Any) -> str:
 
 
 def write_bytes(path: Path, data: bytes) -> None:
-    """Write *data* to *path* atomically and without leaving a stray temp file.
+    """Write *data* to *path* atomically and durably, leaving no stray temp file.
 
     The replace is atomic per file: a reader sees either the old file or the new
     one, never a half-written one. Atomicity *across* files is a separate problem
-    and belongs to the caller — see ``artifacts._write_group``.
+    and belongs to the caller — see :func:`write_group`.
+
+    D-170: ordering was all this guaranteed, and it said so. ``grep -rn fsync
+    src`` returned nothing, under eleven layered atomic replaces. The per-file
+    claim holds against a concurrent *reader* and not against power loss: a
+    rename can reach the disk while the data it names has not, and what a run
+    then holds is a zero-length canonical file that ``write_group``'s rollback
+    can no longer undo, because the bytes it would restore are gone too. Two
+    syncs close it — the file's own before the rename, so the rename can never
+    name unwritten data, and the directory's after, so the rename itself is
+    durable. Every write in the package funnels through here, so this is the
+    only place either has to happen.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None
@@ -279,11 +291,33 @@ def write_bytes(path: Path, data: bytes) -> None:
         with NamedTemporaryFile("wb", dir=path.parent, delete=False, suffix=".tmp") as handle:
             temporary = Path(handle.name)
             handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, path)
+        _sync_directory(path.parent)
     except BaseException:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
         raise
+
+
+def _sync_directory(directory: Path) -> None:
+    """Make a rename in *directory* durable, where the platform allows it.
+
+    Opening a directory for ``fsync`` is POSIX; on Windows it raises, and there
+    the file's own ``fsync`` above is as far as this can go. A failure to sync
+    the directory is never worth failing a write that has already landed.
+    """
+    try:
+        descriptor = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
 
 
 def write_text(path: Path, text: str) -> None:
@@ -342,6 +376,48 @@ def write_group(
     the other way round. ``io`` imports nothing from the package, which is what
     lets both reach it.
     """
+    # D-171: two entries that name one file. Unit ids `ku-a` and `KU-A` are
+    # distinct to every validator — `validate_knowledge_units` dedupes
+    # case-sensitively and `ids.is_id_part` permits mixed case — and
+    # `artifacts._slug` does not case-fold, so on macOS's default
+    # case-insensitive filesystem the two produce one path and the second write
+    # wins. `finalize` then reported `PASS` and claimed four files while the
+    # disk held three, `report.md` listed both units, and one unit's note was
+    # simply gone. `written` is a *set* of unresolved paths, so nothing here
+    # noticed. CI is Linux; the stated development platform is macOS (D-115).
+    #
+    # Refused rather than repaired: which of the two notes should survive is not
+    # this function's to decide, and silently keeping one is exactly the
+    # behaviour that lost the other.
+    # The key is case-folded and NFC-normalised on *every* platform, not only
+    # where the filesystem is. `os.path.normcase` is a no-op on macOS, so a
+    # platform-accurate rule would make this defect invisible to Linux CI —
+    # which is exactly how it survived. Two canonical files differing only in
+    # case or in Unicode composition are a hazard wherever they are written, and
+    # nothing this package writes needs the distinction.
+    collisions: dict[str, list[Path]] = {}
+    for path, _ in entries:
+        key = unicodedata.normalize("NFC", str(path.resolve())).casefold()
+        collisions.setdefault(key, []).append(path)
+    duplicated = sorted(
+        (paths for paths in collisions.values() if len(paths) > 1),
+        key=lambda paths: str(paths[0]),
+    )
+    if duplicated:
+        named = "; ".join(
+            " and ".join(sorted(str(path) for path in paths)) for paths in duplicated
+        )
+        # `CanonicalValueError`, not a bare `ValueError`: it is a bad *value* in
+        # a canonical document (two unit ids that address one note), and it is
+        # in `cli.USER_FACING_ERRORS`, so the CLI keeps its documented
+        # `{"status": "ERROR"}` contract instead of dying on a traceback. Same
+        # reasoning as D-074.
+        raise CanonicalValueError(
+            "write_group was given two entries that name one file once case and "
+            f"Unicode composition are accounted for, so one would silently "
+            f"overwrite the other: {named}"
+        )
+
     written = {path.resolve() for path, _ in entries}
     stale = [
         path

@@ -23,9 +23,26 @@ def caption_in_window(caption: dict[str, Any], start: float, end: float, is_last
 
 
 def create_pending_coverage(
-    captions: list[dict[str, Any]], video_id: str, window_sec: float = COVERAGE_WINDOW_SEC
+    captions: list[dict[str, Any]],
+    video_id: str,
+    window_sec: float = COVERAGE_WINDOW_SEC,
+    duration_sec: float | None = None,
 ) -> dict[str, Any]:
-    duration = max((caption["end_sec"] for caption in captions), default=0)
+    """The unaudited coverage document for a run, one window per *window_sec*.
+
+    D-168: *duration_sec* is the **media's** length when it is known, and the
+    windows are minted over that rather than over the caption span. A caption
+    track covering the first ten minutes of a two-hour talk used to produce five
+    windows and a fully covered timeline, because the scaffold, the reported
+    duration and the completeness check all derived from the same truncated
+    number — so no comparison between them could ever detect the truncation.
+    Minted over the video, the same run produces twenty-four windows and
+    twenty-two of them have no captions to audit, which is the honest picture.
+    """
+    caption_end = max((caption["end_sec"] for caption in captions), default=0)
+    duration = caption_end
+    if duration_sec is not None and duration_sec > caption_end:
+        duration = duration_sec
     window_count = max(1, math.ceil(duration / window_sec))
     windows: list[dict[str, Any]] = []
     for index in range(window_count):
