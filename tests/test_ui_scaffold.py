@@ -1258,3 +1258,110 @@ def test_this_suite_runs_where_git_can_be_asked() -> None:
         "there is a .git here but git will not answer, so the D-071 checks "
         "would silently skip in the one place they must run"
     )
+
+
+def _ci_run_blocks() -> list[tuple[str, str]]:
+    """Every ``run:`` block in ci.yml as ``(first line, whole block)``.
+
+    Parsed by indentation rather than with a YAML library, because this module
+    is stdlib-only on purpose and ``pyyaml`` is not a declared dependency.
+    """
+    lines = _workflow().split("\n")
+    blocks: list[tuple[str, str]] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        if stripped == "run: |" or stripped.startswith("run: |"):
+            indent = len(line) - len(line.lstrip())
+            body: list[str] = []
+            index += 1
+            while index < len(lines):
+                nxt = lines[index]
+                if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= indent:
+                    break
+                body.append(nxt)
+                index += 1
+            text = "\n".join(body)
+            first = next((b.strip() for b in body if b.strip()), "")
+            blocks.append((first, text))
+            continue
+        if stripped.startswith("run: ") and not stripped.startswith("run: |"):
+            blocks.append((stripped[5:], stripped[5:]))
+        index += 1
+    return blocks
+
+
+#: A pipeline whose left side is a command under test. `||` is not a pipe.
+_PIPED = re.compile(r"(?<!\|)\|(?!\|)\s*(?:tee|grep|head|tail|jq|sed|awk)\b")
+
+
+def _piped_lines(block: str) -> list[str]:
+    """Lines in *block* whose exit status a pipe would discard.
+
+    Indentation decides, not the presence of an ``exit 1`` somewhere in the
+    block: the first version of this helper exempted any block containing one,
+    and the block it was written to catch ended with ``exit 1`` inside its skip
+    branch — so the guard passed against the exact hole that had shipped.
+
+    A piped line at the block's own indentation is the step doing its work, and
+    its status is the step's. A piped line indented deeper sits inside an
+    ``if``/``||`` branch that already fails on purpose, where the pipe only
+    formats a message on the way out.
+    """
+    body = [line for line in block.split("\n") if line.strip()]
+    if not body:
+        return []
+    base = min(len(line) - len(line.lstrip()) for line in body)
+    return [
+        line
+        for line in body
+        if _PIPED.search(line) and (len(line) - len(line.lstrip())) == base
+    ]
+
+
+def test_no_ci_step_loses_a_failure_to_a_pipe() -> None:
+    """The hole the first run of the `integration` job had.
+
+    Actions runs ``bash -e`` and **not** ``-o pipefail``, so ``cmd | tee log``
+    exits with ``tee``'s status: the frontend suite could be entirely red and
+    the step would report success. ``|| true`` and ``continue-on-error`` are
+    already refused above; this is the same failure wearing a subtler hat, and
+    it is the one that actually shipped.
+
+    A pipe inside a branch that already ``exit 1``s is fine — there the pipe
+    only formats a message on the way out.
+    """
+    offenders: list[str] = []
+    for first, block in _ci_run_blocks():
+        if "set -o pipefail" in block:
+            continue
+        for line in _piped_lines(block):
+            offenders.append(f"{first[:50]} → {line.strip()[:60]}")
+    assert not offenders, (
+        "these steps pipe a command whose exit status is then lost, so the "
+        f"step passes even when the command fails: {offenders}"
+    )
+
+
+def test_the_pipe_guard_can_actually_fail() -> None:
+    """Guards the guard: the sweep must find the pipes that are there.
+
+    A parser that returns nothing would pass the test above while checking
+    nothing, which is precisely the shape of defect it exists to catch.
+    """
+    blocks = _ci_run_blocks()
+    assert len(blocks) > 15, f"only {len(blocks)} run blocks parsed out of ci.yml"
+
+    # The sweep must see the pipe that is there, and must *not* see the one
+    # that is exempt — a guard checked only for "finds something" is how the
+    # first version of this test passed against the hole it was written for.
+    integration = next(block for _first, block in blocks if "vitest" in block)
+    assert _piped_lines(integration), "the vitest pipeline is not being seen"
+
+    fixtures = next(block for _first, block in blocks if "build_fixtures.py" in block)
+    assert "| head" in fixtures, "the fixtures block no longer has its pipe"
+    assert not _piped_lines(fixtures), (
+        "the fixtures pipe sits inside a branch that already exits 1, so it "
+        "must be exempt; counting it would make this guard cry wolf"
+    )
