@@ -717,7 +717,7 @@ a proxy added to `vite.config.ts` for this purpose. Every expected number in the
 specs is read back out of the payload the page was answered with, never typed
 into a test, which is what lets one gate serve two libraries: the real ingested
 project (86 entities, 118 relations, one page under the contract maximum) and
-the committed `PASS`/`PARTIAL`/`FAIL` fixtures (7 and 9). **30 specs, four
+the committed `PASS`/`PARTIAL`/`FAIL` fixtures (7 and 9). **31 specs, four
 files, green on both libraries and both drivers.**
 
 ### What it drew
