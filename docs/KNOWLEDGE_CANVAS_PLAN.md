@@ -577,6 +577,14 @@ must **not draw the raw `label`**, because a knowledge unit's label is its whole
 from a deterministic seed hashed from each node's `global_id`, never from its index in a page,
 so a node keeps its start as later pages arrive.
 
+`T-203` then built what the renderer draws from, in `web/src/map/`: a typed projection whose
+node and edge attributes are the API's record verbatim plus that seed (D-124), and a snapshot
+that accumulates pages, holds a D-059 edge until both of its endpoints have arrived, and
+refuses a repeated identity that disagrees with one already drawn (D-125). Walking the real
+86-node/118-edge graph at 1, 10, 50 and 500 nodes per page reaches the identical graph every
+time — page size does not change it — holding up to 54 edges at once on the way and none at
+the end.
+
 ### 12.3. perfect-freehand
 
 Used for:
@@ -634,6 +642,9 @@ Excluded from the current choice because of its production licence and the requi
 - Overview first; then neighbourhood and details.
 - A page is not presented as a whole graph: loaded nodes/edges, known totals and `truncated`
   remain explicit until the progressive snapshot is complete (D-118).
+- "Complete" is a measured claim, not a guess: the walk has finished, no edge is still waiting
+  for an endpoint, and either the API said nothing was cut short or the loaded node count
+  reached the stated total — an uncounted total leaves the question open (D-123).
 - Cross-page edges wait until both endpoints have arrived and dedupe by their canonical edge
   `id`; placeholder nodes are never invented.
 - Search, selection, neighbourhood and inspector also exist in a bounded semantic DOM surface;
@@ -1002,6 +1013,9 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-120 | No Map operation is WebGL- or pointer-only; a bounded semantic DOM companion exposes graph state, search, selection, neighbourhood, inspector and Reader navigation ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | WebGL is the right overview renderer and the wrong accessibility tree. The companion preserves keyboard operation and text alternatives without putting a heavy HTML component on every graph node |
 | D-121 | ForceAtlas2 runs synchronously in the Map; no layout worker until a measurement demands one | accepted | 200 iterations over the real 86/118 graph measured 2.7–9.0 ms on the target machine, against a 16.7 ms frame. A worker adds a second lifecycle to kill and a layout that can outlive its renderer, to hide a pass that does not block |
 | D-122 | The Map draws a truncated label under a stated density policy, never the raw `label` field; the full statement stays in the inspector | accepted | A knowledge unit's label is its whole `normalized_statement`. The gate drew 86 of them and they overlap into a pile that hides the graph. Truncating for display invents nothing as long as the inspector shows the statement in full |
+| D-123 | A Map snapshot is whole only when the walk has finished, nothing is pending, and either the API said `truncated: false` or the loaded node count reached the stated `total` ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `truncated` describes a page, and the last page of a paged walk reports it as well, so it cannot be read as sticky partiality; a null cursor cannot be read as completion either (invariant 4). The count is the fact that settles it, and an uncounted `total` leaves the question open rather than answered |
+| D-124 | Map node and edge attributes are the API's record verbatim plus a seeded position; styling lives in the renderer's reducers, never in the graph ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | A stored label or colour would put presentation — including D-122's truncation — inside the data the inspector reads back, and a flattened record cannot support D-125's field-by-field refusal. A restyle then costs a reducer, not a re-projection |
+| D-125 | A repeated identity must match in every field, with absent and `null` read as the same statement; anything else is a refusal naming the field, and the page is refused whole ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | D-059 makes repeats normal, so a repeat is not an error; a disagreement is, because merging would draw a record no request returned. The contract's optional fields are `field?: T | null`, so the two spellings of *not stated* must not be a conflict |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
@@ -1080,12 +1094,18 @@ An agent must not guess the answers to these if the decision would cause a notic
 - [x] Phase 2 selected and approved as the `T-201` Knowledge Map epic
 - [x] Phase 2 decomposed into claimable `T-202`–`T-209`, with [ADR 0005](adr/0005-knowledge-map-client.md)
   fixing the Sigma v4 gate, progressive graph truth, URL identity and accessible DOM boundary
+- [x] Phase 2 / T-202: the Sigma v4 beta line pinned exactly and proved on the real 86/118 graph
+  and on the user's MacBook; kept, with no worker (D-121) and no raw label (D-122)
+- [x] Phase 2 / T-203: the typed projection and the progressive snapshot in
+  [`web/src/map/`](../web/src/map/README.md) — pages accumulate, D-059 edges wait for their
+  endpoints, conflicts are refused whole, and a walk at 1, 10, 50 or 500 nodes per page reaches
+  the identical 86/118 graph (D-123–D-125)
 - [x] Translate this document to English per D-014
 
 ### Planned / not started
 
-- [ ] `T-202`: Sigma v4 compatibility and layout gate
-- [ ] `T-203`–`T-209`: Knowledge Map implementation and phase gate
+- [ ] `T-204`–`T-209`: the Map shell and renderer, styling, `mapLink`, neighbourhood and
+  inspector, accessibility, and the phase gate
 - [ ] Canvas
 - [ ] Pen annotations
 - [ ] Adapters for future sources
@@ -1094,25 +1114,29 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-The next execution session claims **`T-202` only**, inside the approved `T-201` Knowledge Map
-epic:
+The next execution session claims **`T-204` only**, inside the approved `T-201` Knowledge Map
+epic. `T-202` chose the renderer and `T-203` built the data underneath it; `T-204` is the
+first task that puts a Map on screen.
 
-1. Read [ADR 0005](adr/0005-knowledge-map-client.md), `PROJECT_MANAGEMENT.md` §5 Phase 2,
-   D-059 and D-117–D-120.
-2. Check current official Sigma v4 beta and compatible Graphology package versions, then pin
-   one exact set in `web/package.json` and the lockfile. Do not accept a moving prerelease
-   range.
-3. Build the smallest isolated Sigma v4 renderer over the real 86-node/118-edge sample. Use
-   the existing `EntityRef` and `IndexedRelation` types; do not design a second API shape.
-4. Seed deterministic non-zero `x`/`y` positions, exercise create/update/resize/selection/
-   teardown, and record layout/render observations on the user's MacBook.
-5. If v4 has a blocking defect, record the evidence and pin stable v3 before proceeding. Do
-   not implement both majors. If it passes, mark `T-202` done and make `T-203` the only next
-   claimable task.
-6. Run the frontend checks and prove `git diff --stat -- output/` is empty.
+1. Read [ADR 0005](adr/0005-knowledge-map-client.md) — including *Gate result* and *Projection
+   result* — `PROJECT_MANAGEMENT.md` §5 Phase 2 and §8.6, D-059, and D-117–D-125.
+2. Add `#/map` and its navigation entry, and own the Sigma lifecycle: explicit container size,
+   resize, zoom/reset, and a deterministic initial layout that seeds **before** it lays out.
+   Kill the renderer on unmount and on replacement; invariant 10 is a leak invariant, and the
+   gate proved it observable.
+3. Drive `GraphWalk`. Do not write a second graph store, a second projection, or a second
+   Sigma wrapper — §8.6 forbids all three, and D-124 puts styling in reducers rather than in
+   graph attributes.
+4. Load at most the contract maximum in the first request, and make further pages a deliberate
+   action. State loaded nodes, known total, held edges and `truncated` honestly: the snapshot
+   already computes them, and D-123 defines what "complete" is allowed to mean.
+5. Keep the layout synchronous (D-121) unless a new measurement on a larger graph says
+   otherwise, and do not draw the raw `label` (D-122) — that policy is `T-205`'s to write.
+6. Run the frontend checks, including the integration suite against a real server, and prove
+   `git diff --stat -- output/` is empty.
 
-Do not start Map routing, pagination state, styling or the inspector inside the spike; those
-belong to `T-203`–`T-207`. Phase 3 Canvas and Phase 4 pen remain out of scope.
+Do not start styling, `mapLink`, the neighbourhood or the inspector inside `T-204`; they are
+`T-205`–`T-207`. Phase 3 Canvas and Phase 4 pen remain out of scope.
 
 ## 24. Research references
 
@@ -1155,6 +1179,16 @@ belong to `T-203`–`T-207`. Phase 3 Canvas and Phase 4 pen remain out of scope.
   semantic DOM companion to the WebGL view.
 - Expanded Phase 2 deliverables, acceptance criteria, performance rules and the precise next
   step. Canvas transfer remains Phase 3 rather than a false Phase 2 dependency.
+
+### 2026-09-02 — Phase 2 implementation begins
+
+- `T-202` completed: one exactly pinned Sigma v4 beta line, proved on the real 86/118 graph in
+  a browser on the user's MacBook. D-121 (no layout worker) and D-122 (no raw label) recorded
+  from what it measured.
+- `T-203` completed: the typed projection and the progressive snapshot. D-123 (what makes a
+  snapshot whole), D-124 (records verbatim, styling in reducers) and D-125 (a repeat that
+  disagrees is refused, naming the field) recorded from what it took to build.
+- §22 and §23 updated: `T-204` is the only claimable task.
 
 ### 2026-08-31 — initial version
 

@@ -1458,3 +1458,36 @@ def test_the_third_party_notices_record_every_map_dependency() -> None:
     for name in MAP_RUNTIME_PINS + MAP_DEV_PINS:
         version = package["dependencies"].get(name) or package["devDependencies"][name]
         assert f"{name}@{version}" in notices, f"{name}@{version} is not recorded"
+
+
+# ---------------------------------------------------------------------------
+# T-203 — the Map asks for a page the contract will actually serve
+# ---------------------------------------------------------------------------
+
+
+def test_the_map_requests_no_more_than_the_contract_maximum() -> None:
+    """``GRAPH_PAGE_LIMIT`` is the frozen document's ``limit`` maximum.
+
+    D-118 bounds the Map's first request by the contract maximum rather than by
+    a number the frontend liked. Written out in TypeScript it is a second copy
+    of a value the OpenAPI document owns, and the two would drift silently: a
+    larger literal is a ``400`` on the Map's very first request, and the client
+    would have been refused by the bound it was supposed to respect.
+    """
+    walk = (WEB / "src" / "map" / "graphWalk.ts").read_text(encoding="utf-8")
+    match = re.search(r"GRAPH_PAGE_LIMIT = (\d+)", walk)
+    assert match is not None, "the Map no longer states the page size it asks for"
+
+    document = json.loads(
+        (PROJECT_ROOT / "schemas" / "api" / "v1" / "openapi.json").read_text(encoding="utf-8")
+    )
+    maximum = document["components"]["parameters"]["Limit"]["schema"]["maximum"]
+    assert int(match.group(1)) == maximum, (
+        f"the Map asks for {match.group(1)} nodes per page and the contract's "
+        f"maximum is {maximum}"
+    )
+    # And the contract's own maximum is the package's, so this reaches the one
+    # constant rather than agreeing with a second copy of it (D-101).
+    from x2knwldg.constants import MAX_PAGE_LIMIT
+
+    assert maximum == MAX_PAGE_LIMIT

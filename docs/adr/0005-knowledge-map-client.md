@@ -244,6 +244,44 @@ this task.
   `T-204`'s to create. `web/src/map/gate/gateGraph.ts` is a single-page conversion for this
   gate and is explicitly **not** the `T-203` projection.
 
+## Projection result (`T-203`, 2026-09-02)
+
+The projection and the progressive snapshot are built, in
+[`web/src/map/`](../../web/src/map/README.md) and behind no route: `graphProjection.ts`,
+`graphSnapshot.ts` and `graphWalk.ts`, with 48 hermetic tests and 3 against a running server.
+
+**What was measured.** The same walk over the **real 86-node/118-edge graph**, at four page
+sizes, served by `create_app(project_root=…)` over the real ingested project:
+
+| Nodes per page | Pages | Edges held at once, peak | Accumulated | `truncated` on the last page | `complete` |
+|---|---|---|---|---|---|
+| 1 | 86 | 54 | 86 nodes / 118 edges | `true` | `true` |
+| 10 | 9 | 46 | 86 / 118 | `true` | `true` |
+| 50 | 2 | 35 | 86 / 118 | `true` | `true` |
+| 500 | 1 | 0 | 86 / 118 | `false` | `true` |
+
+Page size does not change the graph, which is invariant 3 stated as a measurement rather than
+as an intention. The peak column is what a renderer would otherwise have drawn as dangling
+edges or invented nodes: 54 of them at one node per page, and none left at the end.
+
+**What the walk settled that this ADR left ambiguous.** Invariant 4 says `truncated: true`
+cannot be hidden by reaching a null cursor. The table shows the other half of it: *every* page
+of a multi-page walk reports `truncated`, the last one included, because both repository
+implementations compare the page against the whole filtered node set. So partiality cannot be
+accumulated from that flag either, and D-123 is the rule that came out of it — finished walk,
+nothing pending, and either `truncated: false` or the loaded count reaching the stated
+`total`, with an uncounted `total` leaving the question open.
+
+Two decisions follow from building it, and both bind `T-204`–`T-208`: node and edge
+attributes are the API's record verbatim plus a seeded position, with styling left to the
+renderer's reducers (**D-124**); and a repeated identity that disagrees in any field is a
+refusal naming that field, with absent and `null` read as the same statement (**D-125**).
+
+`GraphWalk` is the one graph store this phase gets. §8.6 of
+[`PROJECT_MANAGEMENT.md`](../PROJECT_MANAGEMENT.md) forbids a second one, and the reason is
+invariant 5: two snapshots never share a graph object, so a filter change cannot mix two
+questions even if a component forgets that it should not.
+
 ## References
 
 - Sigma v4 beta site: <https://v4.sigmajs.org/>

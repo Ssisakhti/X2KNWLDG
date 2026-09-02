@@ -1,15 +1,18 @@
 # `web/src/map/` — the Knowledge Map
 
-Phase 2. Two things live here so far, both from `T-202`
-([ADR 0005](../../../docs/adr/0005-knowledge-map-client.md)):
+Phase 2. Four things live here so far — `T-202`'s seeding and compatibility
+harness, and `T-203`'s projection ([ADR 0005](../../../docs/adr/0005-knowledge-map-client.md)):
 
 | Path | Holds |
 |---|---|
 | `seedPositions.ts` | Deterministic, non-zero starting positions, hashed from a node's `global_id` |
+| `graphProjection.ts` | The typed conversion of one `EntityRef`/`IndexedRelation` into graph attributes, and the equality that decides whether a repeated identity is a repeat or a conflict |
+| `graphSnapshot.ts` | `GraphSnapshot` — pages accumulate into one `MultiDirectedGraph`, edges wait for their endpoints, and the snapshot states what it does and does not yet hold |
+| `graphWalk.ts` | `GraphWalk` — the cancellable, framework-free driver: one question at a time, opaque cursors carried and never read |
 | `gate/` | The `T-202` compatibility harness: a single-page graph builder and the renderer lifecycle it exercises |
 
-`#/map`, the graph store that accumulates pages, the style matrix and the
-inspector are `T-203`–`T-208`. Nothing here is routed.
+`#/map`, the Sigma lifecycle, the style matrix and the inspector are
+`T-204`–`T-208`. Nothing here is routed, and nothing here imports Sigma.
 
 ## Seeding is not decoration
 
@@ -23,6 +26,58 @@ Seed where a node is **inserted**, not in a pass before the layout.
 `graphology-layout-forceatlas2` reads `attr.x` straight into a `Float32Array`,
 so a node with no position becomes `NaN`, raises nothing, and is simply not
 drawn — a real entity missing from the Map with no error to notice.
+`nodeAttributes` is therefore the only way a node is built.
+
+## A page is not a graph
+
+D-059: a page of `/api/graph` carries an edge when both endpoints pass the node
+filter and **at least one** of them is on that page. So a page can hold an edge
+whose far endpoint arrives later, and the same edge comes back on the later
+page too. Handing one page to a renderer has three outcomes and no fourth: the
+edge dangles, the far node gets invented, or connectivity is dropped and a full
+walk no longer reproduces the API's graph.
+
+`GraphSnapshot` is the alternative. Nodes dedupe by `global_id`, edges by their
+own `id`, and an edge is **held** — never drawn, never discarded — until both
+of its endpoints have arrived. Measured against the real 86-node/118-edge
+graph, a walk at one node per page holds up to 54 edges at once and ends with
+none: 86 nodes and 118 edges, the same set a single request returns. Page size
+does not change the graph.
+
+A repeated identity carrying a *different* record is a `GraphConflictError`,
+not a merge — a merge would draw a record no request returned. Absent and
+`null` are the same statement, because the contract spells every optional field
+`field?: T | null`; anything else is a disagreement, and the refusal names the
+field.
+
+## What the projection may add
+
+`x`, `y`, and the API's record. Nothing else — no label, no size, no colour.
+The record is stored verbatim so the Map can be read as evidence of what the
+index holds; display attributes belong to the renderer's reducers (`T-205`),
+and D-122 forbids drawing the raw `label` anyway, since a knowledge unit's
+label is its whole `normalized_statement`.
+
+## Complete is not "the cursor ran out"
+
+`truncated` is the API's statement about **a page**, and both repository
+implementations compute it against the whole filtered node set — so the *last*
+page of a multi-page walk reports `truncated: true` as well. Neither fact alone
+settles whether the accumulated graph is whole, so `GraphSnapshot.state` reports
+them separately and calls the graph complete only when the walk has finished,
+no edge is pending, and either the API said nothing was cut short or the loaded
+node count has reached the stated `total` (D-123). A `total` of `null` is
+*unknown*, never zero, so a snapshot that cannot prove it is whole says so.
+
+## One question at a time
+
+`GraphWalk.open` retires the generation in flight, aborts its request, and
+builds a new snapshot with a new graph. A page that answers after its question
+stopped being asked is dropped whole — a page's nodes, edges and cursor only
+mean anything together (D-079). Two snapshots never share a graph object, so
+"filter snapshots never mix" is structural rather than remembered.
+
+Cursors are carried and handed back, never parsed, compared, or displayed.
 
 ## The gate is a harness, not the Map
 
@@ -33,9 +88,9 @@ real graph on this machine — and it is deliberately quarantined:
   `index.html` alone, so the harness is not in `dist/`.
 - No application module imports it, and it defines no route.
   `tests/test_ui_scaffold.py` fails if either changes.
-- `gate/gateGraph.ts` converts **one** `/api/graph` page. It is not the `T-203`
-  projection and must not grow into it: page accumulation, conflict refusal and
-  holding an edge until both endpoints arrive all belong there.
+- Its single-page graph builder is **not** the `T-203` projection and must not
+  grow into one: page accumulation, conflict refusal and holding an edge until
+  both endpoints arrive live in `graphSnapshot.ts`.
 
 Walking it:
 
@@ -51,3 +106,13 @@ counts every WebGL context it has created against the ones that have been lost.
 A teardown that leaves a context live is the leak invariant 10 of ADR 0005
 forbids. The recorded result of that walk, its measurements and its four
 findings are in the ADR under *Gate result*.
+
+## Running the projection against the real server
+
+The unit tests are hermetic; `graphWalk.integration.test.ts` is not, and it is
+the only place page size is proved not to change the graph:
+
+```bash
+../.venv/bin/python scripts/dev_api.py --project-root ..    # or --fixtures
+X2KNWLDG_API_BASE=http://127.0.0.1:8931 npm test
+```

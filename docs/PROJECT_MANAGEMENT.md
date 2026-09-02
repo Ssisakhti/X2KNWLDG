@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-09-02 · **Phases 0 and 1 complete**; **Phase 2 in progress** — `T-202` chose and proved the renderer line (Sigma `4.0.0-beta.5` kept; D-121, D-122); `T-203` is the only task ready to claim
+**Last updated:** 2026-09-02 · **Phases 0 and 1 complete**; **Phase 2 in progress** — `T-202` chose and proved the renderer line (Sigma `4.0.0-beta.5` kept; D-121, D-122) and `T-203` built the graph projection and progressive snapshot (D-123–D-125); `T-204` is the only task ready to claim
 **Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
@@ -57,10 +57,10 @@ Measured from disk on **2026-09-02**, after D-070–D-116. Re-verify with the co
 | API contract (`T-005`) | **11 endpoints, all `GET`**, frozen in [`schemas/api/v1/openapi.json`](../schemas/api/v1/README.md); **25** components (the 25th is `SkippedRun`, added additively by D-050), every response body a `$ref` into `schemas/v1/`. Valid against the OpenAPI 3.1 meta-schema, external `$ref`s resolving from disk. **956 lines** of generated, committed TypeScript in `types.d.ts`, checked against `tsc --strict`. **All eleven are now served** by `src/x2knwldg/server/` (Track B); `test_the_served_surface_is_exactly_the_frozen_one` compares the app's generated document against the frozen one, so the two cannot drift apart |
 | Repository seam (`T-007`) | [`src/x2knwldg/repository/`](../src/x2knwldg/repository/README.md): `IndexRepository`, **10 methods** serving the 11 frozen endpoints, plus `MemoryRepository` over `adapt_project`. Stdlib-only. Fixed by [ADR 0002](adr/0002-index-repository-seam.md) |
 | Scaffold (`T-008`) | [`web/`](../web/README.md) holds TypeScript only — `package.json`, `package-lock.json`, `tsconfig.json`, `src/api/contract.ts`. `npm run typecheck` (`tsc --noEmit`) passes and is a CI job. The `ui` extra is `fastapi` + `uvicorn`; `x2knwldg ui` is wired end to end (`T-116`) and serves `web/dist` |
-| Test baseline | **2405 passed, 0 failed, 0 skipped, 84 subtests** (2026-09-02, after `T-202`: +5 pin and gate guards over the 2400 that stood after D-070–D-116, itself +258 over the 2142 after `T-116`). Frontend: **195 passed, 13 skipped**, up from 166/13 (`T-202` added 29 over the seeding and gate modules). The 13 skips are the integration files, which no longer skip in CI — the `integration` job serves the real API for them (D-116). Core package with no extras: **1698 passed, 496 skipped** — the API layer skips cleanly and no optional dependency crept in (re-measured 2026-09-02 on a throwaway venv holding only `x2knwldg` + `pytest`). Only five of the nine tests between this figure and the 1689 recorded before it are `T-202`'s: counted directly, `tests/test_ui_scaffold.py` went 87 → 92, so the old figure had already drifted by four — which is what §7.2 says to expect of every count here. Previously **2115 passed** after Tracks C and D; **2047** after Track B; **1647** after Track A and D-050; **1348** after the audit remediation on 2026-08-31; 1287 after the five-agent second wave, 765 before it, 515 before that. The bare-venv run is **not** a formality: it has failed before. See the note under §7.2 |
+| Test baseline | **2406 passed, 0 failed, 0 skipped, 84 subtests** (2026-09-02, after `T-203`: +1 over the 2405 that stood after `T-202`, which was itself +5 over the 2400 after D-070–D-116 and +258 over the 2142 after `T-116`). `T-203` is a frontend task and adds one Python test — the guard that the Map's page size is still the contract's maximum. Frontend: **246 passed, 16 skipped**, up from 195/13 (`T-203` added 48 unit tests over the projection, the snapshot and the walk, and 3 integration tests). The 16 skips are the integration files, which no longer skip in CI — the `integration` job serves the real API for them (D-116). Core package with no extras: **1699 passed, 496 skipped** — the API layer skips cleanly and no optional dependency crept in (re-measured 2026-09-02 after `T-203` on a throwaway venv holding only `x2knwldg` + `pytest`; `T-203`'s one Python test is the whole difference from the 1698 measured after `T-202`). Only five of the nine tests between that 1698 and the 1689 recorded before it were `T-202`'s: counted directly, `tests/test_ui_scaffold.py` went 87 → 92, so the old figure had already drifted by four — which is what §7.2 says to expect of every count here. Previously **2115 passed** after Tracks C and D; **2047** after Track B; **1647** after Track A and D-050; **1348** after the audit remediation on 2026-08-31; 1287 after the five-agent second wave, 765 before it, 515 before that. The bare-venv run is **not** a formality: it has failed before. See the note under §7.2 |
 | SQLite index (Track A) | [`src/x2knwldg/index/`](../src/x2knwldg/index/README.md): `schema.py` (DDL + forward-only migrations), `scanner.py` (discovery, whole-subtree digests, incremental change detection, build lifecycle), `search.py` (FTS5 retrieval behind `query.rank_documents`), `repository.py` (`SqliteRepository`, all **ten** protocol methods, widening nothing). Stdlib-only, so it runs on a bare core install; `packages.find` auto-discovers it, so `pyproject.toml` is untouched. The index lives at `.x2knwldg/index.sqlite`, already gitignored. On the real sample it reaches **1 source, 85 artifacts, 86 entities, 118 relations** and a graph of **86 nodes / 118 edges** — the same figures `adapt_project` and `MemoryRepository` reach, now by a third independent path |
 | HTTP API (Track B) | [`src/x2knwldg/server/`](../src/x2knwldg/server/): `envelope.py` (the frozen envelope, stdlib-only), `errors.py` (`RepositoryError` → HTTP by the status the repository chose, D-030), `app.py`, `deps.py`, `params.py`, and one module per endpoint group under `routes/`. **1534 lines**, **620 tests** across eleven `tests/test_api_*.py` files. Talks to `IndexRepository` and nothing else — it never reads `output/`, never opens the SQLite file, never imports the adapters. Serves `SqliteRepository` in production and is tested against `MemoryRepository` as the oracle **and** SQLite, because the thread bug of D-052 was invisible to the oracle |
-| Frontend (Track C) | [`web/`](../web/README.md): Vite + React + TypeScript, `HashRouter` (D-060), **61 files / 8611 lines** under `web/src/`, **195 tests** in 20 files. `npm run typecheck`, `npm test` and `npm run build` all pass and all three are now CI steps. Twelve of those tests are **integration** tests against a real `create_app(project_root=…)` over the committed fixtures — they skip without `X2KNWLDG_API_BASE`, so `npm test` stays hermetic. No endpoint, field, or query parameter was invented: the client's path table is typed against `Endpoints`, so the compiler refuses an incomplete or wrong one |
+| Frontend (Track C) | [`web/`](../web/README.md): Vite + React + TypeScript, `HashRouter` (D-060), **69 files / 10218 lines** under `web/src/`, **246 tests** in 24 files. `npm run typecheck`, `npm test` and `npm run build` all pass and all three are now CI steps. Sixteen of those tests are **integration** tests against a real `create_app(project_root=…)` over the committed fixtures — they skip without `X2KNWLDG_API_BASE`, so `npm test` stays hermetic. Three of the sixteen are `T-203`'s, and they are the only place the Map's central claim is checked against a server: a walk at one node per page accumulates exactly the graph one unpaged request returns. No endpoint, field, or query parameter was invented: the client's path table is typed against `Endpoints`, so the compiler refuses an incomplete or wrong one |
 | Toolchain | Node 26.5.0 · npm 11.17.0 · Python 3.14.6 · SQLite 3.53.4 with **FTS5 available** |
 
 > **Correction of record.** Canvas plan §4 previously stated the sample had empty
@@ -99,7 +99,7 @@ Exit criteria live in canvas plan §16; this table tracks state only.
 |---|---|---|---|---|
 | **0** | Contracts & scaffolding | ✅ `done` | ❌ **No — serialization point** | Schemas validate; contract frozen |
 | **1** | Read-only Library & Reader | ✅ `done` — four tracks + `T-116`; §7.4 scenarios 1–3 walked and passing | — | Search works; status honest; rebuild is equivalent |
-| **2** | Knowledge Map | 🟨 `in progress` — `T-202` done: Sigma v4 beta line proved on the real 86/118 graph and kept; `T-203` next | ✅ After `T-204` (styling vs inspector) | Provenance distinguishable; empty/partial graphs honest; selection reaches evidence |
+| **2** | Knowledge Map | 🟨 `in progress` — `T-202` done: Sigma v4 beta line proved on the real 86/118 graph and kept. `T-203` done: the projection and progressive snapshot accumulate the real graph at every page size; `T-204` next | ✅ After `T-204` (styling vs inspector) | Provenance distinguishable; empty/partial graphs honest; selection reaches evidence |
 | **3** | Canvas & board persistence | `not started` | ⚠️ Sequential with Phase 4 | Layout survives restart; partial corruption tolerated |
 | **4** | Pen & annotation | `not started` | ⚠️ Sequential with Phase 3 | Strokes stable under zoom/pan; no canonical leakage |
 | **5** | Richer media & documents | `not started` | ✅ Per-format | Scoped only once real files are in use |
@@ -175,11 +175,20 @@ measurements and the four recorded findings are in [ADR 0005](adr/0005-knowledge
 § *Gate result*; the two that change later tasks are D-121 (no layout worker) and D-122 (the
 raw `label` is a whole sentence and cannot be drawn as a Map label as it stands).
 
+**The data underneath it is built** (2026-09-02). `T-203`'s projection, snapshot and walk are
+in [`web/src/map/`](../web/src/map/README.md), behind no route and importing no renderer.
+Walking the same real graph at 1, 10, 50 and 500 nodes per page accumulates the identical
+86/118 result, so page size cannot change what the Map draws; the measurements are in
+[ADR 0005](adr/0005-knowledge-map-client.md) § *Projection result*, and the three decisions it
+hands to `T-204`–`T-208` are D-123 (what makes a snapshot whole), D-124 (attributes are the
+record verbatim; styling is a reducer) and D-125 (a repeat that disagrees is refused, naming
+the field).
+
 | ID | Task | Flag | Depends on | Acceptance |
 |---|---|---|---|---|
 | `T-201` | **Epic — Knowledge Map:** WebGL overview, provenance/kind semantics, search and focus, filters, bounded neighbourhoods, inspector, Reader navigation, and an accessible DOM path | — | Phase 1 gate | Complete only when `T-202`–`T-209` are done |
 | ~~`T-202`~~ | ✅ **done** (2026-09-02) — **Sigma v4 beta line chosen and proved.** `sigma@4.0.0-beta.5`, `graphology@0.26.0`, `graphology-types@0.24.8`, `graphology-layout-forceatlas2@0.10.1` and `@types/events@3.0.3`, all **exact** pins, all MIT, recorded in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) and guarded by five tests in `tests/test_ui_scaffold.py` that fail if a pin becomes a range, drifts from the version the gate page prints, or loses its licence entry. The harness is `web/gate.html` + [`web/src/map/gate/`](../web/src/map/README.md): development-only, unrouted, and outside the production build. Walked in Chrome 152 on the real API over the real ingested project: **86/86 nodes, 118/118 edges** drawn in one page (`truncated=false`, `next_cursor=null`), 0 edges with an endpoint off the page, 0 self-loops; create, update, resize, select and teardown each exercised, then **21 create/kill cycles** in which every renderer context was released — 21 created, 21 lost, none left live — with no uncaught error. (The page's counter reads one context higher throughout: the walk driver creates its own to read the GPU name, and the gate counts every context on the page rather than only Sigma's.) The 200-iteration ForceAtlas2 pass takes **2.7–9.0 ms** synchronously, so there is **no worker** (D-121). Deterministic seeding is [`web/src/map/seedPositions.ts`](../web/src/map/seedPositions.ts) — id-hashed, never index-based, and visibly identical between render #1 and render #22. Four findings recorded in ADR 0005 § *Gate result*; D-122 is the one that constrains `T-205` | `S` | — | ✅ met: real sample renders and tears down with no leaked context and no uncaught error; one version line chosen; `git diff --stat -- output/` empty |
-| `T-203` | **Graph projection and progressive snapshot.** Pure typed conversion from `EntityRef`/`IndexedRelation` into a `MultiDirectedGraph`; preserve `global_id`, edge `id`, direction, parallel edges, intentional self-loops, nulls and canonical paths verbatim. Accumulate graph pages, dedupe nodes by `global_id` and edges by `id`, refuse conflicting duplicates, and hold an edge off-canvas until both endpoints have arrived. A filter change aborts the old walk and creates a new snapshot. Never parse an opaque cursor | `S` | `T-202` | Unit tests cover D-059 cross-page edges, duplicate pages, conflicts, cancellation, empty data and `truncated`; no dangling rendered edge and no invented field |
+| ~~`T-203`~~ | ✅ **done** (2026-09-02) — **The projection and the progressive snapshot.** [`web/src/map/`](../web/src/map/README.md) gained three modules and no route: `graphProjection.ts` (one record into node/edge attributes, plus the equality that tells a repeat from a conflict), `graphSnapshot.ts` (`GraphSnapshot`: pages accumulate into one `MultiDirectedGraph`, nodes dedupe by `global_id` and edges by `id`, and a D-059 edge is **held** until both endpoints arrive), and `graphWalk.ts` (`GraphWalk`: one question at a time, cursors carried and never parsed, a filter change aborting the walk in flight and building a new snapshot with its own graph). A node carries `x`, `y` and the API's record verbatim and nothing else (D-124); a repeated identity that disagrees is a `GraphConflictError` naming the field, and the page is refused whole rather than half-applied (D-125); and `complete` is the walk having finished with nothing pending and either `truncated: false` or the loaded count reaching the stated `total` (D-123). **51 frontend tests** — 48 hermetic, 3 against a running server. The last three are the ones that matter: walking the **real 86-node/118-edge graph** at 1, 10, 50 and 500 nodes per page reaches the identical 86/118 every time, holding up to **54** edges at once at one node per page and **0** at the end, so page size cannot alter the accumulated graph. `tests/test_ui_scaffold.py` fails if the Map's page size stops matching the contract's `limit` maximum | `S` | `T-202` | ✅ met: D-059 cross-page edges, duplicate pages, conflicts, cancellation, empty data and `truncated` all covered; no dangling rendered edge at any point in a real walk; no invented field |
 | `T-204` | **Addressable Map shell and renderer.** Add `#/map` and the navigation entry; own the Sigma lifecycle, explicit container size, resize, zoom/reset and deterministic initial layout. Load at most the contract maximum (500 nodes) in the first request and expose deliberate progressive loading when more pages exist. No heavy HTML component per WebGL node | `S` | `T-203` | Direct navigation and reload work; the 86/118 sample fits one honest page; a larger graph remains visibly partial until accumulated; renderer cleanup is tested through an injected/fake boundary |
 | `T-205` | **Visual semantics and real filters.** Define one tested style matrix for node `provenance_class` + `kind` and edge `relation_vocabulary` + provenance. Canonical, `derived_from`, and `expresses_concept` must all be recognisable; source/derived/user and canonical/synthetic/user each retain a non-colour signal in the Map and its legend. Offer only filters the frozen graph API actually accepts: `source_id`, `provenance_class`, `relation_vocabulary`. Do not invent a server-side kind filter | `P` | `T-204` | Pure style/reducer tests cover every current kind and all three vocabularies; legend and graph agree; changing a filter starts a fresh server-backed snapshot |
 | `T-206` | **Search, focus and Map URL grammar.** One `mapLink` module builds and parses selection/filter state, following `readerLink`: invalid values are ignored, never coerced. Search loaded node label/id locally and use `/api/search?include_transcript=false` for indexed knowledge; a hit with a real `global_id` can load its neighbourhood then focus it, while a caption/null-id hit is explained rather than given an address. Camera focus and selection survive reload | `P` | `T-204` | URL round trips; stale search requests abort; keyboard selection focuses the same node as pointer selection; malformed URL state invents neither a node nor a default filter |
@@ -330,6 +339,9 @@ repeated here.
 | D-120 | No Knowledge Map operation is WebGL- or pointer-only: a semantic DOM companion exposes graph state, search, selection, neighbourhood, inspector and Reader navigation, while Sigma remains the visual presentation ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Sigma renders the graph through WebGL/Canvas layers, which do not themselves make thousands of graph objects keyboard-addressable or provide a useful text alternative. The project already requires keyboard accessibility and non-colour provenance signals. A small DOM control/result/inspector surface supplies the operable structure without putting heavy HTML on every rendered node or replacing the WebGL overview |
 | D-121 | The Knowledge Map runs ForceAtlas2 **synchronously**, with no layout worker, until a measurement says otherwise ([ADR 0005](adr/0005-knowledge-map-client.md) § Gate result) | accepted | Measured, not assumed: 200 iterations over the real 86-node/118-edge graph take 2.7–9.0 ms on this MacBook — cold 8.5–9.0 ms, steady 2.7–3.4 ms — against a 16.7 ms frame. A worker would add a second lifecycle to kill, message passing for positions, and a failure mode where the layout outlives the renderer, in exchange for hiding a pass that does not block. The canvas plan permits a worker; `T-202` was told to adopt one only on evidence, and the evidence says no. The number is a *baseline*, not a threshold: revisit it against a measured graph an order of magnitude larger, and note that the first pass is the slow one, so a per-filter-change layout is the case to measure |
 | D-122 | A Map node's drawn label is **not** the raw `label` field: `T-205` owns a truncation and density policy, and the full statement belongs to the inspector ([ADR 0005](adr/0005-knowledge-map-client.md) § Gate result) | accepted | The gate rendered the real labels and they are whole sentences — `library.py` sets a knowledge unit's label from `normalized_statement`, which is what the Reader wants and what a graph label cannot be. At 86 nodes the result is a pile of overlapping full sentences that hides the graph it is annotating, and the longest run past the container edge. Truncating for display is a presentation choice, not a rewrite of canonical text, so nothing is invented as long as the inspector still shows the statement in full. Sigma's own label-density settings are the mechanism; the decision here is that the Map must have a stated policy rather than inherit whatever a default draws |
+| D-123 | A Map snapshot is **whole** only when the walk has finished, no edge is still pending, and either the API stated `truncated: false` or the loaded node count reached the stated `total`. `total: null` is unknown and blocks the claim rather than granting it | accepted | `truncated` is a statement about a *page*, and both repository implementations compute it against the whole filtered node set — so the **last** page of a multi-page walk reports `truncated: true` too. Treating it as sticky would mark a graph holding every node the filter matched as partial forever; treating a null cursor as completion is exactly what ADR 0005 invariant 4 forbids. Neither fact settles it alone, so the snapshot reports both and derives wholeness from the count. Measured on the real 86/118 graph: at 50 nodes per page the final page says `truncated` with all 86 nodes loaded, and at one node per page it takes 86 pages and up to 54 held edges to reach the same graph |
+| D-124 | A projected node carries `x`, `y` and the API's `EntityRef` **verbatim**; a projected edge carries its `IndexedRelation`. No display attribute — label, size, colour — is stored on the graph; `T-205`'s style matrix belongs to the renderer's reducers | accepted | The Map is a view of canonical evidence, so a stored label would put a presentation decision — D-122's truncation among them — inside the data the inspector and the Reader read back, and a flattened record cannot be compared field by field, which is what D-125's refusal needs. It also means a restyle is a reducer change rather than a re-projection of the whole graph, and that `Object.keys` of a node's attributes is a test that no field was invented |
+| D-125 | A repeated identity is the same record only if **every** field matches, where an absent field and a `null` one are the same statement. Any other difference is a `GraphConflictError` naming the field, and the page is refused **whole** | accepted | D-059 guarantees repeats — a straddling edge is returned on both of its pages — so a repeat cannot be an error by itself. The contract spells every optional field `field?: T | null`, so both spellings mean *not stated* and refusing over that would refuse a legitimate graph; but `confidence: 0.9` against `null` is two claims about one edge, and merging would draw a record no request returned. Refusing the page before inserting anything keeps the snapshot exactly as it was, so a refusal is not also a half-applied page to reason about |
 
 ### ⚠️ D-011 is **additive** — do not "clean up" the 2-part ID
 
@@ -358,13 +370,13 @@ A future session must not consolidate these into one form without also updating 
 
 ### 7.2 Regression baseline
 ```bash
-.venv/bin/python -m pytest -q               # expect: 2400 passed, 0 failed, 84 subtests (plus new tests)
+.venv/bin/python -m pytest -q               # expect: 2406 passed, 0 failed, 84 subtests (plus new tests)
 git diff --stat -- output/                  # expect: empty, always
 .venv/bin/python tests/fixtures/runs/build_fixtures.py
 git diff --stat -- tests/fixtures/runs/     # expect: empty — regeneration is byte-identical
 .venv/bin/python tools/generate_api_types.py --check   # expect: types.d.ts is up to date
 (cd web && npm ci && npm run typecheck)     # expect: silent — tsc --noEmit, risk R17
-(cd web && npm test && npm run build)       # expect: 195 passed, 13 skipped; then a clean build
+(cd web && npm test && npm run build)       # expect: 246 passed, 16 skipped; then a clean build
 ```
 
 `--check` duplicates `tests/test_api_types.py::test_the_committed_declarations_are_current`;
@@ -405,12 +417,14 @@ python3 -m venv /tmp/bare && /tmp/bare/bin/pip install . pytest
 for p in jsonschema openapi-spec-validator networkx pyvis yt-dlp fastapi uvicorn; do
   /tmp/bare/bin/pip show "$p" >/dev/null 2>&1 && echo "LEAKED: $p"
 done                                        # expect: no output
-/tmp/bare/bin/python -m pytest -q           # expect: 1438 passed, 5 skipped, 36 subtests
+/tmp/bare/bin/python -m pytest -q           # expect: 1699 passed, 496 skipped, 84 subtests
 ```
 
-The 5 skips are the `jsonschema` and `legacy` tests, which skip by design. Every
-`tests/test_ui_scaffold.py` test runs here — the scaffold's own guards must hold
-on the install they are about.
+The 496 skips are 491 API/HTTP-layer tests, which belong to the `ui` extra, plus the
+`jsonschema`, `mcp` and `legacy` tests — all of them skipping by design, and all of them
+counted here for the first time (this block still quoted 1438/5 from before the API layer
+existed, which §7.2's own warning is about). Every `tests/test_ui_scaffold.py` test runs
+here — the scaffold's own guards must hold on the install they are about.
 
 > **Run this one. It is not a formality.** Re-measured 2026-08-31 for the first time
 > since the suite was 515, it **failed** — and the failure was in the suite, not the
@@ -563,9 +577,10 @@ lock: §8.2 is still the rule. Change the paths there and here together, never o
 
 ### 8.6 Phase 2 ownership and safe fan-out
 
-`T-202` and `T-203` are serialization points: the renderer major, Graphology shape,
-pagination merge rule and URL identity must be one decision before components build on them.
-`T-204` is the integration shell and is serialized for the same reason.
+`T-202` and `T-203` were the serialization points, and both are done: the renderer major, the
+Graphology shape and the pagination merge rule are decided, and later tasks inherit them
+rather than re-deciding them. URL identity is still one decision to make, in `T-206`. `T-204`
+is the integration shell and is serialized for the same reason.
 
 After `T-204`, at most two implementation tasks may run in parallel:
 
@@ -629,6 +644,9 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 | `schemas/api/v1/openapi.json` (`T-005`) | The **specification** for `T-105`–`T-108`, not a suggestion. Eleven `GET` endpoints, response bodies `$ref`-ing `schemas/v1/`. Do not add an endpoint, a field, or a status code without editing this document and its tests first |
 | `schemas/api/v1/types.d.ts` (`T-005`) | The frontend's types. Import it; never hand-edit it. Regenerate with `python tools/generate_api_types.py` |
 | `web/src/map/seedPositions.ts` (`T-202`) | Every Map node's starting position. Seeds are a hash of the node's `global_id`, **never** its index in a page: a Map accumulates pages (D-118), so an index-derived seed moves a node when the next page arrives and makes the layout unreproducible across reloads. It also guarantees no node starts at the origin, which ForceAtlas2 answers with `NaN` rather than with an error. Apply it where a node is *inserted*, not in a pass before layout — `graphology-layout-forceatlas2` reads a missing `x` straight into a `Float32Array`, so a forgotten seed is an invisible missing node, not a crash |
+| `web/src/map/graphProjection.ts` (`T-203`) | Turning an `EntityRef` or an `IndexedRelation` into graph attributes, and deciding whether a repeated identity is a repeat or a conflict. A node's attributes are `x`, `y` and the record **verbatim** — no label, size or colour, because styling is the renderer's reducers (D-124) and D-122 forbids drawing the raw `label` anyway. `recordDifference` is the comparison, and it reads an absent field and a `null` one as the same statement (D-125); anything else raises `GraphConflictError` naming the field |
+| `web/src/map/graphSnapshot.ts` (`T-203`) | **The** graph store. Pages accumulate into one `MultiDirectedGraph`; nodes dedupe by `global_id`, edges by `id`; a D-059 edge whose far endpoint has not arrived is held, never drawn and never dropped; a page that conflicts is refused before anything is inserted. `state()` is what a view may say out loud — loaded, held, known total, `hasMore`, `lastPageTruncated`, and `complete` under D-123. Do not add a second store, and do not compute completeness anywhere else |
+| `web/src/map/graphWalk.ts` (`T-203`) | Driving that store: `open` retires the walk in flight and starts a new snapshot with its own graph, `loadMore` is deliberate, `cancel` keeps what was drawn, and a page that answers after its question was replaced is dropped whole (D-079's lesson). Cursors are carried and handed back, never parsed (ADR 0005 invariant 6). `apiGraphPages` is the loader over the typed client, so an undeclared filter is a compile error, and `GRAPH_PAGE_LIMIT` is the contract's maximum, guarded by `tests/test_ui_scaffold.py` |
 | `web/src/api/contract.ts` (`T-008`) | The **only** place `web/` names the generated declarations. Frontend code imports API types from here, never by reaching up the tree (D-038) |
 | `web/src/lib/readerLink.ts` (`T-116`, D-069) | The Reader's URL grammar — `readerPath` to build one, `parseTab`/`parseSeconds` to read one, `captionIndexAt` to resolve an offset to a caption. Anything linking into the Reader calls it rather than assembling a path, because a grammar written in one place and read in another is two implementations. `parseSeconds` **ignores** what it cannot read; do not make it return `0` |
 | `repository/` (`T-007`) | The **only** thing `T-105`–`T-108` read. No route opens a database, a canonical file, or a run directory. `T-101`–`T-104` implement `IndexRepository` over SQLite without widening it; `MemoryRepository` is what Track B builds against until they do, and the oracle `T-104` proves equivalence against |
@@ -670,21 +688,41 @@ the suite could not:
 Both lived in a seam between components that were individually correct and individually well
 tested, which is the pattern to expect again in Phase 2.
 
-**Next: `T-202`, the compatibility/layout gate inside the approved Phase 2 Map epic
-`T-201`.** Do not claim the epic as one task and do not start a second child beside `T-202`.
-Pin one exact Sigma v4 beta and its compatible Graphology packages, then prove create/update/
-resize/select/teardown and deterministic initial positions over the real 86-node/118-edge
-sample on the user's MacBook. Record what was measured. If v4 has a blocking defect, choose
-stable v3 there and only there; `T-203` must inherit one renderer API, never both.
+**Next: `T-204`, the addressable Map shell and renderer, inside the approved Phase 2 Map epic
+`T-201`.** `T-202` chose the renderer and proved it releases every WebGL context it takes;
+`T-203` built the projection, the snapshot and the walk underneath it. `T-204` is the first
+task that puts a Map on screen, and it is still serialized: `#/map`, the navigation entry, the
+Sigma lifecycle, container sizing, resize, zoom/reset and the initial layout.
 
-The Map's consumers are already served and tested but uncalled: `GET /api/graph`,
-`GET /api/graph/neighborhood/{id}`, `/api/entities/{entity_id}`, and `GET /api/search`.
-Read D-059 and D-118 before drawing a paged graph. `readerLink` is the precedent for
-`mapLink`: one module owning a grammar that is built in one place and read in another.
+Drive `GraphWalk` rather than writing a second store, a second projection or a second Sigma
+wrapper — §8.6 forbids all three. Load at most the contract maximum in the first request and
+make further pages deliberate; the snapshot already computes loaded, held, known total,
+`hasMore` and `complete`, and D-123 is what `complete` is allowed to mean. Keep the layout
+synchronous (D-121), seed before laying out, and leave the label policy to `T-205` (D-122).
+
+Two of the Map's four consumers are now called: `GET /api/graph` through `apiGraphPages`, and
+nothing else yet. `GET /api/graph/neighborhood/{id}`, `/api/entities/{entity_id}` and
+`GET /api/search` remain served, tested and uncalled — they belong to `T-206` and `T-207`.
+`readerLink` is still the precedent for `mapLink`: one module owning a grammar that is built
+in one place and read in another.
 
 §10's note matters there too: `derived_from` and `expresses_concept` are library-only
 synthetic relations, absent from `RELATION_TYPES` and the two most common edges in the real
 data (45 and 17 of 118) — the Map must style what the data actually contains.
+
+**What `T-203` established that a later task must not undo:**
+
+- **One graph store.** `GraphSnapshot` holds the merge rule and `GraphWalk` holds the
+  generation rule. A component that accumulates pages itself reintroduces exactly the dangling
+  edge, invented node and mixed-filter bugs D-118 exists to prevent.
+- **Attributes are the record, verbatim** (D-124). Writing a `label` or a `color` onto a node
+  puts presentation inside the data the inspector reads back, and breaks the field-by-field
+  comparison D-125's refusal depends on.
+- **`complete` has one definition** (D-123), in `GraphSnapshot.state`. Recomputing it from
+  `hasMore` in a view is how a truncated graph gets presented as the library.
+- **The integration tests are the proof.** They are the only place page size is shown not to
+  change the graph, and they run in CI's `integration` job. Deleting or skipping them returns
+  the claim to prose.
 
 **What Track B changed that a later track must not undo:**
 
