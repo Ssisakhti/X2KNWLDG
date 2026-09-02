@@ -15,10 +15,16 @@
  *
  * The seek signal is a `{seconds, nonce}` pair rather than a bare number so
  * that clicking the same timestamp twice seeks twice.
+ *
+ * Which tab is open and where the reader is pointed both live in the URL
+ * (D-069, grammar in `lib/readerLink`), so a search hit can hand its offset
+ * over and a reader can be shared or reloaded where it was left. They stay
+ * *only* in the URL rather than being mirrored into state, because two homes
+ * for one fact is how the address bar and the page come to disagree.
  */
 
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { artifactOfKind } from "../api/canonical";
 import { api } from "../api/client";
@@ -45,8 +51,14 @@ import { DefinitionList, Missing, Mono } from "../components/primitives";
 import { useI18n } from "../i18n";
 import type { MessageKey } from "../i18n";
 import { formatBytes, formatSeconds, formatTimestamp } from "../lib/format";
+import {
+  DEFAULT_TAB,
+  parseSeconds,
+  parseTab,
+  type ReaderTab,
+} from "../lib/readerLink";
 
-type Tab = "overview" | "transcript" | "report" | "units" | "relations" | "artifacts";
+type Tab = ReaderTab;
 
 const TABS: readonly { id: Tab; label: MessageKey }[] = [
   { id: "overview", label: "reader.tab.overview" },
@@ -352,8 +364,25 @@ function ArtifactsPanel({ artifacts }: { artifacts: readonly Artifact[] }) {
 export function ReaderView() {
   const { t } = useI18n();
   const { sourceId = "" } = useParams();
-  const [tab, setTab] = useState<Tab>("overview");
+  const [search, setSearch] = useSearchParams();
   const [seek, setSeek] = useState<SeekRequest | null>(null);
+
+  const tab = parseTab(search.get("tab")) ?? DEFAULT_TAB;
+  const linkedSeconds = parseSeconds(search.get("t"));
+
+  // `replace` rather than `push`: the Reader is one page, and six tabs would
+  // otherwise put six entries between the reader and the library they came
+  // from. The URL still updates, so any tab is copyable.
+  const setTab = (next: Tab) =>
+    setSearch(
+      (current) => {
+        const params = new URLSearchParams(current);
+        if (next === DEFAULT_TAB) params.delete("tab");
+        else params.set("tab", next);
+        return params;
+      },
+      { replace: true },
+    );
 
   const requestSeek = (seconds: number) =>
     setSeek((current) => ({ seconds, nonce: (current?.nonce ?? 0) + 1 }));
@@ -407,6 +436,7 @@ export function ReaderView() {
               artifact={transcript}
               sourceUrl={source.url ?? null}
               onSeek={requestSeek}
+              highlightSec={linkedSeconds}
             />
           )}
           {tab === "report" && <ReportPanel artifact={report} />}

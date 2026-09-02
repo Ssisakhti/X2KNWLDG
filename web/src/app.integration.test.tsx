@@ -92,4 +92,49 @@ describe.skipIf(BASE === undefined || BASE === "")("the application, end to end"
     );
     expect(screen.getAllByText(/not an addressable entity/).length).toBeGreaterThan(0);
   });
+
+  it("walks a caption hit into the reader and lands on the caption (D-069)", async () => {
+    // Scenario 2 of canvas plan section 17.3, end to end against the real
+    // server: search a transcript phrase, follow the hit, arrive at the
+    // timestamp. Before D-069 the click landed on Overview with the offset
+    // discarded, and only the external YouTube link preserved it -- which
+    // answers "jump to the timestamp" by leaving the application.
+    window.location.hash = "#/";
+    render(<App />);
+    await waitFor(() => expect(screen.getByLabelText("Search")).not.toBeNull(), { timeout: 5000 });
+
+    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "coverage" } });
+    fireEvent.click(screen.getByText("Search", { selector: "button" }));
+    await waitFor(
+      () =>
+        expect(
+          document.querySelectorAll('[data-hit-type="transcript_caption"]').length,
+        ).toBeGreaterThan(0),
+      { timeout: 5000 },
+    );
+
+    const hit = document.querySelector('[data-hit-type="transcript_caption"]');
+    // `#/sources/...` here, not `/sources/...`: this is the real `HashRouter`
+    // (D-060), while the component tests mount `MemoryRouter` and see the
+    // path without the fragment. Matching both is the point of running this
+    // one against the app as it actually ships.
+    const internal = [...(hit?.querySelectorAll("a") ?? [])].find((anchor) =>
+      /^#?\/sources\//.test(anchor.getAttribute("href") ?? ""),
+    );
+    expect(internal, "the hit offers no link into the reader").toBeDefined();
+    expect(internal?.getAttribute("href")).toContain("tab=transcript");
+    expect(internal?.getAttribute("href")).toContain("t=");
+
+    fireEvent.click(internal as Element, { button: 0 });
+
+    // The transcript tab, not Overview, and the caption marked rather than the
+    // top of the list.
+    await waitFor(
+      () => expect(document.querySelectorAll('[data-linked="true"]').length).toBe(1),
+      { timeout: 5000 },
+    );
+    const marked = document.querySelector('[data-linked="true"]');
+    expect(marked?.getAttribute("aria-current")).toBe("location");
+    expect(marked?.textContent?.toLowerCase()).toContain("coverage");
+  });
 });

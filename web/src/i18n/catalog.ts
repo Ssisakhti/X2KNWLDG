@@ -174,6 +174,8 @@ export const en = {
     "The transcript artifact was served, and does not hold a caption list this reader recognises.",
   "reader.transcript.seek": "Play from here",
   "reader.transcript.noTime": "This caption states no start time.",
+  "reader.transcript.noCaptionAt":
+    "No caption covers the linked timestamp, so none is highlighted.",
 
   "reader.report.title": "Report",
   "reader.report.unavailable": "This source has no report artifact.",
@@ -383,6 +385,8 @@ export const fa: Messages = {
     "قلم رونویس ارائه شد و فهرست زیرنویسی که این خواننده بشناسد در آن نیست.",
   "reader.transcript.seek": "پخش از اینجا",
   "reader.transcript.noTime": "این زیرنویس زمان آغاز ندارد.",
+  "reader.transcript.noCaptionAt":
+    "هیچ زیرنویسی زمانِ پیوند داده‌شده را در بر نمی‌گیرد، پس چیزی برجسته نشده است.",
 
   "reader.report.title": "گزارش",
   "reader.report.unavailable": "این منبع قلم گزارش ندارد.",

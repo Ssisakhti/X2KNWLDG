@@ -98,7 +98,7 @@ Exit criteria live in canvas plan §16; this table tracks state only.
 | Phase | Name | Status | Parallelizable | Gate to next phase |
 |---|---|---|---|---|
 | **0** | Contracts & scaffolding | ✅ `done` | ❌ **No — serialization point** | Schemas validate; contract frozen |
-| **1** | Read-only Library & Reader | ◐ `built, gate not met` — four tracks + `T-116` shipped; §7.4 scenario 2 is half met (D-069) | — | Search works; status honest; rebuild is equivalent |
+| **1** | Read-only Library & Reader | ✅ `done` — four tracks + `T-116`; §7.4 scenarios 1–3 walked and passing | — | Search works; status honest; rebuild is equivalent |
 | **2** | Knowledge Map | `not started` | ✅ Partial (renderer vs inspector) | Provenance distinguishable; empty graph honest |
 | **3** | Canvas & board persistence | `not started` | ⚠️ Sequential with Phase 4 | Layout survives restart; partial corruption tolerated |
 | **4** | Pen & annotation | `not started` | ⚠️ Sequential with Phase 3 | Strokes stable under zoom/pan; no canonical leakage |
@@ -235,7 +235,7 @@ repeated here.
 | D-066 | Serving lives in `src/x2knwldg/server/serve.py`, and the socket is **bound before** a URL is printed or a browser opened | accepted | D-055 confines every import of the `ui` extra to `server/`, and serving needs `uvicorn` and `starlette` — putting them in `cli.py` would have broken the rule that keeps the core zero-dependency, so the module goes where the extra is allowed to live and `cli.py` reaches it lazily from inside its dispatch branch. Binding first is what makes D-037's "never prints a URL it is not listening on" true rather than intended, and it is *required* by `--port` being optional: a port the OS chooses is not knowable before the bind. A port already in use therefore fails as a refusal, before a browser opens on a URL nothing answers. `SO_REUSEPORT` is deliberately unset — it would let a second `ui` bind the same port and split requests between two servers. `create_app` is untouched: the static mount is added to the app it returns, so the generated document still equals the frozen one |
 | D-067 | The "nothing outside `server/` imports it eagerly" check parses the AST and flags an import only when no function encloses it | accepted | The rule was a regex over stripped lines, which cannot tell `from .server import serve` at column 0 from the same line indented inside a function — and the second is the lazy import the CLI convention *requires*, while the first is the eager one D-055 forbids. Matching unstripped lines instead fixes that but misses a module-scope import nested in a `try:`, which is eager and would slip through. The AST distinguishes them exactly, and the checker is itself tested against all four cases, because a structural rule that silently stops matching leaves the invariant unguarded while staying green. The behavioural guard — importing the CLI in a fresh interpreter and reading `sys.modules` — is unchanged and remains what actually proves the property |
 | D-068 | `x2knwldg ui` passes `index_documents=document_indexer(root)` to `refresh_index`; a scan without it builds an index whose search corpus is empty | accepted | `T-116` called `refresh_index(root)` bare. The scan then indexes sources, artifacts, entities and relations correctly and leaves `documents` and both FTS5 tables at zero — so the UI came up, every count matched, and `/api/search` answered `0` for every query. On the real sample: 86 entities, **0 documents**. No test caught it and none could have: `search.build_searchable_index`, `tests/api_harness` and the equivalence tests all pass the hook themselves, so they prove the indexer works and cannot prove the *CLI* asks for it. `test_the_command_builds_a_searchable_index` goes through `cli.main` for that reason and fails without the fix. The general lesson is the one D-052 already taught in another key: a helper that every test supplies is a helper production can forget |
-| D-069 | **Open** — a search hit must carry its timestamp into the Reader | proposed | Canvas plan §17.3 scenario 2 is "search a transcript phrase and **jump to the timestamp**", and today the jump is lost: `SearchResults.SourceLink` links to `/sources/{id}` with no timestamp, and `ReaderView` initialises `tab` to `overview` and `seek` to `null` with no URL input, so the reader opens on Overview having discarded the offset the hit was found at. Only the external YouTube link preserves it, which satisfies the scenario by leaving the application. The mechanism already exists — `requestSeek` and `Play from here` work inside the reader — so what is needed is a deep link the Reader reads (tab + seconds) and the hit writes. Left open rather than decided here because the link grammar is Track C's design surface, and because D-060's hash routing means the format chosen becomes the app's first shareable URL |
+| D-069 | A search hit carries its position into the Reader: `#/sources/<id>?tab=…&t=…`, with the grammar owned by `web/src/lib/readerLink` | accepted | Canvas plan §17.3 scenario 2 is "search a transcript phrase and **jump to the timestamp**", and the jump was being lost — `SourceLink` linked to `/sources/{id}` with no offset and `ReaderView` held `tab`/`seek` as local state, so the Reader opened on Overview having discarded where the hit was found. Only the external YouTube link preserved it, which answers the scenario by *leaving the application*. Query parameters rather than path segments because D-060's `HashRouter` puts the whole location after `#`, so `useSearchParams` reads them untouched, both stay optional, and no existing link is invalidated. **Seconds, not a caption id**, because seconds address everything the Reader can jump to — a caption, a unit's locator, and the player's own seek — while a caption id addresses one of the three and must be resolved to seconds anyway; `io.timestamp_url` already spells a moment in this project as seconds. The internal `t=30` and the external `&t=30s` are deliberately different spellings: they sit side by side in every hit, and one spelling would invite feeding `youtubeTimestampUrl`'s output into the internal link. A malformed or negative `t` is **ignored, never coerced** — reading `t=x` as `0` would place the reader at the start of the medium while the URL claimed otherwise, which is the invented position the transcript panel already refuses. Built and parsed by one module so the two cannot drift |
 
 ### ⚠️ D-011 is **additive** — do not "clean up" the 2-part ID
 
@@ -382,13 +382,16 @@ print({q: repo.search(SearchQuery(q=q, limit=1)).total for q in ('learning', 'mo
 
 **Walked 2026-09-02** against `x2knwldg ui` serving the three committed fixtures, driven
 through a real headless browser rather than through jsdom — the point of the exercise being
-to test what a person meets, not what a test harness meets. It earned its keep: scenario 2
-was unwalkable on the first attempt (D-068), and no test in the suite could have said so.
+to test what a person meets, not what a test harness meets. It earned its keep twice:
+scenario 2 was unwalkable on the first attempt because search returned nothing at all
+(D-068), and then failed a second time because the jump was discarded at the click (D-069).
+2141 passing tests had reported neither. Both are fixed and the scenario was re-walked;
+each now has a test that fails without its fix.
 
 | # | Scenario | Verdict |
 |---|---|---|
 | 1 | Open a source with `PARTIAL` status and see the real warning | ✅ **pass** — `Overall/Validation/Coverage: PARTIAL`, `audit_attempts: 3`, both file paths cited, and the panel states in the UI that the values are copied and never raised toward `PASS`. `fail-run` shows `Validation: FAIL` beside `Coverage: PASS` unreconciled, which is what R11's fixture exists to prove |
-| 2 | Search a transcript phrase and **jump to the timestamp** | ⚠️ **partial** — searching works (after D-068). The jump does not: a hit's *Open the source* link carries no timestamp, and `ReaderView` holds `tab` and `seek` as local state initialised to `overview`/`null`, so the reader opens on Overview having discarded the `0:30` the hit was found at. The only link that preserves it leaves the app for YouTube. The seek machinery exists and works *inside* the reader (`Play from here · 0:00` on a unit); what is missing is the handoff. See D-069 |
+| 2 | Search a transcript phrase and **jump to the timestamp** | ✅ **pass** — after D-068 (search returned nothing at all) and D-069 (the jump was lost at the click). Re-walked: the hit links to `#/sources/…?tab=transcript&t=30`, the Reader opens on **Transcript**, and the caption covering `0:30` is scrolled to and marked with a rail, a weight change and `aria-current="location"`. The URL is the state, so the position survives a reload and can be shared. A malformed or negative `t` is ignored rather than seeking to zero, and an unknown `tab` falls back to Overview — both checked in the browser |
 | 3 | Select a knowledge unit and see its actual evidence | ✅ **pass** — statement, evidence excerpt, locator (`0:00 – 0:30`, `segment_id`, `artifact_id`), `Play from here`, and the canonical file named. The derived unit reads *No locator is recorded for this unit* rather than borrowing one, and the two classes differ by glyph (◆/◇), label, **and** rail style (solid/dashed), not by colour alone |
 | 4 | Move an entity from Map to Canvas | ⛔ **out of scope** — Phase 2/3 |
 | 5 | Create a user relation without touching any canonical file | ⛔ **out of scope** — Phase 3 |
@@ -401,8 +404,14 @@ mirrors — sidebar, tabs and every label/value pair — while Latin identifiers
 stay LTR inside it (D-012, D-014); and the embed stays a facade, naming its host and
 requesting nothing until asked (D-061).
 
-**Phase 1's gate is therefore not fully met.** Scenarios 1, 3 and the testable half of 7
-pass; scenario 2 is half of a criterion, and D-069 is what closes it.
+**Phase 1's gate is met** for every scenario the phase owns: 1, 2 and 3 pass, and 7's cache
+half passes with *boards intact* left to Phase 3. Scenarios 4–6 belong to Phases 2–4.
+
+The lesson worth carrying into Phase 2: both defects lived in the seam between components
+that were each correct and each well tested. `refresh_index` worked and the CLI did not ask
+it for a corpus; the Reader could seek and the hit did not tell it where. A suite of unit
+tests cannot see a gap that exists only between two of its subjects — walking the product
+can, and did.
 
 ---
 
@@ -506,6 +515,7 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 | `schemas/api/v1/openapi.json` (`T-005`) | The **specification** for `T-105`–`T-108`, not a suggestion. Eleven `GET` endpoints, response bodies `$ref`-ing `schemas/v1/`. Do not add an endpoint, a field, or a status code without editing this document and its tests first |
 | `schemas/api/v1/types.d.ts` (`T-005`) | The frontend's types. Import it; never hand-edit it. Regenerate with `python tools/generate_api_types.py` |
 | `web/src/api/contract.ts` (`T-008`) | The **only** place `web/` names the generated declarations. Frontend code imports API types from here, never by reaching up the tree (D-038) |
+| `web/src/lib/readerLink.ts` (`T-116`, D-069) | The Reader's URL grammar — `readerPath` to build one, `parseTab`/`parseSeconds` to read one, `captionIndexAt` to resolve an offset to a caption. Anything linking into the Reader calls it rather than assembling a path, because a grammar written in one place and read in another is two implementations. `parseSeconds` **ignores** what it cannot read; do not make it return `0` |
 | `repository/` (`T-007`) | The **only** thing `T-105`–`T-108` read. No route opens a database, a canonical file, or a run directory. `T-101`–`T-104` implement `IndexRepository` over SQLite without widening it; `MemoryRepository` is what Track B builds against until they do, and the oracle `T-104` proves equivalence against |
 | `repository.encode_cursor` / `decode_cursor` | The one cursor encoding. The SQLite implementation issues its keyset cursors through it so both implementations produce the same token for the same position |
 | `repository.matches_entity` / `matches_relation` / `matches_source` / `relation_belongs_to_source` | The definition of every filter the contract exposes. Where a SQL `WHERE` clause disagrees with them, they are right |
@@ -533,23 +543,26 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 **Every Phase 1 task is done and the scenarios have been walked** (§7.4, 2026-09-02).
 `x2knwldg ui` serves the Library and the Reader on loopback over a freshly refreshed index.
 
-**The gate is not fully met, and one thing closes it: D-069.** Scenarios 1 and 3 pass, and
-so does the testable half of 7. Scenario 2 — *search a transcript phrase and jump to the
-timestamp* — searches but does not jump: the hit's link drops the offset and the Reader has
-no URL input for a tab or a seek. The machinery exists inside the Reader already, so this is
-a link grammar, not a feature.
+**The gate is met for every scenario Phase 1 owns.** It took two fixes the walk found and
+the suite could not:
 
-The walk also found D-068, which is the more instructive of the two: `ui` built an index
-with an **empty search corpus**, so every query returned nothing while every count on
-every page was correct. 2141 passing tests did not see it, because each of them supplied
-the hook the CLI had forgotten.
+- **D-068** — `ui` built an index with an **empty search corpus**. Every count on every page
+  was right and every query returned nothing. Each existing test supplied the hook the CLI
+  had forgotten, so each proved the indexer worked and none could prove the CLI asked.
+- **D-069** — the jump in *jump to the timestamp* was discarded at the click. The Reader
+  could seek and the hit knew the offset; nothing carried it between them.
 
-**Then Phase 2 — Map** (`T-201`). Its first real consumers are the pieces Track C
-deliberately left unused: `GET /api/graph`, `GET /api/graph/neighborhood/{id}`, and
-`/api/entities/{entity_id}`. All three are served and tested; nothing calls them. Read D-059
-before drawing a paged graph, and §10's note that `derived_from` and `expresses_concept` are
-library-only synthetic relations, absent from `RELATION_TYPES` and the two most common edges
-in the real data (45 and 17 of 118) — the Map must style what the data actually contains.
+Both lived in a seam between components that were individually correct and individually well
+tested, which is the pattern to expect again in Phase 2.
+
+**Next: Phase 2 — Map** (`T-201`). Its consumers are already served and tested but uncalled:
+`GET /api/graph`, `GET /api/graph/neighborhood/{id}`, and `/api/entities/{entity_id}`. Read
+D-059 before drawing a paged graph. `readerLink` is the precedent for any new addressable
+view: one module owning a grammar that is built in one place and read in another.
+
+§10's note matters there too: `derived_from` and `expresses_concept` are library-only
+synthetic relations, absent from `RELATION_TYPES` and the two most common edges in the real
+data (45 and 17 of 118) — the Map must style what the data actually contains.
 
 **What Track B changed that a later track must not undo:**
 

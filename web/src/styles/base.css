@@ -390,6 +390,22 @@ input {
   border-block-end: var(--border-width) solid var(--border);
 }
 
+/*
+ * The caption a deep link pointed at (D-069).
+ *
+ * A rail and a weight change, not a background tint alone: the same reason
+ * provenance never rests on colour (ADR 0001 invariant 10). `aria-current` on
+ * the row carries it to a screen reader, which no amount of colour does.
+ * Logical properties throughout, so the rail sits on the reading edge in both
+ * directions (D-012).
+ */
+.caption-row--linked {
+  border-inline-start: var(--rail-width) solid var(--accent);
+  padding-inline-start: calc(var(--space-2) - var(--rail-width));
+  background: var(--bg-sunken);
+  font-weight: 600;
+}
+
 .caption-row__time {
   flex: 0 0 auto;
   min-inline-size: 5rem;

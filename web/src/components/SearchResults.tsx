@@ -27,6 +27,7 @@ import { useI18n } from "../i18n";
 import { formatConfidence, formatSeconds } from "../lib/format";
 import { ErrorState } from "./ErrorState";
 import { ProvenanceBadge } from "./Provenance";
+import { readerPath, type ReaderTab } from "../lib/readerLink";
 import { Bidi, Missing, Mono } from "./primitives";
 
 function hitKey(hit: SearchHit, index: number): string {
@@ -34,10 +35,27 @@ function hitKey(hit: SearchHit, index: number): string {
   return `${hit.type}|${hit.video_id ?? ""}|${local ?? ""}|${index}`;
 }
 
-function SourceLink({ sourceId }: { sourceId: string | null }) {
+/**
+ * The link from a hit into the Reader (D-069).
+ *
+ * A hit knows where it was found, and until this carried `tab`/`t` that
+ * knowledge was thrown away at the click: the Reader opened on Overview and
+ * the offset survived only in the external link, which answers "jump to the
+ * timestamp" by leaving the application. `readerLink` owns the grammar so this
+ * cannot spell it differently from the Reader that reads it.
+ */
+function SourceLink({
+  sourceId,
+  tab,
+  seconds = null,
+}: {
+  sourceId: string | null;
+  tab: ReaderTab;
+  seconds?: number | null;
+}) {
   const { t } = useI18n();
   if (sourceId === null) return null;
-  return <Link to={`/sources/${encodeURIComponent(sourceId)}`}>{t("search.openSource")}</Link>;
+  return <Link to={readerPath(sourceId, { tab, seconds })}>{t("search.openSource")}</Link>;
 }
 
 function Hit({ hit }: { hit: SearchHit }) {
@@ -57,7 +75,7 @@ function Hit({ hit }: { hit: SearchHit }) {
         <Bidi as="p">{hit.content ?? <Missing />}</Bidi>
         <p className="faint">{t("search.captionNotAddressable")}</p>
         <div className="row">
-          <SourceLink sourceId={hit.source_id} />
+          <SourceLink sourceId={hit.source_id} tab="transcript" seconds={hit.start_sec} />
           <a href={hit.source_url} target="_blank" rel="noopener noreferrer">
             {t("search.openExternal")}
           </a>
@@ -87,7 +105,7 @@ function Hit({ hit }: { hit: SearchHit }) {
       <Bidi as="p">{hit.content ?? <Missing />}</Bidi>
       <div className="row">
         {start !== null && <span className="faint">{t("time.at", { time: start })}</span>}
-        <SourceLink sourceId={hit.source_id} />
+        <SourceLink sourceId={hit.source_id} tab="units" />
         {hit.source_url !== undefined && (
           <a href={hit.source_url} target="_blank" rel="noopener noreferrer">
             {t("search.openExternal")}

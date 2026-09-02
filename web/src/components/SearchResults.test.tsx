@@ -65,7 +65,27 @@ describe("search results", () => {
     expect(card?.textContent).not.toContain("youtube:fixture-pass:cap");
     const links = [...(card?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href"));
     expect(links).toContain("https://www.youtube.com/watch?v=fixture-pass&t=30s");
-    expect(links).toContain("/sources/youtube%3Afixture-pass");
+    // D-069: the internal link carries the offset the hit was found at, so the
+    // Reader can arrive there. Before it did, this read
+    // `/sources/youtube%3Afixture-pass` and the `0:30` was dropped at the
+    // click -- the scenario was satisfied only by leaving for YouTube.
+    expect(links).toContain("/sources/youtube%3Afixture-pass?tab=transcript&t=30");
+    // The two spellings stay distinct on purpose: `t=30` in, `&t=30s` out.
+    expect(links.filter((href) => href?.includes("t=30s"))).toHaveLength(1);
+  });
+
+  it("sends a knowledge unit hit to the units tab", async () => {
+    respondWith([UNIT_HIT]);
+    renderApp(<SearchResults query="coverage" includeTranscript />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-hit-type="knowledge_unit"]')).not.toBeNull(),
+    );
+    const card = document.querySelector('[data-hit-type="knowledge_unit"]');
+    const links = [...(card?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href"));
+    // No `t`: a unit hit is addressed by the tab it lives on, not by an
+    // offset. Some units state no locator at all, and inventing one to make
+    // the link uniform is exactly what the Reader refuses to render.
+    expect(links).toContain("/sources/youtube%3Afixture-pass?tab=units");
   });
 
   it("renders a knowledge unit hit with its own global id", async () => {

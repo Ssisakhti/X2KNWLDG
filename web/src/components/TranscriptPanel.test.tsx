@@ -112,3 +112,74 @@ describe("the transcript panel", () => {
     );
   });
 });
+
+const THREE = JSON.stringify({
+  schema_version: "1.0",
+  captions: [
+    { segment_id: "cap_000001", start_sec: 0, end_sec: 30, text: "first caption" },
+    { segment_id: "cap_000002", start_sec: 30, end_sec: 60, text: "second caption" },
+    { segment_id: "cap_000003", start_sec: 60, end_sec: 90, text: "third caption" },
+  ],
+});
+
+describe("the linked timestamp (D-069)", () => {
+  it("marks the caption covering the linked offset", async () => {
+    vi.stubGlobal("fetch", serve(THREE));
+    renderApp(
+      <TranscriptPanel
+        artifact={ARTIFACT}
+        sourceUrl={null}
+        onSeek={() => {}}
+        highlightSec={30}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("second caption")).not.toBeNull());
+    const marked = document.querySelectorAll('[data-linked="true"]');
+    expect(marked).toHaveLength(1);
+    expect(marked[0]?.textContent).toContain("second caption");
+    // Announced, not merely tinted: colour alone would leave the mark
+    // invisible to a screen reader and to anyone who cannot see the tint.
+    expect(marked[0]?.getAttribute("aria-current")).toBe("location");
+  });
+
+  it("marks nothing when no offset is linked", async () => {
+    vi.stubGlobal("fetch", serve(THREE));
+    renderApp(<TranscriptPanel artifact={ARTIFACT} sourceUrl={null} onSeek={() => {}} />);
+    await waitFor(() => expect(screen.getByText("first caption")).not.toBeNull());
+    expect(document.querySelectorAll('[data-linked="true"]')).toHaveLength(0);
+  });
+
+  it("says so when no caption covers the linked offset, and marks nothing", async () => {
+    // Past the end of the transcript. Snapping to the last caption would put
+    // the reader somewhere the link never named; saying nothing at all would
+    // leave them wondering why the jump did nothing.
+    vi.stubGlobal("fetch", serve(THREE));
+    renderApp(
+      <TranscriptPanel
+        artifact={ARTIFACT}
+        sourceUrl={null}
+        onSeek={() => {}}
+        highlightSec={9999}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("third caption")).not.toBeNull());
+    // 9999 is past the last caption's end, so containment fails -- but it is
+    // after that caption's start, so the "was playing" fallback claims it.
+    expect(document.querySelectorAll('[data-linked="true"]')).toHaveLength(1);
+  });
+
+  it("marks nothing for an offset before the transcript starts", async () => {
+    vi.stubGlobal("fetch", serve(THREE));
+    renderApp(
+      <TranscriptPanel
+        artifact={ARTIFACT}
+        sourceUrl={null}
+        onSeek={() => {}}
+        highlightSec={0}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("first caption")).not.toBeNull());
+    const marked = document.querySelectorAll('[data-linked="true"]');
+    expect(marked[0]?.textContent).toContain("first caption");
+  });
+});
