@@ -11,13 +11,21 @@ task would otherwise have to remember on its own:
   generated declarations as a root file, or the Node job in CI passes without
   checking the one file it exists to check.
 
-The stub itself is asserted to stay honest: ``x2knwldg ui`` must not print a URL
-it is not listening on, and must not report success for a server that does not
-exist yet.
+``T-116`` wired the command, so what was "the stub stays honest" is now "the
+wiring stays honest": ``x2knwldg ui`` must not print a URL before it is bound to
+it, must refuse a non-loopback bind before it probes for the extra, and must
+report an unbuilt frontend as its own next-step code rather than as success or
+as a breakage.
+
+**Nothing here starts a server.** Every ``ui`` invocation in this file stops at
+or before the ``UI_NOT_BUILT`` refusal, by pointing ``--root`` at a directory
+with no ``web/dist``. The serving path itself is exercised in
+``test_ui_serving.py``, which binds a real socket on an ephemeral port.
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import subprocess
@@ -43,6 +51,21 @@ def run_cli(argv: list[str]) -> tuple[int, str]:
     with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
         code = cli.main(argv)
     return code, buffer.getvalue()
+
+
+@pytest.fixture
+def unbuilt_root(tmp_path: Path) -> Path:
+    """A project root that exists and holds no built frontend.
+
+    Every ``ui`` test that gets *past* the argument refusals uses this, so the
+    command stops at ``UI_NOT_BUILT`` instead of binding a socket and serving
+    the suite forever. Using the repository root would do exactly that on any
+    machine where someone has run ``npm run build``, and pass on any machine
+    where nobody has -- a test whose result depends on untracked build output.
+    """
+    root = tmp_path / "project"
+    root.mkdir()
+    return root
 
 
 @pytest.fixture
@@ -101,10 +124,19 @@ def test_the_browser_opens_by_default() -> None:
 
 
 @pytest.mark.parametrize("host", sorted(cli.LOOPBACK_HOSTS))
-def test_every_loopback_host_is_accepted(host: str, ui_extra_present: None) -> None:
-    code, output = run_cli(["ui", "--host", host])
-    assert code == cli.EXIT_UI_NOT_IMPLEMENTED, output
-    assert json.loads(output)["host"] == host
+def test_every_loopback_host_is_accepted(
+    host: str, ui_extra_present: None, unbuilt_root: Path
+) -> None:
+    """Accepted means *got past the check* -- asserted by where it stops.
+
+    The command reaches ``UI_NOT_BUILT``, which is downstream of the bind
+    refusal, so the host was accepted. It cannot be asserted by echoing the
+    host back any more: this invocation never binds, and reporting a host it is
+    not listening on is precisely what the wiring must not do.
+    """
+    code, output = run_cli(["ui", "--host", host, "--root", str(unbuilt_root)])
+    assert code == cli.EXIT_UI_NOT_BUILT, output
+    assert json.loads(output)["status"] == "UI_NOT_BUILT"
 
 
 @pytest.mark.parametrize(
@@ -145,29 +177,55 @@ def test_a_port_outside_the_valid_range_is_refused(port: str, ui_extra_present: 
 
 
 # ---------------------------------------------------------------------------
-# The stub stays honest
+# The wiring stays honest
 # ---------------------------------------------------------------------------
 
 
-def test_the_stub_reports_that_it_is_not_implemented(ui_extra_present: None) -> None:
-    code, output = run_cli(["ui"])
-    assert code == cli.EXIT_UI_NOT_IMPLEMENTED, "a command that cannot serve must not exit 0"
+def test_an_unbuilt_frontend_is_its_own_code_not_success_and_not_an_error(
+    ui_extra_present: None, unbuilt_root: Path
+) -> None:
+    """``6`` is "run this next", the same shape of fact as ``5``.
+
+    Not ``0``: nothing was served. Not ``1``: nothing is broken -- the API and
+    the index are fine and one ``npm run build`` fixes it. A wrapper that
+    cannot tell those apart reports a broken install for a missing build step.
+    """
+    code, output = run_cli(["ui", "--root", str(unbuilt_root)])
+    assert code == cli.EXIT_UI_NOT_BUILT, "a command that served nothing must not exit 0"
+    assert code != cli.EXIT_ERROR, "an unbuilt frontend is a next step, not a breakage"
     payload = json.loads(output)
-    assert payload["status"] == "UI_NOT_IMPLEMENTED"
-    assert payload["blocked_on"] == ["T-105", "T-106", "T-107", "T-108", "T-116"]
-    assert Path(payload["root"]) == project_root()
+    assert payload["status"] == "UI_NOT_BUILT"
+    assert Path(payload["root"]) == unbuilt_root.resolve()
+    assert payload["expected"] == str(Path("web") / "dist" / "index.html")
+    assert "npm run build" in payload["message"]
 
 
-def test_the_stub_never_prints_a_url_it_is_not_listening_on(ui_extra_present: None) -> None:
-    _, output = run_cli(["ui", "--port", "8000"])
+def test_an_unbuilt_frontend_is_refused_before_the_index_is_touched(
+    ui_extra_present: None, unbuilt_root: Path
+) -> None:
+    """Nothing is written by a command that is about to refuse.
+
+    Refreshing the index first would leave a ``.x2knwldg/`` behind in a project
+    the user was only told to go and build the frontend for.
+    """
+    code, _ = run_cli(["ui", "--root", str(unbuilt_root)])
+    assert code == cli.EXIT_UI_NOT_BUILT
+    assert not (unbuilt_root / ".x2knwldg").exists()
+
+
+def test_it_never_prints_a_url_it_is_not_listening_on(
+    ui_extra_present: None, unbuilt_root: Path
+) -> None:
+    """The refusal path prints no URL at all, whatever ``--port`` asked for."""
+    _, output = run_cli(["ui", "--port", "8000", "--root", str(unbuilt_root)])
     assert not re.search(r"https?://", output), output
 
 
 def test_a_missing_ui_extra_names_the_install_command(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, unbuilt_root: Path
 ) -> None:
     monkeypatch.setattr(cli, "_missing_ui_dependencies", lambda: ["fastapi", "uvicorn"])
-    code, output = run_cli(["ui"])
+    code, output = run_cli(["ui", "--root", str(unbuilt_root)])
     assert code == 1
     message = json.loads(output)["message"]
     assert "fastapi, uvicorn" in message
@@ -360,11 +418,50 @@ def test_no_module_outside_the_server_package_imports_the_ui_extra() -> None:
     assert offenders == [], offenders
 
 
+def _module_scope_imports(source: str) -> list[str]:
+    """Every module the file imports *at import time*, by name.
+
+    An AST walk rather than a line regex, for two reasons that only appeared
+    once ``T-116`` wired the ``ui`` command. A regex over stripped lines cannot
+    tell ``from .server import serve`` at column 0 from the same line indented
+    inside a function -- and the second is the lazy import the CLI convention
+    *requires* (see ``_run_ui``), while the first is the eager one this rule
+    forbids. A regex over unstripped lines gets that right but then misses a
+    module-scope import nested in a ``try:``, which is eager and would slip
+    through. The AST distinguishes them exactly: an import is lazy when, and
+    only when, a function encloses it.
+    """
+    imported: list[str] = []
+
+    def walk(node: ast.AST, inside_function: bool) -> None:
+        for child in ast.iter_child_nodes(node):
+            nested = inside_function or isinstance(
+                child, (ast.FunctionDef, ast.AsyncFunctionDef)
+            )
+            if not nested:
+                if isinstance(child, ast.Import):
+                    imported.extend(alias.name for alias in child.names)
+                elif isinstance(child, ast.ImportFrom):
+                    # `from . import x` has no module; level > 0 is relative.
+                    imported.append("." * child.level + (child.module or ""))
+            walk(child, nested)
+
+    walk(ast.parse(source), False)
+    return imported
+
+
 def test_nothing_outside_the_server_package_imports_it_eagerly() -> None:
     """Rule 2: the extra must not be reachable transitively.
 
     Without this, ``cli.py`` could import ``x2knwldg.server`` at module scope
     and pull the whole framework in while every line still passed rule 1.
+
+    "Eagerly" is the whole of the rule. ``T-116`` reaches ``server.serve``
+    from inside ``_run_ui``, which is the lazy-import convention the package
+    follows everywhere it touches an optional extra, and is exactly what keeps
+    ``import x2knwldg.cli`` free of fastapi on a bare core install -- the
+    property :func:`test_importing_the_cli_does_not_import_the_ui_extra`
+    measures in a fresh interpreter rather than inferring from text.
     """
     package = PROJECT_ROOT / "src" / "x2knwldg"
     server = package / "server"
@@ -372,12 +469,29 @@ def test_nothing_outside_the_server_package_imports_it_eagerly() -> None:
     for module in sorted(package.rglob("*.py")):
         if server in module.parents:
             continue
-        for line in module.read_text(encoding="utf-8").splitlines():
-            if re.match(r"^(from|import)\s+(x2knwldg\.)?server\b", line.strip()):
-                offenders.append(f"{module.relative_to(PROJECT_ROOT)}: {line.strip()}")
-            if re.match(r"^from\s+\.\s*server\b|^from\s+\.server\b", line.strip()):
-                offenders.append(f"{module.relative_to(PROJECT_ROOT)}: {line.strip()}")
+        source = module.read_text(encoding="utf-8")
+        for name in _module_scope_imports(source):
+            if re.match(r"^(x2knwldg\.)?server\b", name) or re.match(r"^\.+server\b", name):
+                offenders.append(f"{module.relative_to(PROJECT_ROOT)}: imports {name}")
     assert offenders == [], offenders
+
+
+def test_the_eager_import_rule_catches_what_it_claims_to() -> None:
+    """The checker above, checked -- including the two cases that motivated it.
+
+    A rule that silently stopped matching would leave the invariant unguarded
+    while staying green, which is the failure mode this whole file exists to
+    prevent.
+    """
+    eager = "from .server import serve\n"
+    eager_in_try = "try:\n    from .server import serve\nexcept ImportError:\n    pass\n"
+    lazy = "def run():\n    from .server import serve\n    return serve\n"
+    lazy_nested = "def outer():\n    def inner():\n        import x2knwldg.server\n"
+
+    assert ".server" in _module_scope_imports(eager)
+    assert ".server" in _module_scope_imports(eager_in_try), "a try: block is still import time"
+    assert _module_scope_imports(lazy) == [], "a lazy import is the convention, not a violation"
+    assert _module_scope_imports(lazy_nested) == []
 
 
 def test_importing_the_server_package_does_not_import_the_ui_extra() -> None:

@@ -804,7 +804,7 @@ def test_every_semantic_exit_code_is_distinct() -> None:
         cli.EXIT_PARTIAL,
         cli.EXIT_FAIL,
         cli.EXIT_TRANSCRIPT_REQUIRED,
-        cli.EXIT_UI_NOT_IMPLEMENTED,
+        cli.EXIT_UI_NOT_BUILT,
     ]
     assert len(set(codes)) == len(codes)
     assert cli.EXIT_USAGE == 2, "argparse exits 2 on a usage error; nothing may collide with it"
@@ -852,7 +852,7 @@ def test_the_help_documents_the_exit_code_table(
         cli.main(["--help"])
     assert caught.value.code == 0
     help_text = capsys.readouterr().out
-    for token in ("exit codes", "PARTIAL", "FAIL", "TRANSCRIPT_REQUIRED", "UI_NOT_IMPLEMENTED"):
+    for token in ("exit codes", "PARTIAL", "FAIL", "TRANSCRIPT_REQUIRED", "UI_NOT_BUILT"):
         assert token in help_text
     for code in (cli.EXIT_PARTIAL, cli.EXIT_FAIL, cli.EXIT_TRANSCRIPT_REQUIRED):
         assert f"  {code}  " in help_text
@@ -861,7 +861,7 @@ def test_the_help_documents_the_exit_code_table(
 def test_the_module_docstring_documents_the_exit_codes() -> None:
     assert cli.__doc__ is not None
     assert "Exit codes" in cli.__doc__
-    for token in ("PARTIAL", "FAIL", "TRANSCRIPT_REQUIRED", "UI_NOT_IMPLEMENTED"):
+    for token in ("PARTIAL", "FAIL", "TRANSCRIPT_REQUIRED", "UI_NOT_BUILT"):
         assert token in cli.__doc__
 
 
