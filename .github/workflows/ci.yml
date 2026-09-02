@@ -278,9 +278,20 @@ jobs:
         env:
           X2KNWLDG_API_BASE: http://127.0.0.1:8931
         run: |
+          # `pipefail` first, and it is load-bearing: Actions runs `bash -e`
+          # without it, so `vitest | tee` exits with tee's status and this step
+          # would have gone green on a red frontend suite.
+          set -o pipefail
           npx vitest run --reporter=verbose 2>&1 | tee /tmp/vitest.log
-          if grep -qE "integration.*\bskipped\b" /tmp/vitest.log; then
-            echo "the integration tests skipped; X2KNWLDG_API_BASE did not take" >&2
+          # And the skip check. Vitest marks a skipped test with a glyph and
+          # never the word "skipped" on the line, so grepping the test lines
+          # could not fire — a guard that never matches proves nothing, which
+          # is the failure this whole job exists to prevent. The summary is the
+          # discriminator: with the API up, nothing skips at all, so a skip
+          # count anywhere in the log means the variable did not take.
+          if grep -qE "[0-9]+ skipped" /tmp/vitest.log; then
+            echo "something skipped, so X2KNWLDG_API_BASE did not take:" >&2
+            grep -E "Test Files|Tests " /tmp/vitest.log >&2
             exit 1
           fi
       - name: Stop the server

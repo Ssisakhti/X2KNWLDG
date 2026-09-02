@@ -1158,7 +1158,21 @@ def test_ci_runs_the_frontend_against_a_real_server() -> None:
     workflow = _workflow()
     assert "X2KNWLDG_API_BASE" in workflow, "no job sets X2KNWLDG_API_BASE"
     assert "dev_api.py" in workflow, "no job serves an API for them to talk to"
-    assert "did not take" in workflow, (
+
+    # Both of these were wrong on the first attempt, and both would have left
+    # the job green while proving nothing — so they are asserted by shape, not
+    # by the presence of a message that can be reworded.
+    #
+    # `pipefail`: Actions runs `bash -e` without it, so `vitest | tee` exits
+    # with tee's status and the step passes on a failing suite.
+    assert "set -o pipefail" in workflow, (
+        "the integration step pipes vitest into tee without pipefail, so a "
+        "failing frontend suite would pass the job"
+    )
+    # The skip check has to match what vitest actually prints. It marks a
+    # skipped test with a glyph, never the word on the line, so a grep over the
+    # test lines can never fire; the summary's skip count is the discriminator.
+    assert re.search(r'grep -qE "\[0-9\]\+ skipped"', workflow), (
         "the job does not check the integration tests actually ran; a skip "
         "would pass it"
     )
