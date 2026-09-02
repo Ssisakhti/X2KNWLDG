@@ -110,8 +110,11 @@ order **total**, and a total order is what stops a tie across a page boundary
 deleting a record from the paged output while `total` goes on counting it. That
 is why `T-104` walks the whole filter space at `limit=1`.
 
-The two FTS5 tables are **external-content** indexes over `documents`, so the
-searchable text is stored once rather than three times.
+`documents_trigrams` is an **external-content** FTS5 index over `documents`, so
+the searchable text is stored once rather than twice. It is the only virtual
+table in the schema — `document_tokens` is an ordinary one, and the only other
+`USING fts5` in the package is the capability probe `connect` creates and drops
+to find out whether this build of SQLite has the extension at all.
 
 ## Migrations are forward-only, appended and never edited
 

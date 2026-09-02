@@ -134,3 +134,24 @@ MAX_PAGE_LIMIT = 500
 #: `truncated` is what says the graph was cut, and it already means exactly
 #: that: "a slice of a larger graph", stated rather than implied.
 MAX_GRAPH_EDGES = 5000
+
+#: D-030's error taxonomy, as the closed ``ErrorCode`` vocabulary the frozen
+#: `schemas/api/v1/openapi.json` publishes.
+#:
+#: Defect D-184: this lived in `server/envelope.py` and a *second* list lived in
+#: `mcp_server.py`, both described as "D-030's taxonomy", and they already
+#: disagreed — the MCP server said `internal_error` where the envelope and the
+#: frozen enum both say `internal`. No test imported both, so nothing could see
+#: it, and an agent reading an MCP reply got a code outside the vocabulary the
+#: HTTP contract publishes. It lives here for the same reason `MAX_PAGE_LIMIT`
+#: does: two statements of one fact was the defect, so the fact has one home and
+#: both surfaces read it. `server/envelope.py` re-exports it, so every existing
+#: import keeps working.
+ERROR_CODES = (
+    "invalid_id",
+    "invalid_request",
+    "not_found",
+    "unavailable",
+    "index_unavailable",
+    "internal",
+)

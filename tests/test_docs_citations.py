@@ -170,3 +170,119 @@ def test_the_boards_measurement_date_is_not_older_than_its_rows() -> None:
     assert header.group(1) >= max(dates), (
         f"§3 claims it was measured on {header.group(1)} but carries rows dated {max(dates)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Counted claims (D-187)
+# ---------------------------------------------------------------------------
+#
+# `test_no_documentation_cites_a_line_number` enforces that a document cites a
+# *symbol* rather than a line, on the argument that "a symbol name fails loudly
+# -- `grep` returns nothing". Nothing in the repository ran that grep, so every
+# semantic claim was unguarded and four of them had rotted: CI described as
+# "five jobs" when there are nine, "the two FTS5 tables" when there is one,
+# "every frozen endpoint now has a caller" when one has none, and a constant
+# quoted as 12 that had been lowered to 4 in its own file. These are the cheap,
+# mechanical ones -- each is a number that can be counted from the source it is
+# about.
+
+
+def _read(relative: str) -> str:
+    return (PROJECT_ROOT / relative).read_text(encoding="utf-8")
+
+
+def test_the_ci_job_count_is_the_one_in_the_workflow() -> None:
+    import re as _re
+
+    workflow = _read(".github/workflows/ci.yml")
+    # Only inside the `jobs:` block: `on:` has two-space keys of its own, and
+    # counting `push` and `pull_request` as jobs would make this guard wrong in
+    # the same way as the claim it checks.
+    assert "\njobs:\n" in workflow
+    block = workflow.split("\njobs:\n", 1)[1]
+    # A job id: two spaces, a name, a colon, nothing else on the line.
+    jobs = _re.findall(r"^  ([a-z][\w-]*):$", block, _re.MULTILINE)
+    assert len(jobs) >= 5, jobs
+    text = _read("docs/PROJECT_MANAGEMENT.md")
+    stated = _re.search(r"across \*\*(\w+)\s+jobs\*\*", text)
+    assert stated is not None, "§7.2 no longer states a job count in the shape this reads"
+    word = stated.group(1).strip()
+    words = {
+        "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+    }
+    assert words.get(word) == len(jobs), f"§7.2 says {word}; the workflow defines {len(jobs)}: {jobs}"
+
+
+def test_the_fts5_table_count_is_the_one_in_the_schema() -> None:
+    import re as _re
+
+    schema = _read("src/x2knwldg/index/schema.py")
+    # The probe table is created and dropped inside `connect`; it is not part of
+    # the stored schema and must not be counted as one.
+    created = [
+        name
+        for name in _re.findall(r"CREATE VIRTUAL TABLE (?:IF NOT EXISTS )?(\S+) USING fts5", schema)
+        if "probe" not in name
+    ]
+    assert len(created) == 1, created
+    readme = _read("src/x2knwldg/index/README.md")
+    assert "The two FTS5 tables" not in readme, "there is one, and it is named"
+    assert created[0].split(".")[-1] in readme
+
+
+def test_the_map_label_budget_in_the_docs_is_the_one_in_the_source() -> None:
+    import re as _re
+
+    source = _read("web/src/map/labelPolicy.ts")
+    found = _re.search(r"MAP_LABEL_NEIGHBOUR_BUDGET = (\d+)", source)
+    assert found is not None, "the constant was renamed; update this guard"
+    value = found.group(1)
+    for relative in ("web/src/map/README.md", "web/src/map/constellation.ts"):
+        text = _read(relative)
+        for quoted in _re.findall(r"MAP_LABEL_NEIGHBOUR_BUDGET`? \((\d+)\)", text):
+            assert quoted == value, f"{relative} quotes {quoted}; it is {value}"
+
+
+def test_the_endpoint_caller_claim_is_the_census_on_disk() -> None:
+    """"Every frozen endpoint has a caller" was true of ten of eleven."""
+    import json as _json
+    import re as _re
+
+    spec = _json.loads(_read("schemas/api/v1/openapi.json"))
+    operations = {
+        operation["operationId"]
+        for path in spec["paths"].values()
+        for operation in path.values()
+    }
+    # An operation the client wraps is called through the wrapper's name, not
+    # through its own: `getArtifactMedia` is reached as `api.media(...)` and
+    # `api.mediaUrl(...)`. Read the wrappers out of `client.ts` rather than
+    # assuming a naming convention, so a renamed wrapper fails here loudly.
+    client = _read("web/src/api/client.ts")
+    wrappers: dict[str, set[str]] = {}
+    for method, operation in _re.findall(
+        r"(?:async )?(\w+)\([^)]*\)[^{]*\{(?:[^{}]|\{[^{}]*\})*?\"(\w+)\"", client
+    ):
+        if operation in operations:
+            wrappers.setdefault(operation, set()).add(method)
+
+    web = PROJECT_ROOT / "web" / "src"
+    callers = set()
+    for module in web.rglob("*.ts*"):
+        if module.name.endswith((".test.ts", ".test.tsx")) or module.name == "client.ts":
+            continue
+        text = module.read_text(encoding="utf-8")
+        for name in operations:
+            names = {name} | wrappers.get(name, set())
+            if any(_re.search(rf"\b{spelling}\b", text) for spelling in names):
+                callers.add(name)
+    uncalled = sorted(operations - callers)
+    readme = _read("web/README.md")
+    if uncalled:
+        assert "Every frozen endpoint now has a caller" not in readme, (
+            f"web/README.md claims every endpoint has a caller; these do not: {uncalled}"
+        )
+        for name in uncalled:
+            assert name in readme, f"{name} has no caller and web/README.md does not say so"
+    else:
+        assert "have a caller" in readme

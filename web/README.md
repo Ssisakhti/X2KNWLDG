@@ -191,10 +191,15 @@ preferences, and each one has a test:
   walked that path in a browser with `Tab` alone, and again with
   `WebGL2RenderingContext` deleted. What no automated gate can be is a real
   **screen reader**: what is asserted is the roles, names and states one reads.
-- **Every frozen endpoint now has a caller.** `T-207` was the last gap:
-  `/api/entities/{entity_id}` backs Quick Read and
-  `/api/graph/neighborhood/{entity_id}` backs the constellation and the related
-  list.
+- **Ten of the eleven frozen endpoints have a caller.** `T-207` closed the
+  two that mattered for the Map: `/api/entities/{entity_id}` backs Quick Read
+  and `/api/graph/neighborhood/{entity_id}` backs the constellation and the
+  related list. The one without a caller is `getArtifact`
+  (`/api/artifacts/{artifact_id}`) — it is a row in the client's path table, so
+  the compiler still checks its shape, and nothing in the UI reads an
+  artifact's *record*: the Reader reads its bytes, through
+  `/api/media/{artifact_id}`. This bullet said "every" until the census was
+  actually run (D-187).
 - **The Map has been walked in a real browser** (`T-209`), and what that cost
   is worth knowing. The gate is `browser/`: the built bundle over the real API
   in Google Chrome on the target machine, and the same specs on a software

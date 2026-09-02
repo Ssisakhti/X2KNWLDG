@@ -945,3 +945,81 @@ class AtomicRunTests(unittest.TestCase):
             mine.write_text("Mine, not generated.", encoding="utf-8")
             finalize_run(run_dir)
             self.assertTrue(mine.is_file(), "finalize deleted a file it does not own")
+
+
+class SecondsRuleTests(unittest.TestCase):
+    """D-185 — "seconds" was validated in six places, and one had no rule at all.
+
+    `io.is_finite_seconds`'s docstring claimed to be "the one predicate behind
+    every timestamp guard in the package", naming four deferrers. Two of them
+    deferred; `ids` and `segmenter` were near-verbatim copies that never
+    imported it, and `query._seconds` — which the docstring did not name — had
+    **no finiteness check at all**, so a `NaN` became a sort key on which every
+    comparison is `False`.
+    """
+
+    #: Every value the rule is about, and what each tier answers for it.
+    CASES = [
+        (3.0, True, 3.0),
+        (0, True, 0.0),
+        (-1, False, -1.0),
+        (float("inf"), False, None),
+        (float("-inf"), False, None),
+        (float("nan"), False, None),
+        (True, False, None),
+        (False, False, None),
+        ("3", False, None),
+        (None, False, None),
+        ([3.0], False, None),
+    ]
+
+    def test_the_optional_tier_lets_no_non_finite_value_through(self):
+        from x2knwldg.io import seconds_or_none
+        from x2knwldg.query import _seconds
+
+        for value, _ok, expected in self.CASES:
+            with self.subTest(repr(value)):
+                # `-1` is a *finite* number of seconds; the optional tier is
+                # about representability, not about the schema's lower bound.
+                want = -1.0 if value == -1 and not isinstance(value, bool) else expected
+                self.assertEqual(seconds_or_none(value), want)
+                self.assertEqual(_seconds(value), want, "query reads the same rule")
+
+    def test_every_raising_coercer_is_the_same_rule_in_its_own_error_type(self):
+        from x2knwldg.ids import IdError
+        from x2knwldg.ids import _require_seconds as ids_seconds
+        from x2knwldg.io import require_seconds
+        from x2knwldg.segmenter import _require_seconds as segmenter_seconds
+
+        for value, ok, _optional in self.CASES:
+            with self.subTest(repr(value)):
+                if ok:
+                    expected = float(value)
+                    self.assertEqual(require_seconds(value, "bound"), expected)
+                    self.assertEqual(ids_seconds(value, "bound"), expected)
+                    self.assertEqual(segmenter_seconds(value, "bound"), expected)
+                    continue
+                with self.assertRaises(IdError):
+                    ids_seconds(value, "bound")
+                with self.assertRaises(ValueError):
+                    segmenter_seconds(value, "bound")
+
+    def test_the_two_coercers_still_say_the_same_words(self):
+        """The messages were identical before; sharing must not change them."""
+        from x2knwldg.ids import _require_seconds as ids_seconds
+        from x2knwldg.segmenter import _require_seconds as segmenter_seconds
+
+        for value in ("3", float("nan"), -1):
+            with self.subTest(repr(value)):
+                with self.assertRaises(Exception) as ids_error:
+                    ids_seconds(value, "start_sec")
+                with self.assertRaises(Exception) as segmenter_error:
+                    segmenter_seconds(value, "start_sec")
+                self.assertEqual(str(ids_error.exception), str(segmenter_error.exception))
+
+    def test_a_nan_can_no_longer_become_a_search_sort_key(self):
+        """The consequence, not the predicate: `NaN` compares False to everything."""
+        from x2knwldg.query import _seconds
+
+        self.assertIsNone(_seconds(float("nan")))
+        self.assertIsNone(_seconds(float("inf")))

@@ -26,11 +26,12 @@ listed in ``schemas/v1/README.md``:
 
 from __future__ import annotations
 
-import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from .io import require_seconds
 
 # --------------------------------------------------------------------------
 # Vocabulary mirrored from schemas/v1/common.schema.json — drift-tested
@@ -96,15 +97,13 @@ def _require_seconds(value: Any, label: str) -> float:
     Python and ``True`` is not a time. ``NaN`` is excluded because every
     comparison against it is ``False``, so a ``NaN`` end time would slip past
     an ``end < start`` test and land in an index as an unorderable locator.
+
+    D-185: the rule is ``io.require_seconds`` and this is the ``IdError``
+    spelling of it. It used to be a near-verbatim copy that never imported
+    ``io`` at all, differing from ``segmenter``'s copy only in the exception
+    type — which is now the one thing this function supplies.
     """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise IdError(f"{label} must be a number, got {type(value).__name__}")
-    number = float(value)
-    if not math.isfinite(number):
-        raise IdError(f"{label} must be a finite number of seconds, got {value!r}")
-    if number < 0:
-        raise IdError(f"{label} must not be negative, got {value!r}")
-    return number
+    return require_seconds(value, label, error=IdError)
 
 
 def validate_source_type(value: Any) -> str:

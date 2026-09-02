@@ -59,7 +59,15 @@ def build_fixture_project(destination: Path) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--project-root", type=Path, default=None)
+    # D-186: `--fixtures` is named in this module's own docstring, in
+    # `web/src/map/README.md` as a copy-pasteable command, and in a CI comment —
+    # and argparse had never heard of it, so every one of those exited `2`. It
+    # is the explicit spelling of the default, and mutually exclusive with
+    # `--project-root` so "serve the fixtures *and* this project" is refused
+    # rather than silently resolved one way.
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--fixtures", action="store_true")
+    mode.add_argument("--project-root", type=Path, default=None)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8931)
     parser.add_argument("--no-index", action="store_true")

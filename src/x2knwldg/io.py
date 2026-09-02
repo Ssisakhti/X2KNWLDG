@@ -107,11 +107,23 @@ def scrub_host_paths(
 def is_finite_seconds(value: Any) -> TypeGuard[float]:
     """Whether ``value`` is a real, finite number of seconds.
 
-    The one predicate behind every timestamp guard in the package —
-    ``transcripts._is_finite_number``, ``validators._is_seconds`` and the
-    ``_require_seconds`` coercers in ``ids`` and ``segmenter`` all defer to it,
-    keeping their own error types and their own extra rules. It lives here
-    because ``io`` imports nothing from the package, so everything can reach it.
+    The base of the three tiers below, and the one place the rule is written.
+    It lives here because ``io`` imports nothing from the package, so everything
+    can reach it.
+
+    D-185: this docstring used to claim that ``transcripts._is_finite_number``,
+    ``validators._is_seconds`` and the ``_require_seconds`` coercers in ``ids``
+    and ``segmenter`` "all defer to it". Only the first two did. The other two
+    were near-verbatim reimplementations that never imported it, and a fifth
+    guard the docstring did not name — ``query._seconds`` — had **no finiteness
+    check at all**, so a ``NaN`` reached a sort key on which every comparison is
+    ``False``: precisely the failure the paragraph below says is excluded. Six
+    implementations of one rule, described as one.
+
+    The tiers are :func:`is_finite_seconds` (the predicate),
+    :func:`is_non_negative_seconds` (the predicate plus the schema's
+    ``timestampSec`` rule), :func:`require_seconds` (the raising coercer, in the
+    caller's own exception type) and :func:`seconds_or_none` (the optional one).
 
     ``bool`` is excluded because ``True`` is an ``int`` in Python and is not a
     time. ``NaN`` and the infinities are excluded because every comparison
@@ -126,6 +138,46 @@ def is_finite_seconds(value: Any) -> TypeGuard[float]:
     way the guard is legible to a reader who is not the author.
     """
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def is_non_negative_seconds(value: Any) -> TypeGuard[float]:
+    """:func:`is_finite_seconds`, and not negative (D-185).
+
+    The rule ``schemas/v1/common.schema.json`` states as ``timestampSec``, and
+    the one extra clause the two coercers below add over the bare predicate.
+    """
+    return is_finite_seconds(value) and value >= 0
+
+
+def require_seconds(
+    value: Any, label: str, *, error: type[Exception] = ValueError
+) -> float:
+    """*value* as a non-negative finite number of seconds, or raise (D-185).
+
+    The three messages are the ones ``ids`` and ``segmenter`` each wrote out,
+    kept word for word: they differed only in the exception type, which is what
+    *error* is for — ``ids`` refuses with ``IdError`` because a bad bound there
+    is a bad identifier, and ``segmenter`` with ``ValueError``.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise error(f"{label} must be a number, got {type(value).__name__}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise error(f"{label} must be a finite number of seconds, got {value!r}")
+    if number < 0:
+        raise error(f"{label} must not be negative, got {value!r}")
+    return number
+
+
+def seconds_or_none(value: Any) -> float | None:
+    """*value* as a timing, or ``None`` when it does not state one (D-185).
+
+    The optional tier: absence is an answer here, so this returns rather than
+    raises. It still applies the *whole* rule — ``query._seconds`` did not, and
+    let ``inf`` and ``NaN`` through as sort keys on which every comparison is
+    ``False``, which is a search result ordered by a value that cannot order.
+    """
+    return float(value) if is_finite_seconds(value) else None
 
 
 def _whole_seconds(value: Any, label: str) -> int:

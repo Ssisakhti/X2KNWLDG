@@ -58,13 +58,16 @@ import type { RelatedEntity } from "./neighbourhood";
 /**
  * How many neighbour cards the stage may carry at once.
  *
- * Four, not twelve. A label is a line of text beside a mark and
- * `MAP_LABEL_NEIGHBOUR_BUDGET` can afford twelve of them; a card is a block
- * with a statement, a relation and a badge row, and five of those over a
- * 900x600 stage is a page of cards with a graph somewhere underneath. The two
- * budgets are deliberately different numbers for deliberately different
- * things, and the labels are still doing their own job for the neighbours that
- * have no card.
+ * Four. A label is a line of text beside a mark; a card is a block with a
+ * statement, a relation and a badge row, and five of those over a 900x600
+ * stage is a page of cards with a graph somewhere underneath. The labels are
+ * still doing their own job for the neighbours that have no card.
+ *
+ * D-187: this said "four, not twelve" and pointed at
+ * `MAP_LABEL_NEIGHBOUR_BUDGET` for the twelve — which D-145 had already
+ * lowered to four, in the same file, a hundred and thirty lines away. The two
+ * budgets happen to be the same number today; they remain separate constants
+ * because they bound different things, and neither is derived from the other.
  */
 export const MAP_STAGE_CARD_BUDGET = 4;
 

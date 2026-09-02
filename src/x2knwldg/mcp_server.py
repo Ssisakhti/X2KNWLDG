@@ -36,8 +36,10 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, TypeVar
 
+from .constants import ERROR_CODES as CANONICAL_ERROR_CODES
 from .constants import MAX_PAGE_LIMIT
 from .coverage import caption_in_window
+from .ids import is_id_part
 from .io import _ABSOLUTE_PATH_ONLY, scrub_host_paths, scrub_host_paths_roots_only, write_json
 from .pipeline import PipelineError, import_transcript, project_root, resolve_run_dir, validate_run
 
@@ -71,12 +73,19 @@ PROJECT_MARKERS = ("WORKFLOW.md", "prompts", "schemas/extraction_bundle.schema.j
 #: D-030's taxonomy, as the codes this server puts on the wire. ``invalid_id``
 #: is a refused identifier (never dressed up as absence), ``not_found`` a
 #: well-formed name for nothing, ``unavailable`` a record whose file will not
-#: read, ``index_unavailable`` a project that cannot be served at all, and
-#: ``invalid_request`` an argument refused before anything was read.
-ERROR_CODES = frozenset(
-    {"invalid_id", "not_found", "unavailable", "index_unavailable", "invalid_request",
-     "internal_error"}
-)
+#: read, ``index_unavailable`` a project that cannot be served at all,
+#: ``invalid_request`` an argument refused before anything was read, and
+#: ``internal`` anything else.
+#:
+#: D-184: **imported, not restated.** This module and ``server/envelope.py``
+#: both carried a list, both called it D-030's taxonomy, and they already
+#: disagreed: this one said ``internal_error`` where the envelope and the frozen
+#: ``ErrorCode`` enum both say ``internal``. No test imported both, so nothing
+#: could see it — and an agent reading the MCP reply got a code outside the
+#: closed vocabulary the HTTP contract publishes. ``constants`` owns it, for the
+#: same reason it owns ``MAX_PAGE_LIMIT``; the ``frozenset`` is this module's
+#: membership test and nothing more.
+ERROR_CODES = frozenset(CANONICAL_ERROR_CODES)
 
 #: Anything still shaped like an absolute path after the named roots are
 #: replaced. The lookbehind keeps it off the tail of a placeholder we just
@@ -247,7 +256,7 @@ def _relative(path: Path) -> str:
         return project_relative(path, root)
     except Exception as exc:  # AdapterError, whose message carries both paths
         raise McpToolError(
-            "internal_error", "Resolved a run outside the project root"
+            "internal", "Resolved a run outside the project root"
         ) from exc
 
 
@@ -282,7 +291,7 @@ def _boundary(function: _Tool) -> _Tool:
             raise McpToolError("unavailable", _redact(str(exc))) from exc
         except Exception as exc:  # pragma: no cover - the genuinely unexpected
             raise McpToolError(
-                "internal_error", f"{type(exc).__name__}: {_redact(str(exc))}"
+                "internal", f"{type(exc).__name__}: {_redact(str(exc))}"
             ) from exc
 
     return wrapper  # type: ignore[return-value]
@@ -435,6 +444,16 @@ def search_video_knowledge(
         raise McpToolError(
             "invalid_request", f"limit must be between 1 and {MAX_PAGE_LIMIT}, got {limit}"
         )
+    # D-184: a malformed id is `invalid_id` here too. It used to reach
+    # `search_knowledge`, come back as a `PipelineError`, and be rendered by
+    # `_boundary` as `invalid_request` — so the *same* bad id was two different
+    # codes depending on which tool an agent called, contradicting the rule
+    # `_run_dir` states in as many words: a rejected id is `invalid_id`, and
+    # collapsing it into anything else hides a traversal attempt behind an
+    # ordinary refusal. `not_found` is deliberately not raised here: a search
+    # scoped to a video that does not exist is an empty result, not an error.
+    if video_id and not is_id_part(video_id):
+        raise McpToolError("invalid_id", f"Not a usable video id: {video_id!r}")
     unreadable: list[dict[str, str]] = []
     results = search_knowledge(
         _output_root(),
