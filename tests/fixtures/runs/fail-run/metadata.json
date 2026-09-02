@@ -10,6 +10,10 @@
   "transcript_hash": "7ab1a327e807d1ce3296770a0887e1bdaf7d8436c100860c3905ef7532b7b3b9",
   "imported_at": "2026-01-01T00:00:00+00:00",
   "duration_sec": 90.0,
+  "canonical_hashes": {
+    "transcript.json": "021789b095ab307c60ed4f60e419f7e25d50f54956eaf5579d4887a306937814",
+    "segments.json": "77e77dc67d8a394bbbb7ae01bd010ddde4a5018d352e7a1320ef2b1b951d99b0"
+  },
   "extraction": {
     "model": "none — handwritten fixture",
     "fixture": true

@@ -222,6 +222,18 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def sha256_text(text: str) -> str:
+    """The digest of *text* as it will be written — UTF-8, no BOM.
+
+    The counterpart of :func:`sha256_file` for a document that has been
+    serialised but not yet stored. ``write_text`` encodes UTF-8 and delegates to
+    ``write_bytes``, so hashing ``dumps_json(document)`` here and hashing the
+    resulting file later give the same value, which is what lets a digest be
+    recorded at import and checked against the bytes on disk afterwards (D-163).
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _reject_non_finite(constant: str) -> Any:
     """Refuse the ``NaN``/``Infinity`` *tokens*: see also :func:`_reject_non_finite_float`."""
     raise ValueError(f"Canonical JSON must not contain {constant}")

@@ -5,6 +5,7 @@ from typing import Any, TypeGuard
 
 from .constants import (
     COVERAGE_STATUSES,
+    COVERAGE_WINDOW_SEC,
     DERIVED_KINDS,
     KNOWLEDGE_KINDS,
     # WORKFLOW.md §4.4 and CLAUDE.md: "Run coverage repair no more than three
@@ -404,6 +405,21 @@ def validate_coverage(document: Any, transcript_end_sec: float) -> dict[str, Any
         # Zero attempts is the honest state of a freshly scaffolded, never
         # audited coverage document — but it can never be a PASS.
         errors.append({"code": "unaudited_coverage_pass", "value": audit_attempts})
+    # D-164: `window_size_sec` is what `constants.py` calls part of the file
+    # format, and nothing in the package read it. Without it a window's span is
+    # whatever the document says it is, so six 300-second windows could be
+    # collapsed into one `[0, 1800]` window citing a single unit at 0-10s and
+    # the audit still reported `PASS` over 29 unaudited minutes.
+    window_size = document.get("window_size_sec")
+    if window_size is not None and (not _is_seconds(window_size) or window_size <= 0):
+        errors.append({"code": "invalid_window_size", "value": window_size})
+        window_size = None
+    elif window_size is None and document.get("status") == "PASS":
+        # Absent, and the document claims PASS: the geometry cannot be checked,
+        # and an unverifiable claim is a failure. Absent on a PARTIAL document
+        # is the honest state of a run still being worked on.
+        errors.append({"code": "missing_window_size", "expected": COVERAGE_WINDOW_SEC})
+
     cursor = 0.0
     unresolved = 0
     for index, window in enumerate(windows):
@@ -451,6 +467,25 @@ def validate_coverage(document: Any, transcript_end_sec: float) -> dict[str, Any
             errors.append({"code": "coverage_gap_or_overlap", "window": index, "expected": cursor, "actual": start})
         if end < start:
             errors.append({"code": "invalid_window_timing", "window": index})
+        elif _is_seconds(window_size) and end - start > window_size + TIME_TOLERANCE_SEC:
+            # A one-sided bound, deliberately. `create_pending_coverage` mints
+            # windows of exactly `window_size_sec` (the last owns whatever
+            # remains), and an audit is free to *subdivide* one — auditing at a
+            # finer granularity than the scaffold is honest work, and the
+            # committed `partial-run` fixture does exactly that. What no audit
+            # may do is **coarsen**: a window wider than `window_size_sec`
+            # covers more of the timeline per citation than the format allows,
+            # which is how six 300-second windows became one `[0, 1800]` window
+            # citing a single unit at 0-10s and still reported `PASS`.
+            errors.append(
+                {
+                    "code": "window_wider_than_window_size",
+                    "window": index,
+                    "window_id": window.get("window_id"),
+                    "max": window_size,
+                    "actual": round(end - start, 3),
+                }
+            )
         cursor = end
         if window.get("status") not in COVERAGE_STATUSES:
             errors.append({"code": "invalid_window_status", "window": index})
@@ -478,4 +513,158 @@ def validate_coverage(document: Any, transcript_end_sec: float) -> dict[str, Any
                 errors.append({"code": "covered_window_without_accounting", "window": index})
         if unresolved:
             errors.append({"code": "pass_with_unresolved_items", "count": unresolved})
+    errors.extend(_coverage_summary_errors(document, windows, unresolved))
     return _result(errors, warnings)
+
+
+def _coverage_summary_errors(
+    document: Any, windows: list[Any], unresolved: int
+) -> list[dict[str, Any]]:
+    """The ``summary`` block, recomputed and compared (D-164).
+
+    It was written by ``create_pending_coverage`` and read by nothing — not by
+    a validator, not by ``_coverage_markdown``, which iterates the windows
+    directly. So ``summary.covered_windows`` could say ``0`` while every window
+    said ``covered``, and the two halves of one document could disagree with
+    nothing to say so. Every field is derived from the windows, so the honest
+    check is to derive them again.
+    """
+    summary = document.get("summary")
+    if summary is None:
+        return []
+    if not isinstance(summary, dict):
+        return [{"code": "coverage_summary_not_object", "type": type(summary).__name__}]
+    statuses = [
+        window.get("status") if isinstance(window, dict) else None for window in windows
+    ]
+    expected = {
+        "total_windows": len(windows),
+        "covered_windows": sum(1 for status in statuses if status == "covered"),
+        "pending_windows": sum(1 for status in statuses if status == "pending"),
+        "unresolved_important_items": unresolved,
+    }
+    return [
+        {
+            "code": "coverage_summary_disagrees_with_windows",
+            "field": field,
+            "stated": summary[field],
+            "actual": value,
+        }
+        for field, value in expected.items()
+        if field in summary and summary[field] != value
+    ]
+
+
+def validate_coverage_links(coverage: Any, units: Any) -> list[dict[str, Any]]:
+    """``coverage.json`` cross-checked against ``knowledge_units.json``.
+
+    :func:`validate_coverage` reads one document, so it can confirm that a
+    window *names* units without knowing whether any of them exist — or, before
+    D-164, whether any of them has anything to do with the stretch of time the
+    window covers. Nothing tied a window's citations to its own span, so
+    ``PASS`` was structurally unverifiable: keep all six 300-second windows,
+    mark every one ``covered``, name the same unit from 0-10s in each, and the
+    audit passed with 29 of 30 minutes unaudited by construction.
+
+    Three rules, and the third is the new one:
+
+    * A named unit must exist.
+    * A ``PASS`` must account for every ``source`` unit.
+    * A named ``source`` unit's evidence must **overlap the window that names
+      it**, and a ``covered`` window must have at least one such unit — or an
+      accounted omission, which is the other honest way for a window to be
+      covered without a citation. ``derived`` units carry no timing and can
+      never anchor a window; they may still be named beside one that does.
+
+    One implementation, called by ``pipeline.validate_run`` and by
+    ``artifacts.apply_extraction_bundle``, which each carried a partial copy.
+    """
+    errors: list[dict[str, Any]] = []
+    if not isinstance(coverage, dict) or not isinstance(coverage.get("windows"), list):
+        # `validate_coverage` already reports the shape failure.
+        return errors
+    unit_list = [unit for unit in _as_list(units) if isinstance(unit, dict)]
+    by_id = {
+        unit["id"]: unit for unit in unit_list if isinstance(unit.get("id"), str) and unit["id"]
+    }
+
+    referenced: set[str] = set()
+    for index, window in enumerate(coverage["windows"]):
+        if not isinstance(window, dict):
+            continue
+        named = window.get("knowledge_units") or []
+        if not isinstance(named, list):
+            errors.append({"code": "window_knowledge_units_not_array", "window": index})
+            continue
+        raw_start = window.get("start_sec")
+        raw_end = window.get("end_sec")
+        # `validate_coverage` reports an unusable bound; here it only means the
+        # window cannot be compared with anything, so the timing rules below are
+        # skipped rather than restated as a second failure.
+        span: tuple[float, float] | None = (
+            (raw_start, raw_end)
+            if _is_seconds(raw_start) and _is_seconds(raw_end) and raw_end >= raw_start
+            else None
+        )
+        anchored = False
+        for unit_id in named:
+            if isinstance(unit_id, str):
+                referenced.add(unit_id)
+            unit = by_id.get(unit_id) if isinstance(unit_id, str) else None
+            if unit is None:
+                errors.append(
+                    {
+                        "code": "coverage_references_unknown_unit",
+                        "window": index,
+                        "window_id": window.get("window_id"),
+                        "value": unit_id,
+                    }
+                )
+                continue
+            if unit.get("source_class") != "source" or span is None:
+                continue
+            start, end = span
+            source = unit.get("source")
+            unit_start = source.get("start_sec") if isinstance(source, dict) else None
+            unit_end = source.get("end_sec") if isinstance(source, dict) else None
+            if not _is_seconds(unit_start) or not _is_seconds(unit_end):
+                # `validate_provenance` reports the unusable timing itself; it
+                # simply cannot anchor a window.
+                continue
+            if unit_end > start - TIME_TOLERANCE_SEC and unit_start < end + TIME_TOLERANCE_SEC:
+                anchored = True
+            else:
+                errors.append(
+                    {
+                        "code": "coverage_unit_outside_window",
+                        "window": index,
+                        "window_id": window.get("window_id"),
+                        "unit": unit_id,
+                        "window_span": list(span),
+                        "unit_span": [unit_start, unit_end],
+                    }
+                )
+        if (
+            window.get("status") == "covered"
+            and not anchored
+            and not _as_list(window.get("omitted_items"))
+        ):
+            errors.append(
+                {
+                    "code": "covered_window_without_evidence_in_it",
+                    "window": index,
+                    "window_id": window.get("window_id"),
+                }
+            )
+
+    if coverage.get("status") == "PASS":
+        unaccounted = sorted(
+            unit["id"]
+            for unit in unit_list
+            if unit.get("source_class") == "source"
+            and isinstance(unit.get("id"), str)
+            and unit["id"] not in referenced
+        )
+        if unaccounted:
+            errors.append({"code": "coverage_pass_omits_source_units", "units": unaccounted})
+    return errors

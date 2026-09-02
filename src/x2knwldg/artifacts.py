@@ -21,6 +21,7 @@ from .pipeline import PipelineError, VerdictRefusal, validate_run
 from .transcripts import transcript_end_sec
 from .validators import (
     validate_coverage,
+    validate_coverage_links,
     validate_knowledge_units,
     validate_provenance,
     validate_relationships,
@@ -106,6 +107,64 @@ def _read(path: Path) -> Any:
     if not isinstance(document, dict):
         raise PipelineError(f"Canonical JSON must be an object: {path}")
     return document
+
+
+def _carry_coverage_scaffold_forward(run_dir: Path, coverage: dict[str, Any]) -> None:
+    """Restore the fields the scaffolded ``coverage.json`` knows and a bundle does not.
+
+    D-164: the bundle's coverage document *replaced* the scaffolded one, adding
+    back only ``schema_version`` and ``video_id``. So ``window_size_sec`` — what
+    ``constants.py`` calls part of the file format, and what makes a window's
+    span checkable — plus ``summary`` and every window's ``caption_ids`` were
+    silently dropped on the first apply, and every run that had ever had a
+    bundle applied was missing the very fields the coverage audit is checked
+    against.
+
+    ``window_size_sec`` and ``caption_ids`` are carried forward, because they
+    are facts about the transcript that no model pass can know better than the
+    scaffold did. ``summary`` is **recomputed** rather than carried, because it
+    is derived from the windows the bundle just supplied: carrying the
+    scaffold's would restate ``covered_windows: 0`` over a document in which
+    every window is covered.
+    """
+    scaffold = run_dir / "coverage.json"
+    previous: Any = None
+    if scaffold.is_file():
+        try:
+            previous = read_json(scaffold)
+        except (JsonReadError, OSError):
+            previous = None
+    if isinstance(previous, dict):
+        if "window_size_sec" not in coverage and "window_size_sec" in previous:
+            coverage["window_size_sec"] = previous["window_size_sec"]
+        captions_by_window = {
+            window.get("window_id"): window.get("caption_ids")
+            for window in previous.get("windows", [])
+            if isinstance(window, dict) and isinstance(window.get("caption_ids"), list)
+        }
+        for window in coverage.get("windows", []):
+            if not isinstance(window, dict) or "caption_ids" in window:
+                continue
+            carried = captions_by_window.get(window.get("window_id"))
+            if carried is not None:
+                window["caption_ids"] = list(carried)
+
+    windows = coverage.get("windows")
+    if not isinstance(windows, list):
+        return
+    statuses = [
+        window.get("status") if isinstance(window, dict) else None for window in windows
+    ]
+    coverage["summary"] = {
+        "total_windows": len(windows),
+        "covered_windows": sum(1 for status in statuses if status == "covered"),
+        "pending_windows": sum(1 for status in statuses if status == "pending"),
+        "unresolved_important_items": sum(
+            len(window.get("unresolved_items") or [])
+            for window in windows
+            if isinstance(window, dict) and isinstance(window.get("unresolved_items"), list)
+        ),
+    }
 
 
 def _checked_video_id(metadata: dict[str, Any]) -> str:
@@ -241,6 +300,7 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
         raise PipelineError("Extraction bundle must contain a coverage object")
     coverage_document.setdefault("schema_version", "1.0")
     coverage_document.setdefault("video_id", units_document["video_id"])
+    _carry_coverage_scaffold_forward(run_dir, coverage_document)
 
     unit_validation = validate_knowledge_units(units_document)
     unit_ids = {
@@ -268,23 +328,17 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
     if any(errors.values()):
         raise PipelineError(f"Extraction bundle failed validation: {json.dumps(errors, ensure_ascii=False)}")
 
-    referenced = {
-        unit_id
-        for window in coverage_document.get("windows", [])
-        for unit_id in window.get("knowledge_units", [])
-    }
-    unknown = sorted(referenced - unit_ids)
-    if unknown:
-        raise PipelineError(f"Coverage references unknown knowledge units: {unknown}")
-    source_ids = {
-        unit["id"]
-        for unit in units_document["units"]
-        if isinstance(unit, dict) and unit.get("source_class") == "source"
-    }
-    missing_from_coverage = sorted(source_ids - referenced)
-    if coverage_document.get("status") == "PASS" and missing_from_coverage:
+    # D-164: this was a partial copy of `pipeline._coverage_link_errors` —
+    # unknown references and unaccounted source units, and neither of them
+    # tying a window's citations to its own span. Both callers now share one
+    # implementation, so a rule added in one place cannot be missing in the
+    # other, and this is where it matters most: `apply-bundle` is the gate a
+    # model's output goes through.
+    link_errors = validate_coverage_links(coverage_document, units_document["units"])
+    if link_errors:
         raise PipelineError(
-            f"Coverage PASS does not account for source units: {missing_from_coverage}"
+            f"Coverage does not match the knowledge units: "
+            f"{json.dumps(link_errors, ensure_ascii=False)}"
         )
 
     extraction_metadata = bundle.get("extraction_metadata")

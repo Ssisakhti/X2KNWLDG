@@ -59,6 +59,18 @@ When the coverage audit finds missing meaningful content:
 4. Stop after three total audit attempts. `MAX_AUDIT_ATTEMPTS` in `src/x2knwldg/constants.py` is the number, and the coverage document must report how many it took: `audit_attempts` is **required**, an integer, and never above the cap. The validator accepts `0` only while the document does not claim `PASS`, which is the honest state of a scaffolded, never-audited run.
 5. If important content remains unresolved, use `PARTIAL`, never `PASS`.
 
+A window's audit is checked against the window (D-164), so three rules bind:
+
+- `window_size_sec` is required whenever coverage claims `PASS`, and **no window
+  may be wider than it**. Subdividing a scaffolded window is fine — auditing at a
+  finer granularity is honest work. Merging windows is not.
+- A `covered` window must name at least one `source` knowledge unit whose
+  evidence **overlaps that window's own span**, or account for what it left out
+  in `omitted_items`. A `derived` unit carries no timing and can never anchor a
+  window.
+- `summary` is derived from the windows and is recomputed on apply. Do not
+  hand-write it.
+
 ## 5. Apply and finalize
 
 Assemble `extraction_bundle.json` using `schemas/extraction_bundle.schema.json`. It has
