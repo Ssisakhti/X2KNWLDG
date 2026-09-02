@@ -15,9 +15,12 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "browser": "playwright test",
+    "typecheck:browser": "tsc --noEmit --project browser/tsconfig.json"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@testing-library/react": "^16.3.3",
     "@types/events": "3.0.3",
     "@types/react": "^19.2.18",

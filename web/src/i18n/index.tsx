@@ -48,13 +48,39 @@ export function isLocale(value: unknown): value is Locale {
   return typeof value === "string" && (LOCALES as readonly string[]).includes(value);
 }
 
-/** `{name}` placeholders, substituted from *params*. An unknown placeholder is left alone. */
+/**
+ * `{name}` placeholders, substituted from *params*, plus the one plural form
+ * (`T-209`).
+ *
+ * `{name}` is the value. `{name|singular|plural}` is the word that agrees
+ * with it: the first alternative when the value is exactly one, the second
+ * otherwise -- so "{count} related {count|entity|entities}" reads correctly
+ * at one and at eight. The browser walk found "1 hops from the focus", "1
+ * related entities" and "1 returned relations name an endpoint" on the real
+ * route, all of them in one sentence about a real neighbourhood.
+ *
+ * Two things this deliberately is not. It is not a plural *library*: the form
+ * chooses between exactly two alternatives on `=== 1`, which is English's
+ * rule and is written out per message rather than inferred, and a locale
+ * whose rule is different simply does not use the form -- Persian keeps the
+ * singular after a numeral, so its catalogue has no `|` in it and needs none.
+ * And it is not a second placeholder syntax: the name is the same parameter,
+ * so a message can print the number and agree with it without the caller
+ * passing anything extra.
+ *
+ * An unknown placeholder is left alone, in both forms.
+ */
 export function interpolate(template: string, params?: Record<string, string | number>): string {
   if (params === undefined) return template;
-  return template.replace(/\{(\w+)\}/g, (whole, name: string) => {
-    const value = params[name];
-    return value === undefined ? whole : String(value);
-  });
+  return template.replace(
+    /\{(\w+)(?:\|([^{}|]*)\|([^{}|]*))?\}/g,
+    (whole, name: string, singular?: string, plural?: string) => {
+      const value = params[name];
+      if (value === undefined) return whole;
+      if (singular === undefined || plural === undefined) return String(value);
+      return Number(value) === 1 ? singular : plural;
+    },
+  );
 }
 
 export function translator(locale: Locale): Translate {

@@ -31,6 +31,18 @@ export default defineConfig({
       "/api": { target: API, changeOrigin: false },
     },
   },
+  // The same forwarding for `vite preview`, because `T-209` walks the
+  // **built** bundle rather than the dev server's module graph: the browser
+  // gate's whole point is to exercise what `x2knwldg ui` actually serves, and
+  // a bundle that never answers `/api` cannot draw a graph. Loopback only
+  // here too, and the same target, so the two servers cannot disagree about
+  // which API a walk was performed against.
+  preview: {
+    host: "127.0.0.1",
+    proxy: {
+      "/api": { target: API, changeOrigin: false },
+    },
+  },
   build: {
     outDir: "dist",
     sourcemap: true,

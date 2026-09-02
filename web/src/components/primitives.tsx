@@ -31,15 +31,27 @@ export function Bidi({
   children,
   className,
   as: Tag = "span",
+  marks,
 }: {
   children: ReactNode;
   className?: string;
   as?: "span" | "p" | "div" | "blockquote";
+  /**
+   * `data-*` attributes to put on the element itself.
+   *
+   * Passed explicitly rather than spread from the rest of the props, because
+   * TypeScript does not check a hyphenated JSX attribute against a component's
+   * props at all: `data-thing="x"` on a component that does not forward it
+   * compiles cleanly and renders nothing, which is a test asserting on an
+   * attribute that was never there. `MapLegend`'s `Row` already takes its
+   * marks this way (`T-205`).
+   */
+  marks?: Record<string, string>;
 }) {
   const props: { className?: string } = {};
   if (className !== undefined) props.className = className;
   return (
-    <Tag dir="auto" style={{ unicodeBidi: "isolate" }} {...props}>
+    <Tag dir="auto" style={{ unicodeBidi: "isolate" }} {...props} {...marks}>
       {children}
     </Tag>
   );

@@ -1,0 +1,23 @@
+{
+  "//": [
+    "The gate's own type-check program (`T-209`).",
+    "",
+    "Separate from the application's for one reason: `skipLibCheck`, because",
+    "`@playwright/test` ships declarations that reach for Node's own and this",
+    "project installs no ambient Node types. Risk R17 is about *this*",
+    "project's types, and `web/tsconfig.json` keeps `skipLibCheck: false` over",
+    "`src`, which is where that risk lives. The one Node global the config",
+    "needs -- `process.env` -- is declared where it is used, exactly as",
+    "`vite.config.ts` already declares it.",
+    "",
+    "`npm run typecheck:browser` runs it. Playwright itself transpiles specs",
+    "without type-checking them, so without this the gate's own code would be",
+    "the only unchecked TypeScript in the repository."
+  ],
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [".", "../playwright.config.ts"]
+}

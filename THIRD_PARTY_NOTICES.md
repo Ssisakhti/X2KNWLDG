@@ -64,3 +64,28 @@ v3 depends on `events` as well, so this is not particular to the v4 line.
 All of the above are MIT-licensed, as is X2KNWLDG. No package here is
 copyleft-licensed and none requires attribution beyond the notice preserved in
 its own distributed files.
+
+## The Knowledge Map's browser gate (`web/browser/`, Phase 2)
+
+`T-209` walks the Map in a real browser, because jsdom has no WebGL and no
+layout and a running server knows nothing about what was drawn. The harness
+that drives it is a **development dependency only**: it is not imported by any
+module under `web/src`, `npm run build` never sees it, and nothing it installs
+reaches the browser bundle or the Python distribution.
+
+Verified during `T-209` (2026-09-03):
+
+| Package | Licence | Upstream |
+|---|---|---|
+| `@playwright/test@1.62.1` | Apache-2.0 | [microsoft/playwright](https://github.com/microsoft/playwright) |
+| `playwright@1.62.1` | Apache-2.0 | [microsoft/playwright](https://github.com/microsoft/playwright) |
+| `playwright-core@1.62.1` | Apache-2.0 | [microsoft/playwright](https://github.com/microsoft/playwright) |
+
+Apache-2.0 rather than MIT, which is why these are recorded in a section of
+their own rather than added to the table above: it is permissive and not
+copyleft, and its attribution terms apply to redistribution of *its* files,
+which this project does not do. The browsers Playwright downloads are not
+redistributed here either -- they are fetched into a per-machine cache by
+`npx playwright install`, outside the repository -- and the gate's recorded
+walk was performed through the Google Chrome already installed on the target
+machine (`channel: "chrome"`), which carries its own licence.

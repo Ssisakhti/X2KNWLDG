@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map under way — `T-202` chose and proved the renderer line (`T-203` is next)
+**Current stage:** Phases 0, 1 and 2 complete — the Knowledge Map has a renderer, a graph, an address, a visual grammar, a search rail, a bounded card constellation, a complete related list, Quick Read, a stated state for everything it cannot show, a DOM companion listing everything it draws, foldable panels, touch targets, reduced motion and the Persian pass; and `T-209` has **opened it in a browser** — 27 automated specs over the built bundle and the real API, green on the real 86/118 library and on the committed fixtures, which is where four defects no jsdom test could reach were found and fixed (D-145–D-149). Next: Phase 3 (Canvas), which needs its own decomposition
 **Last updated:** 2026-09-02
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -255,6 +255,61 @@ UX principles:
   - user-authored
 - Coverage and validation status must always be available, but must not interfere with reading.
 - Layout and typography must handle bidirectional text correctly for both Persian and English content.
+
+### 7.1 Approved Knowledge Map browsing model
+
+The Map is a read-only **content browser**, not a diagram that makes the user guess what a
+circle contains. Its progressive journey is:
+
+```text
+Search  ->  Preview / Peek  ->  Focus  ->  Quick Read  ->  full Reader when needed
+```
+
+- **Search** opens a collapsible rail of result cards. Each card shows only returned content,
+  kind, provenance, confidence and real source/locator cues; it never generates a summary.
+- **Peek** is one transient, compact card for a loaded node under pointer hover or keyboard
+  focus. It provides information scent but writes neither selection nor browser history.
+- **Focus** keeps the user in `#/map`. The selected entity becomes one primary Knowledge Card
+  with a visibly bounded statement preview, active connections name their real relation/
+  direction, and compact neighbour previews form a bounded focus constellation. Unrelated
+  structure may be de-emphasised, never represented as absent.
+- **Quick Read** is the collapsible inspector ordered for reading: full stored statement,
+  recorded evidence/locator, active relation, recorded derivation, provenance/source, then
+  technical metadata. The Reader remains the destination for the complete source.
+- A focus selection pushes `mapLink` history. Browser Back restores the previous focus without
+  leaving or rebuilding the Map; Peek never pollutes that history.
+
+The visual references approved by the user contribute four ideas: card-shaped focus nodes and
+labelled active paths; visible interaction/history trails; a clear radial centre with related
+material around it; and editorial hierarchy with restrained translucent group regions. They
+do **not** authorise an invented radar value, importance score, cluster or relation. Visual
+grouping uses only fields the API states: relation, direction, vocabulary, provenance, source
+and identity.
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│ Search: memory          path: result / selected          [filters] │
+├─────────────────────────────────────────────────────────────────────┤
+│  ┌──────────────────┐       supports       ┌──────────────────┐    │
+│  │ neighbour preview├──────────────────────┤ neighbour preview│    │
+│  │ relation + label │                      │ relation + label │    │
+│  └──────────────────┘                      └──────────────────┘    │
+│              ╲                                  ╱                   │
+│               ╲  ┌──────────────────────────┐  ╱                    │
+│                ──┤ SELECTED KNOWLEDGE CARD  ├──                     │
+│                  │ bounded statement preview│                       │
+│                  │ provenance · kind · time │                       │
+│                  │ [Quick Read] [Reader]    │                       │
+│                  └──────────────────────────┘                       │
+│                                                                     │
+│ Related: every returned neighbour remains in the semantic list     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+The stage does not become an HTML renderer. It carries one primary selected card, at most one
+transient Peek and only density-budgeted neighbour previews. Sigma/WebGL retains every loaded
+graph mark; every neighbour returned by the bounded API is also present in the semantic
+related list even when its card cannot fit on stage.
 
 ## 8. System architecture
 
@@ -555,10 +610,13 @@ Rules:
 Used for:
 
 - The global graph and WebGL rendering
-- Focus, filtering, neighbourhood, and cluster visualization
+- Focus, filtering and neighbourhood visualization; a cluster/region only when an explicit
+  API field defines it, never from a client inference presented as evidence
 - In-memory graph algorithms
 
-The Map must not place heavy HTML components on each node. Details are shown in the inspector.
+The Map must not place heavy HTML components on each node. D-132 permits only a bounded focus
+overlay — one primary selected card, one transient Peek and density-budgeted neighbour previews —
+paired with the complete semantic related list and Quick Read.
 
 Phase 2 starts with an exactly pinned Sigma v4 beta, subject to the real-graph and real-device
 compatibility gate in `T-202` ([ADR 0005](adr/0005-knowledge-map-client.md), D-117). The
@@ -658,6 +716,11 @@ Excluded from the current choice because of its production licence and the requi
   `id`; placeholder nodes are never invented.
 - Search, selection, neighbourhood and inspector also exist in a bounded semantic DOM surface;
   no operation is WebGL- or pointer-only (D-120).
+- The card overlay is bounded and measured: one selected card, one Peek and only neighbour
+  previews that fit the stated density policy. Every returned neighbour remains in WebGL and
+  the semantic list, so performance culling is never silent data omission (D-132, R20).
+- Card content is copied from the API; visible preview truncation is permitted, client-authored
+  summaries and inferred importance/cluster/quantitative axes are not (D-131, D-133).
 - The full graph and the Canvas layout are two separate states.
 
 ### 13.4. Performance targets
@@ -777,7 +840,8 @@ Acceptance criteria:
 
 ### Phase 2 — Knowledge Map
 
-**Goal:** surveying relationships at source and library level.
+**Goal:** search, read and browse related knowledge while keeping graph context and avoiding
+blind node clicks or repeated Map ↔ Reader backtracking.
 
 Deliverables:
 
@@ -786,11 +850,16 @@ Deliverables:
   edges and intentional self-loops
 - Progressive graph pages that dedupe D-059 straddling edges and state partiality
 - Sigma.js/WebGL view with deterministic initial positions and measured layout
-- Node/edge styles based on provenance and kind
+- Node/edge styles based on provenance and kind, with explicit normal/hovered/selected/
+  neighbour states and a zoom/density/focus label policy
 - Server-backed source/provenance/relation-vocabulary filters
-- Search/focus with one addressable `mapLink` URL grammar
+- A collapsible search rail with verbatim result preview cards and one transient Peek card
+- Search/focus with one addressable `mapLink` URL grammar and focus history that stays in Map
 - Bounded neighbourhood view (depth 1–3), with truncation stated
-- Collapsible inspector over `/api/entities/{entity_id}`
+- Bounded Focus Constellation: one primary selected Knowledge Card, active relation labels,
+  density-budgeted neighbour previews and a complete semantic related list
+- Collapsible Quick Read over `/api/entities/{entity_id}`, ordered around statement and
+  evidence rather than technical metadata
 - Link from Map to Reader through the existing `readerLink` grammar
 - Keyboard-operable semantic DOM companion and honest WebGL-unavailable fallback
 
@@ -799,9 +868,17 @@ Acceptance criteria:
 - An empty graph is displayed honestly.
 - A partial graph is never presented as whole, even on the last page of a paged walk.
 - Canonical and derived relationships are distinguishable.
-- Selecting a node shows real details and evidence.
+- A search result and a related-node preview show enough returned statement/relation context
+  for the user to choose before opening the node; no generated summary fills a gap.
+- Selecting a node shows its complete stored statement and real evidence without leaving Map.
+- At most one primary selected card and one transient Peek are overlaid on stage; any neighbour
+  whose compact card cannot fit remains present in both WebGL and the semantic related list.
+- Browser Back returns to the preceding focus without leaving or rebuilding `#/map`; Peek
+  creates no history entry.
 - Pointer and keyboard selection resolve the same existing `global_id`, and selection/filter
   state survives reload without inventing a default for malformed URL state.
+- The same Search → Preview/Peek → Focus → Quick Read → Reader journey works with pointer,
+  keyboard and touch; hover is never required.
 - The real 86-node/118-edge sample has no lost or duplicated identities after accumulation.
 - Sigma and any layout worker release their resources on replacement/unmount.
 - The graph is fed from `output/library/graph.json` or an equivalent index.
@@ -1028,12 +1105,16 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-126 | The Map has one renderer lifecycle, owned by a framework-free `MapSession` reached through an injected factory; React decides only when to attach and when to kill ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Killing a renderer on unmount *and on replacement* is a sequence property, and jsdom has no WebGL, so it is only assertable against a fake. `StrictMode` double-invokes effects, so an attach that did not kill first would leak a WebGL context per mount — and a browser answers an excess by losing the oldest context, far from the cause |
 | D-127 | Sigma is loaded through a dynamic `import` from the Map route only, never statically ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `sigma`'s default primitives read `WebGL2RenderingContext` off the global while the module body evaluates, so a static import anywhere in the application's module graph fails to load under jsdom and takes unrelated suites with it. Loading it where it is used also keeps a 362 kB chunk out of the routes that draw no graph |
 | D-128 | A continuation page re-settles the whole layout; nodes already placed are not pinned ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | New nodes arrive on their identity seeds, which say nothing about the structure the layout has found, so drawing them unrelaxed scatters dots over a settled graph. Pinning needs a third node attribute, and D-124 lets the graph carry `x`, `y` and the record only. The picture moving when the graph grows is the accepted cost |
-| D-129 | A Map that cannot draw still reports the graph: the renderer's refusal is a stated state, the counts beside it stay true, and they precede the canvas ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `allowInvalidContainer: false` is kept because a graph drawn into a zero-sized box is an unexplainable failure — which makes an unsized container and a browser without WebGL2 states the Map must render. Those counts are also the only text account until `T-208`'s companion exists, so an account placed after the picture would read as complete to anyone who never reaches it |
+| D-129 | A Map that cannot draw still reports the graph: the renderer's refusal is a stated state, the counts beside it stay true, and they precede the canvas ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `allowInvalidContainer: false` is kept because a graph drawn into a zero-sized box is an unexplainable failure — which makes an unsized container and a browser without WebGL2 states the Map must render. Those counts were also the only text account until `T-208` built the companion list beside them (D-142), so an account placed after the picture would read as complete to anyone who never reaches it |
+| D-130 | The Map is a content browser with one progressive Search → Preview/Peek → Focus → Quick Read journey; preview and reading stay in `#/map`, while the Reader is the full-source destination ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | A topology-only graph does not reveal what a node contains, and routing every selection away from the graph produces blind clicks and repeated backtracking. Progressive disclosure keeps overview, information scent and reading context together without turning every node into a card |
+| D-131 | Search, Peek, selected and related cards use only verbatim API records; on-stage previews may visibly truncate, while Quick Read exposes the complete stored statement and recorded evidence; no client-generated summary is allowed ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `EntityRef.label` is already the pipeline's selected `normalized_statement`/content and its locator may state an excerpt and time. Summarising again would introduce an unproven claim between canonical evidence and the user |
+| D-132 | Focus is a bounded card constellation over the same graph: one primary selected card, at most one transient Peek, active relation labels and density-budgeted neighbour previews; every returned neighbour is also present in the complete semantic related list ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Permanent HTML for every node defeats WebGL and creates overlap, while circles alone recreate the blind-click problem. Sigma's graph-to-viewport overlay pattern supports a bounded focus layer, and the semantic list prevents a viewport budget from becoming silent data loss |
+| D-133 | Focus selection pushes `mapLink` history so Back restores prior focus without leaving Map; Peek is history-free. Grouping/ordering use only stated relation, direction, vocabulary, provenance, source and identity, never inferred importance or decorative quantities ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | A navigation trail preserves context; hover entries would pollute it. The approved radial and infographic references justify visual hierarchy and labelled paths, not a radar metric or cluster the project does not hold |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
 > already-accepted rows here is documentation consolidation work, not part of the Phase 2
-> implementation and not a reason to renumber D-117–D-120.
+> implementation and not a reason to renumber D-117–D-133.
 
 ## 20. Open questions
 
@@ -1116,13 +1197,30 @@ An agent must not guess the answers to these if the decision would cause a notic
 - [x] Phase 2 / T-204: the addressable Map shell — `#/map`, the navigation entry, one renderer
   lifecycle through an injected factory, container sizing and resize, zoom/reset, deliberate
   progressive loading, and the snapshot's own counts stated before the canvas (D-126–D-129)
+- [x] Phase 2 / T-207: the reading itself — the bounded neighbourhood over the last two
+  uncalled endpoints, projected through `T-203` and never merged into the drawn graph
+  (D-134); the stated on-stage density policy with a counted reason for every card it
+  cannot place, and a related list that holds every returned neighbour regardless (R20);
+  Quick Read over the complete stored statement, the recorded evidence and the derivation
+  in D-131's order; and the canvas's event and coordinate adapters as a *third* caller of
+  one selection identity (D-135–D-138)
+- [x] Phase 2 / T-208: usable by everyone — two honest-state functions and the four pairs
+  they keep apart (D-139–D-141), the DOM companion that lists every entity the canvas draws
+  and is deliberately not windowed (D-142), one collapsible panel whose summary keeps
+  stating what it holds (D-143), and the motion, touch and bidi rules including a
+  reduced-motion answer for the camera the stylesheet cannot reach (D-144)
 - [x] Translate this document to English per D-014
 
 ### Planned / not started
 
-- [ ] `T-205`–`T-209`: styling and real filters, `mapLink` and search, neighbourhood and
-  inspector, accessibility and bidi, and the phase gate — including the Map's own real-browser
-  walk, which `T-204` did not do
+- [x] Phase 2 / T-209: the real-browser anti-pogo phase gate over everything `T-202`–`T-208`
+  built — [`web/browser/`](../web/browser/gate.ts), 30 specs over the production bundle and
+  the real API in Google Chrome on the target machine, plus the same walk on a software
+  rasteriser; the WebGL context leak on a refused container, the camera that had never been
+  told about selection, the density grid that answered the wrong question and the Escape key
+  the canvas could not reach (D-145–D-149)
+- [x] **Phase 2 complete** — every clause of the Phase 2 gate in `docs/PROJECT_MANAGEMENT.md`
+  §5 is met, and met in a browser
 - [ ] Canvas
 - [ ] Pen annotations
 - [ ] Adapters for future sources
@@ -1131,42 +1229,35 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-The next execution session claims **`T-205` and `T-206`**, which §8.6 of
-`PROJECT_MANAGEMENT.md` now permits to run in parallel, inside the approved `T-201` Knowledge
-Map epic. `T-202` chose the renderer, `T-203` built the data underneath it, and `T-204` put
-the Map on screen; what is missing is what the Map *looks* like and what its URL *says*.
+**Phase 2 is finished.** `T-209` opened the Map in a browser, which is what the phase had
+never had: 30 specs in [`web/browser/`](../web/browser/gate.ts) walk the built bundle over
+the real API in Google Chrome on the target machine — the journey, the seven states, the
+keyboard with and without a renderer, a coarse pointer, Persian, reduced motion, the WebGL
+context count and the anti-pogo baseline — and pass again on a software rasteriser and on
+the committed fixtures. Four defects that only a browser could show were found and fixed
+(D-145–D-149; ADR 0005 § *Walk result* records them and the measurements).
 
-1. Read [ADR 0005](adr/0005-knowledge-map-client.md) — including *Gate result*, *Projection
-   result* and *Shell result* — `PROJECT_MANAGEMENT.md` §5 Phase 2, §8.6 and §10, D-059, and
-   D-117–D-129.
-2. **`T-205`** defines one tested style matrix for node `provenance_class` + `kind` and edge
-   `relation_vocabulary` + provenance, and delivers it as **reducers** passed into
-   `createSigmaRenderer` — never as attributes written onto the graph (D-124). Canonical,
-   `derived_from` and `expresses_concept` must all be recognisable, and source/derived/user
-   and canonical/synthetic/user each keep a non-colour signal in the Map and its legend. It
-   also owns the two gaps `T-204` left open on purpose: `renderLabels` is `false` until
-   D-122's truncation and density policy exists, and no colour has been chosen at all yet.
-   Offer only the filters `GET /api/graph` accepts — `source_id`, `provenance_class`,
-   `relation_vocabulary` — and let `useGraphWalk`'s `deps` replace the snapshot when one
-   changes; do not invent a server-side `kind` filter.
-3. **`T-206`** writes `mapLink`, following `readerLink`: one module that builds and parses,
-   ignoring what it cannot read rather than coercing it. `#/map` is already a first-class
-   address, so this widens that route rather than adding one. Search loaded labels and ids
-   locally and use `/api/search?include_transcript=false` for indexed knowledge; a hit with a
-   real `global_id` can be focused, and a caption or null-id hit is explained rather than
-   given an address.
-4. Neither task may add a second graph store, a second projection, a second Sigma lifecycle
-   wrapper, a second selection grammar or a second style table — §8.6 forbids all five, and
-   `tests/test_ui_scaffold.py` fails on the renderer half of that list.
-5. Keep the layout synchronous (D-121) unless a new measurement on a larger graph says
-   otherwise. The cold ForceAtlas2 pass is three times the steady one, so a filter change that
-   lays out on every keystroke is the case to measure first.
-6. Run the frontend checks — `npm run typecheck`, `npm test`, `npm run build`, and the
-   integration suite against a real server — and prove `git diff --stat -- output/` is empty.
+**The next execution session opens Phase 3 (Canvas), and its first act is to decompose it**,
+the way `T-201` was decomposed before anything was built. Nothing in Phase 3 is claimable
+yet. Before writing any of it:
 
-`T-207` may begin beside `T-205` only once `T-206`'s selection contract has landed. Phase 3
-Canvas and Phase 4 pen remain out of scope, and the Map's real-browser walk belongs to
-`T-209`.
+1. Read §6.4 and §13 of this document for what a board is, §16 Phase 3 for the deliverables,
+   and `docs/PROJECT_MANAGEMENT.md` §5 for the phase gate the Map has just cleared — the
+   Canvas inherits the Map's boundaries rather than restating them.
+2. Take the transfer seriously as a *contract* question first. A board that stores a
+   knowledge unit stores an **identity**, never a copy of the statement: the Map's whole
+   argument is that what is on screen is the record's own text, and the first Canvas that
+   writes its own copy of a statement breaks D-131 permanently. The board schema and its
+   write API do not exist yet, and inventing them in a component is the failure to avoid.
+3. Reuse, do not reimplement. `PROJECT_MANAGEMENT.md` §10 and §11 list what already exists
+   and what must not grow a second copy: one graph store, one selection grammar, one style
+   table, one card-content formatter, one renderer lifecycle, one disclosure, one reader of
+   the reduced-motion query. A Canvas is a fourth caller of the selection identity, not a
+   second one.
+4. Extend the browser gate rather than starting a second harness. It is
+   `web/browser/`, it costs one `npm run browser`, and it is the only witness this project
+   has for layout, focus order, pointer behaviour and WebGL lifetime. The pattern to copy is
+   that no spec holds a number the server can state.
 
 ## 24. Research references
 
@@ -1185,8 +1276,18 @@ Canvas and Phase 4 pen remain out of scope, and the Map's real-browser walk belo
 - Sigma v4 quickstart: <https://v4.sigmajs.org/get-started/quickstart/>
 - Sigma v3 → v4 migration: <https://v4.sigmajs.org/how-to/technical/migration-v3-v4/>
 - Sigma v4 maturity discussion: <https://github.com/jacomyal/sigma.js/discussions/1539>
+- Sigma v4 interaction events: <https://v4.sigmajs.org/reference/events/>
+- Sigma v4 graph-coordinate HTML/SVG overlays:
+  <https://v4.sigmajs.org/how-to/layers/sync-html-svg/>
 - Graphology `MultiDirectedGraph`: <https://graphology.github.io/instantiation.html>
 - Graphology ForceAtlas2: <https://graphology.github.io/standard-library/layout-forceatlas2.html>
+- Shneiderman, *The Eyes Have It* — overview, zoom/filter, details on demand:
+  <https://hci.stanford.edu/courses/cs448b/papers/shneiderman96eyes.pdf>
+- Li et al., *Knowledge Graphs in Practice* — contextual knowledge cards, digestibility and
+  discoverability: <https://www.cs.tufts.edu/~remco/publications/2023/TVCG2023-KnowledgeGraph.pdf>
+- Nielsen Norman Group, information scent and pogo-sticking:
+  <https://www.nngroup.com/articles/information-scent/>
+  <https://www.nngroup.com/articles/pogo-sticking/>
 - W3C keyboard technique G202: <https://www.w3.org/WAI/WCAG22/Techniques/general/G202.html>
 - W3C accessibility principles: <https://www.w3.org/WAI/fundamentals/accessibility-principles/>
 - Playwright visual comparisons: <https://playwright.dev/docs/test-snapshots>
@@ -1230,6 +1331,32 @@ Canvas and Phase 4 pen remain out of scope, and the Map's real-browser walk belo
   reads a WebGL global), D-128 (a merged page re-settles the whole layout) and D-129 (a Map
   that cannot draw still reports the graph) recorded from what it took to build.
 - §22 and §23 updated: `T-205` and `T-206` may now run in parallel.
+
+### 2026-09-02 — card-centred Map browsing approved
+
+- §7.1 records the approved Search → Preview/Peek → Focus → Quick Read journey and its
+  Focus Constellation wireframe, informed by the user's four visual references and research
+  on information scent, details on demand and contextual knowledge cards.
+- D-130–D-133 bind the remaining phase: the Map remains a content browser; card content is
+  verbatim; overlays are bounded and backed by a complete semantic related list; focus has
+  history while Peek does not; no decorative metric or inferred grouping is introduced.
+- `T-205`–`T-209`, Phase 2 acceptance and §23 were refined without widening `T-204`, the
+  frozen API, Phase 3 Canvas or canonical output.
+
+### 2026-09-03 — the Map, opened in a browser
+
+- `T-209` completed, and with it Phase 2. The gate is `web/browser/` on
+  `@playwright/test@1.62.1`: the built bundle, the real API, Google Chrome 152 on the target
+  machine through `ANGLE Metal`, and the same 30 specs green on Playwright's bundled Chromium
+  over SwiftShader and on the committed fixtures.
+- D-145 (the card policy tests measured footprints for overlap in four orientations, and the
+  forced label budget is 4), D-146 (a new focus is framed with its drawn neighbours),
+  D-147 (a refused container releases its WebGL context, and the stage's CSS minimum is
+  load-bearing because the renderer accepts anything non-zero), D-148 (Escape is read on
+  `window`) and D-149 (one plural form in `interpolate`) recorded from what the walk found.
+- ADR 0005 § *Walk result* records where it ran, what it drew, the measurements that replaced
+  the numbers chosen by argument, the anti-pogo baseline and the nine findings.
+- §22 and §23 updated: Phase 3 is next and its first act is to decompose it.
 
 ### 2026-08-31 — initial version
 

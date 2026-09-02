@@ -169,3 +169,10 @@ config/*.local.json
 node_modules/
 .vite/
 *.tsbuildinfo
+
+# The browser gate's own output (T-209): traces, screenshots and reports for a
+# run that has already been read. The specs are committed; what one run of them
+# produced is not.
+web/test-results/
+web/playwright-report/
+web/blob-report/

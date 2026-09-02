@@ -1,8 +1,9 @@
 /**
  * The Map against the **real** server (`T-204`).
  *
- * The hermetic tests prove the view states what the snapshot holds; this one
- * proves the numbers on screen are the server's own. It is the check a stub
+ * The hermetic tests prove the view states what the snapshot holds; these
+ * prove the numbers on screen are the server's own -- the counts beside the
+ * canvas (`T-204`) and the related list beside a real selection (`T-207`). It is the check a stub
  * cannot give: the counts here come from `/api/graph` as it is actually
  * served, so a view that quietly recomputed a total, dropped a straddling
  * edge, or called one page the graph would disagree with the payload beside it.
@@ -21,7 +22,7 @@ import { screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiClient } from "../api/client";
-import type { MapCamera, MapRenderer, MapRendererFactory } from "../map/mapSession";
+import { fakeRenderers } from "../test/mapRenderer";
 import { renderApp } from "../test/render";
 import { MapView } from "./MapView";
 
@@ -29,20 +30,6 @@ declare const process: { env: Record<string, string | undefined> };
 
 const BASE = process.env.X2KNWLDG_API_BASE;
 const client = new ApiClient({ baseUrl: BASE ?? "" });
-
-function fakeRenderer(events: string[]): MapRenderer {
-  const camera: MapCamera = {
-    zoomIn: () => events.push("zoomIn"),
-    zoomOut: () => events.push("zoomOut"),
-    reset: () => events.push("reset"),
-  };
-  return {
-    resize: () => events.push("resize"),
-    refresh: () => events.push("refresh"),
-    kill: () => events.push("kill"),
-    getCamera: () => camera,
-  };
-}
 
 describe.skipIf(BASE === undefined || BASE === "")("the Map over the served graph", () => {
   beforeEach(() => {
@@ -60,8 +47,7 @@ describe.skipIf(BASE === undefined || BASE === "")("the Map over the served grap
 
   it("draws the graph the server returns, and counts it the way the server does", async () => {
     const whole = await client.call("getGraph", { query: { limit: 500 } });
-    const events: string[] = [];
-    const createRenderer: MapRendererFactory = () => fakeRenderer(events);
+    const { factory: createRenderer, events } = fakeRenderers();
 
     const view = renderApp(<MapView createRenderer={createRenderer} />);
 
@@ -88,5 +74,49 @@ describe.skipIf(BASE === undefined || BASE === "")("the Map over the served grap
 
     view.unmount();
     expect(events.filter((name) => name === "kill")).toHaveLength(1);
+  });
+
+  it("lists the neighbours the server returned for a real selection, and reads it whole", async () => {
+    // `T-207` end to end, against the served index: the row count is the
+    // server's own node count, and Quick Read shows the server's own label
+    // without shortening it. A view that cut the statement, or that listed
+    // only the neighbours its cards could place, would disagree with the
+    // payload it is standing next to.
+    const graph = await client.call("getGraph", { query: { limit: 500 } });
+    const degree = new Map<string, number>();
+    for (const relation of graph.data.edges) {
+      for (const endpoint of [relation.from_id, relation.to_id]) {
+        degree.set(endpoint, (degree.get(endpoint) ?? 0) + 1);
+      }
+    }
+    const [busiest] = [...degree.entries()].sort(
+      (left, right) => right[1] - left[1] || (left[0] < right[0] ? -1 : 1),
+    )[0] ?? [null];
+    expect(busiest).not.toBeNull();
+    const entityId = busiest as string;
+
+    const [entity, hood] = await Promise.all([
+      client.call("getEntity", { params: { entity_id: entityId } }),
+      client.call("getNeighborhood", { params: { entity_id: entityId }, query: { depth: 1 } }),
+    ]);
+    const neighbours = hood.data.nodes.filter((node) => node.global_id !== entityId).length;
+    expect(neighbours).toBeGreaterThan(1);
+
+    const { factory: createRenderer } = fakeRenderers();
+    renderApp(<MapView createRenderer={createRenderer} />, {
+      route: `/map?focus=${entityId}`,
+    });
+
+    await waitFor(
+      () =>
+        expect(document.querySelectorAll("[data-map-related-entity]")).toHaveLength(neighbours),
+      { timeout: 5000 },
+    );
+    expect(
+      document.querySelector("[data-map-related]")?.getAttribute("data-map-related"),
+    ).toBe(String(neighbours));
+    expect(document.querySelector("[data-map-statement='complete']")?.textContent).toBe(
+      entity.data.label,
+    );
   });
 });

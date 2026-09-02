@@ -1595,8 +1595,13 @@ def test_the_map_stage_states_a_size() -> None:
 
     That is deliberate — a container with no size should be a refusal the Map
     states rather than a blank canvas nobody can explain — but it means the
-    stage's size is load-bearing. It is stated once, in the stylesheet, and the
-    renderer is told about every change to it.
+    stage's size is load-bearing, and `T-209` measured *how*: the renderer
+    refuses a dimension of exactly zero and accepts everything else, so a
+    two-pixel stage is drawn into and reported as a picture (D-145). The
+    stylesheet's **minimum** is therefore what stands between a small window
+    and an unreadable graph the route calls drawn — not, as `T-208` assumed, a
+    way of avoiding a stated refusal. It is stated once, in the stylesheet,
+    and the renderer is told about every change to it.
     """
     renderer = (WEB / "src" / "map" / "sigmaRenderer.ts").read_text(encoding="utf-8")
     assert "allowInvalidContainer: false" in renderer
@@ -1607,6 +1612,400 @@ def test_the_map_stage_states_a_size() -> None:
         "the Map's stage declares no block size, so `allowInvalidContainer: "
         "false` will refuse the renderer"
     )
+    assert "min-block-size" in stage.group(0), (
+        "the Map's stage declares no *minimum* block size, so a narrow window "
+        "draws a graph a reader cannot see and the route still calls it drawn "
+        "(D-145)"
+    )
     view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
     assert 'className="map__stage"' in view
     assert "ResizeObserver" in view, "nothing hands a container resize to the renderer"
+
+
+# ---------------------------------------------------------------------------
+# T-207 — the constellation is bounded, the depth is the contract's, and the
+#         overlay owns nothing
+# ---------------------------------------------------------------------------
+
+
+def test_the_map_asks_for_a_depth_the_contract_will_serve() -> None:
+    """``MAP_DEPTH_MIN``/``MAP_DEPTH_MAX`` are the frozen document's own bounds.
+
+    The same rule as ``GRAPH_PAGE_LIMIT`` (`T-203`), for the same reason: a
+    bound written out in TypeScript is a second copy of a value the OpenAPI
+    document owns, and the two drift silently. Here the drift is worse than a
+    refused request — the neighbourhood response *echoes ``depth`` back*, so a
+    client asking beyond the maximum is refused, and one that clamped would
+    report a bound the reader never set.
+    """
+    module = (WEB / "src" / "map" / "neighbourhood.ts").read_text(encoding="utf-8")
+    low = re.search(r"MAP_DEPTH_MIN = (\d+)", module)
+    high = re.search(r"MAP_DEPTH_MAX = (\d+)", module)
+    assert low is not None and high is not None, (
+        "the Map no longer states the depth bounds it asks within"
+    )
+
+    document = json.loads(
+        (PROJECT_ROOT / "schemas" / "api" / "v1" / "openapi.json").read_text(encoding="utf-8")
+    )
+    operation = document["paths"]["/api/graph/neighborhood/{entity_id}"]["get"]
+    depth = next(
+        parameter
+        for parameter in operation["parameters"]
+        if parameter.get("name") == "depth"
+    )
+    assert int(low.group(1)) == depth["schema"]["minimum"]
+    assert int(high.group(1)) == depth["schema"]["maximum"]
+    # And the package's own bounds are the document's, so this reaches one
+    # constant rather than agreeing with a second copy of it.
+    from x2knwldg.repository.base import MAX_DEPTH, MIN_DEPTH
+
+    assert depth["schema"]["minimum"] == MIN_DEPTH
+    assert depth["schema"]["maximum"] == MAX_DEPTH
+
+    # The neighbourhood is not paged — the response carries no `page` — so
+    # `limit` is the only bound there is, and it must be one the server serves.
+    hook = (WEB / "src" / "map" / "useNeighbourhood.ts").read_text(encoding="utf-8")
+    requested = re.search(r"NEIGHBOURHOOD_LIMIT = (\d+)", hook)
+    assert requested is not None, "the Map no longer states how many neighbours it asks for"
+    assert int(requested.group(1)) <= document["components"]["parameters"]["Limit"]["schema"][
+        "maximum"
+    ]
+
+
+def test_the_card_overlay_owns_no_control_the_dom_does_not() -> None:
+    """D-132's overlay is presentation, and `T-208` depends on it staying so.
+
+    Two failures are being held off at once. A focusable card over a canvas
+    builds a second accessibility tree over entities the related list already
+    lists, and a *control* that exists only inside the overlay makes the canvas
+    the only way to reach it — which is the "essential content only on hover or
+    WebGL" that `T-208`'s gate forbids. So the overlay renders no button, link
+    or field, takes no pointer events, and is hidden from the accessibility
+    tree; selecting a neighbour is a click on its mark (the same `focusEntity`
+    the rail calls) or a real control in the related list.
+    """
+    overlay = (WEB / "src" / "components" / "MapConstellation.tsx").read_text(encoding="utf-8")
+    for element in ("<button", "<a ", "<input", "<select", "onClick"):
+        assert element not in overlay, (
+            f"the card overlay renders {element!r}; D-132's overlay is presentation, "
+            "and a control that exists only over the canvas is unreachable without it"
+        )
+    assert 'aria-hidden="true"' in overlay, "the overlay is not hidden from the accessibility tree"
+
+    base = (WEB / "src" / "styles" / "base.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.map__overlay\s*\{[^}]*\}", base)
+    assert rule is not None, "the card overlay has no style, so it has no box over the stage"
+    assert "pointer-events: none" in rule.group(0), (
+        "the overlay would swallow the clicks that select a node on the canvas"
+    )
+    assert "position: absolute" in rule.group(0)
+
+
+def test_the_stage_overlay_is_not_inside_the_container_the_renderer_owns() -> None:
+    """``MapSession.kill()`` empties the renderer's container.
+
+    It has to: Sigma appends its own canvases there, and a killed renderer's
+    leftovers would otherwise sit under the next one's. So a React subtree
+    rendered *inside* that container is removed from under React the first time
+    a filter replaces the renderer — the cards would vanish and never come
+    back, with nothing in the console to say why. The overlay is a sibling.
+    """
+    session = (WEB / "src" / "map" / "mapSession.ts").read_text(encoding="utf-8")
+    assert "replaceChildren()" in session, (
+        "the session no longer clears the container, so this guard is guarding nothing"
+    )
+    view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
+    stage = view.index('className="map__stage"')
+    overlay = view.index("<MapConstellation")
+    closing = view.index("/>", stage)
+    assert closing < overlay, (
+        "the card overlay is rendered inside the container the renderer owns; "
+        "`MapSession.kill()` would remove it from under React"
+    )
+
+
+def test_the_map_builds_its_card_content_in_exactly_one_place() -> None:
+    """§8.6 allows one card-content formatter, and one text cutter.
+
+    The rail's cards, the Peek, the on-stage cards and the related list all
+    render one record shape, and every one of them builds it through
+    ``previewOfEntity``/``previewOfHit``. A second builder would be a second
+    set of decisions about what a missing confidence renders as — and the
+    integration that closed the `T-205`/`T-206` fan-out already found one:
+    the DOM card had grown its own cutter, which counted UTF-16 units and
+    would halve a surrogate pair in the Persian half of this library.
+    """
+    builders = [
+        path.relative_to(WEB).as_posix()
+        for path in _web_modules()
+        if re.search(r"unaddressable:\s*(?:null|\"|')", path.read_text(encoding="utf-8"))
+    ]
+    assert builders == ["src/map/useMapSearch.ts"], (
+        f"these modules build a Map preview themselves: {builders}; §8.6 allows one"
+    )
+
+    # Application modules only: a test naming the ellipsis is asserting on the
+    # cut, not performing one.
+    cutters = [
+        path.relative_to(WEB).as_posix()
+        for path in _web_modules()
+        if ".test." not in path.name
+        and path.name != "labelPolicy.ts"
+        and "MAP_LABEL_ELLIPSIS" in path.read_text(encoding="utf-8")
+    ]
+    assert not cutters, f"these modules cut display text themselves: {cutters}"
+
+
+# ---------------------------------------------------------------------------
+# T-208 — the DOM path is the primary one, and each policy has one home
+# ---------------------------------------------------------------------------
+
+
+def test_the_map_has_a_dom_companion_for_everything_it_draws() -> None:
+    """D-120 pairs the WebGL surface with a DOM one, and `T-208` built it.
+
+    Until this list existed, the DOM half of that pair could only be reached
+    through a *query*: the search rail lists what matches and the related list
+    lists a selection's neighbourhood, so a reader with no pointer, no WebGL2
+    or a screen reader had the counts and no way to reach the entities the
+    counts were about. That is "essential content exists only on the canvas",
+    which the phase gate forbids outright.
+
+    What is guarded here is the wiring, because the wiring is what a later
+    refactor drops: the route renders the companion, and the companion reads
+    the accumulated graph through the one projection.
+    """
+    view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
+    assert "<MapOutline" in view, "the Map route renders no companion list"
+    outline = (WEB / "src" / "components" / "MapOutline.tsx").read_text(encoding="utf-8")
+    assert "outlineOfGraph" in outline, (
+        "the companion no longer reads the accumulated graph through `outline.ts`"
+    )
+    assert "previewOfEntity" not in outline, (
+        "the companion builds its own card content; §8.6 allows one formatter, "
+        "and `outlineOfGraph` already goes through it"
+    )
+
+
+def test_the_companion_lists_are_not_windowed() -> None:
+    """A row that is not in the DOM is a row no reader can reach.
+
+    ``VirtualList`` exists and measures its rows, and it is the right tool for
+    the Reader's captions. It is the wrong tool for these two lists, and the
+    trade is deliberate: windowing keeps most rows out of the DOM, which costs
+    exactly the claim they exist to make — the related list may omit no
+    neighbour (R20), and the outline is the surface that has to be reachable
+    when nothing else is. Both bound their length instead, and both count what
+    the bound leaves out.
+    """
+    for name in ("MapOutline.tsx", "MapRelatedList.tsx"):
+        source = (WEB / "src" / "components" / name).read_text(encoding="utf-8")
+        assert "VirtualList" not in source, (
+            f"{name} windows its rows; a row outside the DOM is unreachable, and "
+            "these two lists exist to be complete"
+        )
+
+
+def test_the_map_announces_a_picture_only_when_there_is_one() -> None:
+    """An empty box announced as an image of the knowledge graph is a lie.
+
+    ``role="img"`` with a label saying "Knowledge graph, drawn" is true while
+    the renderer holds the graph and false in the four states where it does
+    not — no WebGL2, a refused container, no page yet, and no node to draw.
+    So the role is conditional, and a constant one is the regression.
+    """
+    view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
+    # Comments are stripped first: the JSX comment above the stage quotes the
+    # attribute in order to explain why it is conditional.
+    code = re.sub(r"/\*.*?\*/", "", view, flags=re.DOTALL)
+    assert 'role="img"' not in code, (
+        "the stage claims to be a picture unconditionally; it is only a picture "
+        "while a live renderer holds the graph"
+    )
+    assert 'role={drawing ? "img" : undefined}' in code
+
+
+def _code_without_comments(path: Path) -> str:
+    """A module's code, with its prose removed.
+
+    These guards read source as text, and this project's source carries a lot
+    of prose: a file that *explains* why it no longer builds its own
+    disclosure would otherwise read as one that does.
+    """
+    source = path.read_text(encoding="utf-8")
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return re.sub(r"^\s*//.*$", "", source, flags=re.MULTILINE)
+
+
+def test_the_map_has_one_disclosure_and_one_motion_policy() -> None:
+    """Two policies `T-208` added, each with exactly one home.
+
+    A second ``<details>`` is not a styling choice: the panel that grew one
+    inside another (Quick Read did, in `T-207`) had two collapsed states for
+    one panel, and the outer one hid a summary the reader needed. And a second
+    reader of the reduced-motion query would be a second answer to it — the
+    stylesheet cannot reach a camera animated in script on a canvas, which is
+    the whole reason `map/motion.ts` exists.
+    """
+    disclosures = [
+        path.relative_to(WEB).as_posix()
+        for path in _web_modules()
+        if ".test." not in path.name and "<details" in _code_without_comments(path)
+    ]
+    assert disclosures == ["src/components/Disclosure.tsx"], (
+        f"these modules build a disclosure themselves: {disclosures}"
+    )
+
+    readers = [
+        path.relative_to(WEB).as_posix()
+        for path in _web_modules()
+        if ".test." not in path.name and "prefers-reduced-motion" in _code_without_comments(path)
+    ]
+    assert readers == ["src/map/motion.ts"], (
+        f"these modules read the reduced-motion preference themselves: {readers}"
+    )
+
+    base = (WEB / "src" / "styles" / "base.css").read_text(encoding="utf-8")
+    assert "@media (prefers-reduced-motion: reduce)" in base, (
+        "the stylesheet answers no reduced-motion preference, so `motion.ts` is "
+        "answering for the canvas alone"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T-209 — the browser gate: dev-only, pinned, type-checked, and run by CI
+# ---------------------------------------------------------------------------
+#
+# The gate is the phase's last task and the only witness for WebGL, layout,
+# real focus order and the reduced-motion camera. Everything below exists so
+# that it cannot quietly stop being any of those things: a harness that leaks
+# into the bundle, a range instead of a pin, a spec `npm test` tries to run in
+# jsdom, or a job nobody runs are each a way for a green tree to mean less
+# than it says.
+
+#: The gate's own dependency. A development one: nothing under `web/src`
+#: imports it and `npm run build` never sees it, which is why it is pinned and
+#: recorded separately from the Map's runtime packages.
+GATE_DEV_PINS = ("@playwright/test",)
+
+
+def test_the_browser_gate_is_pinned_to_one_exact_version() -> None:
+    """A browser gate's result is about the harness that produced it.
+
+    The same argument as D-117 for the renderer: a range lets an unrelated
+    `npm install` change what the walk measured, and a measurement that
+    describes a version nobody recorded is not a measurement.
+    """
+    package = _package_json()
+    for name in GATE_DEV_PINS:
+        version = package["devDependencies"][name]
+        assert _EXACT_VERSION.match(version), f"{name} is not an exact pin: {version}"
+
+
+def test_the_browser_gate_is_recorded_with_its_licence() -> None:
+    """Apache-2.0, not MIT, so it has a section of its own in the notices."""
+    notices = (PROJECT_ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    package = _package_json()
+    for name in GATE_DEV_PINS:
+        version = package["devDependencies"][name]
+        assert f"{name}@{version}" in notices, f"{name}@{version} is not recorded"
+    assert "Apache-2.0" in notices, "the gate's licence is recorded as something it is not"
+
+
+def test_the_browser_gate_stays_out_of_the_application() -> None:
+    """The harness is not the Map, and the Map does not know it exists.
+
+    `gate.html` has the same guard (`T-202`) for the same reason: a harness
+    written to answer a question must not become a second implementation of
+    the thing it is asking about.
+    """
+    gate = WEB / "browser"
+    assert gate.is_dir(), "the browser gate is gone"
+    assert list(gate.glob("*.spec.ts")), "the browser gate holds no specs"
+
+    offenders = [
+        path.relative_to(WEB).as_posix()
+        for path in sorted((WEB / "src").rglob("*.ts*"))
+        if "browser/" in path.read_text(encoding="utf-8")
+    ]
+    assert not offenders, f"these application modules reach into the gate: {offenders}"
+
+    # And the other direction: the gate asserts on behaviour rather than on
+    # the constants it is checking. A spec that imported `MAP_STAGE_CARD_BOX`
+    # would agree with whatever the module says, which is the one thing a gate
+    # must not do.
+    borrowed = [
+        path.name
+        for path in sorted(gate.rglob("*.ts"))
+        if re.search(r'from\s+"\.\./src', path.read_text(encoding="utf-8"))
+    ]
+    assert not borrowed, f"these specs import the application's own numbers: {borrowed}"
+
+
+def test_the_unit_suite_does_not_try_to_run_the_browser_gate() -> None:
+    """`npm test` stays hermetic, and jsdom never sees a Playwright spec.
+
+    Vitest's `include` is `src/**`, so the gate's files are outside it. If that
+    ever widened, every spec in `web/browser/` would fail in jsdom for reasons
+    that have nothing to do with the Map.
+    """
+    config = (WEB / "vite.config.ts").read_text(encoding="utf-8")
+    include = re.search(r'include:\s*\[(.*?)\]', config, re.DOTALL)
+    assert include is not None, "the test program no longer states what it includes"
+    assert "browser" not in include.group(1), (
+        "vitest now collects the browser gate's specs, which cannot run in jsdom"
+    )
+    playwright = (WEB / "playwright.config.ts").read_text(encoding="utf-8")
+    assert 'testDir: "./browser"' in playwright, "the gate no longer states where its specs are"
+
+
+def test_the_browser_gate_is_type_checked_by_its_own_program() -> None:
+    """Playwright transpiles specs without type-checking them.
+
+    So without a program of its own the gate would be the only unchecked
+    TypeScript in the repository — and it is the code that decides whether the
+    phase is finished.
+    """
+    package = _package_json()
+    assert package["scripts"].get("typecheck:browser") == (
+        "tsc --noEmit --project browser/tsconfig.json"
+    )
+    assert package["scripts"].get("browser") == "playwright test"
+    config = json.loads(
+        re.sub(
+            r'^\s*"//":\s*\[.*?\],\s*$',
+            "",
+            (WEB / "browser" / "tsconfig.json").read_text(encoding="utf-8"),
+            flags=re.DOTALL | re.MULTILINE,
+        )
+    )
+    # `src` keeps `skipLibCheck: false`, which is risk R17's mitigation; the
+    # gate needs it on for declarations this project does not own, so the two
+    # programs are separate rather than one relaxed one.
+    assert config["compilerOptions"]["skipLibCheck"] is True
+    root = json.loads((WEB / "tsconfig.json").read_text(encoding="utf-8"))
+    assert root["compilerOptions"]["skipLibCheck"] is False
+
+
+def test_ci_walks_the_map_in_a_browser() -> None:
+    """The gate that nobody runs is the gate that stops being true.
+
+    D-116 is the precedent: thirteen integration tests gated on a variable no
+    job set, so the only tests that could disagree with the frontend never ran
+    anywhere. This job installs a browser, serves the committed fixtures and
+    walks the route.
+    """
+    workflow = _workflow()
+    assert "npm run browser" in workflow, "no job walks the Map in a browser"
+    assert "playwright install" in workflow, "the browser job installs no browser"
+    assert "npm run typecheck:browser" in workflow, "no job type-checks the gate"
+    # A failed walk has to leave its trace behind, or the next person debugs a
+    # red job by re-running it and hoping.
+    assert "upload-artifact" in workflow, "a failed browser walk keeps nothing"
+
+
+def test_the_browser_gate_keeps_its_artifacts_out_of_the_repository() -> None:
+    """Traces and screenshots are what one run produced, not what it asserts."""
+    for entry in ("web/test-results/x", "web/playwright-report/x"):
+        assert _check_ignore(entry), f"{entry} is not ignored, so a walk dirties the tree"

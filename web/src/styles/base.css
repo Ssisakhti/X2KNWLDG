@@ -512,6 +512,221 @@ input {
   margin-block: 0;
 }
 
+/* Map (T-207) ---------------------------------------------------------- */
+
+/*
+ * The stage and the card overlay share one box. The overlay is a *sibling* of
+ * the container Sigma draws into, because `MapSession.kill()` empties that
+ * container: a subtree inside it would be removed from under React the first
+ * time a filter replaced the renderer.
+ */
+.map__canvas {
+  position: relative;
+}
+
+/*
+ * D-132's bounded overlay. It is presentation over the marks: it takes no
+ * pointer events, so a click reaches the node underneath and selection stays
+ * one identity, and it holds no focusable element, because every card here is
+ * a second view of a row in the related list.
+ */
+.map__overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/*
+ * A card is placed in *physical* pixels, which is the one place in this
+ * stylesheet that is deliberate rather than a lapse from the logical
+ * properties D-012 requires: `left`/`top` come out of the renderer's viewport,
+ * and a logical inset would mirror a card away from its own mark as soon as
+ * the interface language became Persian. The card's contents are still laid
+ * out logically.
+ */
+.map__card {
+  position: absolute;
+  inline-size: min(20rem, 60%);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+  font-size: var(--text-sm);
+}
+
+/*
+ * Deliberately no `max-block-size` and no `overflow` on the card itself. Its
+ * text is already bounded by `MAP_STAGE_NEIGHBOUR_CHARS` /
+ * `MAP_STAGE_PRIMARY_CHARS` and the cut is *visible* — a clipped card would
+ * hide that marker, which is the one kind of silent truncation D-131 forbids.
+ * The overlay clips at the stage edge, and `MAP_STAGE_CARD_INSET` plus the
+ * align/above flip are what keep a card pointing back into the stage.
+ */
+
+.map__card--primary {
+  inline-size: min(26rem, 70%);
+  border-width: calc(var(--border-width) * 2);
+  border-inline-start-width: var(--rail-width);
+}
+
+.map__list {
+  list-style: none;
+  padding-inline-start: 0;
+  margin-block: 0;
+}
+
+.map__relation {
+  font-size: var(--text-sm);
+}
+
+.map__quickread__body > .stack {
+  margin-block-start: var(--space-3);
+}
+
+/* Disclosure (T-208) --------------------------------------------------- */
+
+/*
+ * The panel's own toggle. It is a `<summary>`, so it is already focusable and
+ * already operable by Enter and Space; what is added here is a target big
+ * enough for a thumb and a summary line that sits beside the heading rather
+ * than under it.
+ */
+.disclosure__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  cursor: pointer;
+  /* 44px: the smallest target a finger hits reliably. It applies on every
+     pointer type because a summary is a line of text, and a line of text is
+     the hardest thing on this page to press. */
+  min-block-size: 2.75rem;
+  padding-block: var(--space-1);
+}
+
+/*
+ * The heading keeps the panel's own type scale and loses its block margin:
+ * inside a summary it is laid out beside the count, not above it.
+ */
+.disclosure__summary .panel__title {
+  margin: 0;
+}
+
+.disclosure__count {
+  /* Neutral text next to a heading: an identifier or a count must not be
+     reordered by the heading's direction (D-012). */
+  unicode-bidi: isolate;
+}
+
+.disclosure__body {
+  margin-block-start: var(--space-3);
+}
+
+/* Responsive disclosure (T-208) ---------------------------------------- */
+
+/*
+ * On a narrow screen the stage stops taking the room the lists need.
+ *
+ * It keeps a stated minimum rather than collapsing: the renderer refuses a
+ * container with no block size (`allowInvalidContainer: false`), so a stage
+ * that shrinks to nothing would turn a small window into a stated renderer
+ * failure. The graph stays visible above its own outline instead, which is
+ * what "a sheet without losing graph context" means here.
+ */
+@media (max-width: 48rem) {
+  .map__stage {
+    block-size: min(45vh, 360px);
+    min-block-size: 240px;
+  }
+
+  /* A card anchored to a mark cannot be wider than the stage it points into. */
+  .map__card {
+    inline-size: min(16rem, 80%);
+  }
+
+  .map__card--primary {
+    inline-size: min(18rem, 90%);
+  }
+}
+
+/*
+ * Touch targets.
+ *
+ * Gated on `pointer: coarse` because that is the condition the rule is about:
+ * a mouse is precise and a 44px control row would waste a rail's height for
+ * no gain.
+ *
+ * `T-209` measured this list in a real browser on a coarse pointer and found
+ * three things it did not cover, all of them things a finger has to hit: the
+ * label that wraps a checkbox (30 px -- the checkbox itself is deliberately
+ * 24 px, so the *label* is the target and it was smaller than the rule
+ * intended), every link inside a card, which is how a card reaches the Reader
+ * (23 px), and the skip link itself (41 px). `min-block-size` alone does not
+ * grow a native checkbox, which is why the label carries the target and why
+ * asserting the rule in jsdom could not have shown any of this: jsdom has no
+ * layout, so every one of these elements measured zero.
+ */
+@media (pointer: coarse) {
+  .button,
+  .tabs__tab,
+  summary,
+  select,
+  input,
+  .shell__skip {
+    min-block-size: 2.75rem;
+  }
+
+  .button,
+  .tabs__tab {
+    padding-inline: var(--space-4);
+  }
+
+  /*
+   * A checkbox stays its own size -- stretching a native control to 44 px
+   * draws a 44 px box with a 24 px tick in it -- and its label becomes the
+   * target instead, which is what a tap on the words already does.
+   */
+  input[type="checkbox"] {
+    min-block-size: 1.5rem;
+    min-inline-size: 1.5rem;
+  }
+
+  label:has(input[type="checkbox"]) {
+    min-block-size: 2.75rem;
+    align-items: center;
+  }
+
+  /*
+   * A link in a card is a real destination -- "Open the source" is how the
+   * Map's cards reach the Reader -- so it gets the same minimum as the button
+   * beside it. Inline-flex rather than padding, so the extra height is
+   * centred on the text and the row's alignment does not shift.
+   */
+  .card a {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 2.75rem;
+  }
+}
+
+/*
+ * Reduced motion.
+ *
+ * A blanket rule rather than a list, because the list is the thing that rots:
+ * the next transition someone adds is covered without anyone remembering this
+ * block exists. The Map's camera is *not* covered -- it animates from
+ * JavaScript, on a canvas -- so `map/motion.ts` reads the same preference and
+ * hands the camera a zero duration (`T-208`).
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* States --------------------------------------------------------------- */
 
 .notice {
