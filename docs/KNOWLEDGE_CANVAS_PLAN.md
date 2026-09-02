@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map under way — `T-202`–`T-204` complete; the approved card-centred browsing experience is planned in `T-205`–`T-209`
+**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map under way — `T-202`–`T-206` complete: the Map has a renderer, a graph, an address, a visual grammar and a search rail. `T-207`–`T-209` remain: the bounded card constellation, Quick Read, accessibility and the phase gate
 **Last updated:** 2026-09-02
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -1201,9 +1201,9 @@ An agent must not guess the answers to these if the decision would cause a notic
 
 ### Planned / not started
 
-- [ ] `T-205`–`T-209`: semantic styling and real filters; the Search → Preview/Peek → Focus →
-  Quick Read journey; bounded card constellation and complete related list; accessibility,
-  bidi and responsive disclosure; and the real-browser anti-pogo phase gate
+- [ ] `T-207`–`T-209`: bounded card constellation and complete related list; Quick Read over
+  the stored statement and recorded evidence; accessibility, bidi and responsive disclosure;
+  and the real-browser anti-pogo phase gate
 - [ ] Canvas
 - [ ] Pen annotations
 - [ ] Adapters for future sources
@@ -1212,49 +1212,34 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-The next execution session claims **`T-205` and `T-206`**, which §8.6 of
-`PROJECT_MANAGEMENT.md` now permits to run in parallel, inside the approved `T-201` Knowledge
-Map epic. `T-202` chose the renderer, `T-203` built the data underneath it, and `T-204` put
-the Map on screen. The user-approved content-browser model is §7.1 and D-130–D-133: what is
-missing is the visual grammar, preview/focus state and the URL/history that `T-207`'s cards
-will consume.
+The next execution session claims **`T-207`**, the last implementation task in the approved
+`T-201` Knowledge Map epic before accessibility (`T-208`) and the phase gate (`T-209`).
+`T-202` chose the renderer, `T-203` built the data underneath it, `T-204` put the Map on
+screen, `T-205` gave it a visual grammar and `T-206` gave it an address and a search rail.
+What is still missing is the reading itself.
 
 1. Read [ADR 0005](adr/0005-knowledge-map-client.md) — including *Gate result*, *Projection
-   result* and *Shell result* — `PROJECT_MANAGEMENT.md` §5 Phase 2, §8.6 and §10, D-059, and
-   D-117–D-133.
-2. **`T-205`** defines one tested style matrix for node `provenance_class` + `kind` and edge
-   `relation_vocabulary` + provenance, and delivers it as **reducers** passed into
-   `createSigmaRenderer` — never as attributes written onto the graph (D-124). Canonical,
-   `derived_from` and `expresses_concept` must all be recognisable, and source/derived/user
-   and canonical/synthetic/user each keep a non-colour signal in the Map and its legend. It
-   also owns the two gaps `T-204` left open on purpose: `renderLabels` is `false` until
-   D-122's truncation and density policy exists, and no colour has been chosen at all yet.
-   Add normal/hovered/selected/neighbour states, make active relation paths readable, and
-   leave hooks for D-132's bounded cards without rendering an HTML component per node.
-   Offer only the filters `GET /api/graph` accepts — `source_id`, `provenance_class`,
-   `relation_vocabulary` — and let `useGraphWalk`'s `deps` replace the snapshot when one
-   changes; do not invent a server-side `kind` filter.
-3. **`T-206`** writes `mapLink`, following `readerLink`: one module that builds and parses,
-   ignoring what it cannot read rather than coercing it. `#/map` is already a first-class
-   address, so this widens that route rather than adding one. Search loaded labels and ids
-   locally and use `/api/search?include_transcript=false` for indexed knowledge. Render
-   returned content as preview cards; add one transient pointer/keyboard Peek for loaded
-   nodes; push a real `global_id` only when focus is selected, so Back walks prior focus
-   states without leaving Map. A caption or null-id hit remains explained and unaddressable.
-4. Neither task may add a second graph store, a second projection, a second Sigma lifecycle
-   wrapper, a second selection grammar, a second style table or a card-content formatter that
-   rewrites the API record — §8.6 and D-131 forbid all six.
-5. Keep the layout synchronous (D-121) unless a new measurement on a larger graph says
-   otherwise. The cold ForceAtlas2 pass is three times the steady one, so a filter change that
-   lays out on every keystroke is the case to measure first.
-6. Run the frontend checks — `npm run typecheck`, `npm test`, `npm run build`, and the
-   integration suite against a real server — and prove `git diff --stat -- output/` is empty.
-
-`T-207` may begin beside `T-205` only once `T-206`'s selection contract has landed. It then
-owns the one selected Knowledge Card, density-budgeted neighbour previews, complete related
-list and Quick Read ordering from §7.1 — not `T-205` or `T-206`. Phase 3 Canvas and Phase 4
-pen remain out of scope, and the Map's real-browser/anti-pogo walk belongs to
-`T-209`.
+   result*, *Shell result* and *Approved browsing experience* — `PROJECT_MANAGEMENT.md` §5
+   Phase 2, §8.6 (which now records what the `T-205`/`T-206` integration settled) and §11,
+   D-059, and D-117–D-133.
+2. **`T-207`** calls `/api/entities/{entity_id}` and `GET /api/graph/neighborhood/{id}`,
+   merges both through `T-203`'s projection, and builds the bounded overlay of D-132: one
+   primary selected Knowledge Card, at most one transient Peek, labelled active relations,
+   and only the neighbour previews the density policy can place. Every returned neighbour
+   stays in the semantic related list even when its card cannot fit — a viewport budget is
+   never allowed to become silent omission (R20).
+3. Quick Read orders the **complete** stored statement, the recorded evidence and locator,
+   the active relation, the derivation, provenance and source, and only then the technical
+   identifiers. It never writes a summary (D-131). `readerPath` stays the full-source escape
+   hatch and carries a real timestamp where one exists.
+4. `T-207` also adds the renderer's **event and coordinate adapters** — `clickNode`,
+   `enterNode`/`leaveNode`, and `graphToViewport` to anchor a card to its node. These call
+   the *existing* `focusEntity` and `useMapPeek`; they do not introduce a second selection
+   identity, and they do not construct a renderer (D-126, §8.6).
+5. Reuse rather than rebuild: `cutToBudget` is the one text cutter, `previewOfHit` /
+   `previewOfEntity` are the one card-content formatter, `mapStyle.setView` +
+   `MapSession.refresh()` is how the picture responds to a selection, and `mapLink` is the
+   only grammar. §8.6 forbids a second of any of them.
 
 ## 24. Research references
 

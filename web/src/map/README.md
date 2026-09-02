@@ -165,3 +165,212 @@ the only place page size is proved not to change the graph:
 ../.venv/bin/python scripts/dev_api.py --project-root ..    # or --fixtures
 X2KNWLDG_API_BASE=http://127.0.0.1:8931 npm test
 ```
+
+## Selection has one grammar, and it lives in the URL (`T-206`)
+
+| Path | Holds |
+|---|---|
+| `../lib/mapLink.ts` | The Map's URL grammar: build **and** parse selection and filters |
+| `useMapFocus.ts` | That grammar bound to the router: focus writes history, Back restores it |
+| `useMapPeek.ts` | The one transient Peek: hover or keyboard focus, no history, no selection |
+| `useMapSearch.ts` | Two corpora — the loaded graph, matched locally, and `GET /api/search` |
+| `../components/MapSearchRail.tsx` | The rail: query, both result lists, the focus statement, the Peek |
+| `../components/MapResultCard.tsx` | One preview card, and the one preview-truncation policy |
+| `../components/MapPeekCard.tsx` | The Peek card itself |
+
+The grammar is
+`#/map?focus=<global_id>&source_id=<id>&provenance_class=<class>&relation_vocabulary=<vocab>`.
+Three of those four names are the API's own, because `GET /api/graph` accepts
+exactly those three filters and a shorter alias would be a second vocabulary
+for one set of parameters (invariant 7); `graphFiltersOf` is therefore an
+identity rather than a mapping. `focus` is ours, and it is an *identity*: the
+entity's existing three-part `global_id`, never a label, an index or a
+synthesised key.
+
+Malformed state is ignored, exactly as `readerLink` ignores an unreadable `t`.
+`?focus=KU-000001` selects **nothing** rather than guessing the missing parts,
+and `?provenance_class=derivd` filters nothing rather than being read as
+`derived` — a repaired value would filter a graph the user never asked to
+filter, and it would look like working software. `mapPath` re-reads every value
+through the same parser, so it cannot write a link its own reader would drop,
+and the round trip is a property of the grammar rather than a habit of its
+callers.
+
+The search query is deliberately **not** in the grammar: D-119 names selection
+and the three filters, and a query in the URL would write a history entry per
+keystroke or need a second rule about when it does not.
+
+## Focus is history; Peek is not
+
+They are two modules for one reason: ADR 0005 invariant 14 is two statements,
+and a flag inside one hook would let them be confused. `useMapFocus` navigates
+— same route, different query, so the route element is never unmounted and the
+accumulated graph survives Back. `useMapPeek` holds a single value and calls
+nothing: a pointer crossing eight nodes on its way to the ninth leaves no
+entries the reader never chose. Re-selecting what is already selected pushes
+nothing either, because Back would then appear to do nothing.
+
+At most one Peek exists because the state *is* one value, and only a **loaded**
+node can be peeked: the record comes from the accumulated graph through
+`recordLookup`, so a Peek can never show a record the Map does not hold. A
+`leave` for the node the pointer just left arrives *after* the `enter` for the
+one it arrived at, so `close(id)` closes only the Peek it names.
+
+## Two corpora, never merged into one ranked list
+
+`useMapSearch` answers a query twice: from the loaded snapshot, in the browser,
+by `label`/`global_id`/`local_id`/`library_id` substring; and from
+`GET /api/search`, which reaches entities no page has loaded. They are labelled
+and kept apart because merging them needs a client-side score across two
+incomparable sources, and a score presented as relevance is the invented
+quantity invariant 15 forbids. The local list states how many matched against
+how many are loaded, so "nothing matches" and "nothing is loaded" stay
+distinguishable.
+
+The indexed half runs through `usePaged`, which is where D-079's lesson already
+lives: a response that answers a replaced question is aborted and dropped
+whole, cursor included. `include_transcript` defaults to `false` — a caption is
+not an entity in v1 — and the rail can turn it on, at which point caption hits
+arrive **explained and unaddressable**: no `global_id`, no Focus control, and a
+route to their source and timestamp instead. A knowledge-unit hit whose run
+states no `video_id` has `global_id: null` by the contract's own decision and
+is treated the same way. The absence of the button is the signal; a disabled
+one would claim the address exists and is merely unavailable.
+
+Card text is the record's, verbatim (D-131). `previewText` cuts a long
+statement on a word boundary and returns a **prefix**, and the card renders a
+visible marker beside the cut — nothing is summarised, and nothing is cut
+inside a data structure. `T-207`'s on-stage cards must call the same function
+rather than write a second policy (§8.6: one card-content formatter).
+
+## What `MapView` wires (`T-206` → the integrator)
+
+```tsx
+const focus = useMapFocus();                       // URL ⇄ selection, history
+const peek = useMapPeek(recordLookup(walk.graph)); // one Peek, above both surfaces
+<MapSearchRail
+  graph={walk.graph}
+  revision={walk.state.snapshotId}
+  focus={focus.focus}
+  onFocus={focus.focusEntity}
+  peek={peek}
+  sourceScope={focus.state.source}
+/>
+```
+
+`useGraphWalk` then takes `focus.filters` and `[focus.state.source,
+focus.state.provenance, focus.state.vocabulary]` as its `deps`, so a filter in
+the URL is the question the walk asks. A Sigma `clickNode` handler calls
+`focus.focusEntity(id)` — the *same* function the rail's buttons call, which is
+what keeps pointer and keyboard on one identity — and `enterNode`/`leaveNode`
+call `peek.open(id)`/`peek.close(id)`. Render `peek.peek` in exactly one place:
+two components reading one binding would draw the same Peek twice.
+
+## Visual semantics: one style table, in reducers (`T-205`)
+
+Two more modules, and neither of them touches the graph:
+
+| Path | Holds |
+|---|---|
+| `mapStyle.ts` | **The** style table — provenance/kind for nodes, vocabulary/provenance for edges, the four interaction states — plus `MapStyle`, the view state the reducers read |
+| `labelPolicy.ts` | D-122: display truncation, the density and zoom rule, and the Sigma settings that implement them |
+
+`MapLegend` and `MapFilters` are in [`../components/`](../components/), and the
+legend reads the same tables the reducers draw from, so agreeing with the marks
+is structural rather than remembered.
+
+### Nothing is written; everything is computed
+
+D-124 says a node carries `x`, `y` and the record. So every display attribute
+is computed at draw time by a reducer, from the record and from the current
+view state, and `sigmaRenderer.ts` passes the two reducers into Sigma. Running
+them over the real snapshot and then asserting the node attributes are still
+`x`, `y` and `record` is the strongest statement available that styling adds
+nothing to the data — and it is a test, in `mapStyle.test.ts`.
+
+### Which channel carries which variable
+
+| Variable | Channel | Survives greyscale |
+|---|---|---|
+| node `provenance_class` | shape: circle / diamond / square, triangle for a value this build does not know | yes |
+| node `kind` | hue, one per kind family | no |
+| edge `relation_vocabulary` | head shape and line weight | yes |
+| edge `provenance_class` | hue, and a mark at the tail | yes |
+| interaction state | size, opacity, depth layer, halo ring, label | yes |
+
+Provenance owns shape on both nodes and edges because it is the distinction a
+reader must never get wrong — `source` is grounded in the medium, `derived` is
+synthesis, `user` is neither — and ADR 0005 invariant 9 forbids carrying it in
+colour alone. Kind has 31 values and cannot have a non-colour channel of its
+own; it is a categorical hint that the legend, the label and the DOM cards
+spell out in words, and no decision in the approved journey rests on telling
+two kind hues apart. `KIND_FAMILY` is a `Record<KnowledgeKind, …>` mirroring
+`artifacts.SECTION_ORDER`, so a kind added to the contract is a compile error
+here rather than a node that quietly renders as something else.
+
+A `provenance_class` or `relation_vocabulary` the build does not recognise gets
+its own mark rather than the nearest known one. A build of this UI can be older
+than the index the server is serving, and rounding an unknown provenance to
+`source` would be the client making a claim about provenance.
+
+Colours are hex literals, not CSS tokens: WebGL cannot read a custom property,
+so the canvas palette is one mid-tone set chosen to survive both the light and
+the dark stage, while the legend beside it uses the tokens.
+
+### Labels: truncate for display, ration by density
+
+`renderLabels` is on now, which it was not in `T-204`. The blanket `false` was
+holding the door until this policy existed, and it has two halves:
+
+- **Truncation is presentational.** `truncateForDisplay` collapses whitespace,
+  cuts by code point (the knowledge is Persian as often as English), prefers a
+  word boundary, and appends `…` so the cut is *visible*. The canonical text is
+  untouched and Quick Read shows it whole (D-131, invariant 12). Budgets run
+  from 42 characters for an ambient label to 160 for the focus — never the 4096
+  a `label` may hold.
+- **Density is a rule.** A label is forced only for the focus, the node under
+  the pointer or the keyboard, and up to `MAP_LABEL_NEIGHBOUR_BUDGET` (12)
+  neighbours of the focus. Everything else is `"auto"`, and Sigma's own grid
+  decides it: one label per 180×180 px cell, and only for a node drawn at least
+  14 px across, which is the zoom rule — the overview is quiet and zooming in
+  is what makes it speak. Once something *is* focused, unrelated nodes lose
+  their labels and dim to 0.35; they are never hidden, because de-emphasis is
+  not absence.
+- Edge labels are stricter: an edge names its real relation only while it is on
+  an active path. An overview labelling 118 edges would be the gate's pile with
+  smaller words.
+
+Exceeding the neighbour budget costs legibility, never data: the labels return
+to `"auto"`, every neighbour keeps its mark, and `T-207`'s related list still
+names all of them (invariant 13).
+
+### Primitives, and what `T-209` has to look at
+
+Sigma v4's default primitive set is one node shape, two edge paths and no
+extremities — a palette with exactly one channel, colour. `sigmaRenderer.ts`
+therefore declares the shapes, the `curved` path and the five extremities the
+table needs. Three consequences worth knowing:
+
+- The names in `MapNodeShape`/`MapEdgeExtremity` must match the declared
+  primitives. Sigma silently substitutes its first declared shape for a name it
+  does not know, so a typo is a wrong drawing rather than an error.
+- `parallelPath: "curved"` exists because this graph joins one pair of entities
+  with a canonical relation *and* a library-synthetic one often enough that two
+  straight lines would be one drawn line and one edge the Map counted but
+  nobody can see.
+- None of this has been drawn in a browser yet. `T-202` proved the *default*
+  primitives on this machine; the declared set, the halo's backdrop border and
+  the four label numbers are `T-209`'s to walk. The build cost is measured: the
+  renderer chunk goes from 362 kB to 377 kB (98 kB gzipped), still loaded by no
+  route but the Map.
+
+### Hover must not move the graph
+
+`MapSession.refresh()` is `T-205`'s one addition to the lifecycle, and the
+distinction from `update()` is the reason it exists. `update()` re-settles the
+whole layout because a *page* arrived and the structure changed (D-128), so the
+picture is allowed to move. A change of hover or selection changes no structure
+at all — only what the reducers compute from it — so it goes through `refresh`,
+which redraws with the positions untouched. `mapStyle.setView` returns whether
+anything actually changed, so a pointer moving inside the node it is already on
+costs nothing.

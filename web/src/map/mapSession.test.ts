@@ -238,6 +238,43 @@ describe("MapSession", () => {
     });
   });
 
+  it("redraws without laying out again when only the view state changed", () => {
+    // `T-205`: hover and selection are computed by the style table's reducers
+    // at draw time, so a new drawing needs a `refresh` and nothing more. If it
+    // went through `update()` instead, D-128's whole-graph relaxation would
+    // move the picture under the pointer on every mouse move -- so what is
+    // asserted is that the positions are *identical* afterwards, not merely
+    // that `refresh` was called.
+    const renderer = fakeRenderer();
+    const live = session(() => renderer);
+    const graph = sample();
+    live.attach(graph);
+    const before = graph
+      .nodes()
+      .map((node) => [graph.getNodeAttribute(node, "x"), graph.getNodeAttribute(node, "y")]);
+
+    live.refresh();
+
+    expect(renderer.calls.filter((call) => call === "refresh")).toHaveLength(1);
+    expect(
+      graph
+        .nodes()
+        .map((node) => [graph.getNodeAttribute(node, "x"), graph.getNodeAttribute(node, "y")]),
+    ).toEqual(before);
+    expect(live.creates).toBe(1);
+    expect(live.kills).toBe(0);
+  });
+
+  it("refreshes nothing once killed", () => {
+    const renderer = fakeRenderer();
+    const live = session(() => renderer);
+    live.attach(sample());
+    live.kill();
+    const after = renderer.calls.length;
+    live.refresh();
+    expect(renderer.calls.length).toBe(after);
+  });
+
   it("draws an empty graph instead of failing on one", () => {
     // An honest empty Map is a state the Map must render: `total: null` is
     // unknown and never zero (D-123), and `inferSettings` divides by the

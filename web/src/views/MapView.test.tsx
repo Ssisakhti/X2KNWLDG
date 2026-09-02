@@ -19,8 +19,32 @@ import type { EntityRef, IndexedRelation } from "../api/contract";
 import type { MapCamera, MapRenderer, MapRendererFactory } from "../map/mapSession";
 import { App } from "../App";
 import { concept, edge, expressesConcept, unit } from "../test/graphRecords";
+import { mapStyle } from "../map/mapStyle";
 import { jsonFetch, renderApp } from "../test/render";
+
 import { MapView } from "./MapView";
+
+/**
+ * The graph responder, plus the source list the filters ask for.
+ *
+ * `MapFilters` fetches `listSources` to fill its one server-backed control, so
+ * the Map route now calls two endpoints and a stub answering every URL with a
+ * graph page hands the filter a page envelope where a source array belongs.
+ * Routing by path rather than answering everything the same way is also what
+ * keeps a test honest about *which* request it is asserting on.
+ *
+ * The list is empty on purpose: these tests are about the graph, and
+ * `MapFilters.test.tsx` is where the source control's own behaviour is
+ * checked. An empty list still renders the control, so nothing here depends on
+ * a source existing.
+ */
+function mapFetch(responder: (url: string) => { status?: number; body: unknown }): typeof fetch {
+  return jsonFetch((url) =>
+    url.includes("/sources")
+      ? { body: { data: [], page: { limit: 200, next_cursor: null, total: 0 } } }
+      : responder(url),
+  );
+}
 
 const KU1 = "youtube:pqlWNihgdjI:KU-000001";
 const KU2 = "youtube:pqlWNihgdjI:KU-000002";
@@ -75,13 +99,18 @@ async function drawn(): Promise<HTMLElement> {
   return state();
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  // `mapStyle` is one object because there is one renderer (D-126). A test that
+  // left a selection in it would style the next test's graph.
+  mapStyle.clear();
+});
 
 describe("the Map", () => {
   it("states one honest page as the whole graph it is", async () => {
     vi.stubGlobal(
       "fetch",
-      jsonFetch(() =>
+      mapFetch(() =>
         ({
           body: graphBody(
             [unit("KU-000001"), unit("KU-000002"), concept("C-000001")],
@@ -106,6 +135,100 @@ describe("the Map", () => {
     expect(events.filter((name) => name === "create")).toHaveLength(1);
   });
 
+  it("asks the server the question its URL states, and ignores a filter it cannot read", async () => {
+    // The two halves of one rule. `provenance_class=derived` is a value the
+    // contract has, so it must reach the request; `relation_vocabulary=cannonical`
+    // is a typo, and `mapLink` drops it rather than repairing it to `canonical`
+    // -- a repaired filter would draw a graph the user never asked for and
+    // would look entirely successful doing it.
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      mapFetch((url) => {
+        urls.push(url);
+        return { body: graphBody([unit("KU-000001")], [], { total: 1 }) };
+      }),
+    );
+    const { factory } = recorder();
+    renderApp(<MapView createRenderer={factory} />, {
+      route: "/map?provenance_class=derived&relation_vocabulary=cannonical",
+    });
+
+    await drawn();
+    const graphUrl = urls.find((url) => url.includes("/graph"));
+    expect(graphUrl).toBeDefined();
+    expect(graphUrl).toContain("provenance_class=derived");
+    expect(graphUrl).not.toContain("relation_vocabulary");
+    expect(graphUrl).not.toContain("cannonical");
+  });
+
+  it("styles the focus its URL names, once the graph holds it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mapFetch(() => ({
+        body: graphBody(
+          [unit("KU-000001"), unit("KU-000002"), concept("C-000001")],
+          [edge(KU1, KU2)],
+          { total: 3 },
+        ),
+      })),
+    );
+    const { factory } = recorder();
+    renderApp(<MapView createRenderer={factory} />, { route: `/map?focus=${KU1}` });
+
+    await drawn();
+    await waitFor(() => expect(mapStyle.view.selectedNode).toBe(KU1));
+    // The neighbours are the ones actually drawn: `KU2` shares an edge, the
+    // concept does not. Nothing here claims that is the whole neighbourhood --
+    // the bounded one over the API is `T-207`'s.
+    expect([...mapStyle.view.neighbourNodes]).toEqual([KU2]);
+  });
+
+  it("highlights nothing when the URL names a focus the loaded pages do not hold", async () => {
+    // Dimming every drawn node around a selection that is not on screen would
+    // be a picture of a focus that does not exist. The counts stay true and the
+    // canvas stays unfocused.
+    vi.stubGlobal(
+      "fetch",
+      mapFetch(() => ({ body: graphBody([unit("KU-000001")], [], { total: 1 }) })),
+    );
+    const { factory } = recorder();
+    renderApp(<MapView createRenderer={factory} />, {
+      route: "/map?focus=youtube:pqlWNihgdjI:KU-999999",
+    });
+
+    const panel = await drawn();
+    expect(panel.dataset.mapNodes).toBe("1");
+    expect(mapStyle.view.selectedNode).toBeNull();
+    expect([...mapStyle.view.neighbourNodes]).toEqual([]);
+  });
+
+  it("changing a filter is a new question, not a repaint of the old answer", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      mapFetch((url) => {
+        urls.push(url);
+        return { body: graphBody([unit("KU-000001")], [], { total: 1 }) };
+      }),
+    );
+    const { factory, events } = recorder();
+    renderApp(<MapView createRenderer={factory} />, { route: "/map" });
+
+    await drawn();
+    expect(events.filter((name) => name === "create")).toHaveLength(1);
+
+    const vocabulary = screen.getByLabelText("Relation vocabulary");
+    fireEvent.change(vocabulary, { target: { value: "canonical" } });
+
+    // A new snapshot, so a new renderer over a new graph (D-118) -- not
+    // another page merged into the one already drawn.
+    await waitFor(() => expect(events.filter((name) => name === "create")).toHaveLength(2));
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("relation_vocabulary=canonical"))).toBe(true),
+    );
+  });
+
   it("stays visibly partial until the rest of the graph is loaded", async () => {
     // D-059: the first page carries an edge to a node on the second, so the
     // Map holds that edge rather than drawing it or inventing its endpoint --
@@ -113,7 +236,7 @@ describe("the Map", () => {
     let calls = 0;
     vi.stubGlobal(
       "fetch",
-      jsonFetch((url) => {
+      mapFetch((url) => {
         calls += 1;
         return url.includes("cursor=next")
           ? {
@@ -163,7 +286,7 @@ describe("the Map", () => {
   it("kills the renderer when the route closes", async () => {
     vi.stubGlobal(
       "fetch",
-      jsonFetch(() => ({ body: graphBody([unit("KU-000001")], [], { total: 1 }) })),
+      mapFetch(() => ({ body: graphBody([unit("KU-000001")], [], { total: 1 }) })),
     );
     const { factory, events } = recorder();
     const view = renderApp(<MapView createRenderer={factory} />);
@@ -179,7 +302,7 @@ describe("the Map", () => {
   it("drives zoom and reset through the renderer's camera", async () => {
     vi.stubGlobal(
       "fetch",
-      jsonFetch(() => ({ body: graphBody([unit("KU-000001")], [], { total: 1 }) })),
+      mapFetch(() => ({ body: graphBody([unit("KU-000001")], [], { total: 1 }) })),
     );
     const { factory, events } = recorder();
     renderApp(<MapView createRenderer={factory} />);
@@ -201,7 +324,7 @@ describe("the Map", () => {
     // state: the index answered, and only the drawing is missing.
     vi.stubGlobal(
       "fetch",
-      jsonFetch(() => ({ body: graphBody([unit("KU-000001")], [], { total: 1 }) })),
+      mapFetch(() => ({ body: graphBody([unit("KU-000001")], [], { total: 1 }) })),
     );
     const { factory } = recorder({ failOnCreate: true });
     renderApp(<MapView createRenderer={factory} />);
@@ -215,7 +338,7 @@ describe("the Map", () => {
   it("renders an unbuilt index as the refusal it is, not as an empty graph", async () => {
     vi.stubGlobal(
       "fetch",
-      jsonFetch(() => ({
+      mapFetch(() => ({
         status: 503,
         body: {
           error: {
@@ -239,7 +362,7 @@ describe("the Map", () => {
   it("says an empty graph is empty rather than drawing nothing silently", async () => {
     vi.stubGlobal(
       "fetch",
-      jsonFetch(() => ({ body: graphBody([], [], { total: 0 }) })),
+      mapFetch(() => ({ body: graphBody([], [], { total: 0 }) })),
     );
     const { factory } = recorder();
     renderApp(<MapView createRenderer={factory} />);
@@ -259,7 +382,7 @@ describe("the Map", () => {
     // the field, and the graph already drawn is still there.
     vi.stubGlobal(
       "fetch",
-      jsonFetch((url) =>
+      mapFetch((url) =>
         url.includes("cursor=next")
           ? {
               body: graphBody([unit("KU-000001", { confidence: 0.2 })], [], {
@@ -299,7 +422,7 @@ describe("the Map's address", () => {
     // graph's counts and a stated refusal instead of an empty page or a crash.
     vi.stubGlobal(
       "fetch",
-      jsonFetch((url) =>
+      mapFetch((url) =>
         url.includes("/api/graph")
           ? { body: graphBody([unit("KU-000001"), unit("KU-000002")], [edge(KU1, KU2)], { total: 2 }) }
           : { status: 503, body: { error: { code: "index_unavailable", message: "not built" } } },
@@ -322,7 +445,7 @@ describe("the Map's address", () => {
   it("is linked from the Shell as its own destination", () => {
     vi.stubGlobal(
       "fetch",
-      jsonFetch(() => ({
+      mapFetch(() => ({
         status: 503,
         body: { error: { code: "index_unavailable", message: "not built" } },
       })),

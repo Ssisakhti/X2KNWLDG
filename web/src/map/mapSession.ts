@@ -1,6 +1,6 @@
 /**
- * The Map's renderer lifecycle: lay out, draw, resize, zoom, and kill
- * (`T-204`).
+ * The Map's renderer lifecycle: lay out, draw, refresh, resize, zoom, and kill
+ * (`T-204`; `refresh` added by `T-205`).
  *
  * There is exactly one of these in the application (§8.6 forbids a second
  * Sigma wrapper), and it is deliberately framework-free. React decides *when*
@@ -155,6 +155,26 @@ export class MapSession {
     const layout = this.relax(this.graph);
     this.renderer.refresh();
     return layout;
+  }
+
+  /**
+   * Redraw the graph exactly as it is laid out (`T-205`).
+   *
+   * The distinction from `update()` is the whole reason this method exists,
+   * and it is D-128's other half: `update()` re-settles the layout because a
+   * *page* arrived and the structure changed, so the picture is allowed to
+   * move. A change of hover or selection changes no structure at all -- only
+   * what the style table computes from it -- so relaxing the layout there
+   * would make the graph jump under the pointer on every mouse move.
+   *
+   * Sigma re-runs the reducers on `refresh()`, which is how a mutable style
+   * table becomes a new drawing without a new renderer and without a second
+   * lifecycle to kill.
+   *
+   * A no-op with no live renderer, like every other operation here.
+   */
+  refresh(): void {
+    this.renderer?.refresh();
   }
 
   /**

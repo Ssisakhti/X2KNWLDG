@@ -1,12 +1,31 @@
 /**
  * The Knowledge Map at `#/map` (`T-204`).
  *
- * The first task that puts a graph on screen, and deliberately the *shell*: it
- * owns the address, the renderer's life and death, the container's size, the
- * camera, and the honest statement of what the snapshot holds. The provenance
- * and kind style matrix is `T-205`'s, the URL grammar and search are `T-206`'s,
- * and selection, neighbourhood and the inspector are `T-207`'s. None of them is
- * begun here, so none of them is begun twice.
+ * `T-204` built the shell: the address, the renderer's life and death, the
+ * container's size, the camera, and the honest statement of what the snapshot
+ * holds. `T-205` and `T-206` are now joined onto it, and this file is the join
+ * rather than a third implementation of either -- the style table lives in
+ * `mapStyle`, the URL grammar in `mapLink`, and this view only tells each of
+ * them what the other one did.
+ *
+ * **The one selection identity.** `useMapFocus` owns it, so a result card, a
+ * cleared focus and a reloaded URL all resolve the same `global_id` through
+ * the same function. The style table is told about it here, and the two never
+ * disagree because neither holds its own copy: `mapStyle.setView` is written
+ * from `focus.focus` and `peek.peek`, and `MapSession.refresh()` redraws
+ * without relaxing the layout (`update()` would, and the picture would jump on
+ * every pointer move).
+ *
+ * **A focus the graph has not loaded highlights nothing.** The URL may name an
+ * entity that this filter's pages have not reached, and dimming every drawn
+ * node around a selection that is not on screen would be a picture of a focus
+ * that does not exist. The canvas stays unfocused and the rail says why.
+ *
+ * What is still not begun here: nothing selects on the *canvas* yet. The
+ * renderer boundary carries no event surface, and §8.6 gives its event and
+ * coordinate adapters to `T-207` along with the bounded constellation. So
+ * pointer and keyboard reach `focusEntity` through the rail, and `T-207` adds
+ * the third caller without adding a second identity.
  *
  * **What the drawing is allowed to claim.** A graph page is not a graph
  * (D-059), and the last page of a paged walk still reports `truncated`
@@ -46,29 +65,36 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { ApiFailure } from "../api/errors";
 import { ErrorState } from "../components/ErrorState";
+import { MapFilters } from "../components/MapFilters";
+import { MapLegend } from "../components/MapLegend";
+import { MapSearchRail } from "../components/MapSearchRail";
 import { useI18n } from "../i18n";
 import { GraphConflictError } from "../map/graphProjection";
 import type { GraphFilters } from "../map/graphSnapshot";
 import { apiGraphPages } from "../map/graphWalk";
+import { mapStyle } from "../map/mapStyle";
 import { MapSession, type MapRendererFactory } from "../map/mapSession";
 import { useGraphWalk } from "../map/useGraphWalk";
-
-/**
- * One unfiltered question.
- *
- * `T-205` owns the three filters `GET /api/graph` actually accepts, and
- * `GraphFilters` is taken from the generated contract, so a control this view
- * does not have cannot be smuggled in as a query parameter the server ignores
- * (ADR 0005 invariant 7).
- */
-const NO_FILTERS: GraphFilters = {};
+import { useMapFocus } from "../map/useMapFocus";
+import { useMapPeek } from "../map/useMapPeek";
+import { recordLookup } from "../map/useMapSearch";
 
 /** The typed loader over the frozen operation, built once rather than per render. */
 const loadGraphPage = apiGraphPages(api);
 
 export function MapView({ createRenderer }: { createRenderer?: MapRendererFactory } = {}) {
   const { t } = useI18n();
-  const walk = useGraphWalk(loadGraphPage, NO_FILTERS, []);
+
+  // The URL is the question. `filters` is the three parameters `GET /api/graph`
+  // accepts and nothing else -- `mapLink` refuses a value it cannot read rather
+  // than coercing one, so a hand-edited URL cannot smuggle a filter the server
+  // would ignore past `GraphFilters` (ADR 0005 invariant 7).
+  const focus = useMapFocus();
+  const { source, provenance, vocabulary } = focus.state;
+  // The three primitives, not the object: `filters` is a fresh object on every
+  // render, and `deps` is what decides whether this is a *different question*
+  // (D-118). Passing the object would open a new snapshot on every render.
+  const walk = useGraphWalk(loadGraphPage, focus.filters, [source, provenance, vocabulary]);
 
   const stage = useRef<HTMLDivElement | null>(null);
   const session = useRef<MapSession | null>(null);
@@ -104,6 +130,38 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   const { snapshot, snapshotId, status, loadingMore, error } = walk.state;
   const pages = snapshot?.pagesApplied ?? 0;
   const graph = walk.graph;
+
+  // One Peek, above both surfaces, and it can only show a record the Map has
+  // actually loaded: `recordLookup` reads the accumulated graph, so a Peek can
+  // never attribute a statement to a node no request returned (D-131).
+  const peek = useMapPeek(recordLookup(graph));
+
+  // Only a selection the graph *holds* is drawn as one. `hasFocus` dims
+  // everything unrelated, so a focus naming an entity these pages have not
+  // reached would dim the whole picture around nothing. The rail states that
+  // case in words instead.
+  const drawnFocus =
+    focus.focus !== null && graph !== null && graph.hasNode(focus.focus) ? focus.focus : null;
+  const hoveredNode = peek.peek?.globalId ?? null;
+
+  useEffect(() => {
+    // The neighbours are the ones already accumulated -- what is on screen to
+    // light up. The *bounded* neighbourhood over `/api/graph/neighborhood/{id}`
+    // is `T-207`'s, and this is not a preview of it: it claims only that these
+    // edges are drawn, never that they are all of them.
+    const neighbours =
+      graph !== null && drawnFocus !== null
+        ? new Set<string>(graph.neighbors(drawnFocus))
+        : new Set<string>();
+    const changed = mapStyle.setView({
+      selectedNode: drawnFocus,
+      hoveredNode,
+      neighbourNodes: neighbours,
+    });
+    // `refresh`, never `update`: `update` re-settles the layout (D-128), which
+    // would make the graph jump every time the pointer crossed a result row.
+    if (changed) session.current?.refresh();
+  }, [graph, snapshotId, pages, drawnFocus, hoveredNode]);
 
   // One session for the life of the route. The cleanup is the only thing
   // standing between a filter/reload loop and a pile of WebGL contexts, and
@@ -160,6 +218,21 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     return () => observer.disconnect();
   }, []);
 
+  // `MapFilters` speaks the API's parameter names and `mapLink` stores the same
+  // three values, so this is a rename and not a translation. A control returning
+  // to "any" clears the parameter rather than spelling an empty one.
+  const { setFilters } = focus;
+  const onFiltersChange = useCallback(
+    (next: GraphFilters) => {
+      setFilters({
+        source: next.source_id ?? null,
+        provenance: next.provenance_class ?? null,
+        vocabulary: next.relation_vocabulary ?? null,
+      });
+    },
+    [setFilters],
+  );
+
   const zoomIn = useCallback(() => session.current?.zoomIn(), []);
   const zoomOut = useCallback(() => session.current?.zoomOut(), []);
   const resetView = useCallback(() => session.current?.resetView(), []);
@@ -172,6 +245,8 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     <div className="stack map">
       <h1>{t("map.title")}</h1>
       <p className="muted">{t("map.subtitle")}</p>
+
+      <MapFilters value={focus.filters} onChange={onFiltersChange} />
 
       {error instanceof ApiFailure && <ErrorState error={error} onRetry={walk.reload} />}
 
@@ -259,6 +334,15 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         )}
       </div>
 
+      <MapSearchRail
+        graph={graph}
+        revision={snapshotId + pages}
+        focus={focus.focus}
+        onFocus={focus.focusEntity}
+        peek={peek}
+        sourceScope={source}
+      />
+
       {rendererError !== null && (
         <div className="notice notice--unavailable" role="alert" data-map-renderer-failed>
           <strong>{t("map.renderer.failed")}</strong>
@@ -282,6 +366,8 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         aria-label={t("map.stage.label")}
         data-map-stage
       />
+
+      <MapLegend />
     </div>
   );
 }
