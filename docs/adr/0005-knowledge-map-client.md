@@ -887,7 +887,7 @@ harness itself.
    the one description that survives when the picture cannot be read. It is
    recorded because it is the first thing to reconsider if the Map ever becomes
    the route people arrive on.
-9. **Two findings about the harness, both worth keeping.** A Peek is React
+9. **Three findings about the harness, all worth keeping.** A Peek is React
    state, so it appears a render *after* the pointer move that opened it and
    stays open until the pointer leaves the mark: a sweep that reads the DOM
    immediately after each move reports the hit one probe late, which passes a
@@ -896,6 +896,15 @@ harness itself.
    document has its scroll clamped — which moves the stage under a coordinate
    measured before any of that. `browser/gate.ts` confirms a mark before
    returning it and re-measures the stage with the Peek open, and says why.
+
+   The third arrived after the gate was first green, which is the useful part
+   of it: `loseContext()` **queues** `webglcontextlost` rather than
+   dispatching it inline, so counting the events immediately after the last
+   release read six for seven dead contexts — green on one machine and red on
+   the next, on the same tree. The synchronous `isContextLost()` is the
+   authoritative reading and is what invariant 10 is asserted on; the event is
+   *polled* for, because waiting for a queued event is not tolerating a flake,
+   while asserting on a number that was never due yet is manufacturing one.
 
 ### What the walk hands to Phase 3
 
