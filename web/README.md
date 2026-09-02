@@ -28,7 +28,9 @@ npm run build      # production bundle into dist/
 | `src/styles/` | Design tokens and the stylesheet, logical properties throughout |
 | `src/components/` | Provenance and status badges (`T-113`), the media panel (`T-114`), the virtualized list, the report renderer |
 | `src/views/` | Library (`T-111`) and Reader (`T-112`) |
+| [`src/map/`](src/map/README.md) | The Knowledge Map: deterministic seed positions, and the `T-202` renderer gate. Not routed yet |
 | `scripts/dev_api.py` | Stands up the real server over the committed fixtures |
+| `gate.html` | The `T-202` gate harness, development-only and outside the production build ([why](src/map/README.md)) |
 
 ## The API types
 
@@ -143,4 +145,8 @@ preferences, and each one has a test:
 - **No entity page.** `/api/entities/{entity_id}` is served and unused: nothing
   in the Library or the Reader needs to address one entity on its own yet. The
   Map (`T-201`) is its first consumer.
-- **The graph endpoints are unused.** They belong to `T-201`.
+- **The graph endpoints are unused by the application.** They belong to
+  `T-201`. `/api/graph` does have one consumer already — the `T-202` gate
+  harness at `/gate.html`, which is not part of the app and not built into
+  `dist/`. `/api/graph/neighborhood/{entity_id}` is still untouched, and is
+  `T-207`'s.

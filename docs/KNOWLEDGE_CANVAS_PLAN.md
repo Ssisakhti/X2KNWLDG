@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map approved and decomposed as the `T-201` epic (`T-202` is next)
+**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map under way — `T-202` chose and proved the renderer line (`T-203` is next)
 **Last updated:** 2026-09-02
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -567,6 +567,16 @@ alpha and remains prerelease, so a moving semver range is forbidden. If `T-202` 
 blocking v4 defect, it records that evidence and selects stable v3 before any later Map task
 begins. The phase carries one renderer API, never a compatibility layer for both.
 
+`T-202` ran on 2026-09-02 and **kept the v4 line**: `sigma@4.0.0-beta.5` drew the real
+86-node/118-edge graph, survived 21 create/teardown cycles releasing every WebGL context, and
+raised no uncaught error, so stable v3 was not needed. Two consequences belong here rather
+than in the task record. The layout stays **synchronous** — 200 ForceAtlas2 iterations over
+that graph cost 2.7–9.0 ms, so §13.1's conditionally permitted worker is not adopted (D-121) — and the Map
+must **not draw the raw `label`**, because a knowledge unit's label is its whole
+`normalized_statement` and 86 of them overlap into an unreadable pile (D-122). Positions come
+from a deterministic seed hashed from each node's `global_id`, never from its index in a page,
+so a node keeps its start as later pages arrive.
+
 ### 12.3. perfect-freehand
 
 Used for:
@@ -990,6 +1000,8 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-118 | The Map is a progressive, explicitly bounded snapshot: pages accumulate by identity, cross-page edges wait for both endpoints, and `truncated` remains visible until the graph is whole ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | D-059 allows a page edge to reach a node on another page and repeats the edge across those pages. Drawing a page directly would dangle, invent a node or silently drop connectivity; an unbounded prefetch would defeat overview-first loading |
 | D-119 | `mapLink` is the one grammar for addressable Map selection/filters, and selection uses only an existing three-part `global_id` ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | The Reader already demonstrated why link building and parsing must share one module. State must survive reload, while malformed values and search hits without a v1 entity address are ignored rather than coerced or minted |
 | D-120 | No Map operation is WebGL- or pointer-only; a bounded semantic DOM companion exposes graph state, search, selection, neighbourhood, inspector and Reader navigation ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | WebGL is the right overview renderer and the wrong accessibility tree. The companion preserves keyboard operation and text alternatives without putting a heavy HTML component on every graph node |
+| D-121 | ForceAtlas2 runs synchronously in the Map; no layout worker until a measurement demands one | accepted | 200 iterations over the real 86/118 graph measured 2.7–9.0 ms on the target machine, against a 16.7 ms frame. A worker adds a second lifecycle to kill and a layout that can outlive its renderer, to hide a pass that does not block |
+| D-122 | The Map draws a truncated label under a stated density policy, never the raw `label` field; the full statement stays in the inspector | accepted | A knowledge unit's label is its whole `normalized_statement`. The gate drew 86 of them and they overlap into a pile that hides the graph. Truncating for display invents nothing as long as the inspector shows the statement in full |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those

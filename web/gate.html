@@ -1,0 +1,71 @@
+<!doctype html>
+<!--
+  `T-202` compatibility gate. Development only: `npm run dev` serves it at
+  /gate.html, and `npm run build` does not include it, because Vite's build
+  input is index.html alone. It is not routed and not linked from the app --
+  `#/map` is `T-204`'s, and a harness must not quietly become the Map.
+
+  Its own styling, on purpose: the design tokens belong to the application, and
+  a gate page that imported them would be a second consumer of them to keep in
+  step for no benefit.
+-->
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="same-origin" />
+    <title>T-202 · Sigma compatibility gate</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        padding: 1rem;
+        font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        display: grid;
+        gap: 0.75rem;
+      }
+      h1 { font-size: 1rem; margin: 0; }
+      p { margin: 0; max-width: 80ch; opacity: 0.8; }
+      .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+      button, input { font: inherit; padding: 0.3rem 0.5rem; }
+      input#node-id { width: 34ch; }
+      input#limit { width: 6ch; }
+      #stage {
+        width: 900px;
+        height: 560px;
+        max-width: 100%;
+        border: 1px solid currentColor;
+        resize: both;
+        overflow: hidden;
+      }
+      #contexts { font-weight: 600; }
+      #log { max-height: 16rem; overflow: auto; border: 1px dashed currentColor; padding: 0.5rem; }
+      .line { white-space: pre-wrap; }
+      .failure { color: #b3261e; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <h1>T-202 · Sigma compatibility and layout gate</h1>
+    <p>
+      Renders the real graph the API serves, through the pinned renderer, and
+      states what it drew. Run <code>npm run dev:api -- --project-root ..</code>
+      beside <code>npm run dev</code> to point it at the real ingested library;
+      the default fixture project answers the same endpoints with the committed
+      PASS/PARTIAL/FAIL runs.
+    </p>
+    <div class="controls">
+      <label>limit <input id="limit" type="number" min="1" max="500" value="500" /></label>
+      <button id="load" type="button">Load &amp; render</button>
+      <button id="update" type="button">Update</button>
+      <button id="resize" type="button">Resize</button>
+      <input id="node-id" type="text" placeholder="global_id to select" />
+      <button id="select" type="button">Select</button>
+      <button id="teardown" type="button">Teardown</button>
+      <button id="cycle" type="button">Cycle ×20</button>
+    </div>
+    <div id="contexts"></div>
+    <div id="stage"></div>
+    <div id="log"></div>
+    <script type="module" src="/src/map/gate/main.ts"></script>
+  </body>
+</html>
