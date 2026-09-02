@@ -17,8 +17,15 @@
  * 2. **Off the stage.** The camera can be panned or zoomed so a mark is
  *    outside the container. A card pinned to the edge would point at a node
  *    that is not there.
- * 3. **Crowded.** A card that cannot be opened in any of its four directions
- *    without covering a card already placed is refused,
+ * 3. **No room.** The mark is on the stage but the *card* would not be: every
+ *    direction it could open in leaves it hanging over the edge. `T-209` saw
+ *    this in the shipped UI -- two cards anchored near the top of the stage
+ *    opened upwards, spilled out of it, and had their first line of text
+ *    covered by the panel above, which is precisely the *silent* cut D-131
+ *    forbids: nothing on screen said the statement had been shortened,
+ *    because it had not been -- it was hidden.
+ * 4. **Crowded.** A card that cannot be opened in any of the directions that
+ *    fit without covering a card already placed is refused,
  *    and the second one is the one that goes: two cards in one place are less
  *    readable than one, and the lower one is unreadable *and* still claims to
  *    point at a mark. The test is the card's own footprint, measured in a
@@ -30,7 +37,7 @@
  *    either side of a cell boundary can be one pixel apart while two in one
  *    cell can be 300 apart. A grid answers "same cell?"; the question is
  *    "same pixels?".
- * 4. **Over budget.** A hard cap on cards, because the graph must stay visible
+ * 5. **Over budget.** A hard cap on cards, because the graph must stay visible
  *    through them: an HTML card per node is the failure mode R20 names.
  *
  * **A refused card is never a hidden entity.** Every clause above returns a
@@ -71,17 +78,26 @@ export interface StageCardBox {
  * How much room a card actually takes, measured in a browser (`T-209`).
  *
  * Not a preference: these are the boxes Chrome laid out on the real route at
- * a 1216x630 stage -- a neighbour card 320 px wide (`.map__card` is
- * `min(20rem, 60%)`) and up to 246 px tall with a statement, a relation cue
- * and an identifier in it, and a primary card 416 px wide (`min(26rem, 70%)`)
- * and 159 px tall. The heights are rounded *up* to the tallest card observed,
- * because the honest direction for an overlap test is to refuse a card that
- * might collide rather than to place one that does.
+ * a 1216x630 stage. The width is the CSS number -- `.map__card` is
+ * `min(20rem, 60%)` and `.map__card--primary` is `min(26rem, 70%)`. The
+ * height is an **upper bound over what the library actually produces**, and
+ * that is the important word: the first walk declared 248 from one sample and
+ * then found a card 295 px tall, because a neighbour's relation cue can list
+ * several relations and wrap. A reserved rectangle smaller than the drawn
+ * card is a fit test that passes while the card hangs over the edge, so the
+ * number is the tallest card seen across eighteen focuses, rounded up.
  *
- * A narrow viewport gives the same cards less width (`base.css` at 48rem), so
- * these are an over-estimate there, which again refuses rather than overlaps.
+ * A stated consequence, since it is a trade rather than an oversight: a card
+ * needs `height + gap + inset` of clear stage above or below its mark, so on
+ * a short stage -- a phone's 360 px, say -- almost no mark has room and the
+ * constellation collapses to the focused card alone. Every neighbour is then
+ * counted as `no_room` and every one of them is still in the related list
+ * (R20). The alternative, a second pair of boxes for the narrow breakpoint,
+ * would put `base.css`'s 48rem in TypeScript as well, and refusing a card is
+ * the safe direction: a 296 px card on a 360 px stage is the graph with a
+ * card over it.
  */
-export const MAP_STAGE_CARD_BOX: StageCardBox = { width: 320, height: 248 };
+export const MAP_STAGE_CARD_BOX: StageCardBox = { width: 320, height: 296 };
 export const MAP_STAGE_PRIMARY_BOX: StageCardBox = { width: 416, height: 176 };
 
 /**
@@ -132,13 +148,21 @@ export const MAP_STAGE_NEIGHBOUR_CHARS = 110;
  */
 export const MAP_STAGE_SETTLE_MS = 150;
 
-/** Why an entity that the API returned has no card on the stage. */
-export type StageOmission = "not_loaded" | "off_stage" | "crowded" | "budget";
+/**
+ * Why an entity that the API returned has no card on the stage.
+ *
+ * Five, and the fifth is `T-209`'s: `off_stage` means the *mark* is not on the
+ * stage, `no_room` means the mark is but its card would not be. Collapsing
+ * them would tell a reader to pan the camera when panning is not the problem,
+ * and "a reason that is not the real reason is worse than no reason".
+ */
+export type StageOmission = "not_loaded" | "off_stage" | "no_room" | "crowded" | "budget";
 
 /** Every omission reason, in the order the count is rendered. */
 export const STAGE_OMISSIONS: readonly StageOmission[] = [
   "not_loaded",
   "off_stage",
+  "no_room",
   "crowded",
   "budget",
 ];
@@ -197,7 +221,7 @@ export interface ConstellationInput {
 }
 
 function noOmissions(): Record<StageOmission, number> {
-  return { not_loaded: 0, off_stage: 0, crowded: 0, budget: 0 };
+  return { not_loaded: 0, off_stage: 0, no_room: 0, crowded: 0, budget: 0 };
 }
 
 /** A card's rectangle on the stage, in the same pixels its anchor is in. */
@@ -236,6 +260,26 @@ export function stageCardRect(
   const top = card.above ? y - gap - box.height : y - gap;
   const bottom = card.above ? y + gap : y + gap + box.height;
   return { left, top, right, bottom };
+}
+
+/**
+ * Whether a card's rectangle is wholly on the stage (`T-209`).
+ *
+ * The same inset the anchor clause uses, applied to the *card* rather than to
+ * the mark: an anchor a hundred pixels inside the top edge is comfortably on
+ * the stage while its 248 px card, opening upwards, is not. The overlay is a
+ * sibling of the container rather than a child of it (D-137), so a card that
+ * leaves the stage is not clipped -- it is drawn over whatever the route puts
+ * above the canvas, which is how the walk found it: the first line of two
+ * statements sat behind the search rail.
+ */
+function fitsStage(rect: StageRect, box: StageBox, inset: number): boolean {
+  return (
+    rect.left >= inset &&
+    rect.top >= inset &&
+    rect.right <= box.width - inset &&
+    rect.bottom <= box.height - inset
+  );
 }
 
 /** Whether two card rectangles share any pixel. Touching edges do not. */
@@ -327,8 +371,20 @@ export function placeConstellation(input: ConstellationInput): StagePlacement {
   // did before `T-209` measured it, with a neighbour card covering two thirds
   // of the focused statement and its identifier. It does not consume the
   // neighbour budget, because it is not a neighbour.
+  //
+  // It prefers an orientation that keeps it on the stage, and falls back to
+  // the preferred one when none does. The fallback is deliberate: this is the
+  // card D-132 *guarantees*, so on a stage too small for it the honest
+  // outcome is a card partly over the edge rather than a selection with
+  // nothing on screen. A neighbour has no such guarantee, and is counted.
   const centre = input.centreId === null ? "not_loaded" : anchor(input.centreId);
-  const primary = typeof centre === "string" ? null : centre;
+  const preferred = typeof centre === "string" ? null : centre;
+  const primary =
+    preferred === null
+      ? null
+      : (orientations(preferred).find((option) =>
+          fitsStage(stageCardRect(option, primaryBox), input.stage, inset),
+        ) ?? preferred);
   if (primary !== null) taken.push(stageCardRect(primary, primaryBox));
 
   for (const related of input.related) {
@@ -337,9 +393,20 @@ export function placeConstellation(input: ConstellationInput): StagePlacement {
       omitted[candidate] += 1;
       continue;
     }
+    // Which of the four directions leave the card *on* the stage, and then
+    // which of those leave it clear of the cards already placed. Two clauses
+    // in that order, so the reason a card was refused is the real one: no
+    // room at all is not the same answer as a neighbour already there.
+    const fitting = orientations(candidate).filter((option) =>
+      fitsStage(stageCardRect(option, box), input.stage, inset),
+    );
+    if (fitting.length === 0) {
+      omitted.no_room += 1;
+      continue;
+    }
     // Crowding before the budget, so a card that cannot be placed at all
     // costs nothing: the budget is spent on cards a reader can actually read.
-    const fitted = orientations(candidate).find(
+    const fitted = fitting.find(
       (option) =>
         !taken.some((placed) => stageCardsOverlap(stageCardRect(option, box), placed)),
     );

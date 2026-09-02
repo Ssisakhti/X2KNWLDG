@@ -264,6 +264,8 @@ export const en = {
   "map.stage.omitted.notLoaded":
     "{count} {count|is|are} not drawn on this Map yet, so there is no mark to anchor a card to.",
   "map.stage.omitted.offStage": "{count} {count|is|are} outside the visible stage at this camera position.",
+  "map.stage.omitted.noRoom":
+    "{count} {count|has|have} a mark on the stage but no room for a card beside it, in any direction.",
   "map.stage.omitted.crowded":
     "{count} would have covered a card already placed, so {count|its card|their cards} {count|was|were} not drawn.",
   "map.stage.omitted.budget":
@@ -643,6 +645,8 @@ export const fa: Messages = {
   "map.stage.omitted.notLoaded":
     "{count} مورد هنوز بر این نقشه ترسیم نشده‌اند، پس نشانی برای لنگر انداختن کارت وجود ندارد.",
   "map.stage.omitted.offStage": "{count} مورد در این موقعیت دوربین بیرون از صحنهٔ دیدنی‌اند.",
+  "map.stage.omitted.noRoom":
+    "{count} مورد نشانه‌ای بر صحنه دارند، اما در هیچ جهتی جا برای کارتی در کنارشان نیست.",
   "map.stage.omitted.crowded":
     "{count} مورد بر کارتی که پیش‌تر جای گرفته هم‌پوشانی می‌کردند، پس کارتشان ترسیم نشد.",
   "map.stage.omitted.budget":

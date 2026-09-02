@@ -740,7 +740,7 @@ counts marked as not an answer to what failed), whole, undrawable
 |---|---|---|
 | Automatic labels at the overview (`labelDensity: 1`, `labelGridCellSize: 180`, `labelRenderedSizeThreshold: 14`) | **8 of 86 marks** carry a label at the framed overview; two zoom presses make about twelve speak in the visible area | kept — this is exactly the quiet overview D-122 asked for |
 | `MAP_LABEL_NEIGHBOUR_BUDGET = 12` | 12 forced labels around the busiest entity drew **nine sentences into a cluster ~250 px across**: ForceAtlas2 pulls neighbours *towards* their focus, so a fan-out is the densest part of the picture and the worst place to bypass Sigma's grid | **4** (D-145) |
-| `MAP_STAGE_CARD_CELL = 240` (a square grid cell) | The grid refused **7 of 8** neighbour cards that would have fitted *and* placed two that overlapped by two thirds of a card | replaced by a measured footprint, 320×248 and 416×176, and an overlap test (D-145) |
+| `MAP_STAGE_CARD_CELL = 240` (a square grid cell) | The grid refused **7 of 8** neighbour cards that would have fitted *and* placed two that overlapped by two thirds of a card | replaced by a measured footprint, 320×296 and 416×176, an overlap test and a stage-fit test (D-145) |
 | `MAP_STAGE_CARD_BUDGET = 4` | Reached: 4 cards placed on the busiest entity once the focus is framed; 36 cards placed across 23 focuses | kept |
 | `MAP_STAGE_CARD_INSET = 24`, `MAP_STAGE_SETTLE_MS = 150` | No clipped card and no card re-placed mid-gesture in any walk | kept |
 | `MAP_OUTLINE_PAGE = 25` | 25 rows listed, 61 counted as unlisted, **four presses** of *List more* to reach all 86, every row in the DOM | kept |
@@ -905,6 +905,49 @@ harness itself.
    authoritative reading and is what invariant 10 is asserted on; the event is
    *polled* for, because waiting for a queued event is not tolerating a flake,
    while asserting on a number that was never due yet is manufacturing one.
+
+### One more, found by looking at it
+
+The gate was green and the epic was closed when the running UI was opened to
+look at — and two neighbour cards were hanging out of the top of the stage, 21
+and 69 pixels, with the first line of their statements behind the search rail.
+
+The overlay is a *sibling* of the renderer's container (D-137), so nothing
+clips a card that leaves the stage; it simply draws over whatever the route
+puts above the canvas. And a statement whose first line is hidden is the one
+kind of cut D-131 forbids outright: not a visible truncation, which is honest,
+but text that is missing with nothing on screen to say so.
+
+Two things were wrong, and both are the same mistake — a reserved rectangle
+that is not the drawn card:
+
+1. **The policy never asked whether the card fits.** It asked whether the
+   *mark* was inside the inset, which an anchor a hundred pixels from the edge
+   satisfies while its 296 px card does not. The four-orientation search now
+   requires the chosen direction to keep the whole card on the stage, and a
+   neighbour that fits in no direction is counted under a **fifth** reason,
+   `no_room` — its own, because "outside the visible stage" would send a
+   reader to pan a camera that is not the problem, and "crowded" would blame a
+   neighbour that is not there.
+2. **The declared box was too short.** 248 came from one sample; a card with a
+   wrapped relation cue reaches **295**. A fit test against a rectangle
+   smaller than the card passes while the card hangs over the edge, so the
+   number is now the tallest card measured across eighteen focuses, rounded up
+   to 296. It costs about one placed card in eighteen focuses, which is the
+   right trade.
+
+The stated consequence, since it is a trade and not an oversight: a card needs
+`height + gap + inset` of clear stage on one side of its mark, so on a short
+stage — a phone's 360 px — almost no mark has room and the constellation
+collapses to the focused card alone, with every neighbour counted as `no_room`
+and every one of them still in the related list. Refusing is the safe
+direction: a 296 px card on a 360 px stage is the graph with a card over it.
+
+The gate now asserts it directly, at three focuses: **no card's rectangle
+leaves the stage.** That check would have caught this on the first run, which
+is the argument for writing it — this phase's failures live in seams between
+components that are each correct, and the seam here was between a policy that
+reasoned about anchors and a card that has a size.
 
 ### What the walk hands to Phase 3
 

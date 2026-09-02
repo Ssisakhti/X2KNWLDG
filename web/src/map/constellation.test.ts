@@ -175,10 +175,12 @@ describe("the stage card policy", () => {
       centreId: null,
       related: rows,
       position: positions({
-        [rows[0]!.globalId]: { x: 400, y: 300 },
+        // A `y` with room for a card below it: the fit clause needs
+        // `height + gap + inset` of clear stage on one side of the mark.
+        [rows[0]!.globalId]: { x: 400, y: 150 },
         // Beyond the inset, so its card would be clipped -- and a clipped card
         // hides the very truncation marker that makes a cut visible.
-        [rows[1]!.globalId]: { x: STAGE.width - MAP_STAGE_CARD_INSET + 1, y: 300 },
+        [rows[1]!.globalId]: { x: STAGE.width - MAP_STAGE_CARD_INSET + 1, y: 150 },
       }),
       stage: STAGE,
     });
@@ -192,8 +194,8 @@ describe("the stage card policy", () => {
       centreId: null,
       related: rows,
       position: positions({
-        [rows[0]!.globalId]: { x: 400, y: 300 },
-        [rows[1]!.globalId]: { x: 404, y: 302 },
+        [rows[0]!.globalId]: { x: 400, y: 150 },
+        [rows[1]!.globalId]: { x: 404, y: 152 },
       }),
       stage: STAGE,
     });
@@ -208,8 +210,8 @@ describe("the stage card policy", () => {
       centreId: centre.global_id,
       related: rows,
       position: positions({
-        [centre.global_id]: { x: 400, y: 300 },
-        [rows[0]!.globalId]: { x: 410, y: 305 },
+        [centre.global_id]: { x: 400, y: 150 },
+        [rows[0]!.globalId]: { x: 410, y: 155 },
       }),
       stage: STAGE,
     });
@@ -376,8 +378,8 @@ describe("the stage card policy", () => {
         centreId: null,
         related: rows,
         position: positions({
-          [rows[0]!.globalId]: { x: 300, y: 300 },
-          [rows[1]!.globalId]: { x: 700, y: 300 },
+          [rows[0]!.globalId]: { x: 300, y: 200 },
+          [rows[1]!.globalId]: { x: 700, y: 200 },
         }),
         stage: REAL_STAGE,
       });
@@ -398,13 +400,90 @@ describe("the stage card policy", () => {
         centreId: null,
         related: rows,
         position: positions({
-          [rows[0]!.globalId]: { x: 400, y: 300 },
-          [rows[1]!.globalId]: { x: 404, y: 302 },
+          [rows[0]!.globalId]: { x: 400, y: 200 },
+          [rows[1]!.globalId]: { x: 404, y: 202 },
         }),
         stage: REAL_STAGE,
       });
       expect(placement.cards).toHaveLength(1);
       expect(placement.omitted.crowded).toBe(1);
+    });
+
+    it("refuses a card the stage has no room for, and says that rather than crowded", () => {
+      // What the shipped UI actually did before this clause existed: two cards
+      // anchored either side of the stage's middle opened *upwards*, spilled
+      // out of the top of the stage — the overlay is a sibling of the
+      // container, so nothing clips it — and had the first line of their
+      // statements covered by the panel above. A statement whose first line is
+      // hidden is the *silent* cut D-131 forbids, because nothing says it was
+      // cut: it was not, it was hidden.
+      //
+      // A card needs `height + gap + inset` of clear stage on one side of its
+      // mark, so on a 630 px stage a 296 px card leaves a band around the
+      // middle where no direction works. A mark in it keeps its emphasis, its
+      // label and its row; it gets no card, and the reason is its own.
+      const rows = neighbours(1);
+      const placement = placeConstellation({
+        centreId: null,
+        related: rows,
+        position: positions({ [rows[0]!.globalId]: { x: 600, y: 315 } }),
+        stage: REAL_STAGE,
+      });
+      expect(placement.cards).toHaveLength(0);
+      expect(placement.omitted.no_room).toBe(1);
+      // Not the reason for a mark the camera has moved away, and not the
+      // reason for a neighbour already there. Both would send a reader to fix
+      // the wrong thing.
+      expect(placement.omitted.off_stage).toBe(0);
+      expect(placement.omitted.crowded).toBe(0);
+      expect(placement.omittedTotal).toBe(1);
+    });
+
+    it("keeps every card it does place wholly on the stage", () => {
+      // The property, over the whole stage rather than one anchor: whatever
+      // the policy places is inside the container, at every position a mark
+      // could take.
+      const rows = neighbours(1);
+      for (let y = MAP_STAGE_CARD_INSET; y < REAL_STAGE.height; y += 17) {
+        for (let x = MAP_STAGE_CARD_INSET; x < REAL_STAGE.width; x += 37) {
+          const placement = placeConstellation({
+            centreId: null,
+            related: rows,
+            position: positions({ [rows[0]!.globalId]: { x, y } }),
+            stage: REAL_STAGE,
+          });
+          for (const card of placement.cards) {
+            const rect = stageCardRect(card, MAP_STAGE_CARD_BOX);
+            expect(rect.left, `card left of the stage at ${x},${y}`).toBeGreaterThanOrEqual(0);
+            expect(rect.top, `card above the stage at ${x},${y}`).toBeGreaterThanOrEqual(0);
+            expect(rect.right, `card right of the stage at ${x},${y}`).toBeLessThanOrEqual(
+              REAL_STAGE.width,
+            );
+            expect(rect.bottom, `card below the stage at ${x},${y}`).toBeLessThanOrEqual(
+              REAL_STAGE.height,
+            );
+          }
+        }
+      }
+    });
+
+    it("still guarantees the selected card, even where no direction fits", () => {
+      // D-132 guarantees *one* primary card, so it is the one card that falls
+      // back to its preferred direction rather than being dropped: a
+      // selection with nothing on screen is worse than a card partly over the
+      // edge, and the counts and Quick Read say the same thing in words
+      // either way.
+      const centre = unit("KU-000001");
+      const placement = placeConstellation({
+        centreId: centre.global_id,
+        related: [],
+        // On the stage — the inset clause is satisfied — but with no room for
+        // a 176 px card on either side of it.
+        position: positions({ [centre.global_id]: { x: 600, y: 150 } }),
+        stage: { width: 1216, height: 300 },
+      });
+      expect(placement.primary).not.toBeNull();
+      expect(placement.primary?.globalId).toBe(centre.global_id);
     });
 
     it("reserves the rectangle the card is actually drawn in, mark included", () => {

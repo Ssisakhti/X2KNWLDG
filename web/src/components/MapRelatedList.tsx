@@ -57,6 +57,7 @@ import { RelationCues } from "./MapRelation";
 const OMISSION_LABEL: Record<StageOmission, MessageKey> = {
   not_loaded: "map.stage.omitted.notLoaded",
   off_stage: "map.stage.omitted.offStage",
+  no_room: "map.stage.omitted.noRoom",
   crowded: "map.stage.omitted.crowded",
   budget: "map.stage.omitted.budget",
 };
