@@ -1365,3 +1365,96 @@ def test_the_pipe_guard_can_actually_fail() -> None:
         "the fixtures pipe sits inside a branch that already exits 1, so it "
         "must be exempt; counting it would make this guard cry wolf"
     )
+
+
+# ---------------------------------------------------------------------------
+# T-202 — the Knowledge Map's renderer pins (D-117, ADR 0005)
+# ---------------------------------------------------------------------------
+
+#: The Map's runtime graph packages. Sigma v4 is a *prerelease*: ADR 0005
+#: chooses one exact beta, and a range would let the lockfile move to another
+#: one on any refresh, so the pin is the decision and this is its guard.
+MAP_RUNTIME_PINS = (
+    "sigma",
+    "graphology",
+    "graphology-types",
+    "graphology-layout-forceatlas2",
+)
+
+#: Present only because Sigma's published declarations ``import "events"`` and
+#: that package ships none. With ``skipLibCheck: false`` (risk R17) the whole
+#: type-check fails without it, so it is pinned beside the renderer it serves.
+#: Sigma v3.0.3 depends on ``events`` too, so this is not a v4 defect.
+MAP_DEV_PINS = ("@types/events",)
+
+_EXACT_VERSION = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$")
+
+
+def test_every_map_dependency_is_pinned_to_one_exact_version() -> None:
+    """D-117: a moving prerelease range is forbidden.
+
+    ``^4.0.0-beta.5`` resolves to *any* later 4.x, betas included, so the
+    version this project measured on the real graph would be replaced by one it
+    never rendered — silently, on an unrelated ``npm install``. The gate's
+    result is only about the version the gate ran.
+    """
+    package = _package_json()
+    for name in MAP_RUNTIME_PINS:
+        version = package["dependencies"][name]
+        assert _EXACT_VERSION.match(version), f"{name} is not an exact pin: {version}"
+    for name in MAP_DEV_PINS:
+        version = package["devDependencies"][name]
+        assert _EXACT_VERSION.match(version), f"{name} is not an exact pin: {version}"
+
+
+def test_the_gate_page_states_the_version_that_actually_ran() -> None:
+    """The gate page prints the renderer version into its own log.
+
+    That line is what a recorded walk quotes, so it must be the version the
+    manifest installs. Two spellings of one version is how a result gets
+    attributed to a release that was never running.
+    """
+    pinned = _package_json()["dependencies"]["sigma"]
+    main = (WEB / "src" / "map" / "gate" / "main.ts").read_text(encoding="utf-8")
+    match = re.search(r'PINNED_SIGMA = "([^"]+)"', main)
+    assert match is not None, "the gate page no longer states its renderer version"
+    assert match.group(1) == pinned
+
+
+def test_the_gate_page_stays_out_of_the_production_build() -> None:
+    """``gate.html`` is a development harness, not a second Map.
+
+    Vite's build input defaults to ``index.html`` alone, which is what keeps
+    the harness out of ``dist/``. Configuring extra inputs would include it, so
+    this asserts the default is still in force rather than trusting it.
+    """
+    assert (WEB / "gate.html").is_file()
+    config = (WEB / "vite.config.ts").read_text(encoding="utf-8")
+    assert "rollupOptions" not in config, (
+        "vite.config.ts now configures rollup inputs; confirm gate.html is "
+        "still excluded from the production build before relaxing this"
+    )
+    assert "gate" not in (WEB / "index.html").read_text(encoding="utf-8")
+
+
+def test_nothing_in_the_application_imports_the_gate() -> None:
+    """`#/map` belongs to ``T-204``. The gate must not become the Map by
+    accident, so no application module reaches into its directory."""
+    offenders: list[str] = []
+    for path in sorted((WEB / "src").rglob("*.ts*")):
+        if "map/gate" in path.as_posix():
+            continue
+        if "gate/" in path.read_text(encoding="utf-8"):
+            offenders.append(path.relative_to(WEB).as_posix())
+    assert not offenders, f"these modules import the T-202 gate: {offenders}"
+
+
+def test_the_third_party_notices_record_every_map_dependency() -> None:
+    """Licences are recorded where the repository already records provenance,
+    with the version they were checked at — an unpinned notice would document a
+    licence the installed package may not carry."""
+    notices = (PROJECT_ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    package = _package_json()
+    for name in MAP_RUNTIME_PINS + MAP_DEV_PINS:
+        version = package["dependencies"].get(name) or package["devDependencies"][name]
+        assert f"{name}@{version}" in notices, f"{name}@{version} is not recorded"

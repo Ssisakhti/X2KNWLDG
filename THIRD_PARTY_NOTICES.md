@@ -23,3 +23,44 @@ License unless an individual file explicitly states otherwise.
 
 References to the upstream project or its author are for attribution and
 provenance only. They do not imply affiliation, sponsorship, or endorsement.
+
+## Knowledge Map graph rendering (`web/`, Phase 2)
+
+The frontend's Knowledge Map renders through Sigma over Graphology. These are
+runtime dependencies of the browser bundle, not of the Python package: the core
+distribution still installs nothing (ADR 0001 invariant 5), and a checkout that
+never runs `npm ci` never fetches them.
+
+Every version below is an **exact pin** rather than a range, and the versions
+are part of the record: a licence checked at one version does not speak for a
+later one. [ADR 0005](docs/adr/0005-knowledge-map-client.md) explains why the
+renderer is pinned to one prerelease rather than tracked (D-117), and
+`tests/test_ui_scaffold.py` fails if a pin turns into a range or drifts from
+this file.
+
+Chosen and verified during `T-202` (2026-09-02):
+
+| Package | Licence | Upstream |
+|---|---|---|
+| `sigma@4.0.0-beta.5` | MIT | [sigmajs.org](https://www.sigmajs.org) |
+| `graphology@0.26.0` | MIT | [graphology/graphology](https://github.com/graphology/graphology) |
+| `graphology-types@0.24.8` | MIT | [graphology/graphology](https://github.com/graphology/graphology) |
+| `graphology-layout-forceatlas2@0.10.1` | MIT | [graphology/graphology](https://github.com/graphology/graphology) |
+| `@types/events@3.0.3` | MIT | [DefinitelyTyped](https://github.com/DefinitelyTyped/DefinitelyTyped) |
+
+Pulled in transitively by those packages and therefore also present in the
+bundle:
+
+| Package | Licence | Upstream |
+|---|---|---|
+| `graphology-utils@2.5.2` | MIT | [graphology/graphology](https://github.com/graphology/graphology) |
+| `events@3.3.0` | MIT | [Gozala/events](https://github.com/Gozala/events) |
+
+`@types/events` carries no code into the bundle — it exists because Sigma's
+published declarations `import "events"`, which ships no types of its own, and
+`web/tsconfig.json` deliberately keeps `skipLibCheck: false` (risk R17). Sigma
+v3 depends on `events` as well, so this is not particular to the v4 line.
+
+All of the above are MIT-licensed, as is X2KNWLDG. No package here is
+copyleft-licensed and none requires attribution beyond the notice preserved in
+its own distributed files.

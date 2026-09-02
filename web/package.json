@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
+    "@types/events": "3.0.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.1",
@@ -28,8 +29,12 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
+    "graphology": "0.26.0",
+    "graphology-layout-forceatlas2": "0.10.1",
+    "graphology-types": "0.24.8",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.3"
+    "react-router-dom": "^7.18.3",
+    "sigma": "4.0.0-beta.5"
   }
 }

@@ -2,9 +2,9 @@
 
 ---
 
-**Document status:** active; the reference for continuing this work
-**Current stage:** research and architecture decisions complete; execution plan recorded in `docs/PROJECT_MANAGEMENT.md`; implementation not yet started
-**Last updated:** 2026-08-31
+**Document status:** active; the design authority for continuing this work
+**Current stage:** Phases 0 and 1 complete; Phase 2 Knowledge Map under way — `T-202` chose and proved the renderer line (`T-203` is next)
+**Last updated:** 2026-09-02
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
 
@@ -560,6 +560,23 @@ Used for:
 
 The Map must not place heavy HTML components on each node. Details are shown in the inspector.
 
+Phase 2 starts with an exactly pinned Sigma v4 beta, subject to the real-graph and real-device
+compatibility gate in `T-202` ([ADR 0005](adr/0005-knowledge-map-client.md), D-117). The
+official v4 site now describes this line as beta and documents `4.0.0-beta.5`; it began as an
+alpha and remains prerelease, so a moving semver range is forbidden. If `T-202` finds a
+blocking v4 defect, it records that evidence and selects stable v3 before any later Map task
+begins. The phase carries one renderer API, never a compatibility layer for both.
+
+`T-202` ran on 2026-09-02 and **kept the v4 line**: `sigma@4.0.0-beta.5` drew the real
+86-node/118-edge graph, survived 21 create/teardown cycles releasing every WebGL context, and
+raised no uncaught error, so stable v3 was not needed. Two consequences belong here rather
+than in the task record. The layout stays **synchronous** — 200 ForceAtlas2 iterations over
+that graph cost 2.7–9.0 ms, so §13.1's conditionally permitted worker is not adopted (D-121) — and the Map
+must **not draw the raw `label`**, because a knowledge unit's label is its whole
+`normalized_statement` and 86 of them overlap into an unreadable pile (D-122). Positions come
+from a deterministic seed hashed from each node's `global_id`, never from its index in a page,
+so a node keeps its start as later pages arrive.
+
 ### 12.3. perfect-freehand
 
 Used for:
@@ -615,6 +632,12 @@ Excluded from the current choice because of its production licence and the requi
 - Labels for all nodes are not displayed simultaneously.
 - Edges are tiered by filter and zoom level.
 - Overview first; then neighbourhood and details.
+- A page is not presented as a whole graph: loaded nodes/edges, known totals and `truncated`
+  remain explicit until the progressive snapshot is complete (D-118).
+- Cross-page edges wait until both endpoints have arrived and dedupe by their canonical edge
+  `id`; placeholder nodes are never invented.
+- Search, selection, neighbourhood and inspector also exist in a bounded semantic DOM surface;
+  no operation is WebGL- or pointer-only (D-120).
 - The full graph and the Canvas layout are two separate states.
 
 ### 13.4. Performance targets
@@ -738,19 +761,35 @@ Acceptance criteria:
 
 Deliverables:
 
-- Sigma.js view
+- Exactly pinned Sigma v4 beta after the `T-202` real-graph/real-device gate
+- Typed `MultiDirectedGraph` projection preserving node/edge identity, direction, parallel
+  edges and intentional self-loops
+- Progressive graph pages that dedupe D-059 straddling edges and state partiality
+- Sigma.js/WebGL view with deterministic initial positions and measured layout
 - Node/edge styles based on provenance and kind
-- Search/focus/filter
-- Neighbourhood view
-- Inspector integration
-- Link from Map to Reader
+- Server-backed source/provenance/relation-vocabulary filters
+- Search/focus with one addressable `mapLink` URL grammar
+- Bounded neighbourhood view (depth 1–3), with truncation stated
+- Collapsible inspector over `/api/entities/{entity_id}`
+- Link from Map to Reader through the existing `readerLink` grammar
+- Keyboard-operable semantic DOM companion and honest WebGL-unavailable fallback
 
 Acceptance criteria:
 
 - An empty graph is displayed honestly.
+- A partial graph is never presented as whole, even on the last page of a paged walk.
 - Canonical and derived relationships are distinguishable.
 - Selecting a node shows real details and evidence.
+- Pointer and keyboard selection resolve the same existing `global_id`, and selection/filter
+  state survives reload without inventing a default for malformed URL state.
+- The real 86-node/118-edge sample has no lost or duplicated identities after accumulation.
+- Sigma and any layout worker release their resources on replacement/unmount.
 - The graph is fed from `output/library/graph.json` or an equivalent index.
+- Raw and canonical files remain unchanged.
+
+Moving a selected node or subgraph to the Canvas is deliberately not an acceptance criterion
+for this phase: the board schema and write API do not exist until Phase 3. Phase 2 may expose
+selection in a form Phase 3 can consume, but it must not guess that contract.
 
 ### Phase 3 — Canvas and board persistence
 
@@ -957,10 +996,21 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-043 | `library.rebuild_library` invents no confidence and drops no run in silence. `expresses_concept` edges carry `confidence: null`; a `derived_from` edge carries the unit's **own** confidence verbatim, `null` when the unit states none. A run missing a canonical file is indexed from what it has, and `status.json` gains `runs_discovered`, `runs_indexed`, `runs_skipped`, `skipped_runs[]` and `incomplete_runs[]`, with every `videos.json` entry gaining `problems: []`. **Amends D-025** | accepted | D-025 forbade the index fabricating an edge confidence; `library.py` was doing exactly that in its own graph — `1.0` on every `expresses_concept` edge, which is a match on a normalised string key and not a measurement, and `0` (the *least* confident value) on a `derived_from` edge whose unit stated none. The same reasoning applies to both producers, so the parenthetical in D-025 that excused `library.py` as writing 'its own value for its own reasons' is withdrawn. Separately, `relationships.json` was a precondition for indexing at all, so a run with units but no relationships file disappeared from `graph.json`, `videos.json` and the `videos` count while `adapt_run` indexed it without complaint — a count that omits a run without saying so is a claim of completeness the library has not got |
 | D-044 | D-030's taxonomy gains two codes for boundaries that are not HTTP: `invalid_request` — an argument refused before anything is read, where no identifier is involved — and `internal_error`. The four original codes keep their meanings and their HTTP statuses. **Extends D-030** | accepted | Two MCP tool parameters are *paths*, not ids, so `resolve_run_dir` is not their check even though its behaviour is (ADR 0003 invariant 5). Reporting a refused path as `invalid_id` would name a thing the request never contained, which is the kind of small lie D-030 exists to prevent — the taxonomy's whole point is that a refusal says what was actually refused. `internal_error` is the boundary's own catch: a tool must let out one error type carrying a known code, so an unexpected exception is converted rather than leaked with its message and paths intact. Narrowing the MCP surface to the four HTTP codes was the alternative and was rejected: it would force one of them to mean something it does not |
 | D-045 | An adapter **states what it could not do** rather than dropping it silently, and `Source.adapter_metadata` carries two diagnostic channels for it: `unmappable_artifacts` (a generated `vault/` note whose filename cannot spell an id — skipped and named, not fatal) and `unreadable_files` (a canonical file present but damaged — named, so a missing count is not read as a zero). Both are free-form by schema and absent when there is nothing to report. The line is drawn at index integrity: a run whose `knowledge_units.json` is damaged while its `relationships.json` is intact is **refused** at adapt time, naming the dangling edge. **Qualifies D-022** | accepted | D-022 requires an `AdapterError` wherever a value would have to be guessed, and that is still right for canonical evidence. Nothing here is guessed either way; the choice is between refusing everything and stating the one omission, and the rule that actually matters is that the omission is never silent — the recurring finding across this audit. One `vault/` note whose filename cannot spell an id took down a whole project's index, and that note is a generated export beside the canonical files, so it is skipped and named. A damaged canonical file is different again: its counts were already omitted rather than zeroed, but 'this count is missing' does not say 'this file is broken', and only one of those is actionable. The refusal stays where integrity is at stake: stranded edges would make the graph and `/api/sources/{id}/relations` disagree about one fact, `check_index_integrity` would refuse the whole project later anyway, and the failure belongs on the run that causes it. `adapter_metadata` is the only place in the frozen `Source` record an adapter may say any of this |
+| D-117 | Phase 2 starts on an exactly pinned Sigma v4 beta, with `T-202` as a real compatibility gate and stable v3 as the single fallback before implementation proceeds ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | The v4 line is now documented as beta and its maintainer describes the API as full-featured and stable enough for new work, while still warning of possible feature-interaction bugs. This is a new Map, so building the provenance/kind renderer on v4's declarative primitives avoids a known later migration. Exact pins and the 86/118 MacBook gate contain the prerelease risk |
+| D-118 | The Map is a progressive, explicitly bounded snapshot: pages accumulate by identity, cross-page edges wait for both endpoints, and `truncated` remains visible until the graph is whole ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | D-059 allows a page edge to reach a node on another page and repeats the edge across those pages. Drawing a page directly would dangle, invent a node or silently drop connectivity; an unbounded prefetch would defeat overview-first loading |
+| D-119 | `mapLink` is the one grammar for addressable Map selection/filters, and selection uses only an existing three-part `global_id` ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | The Reader already demonstrated why link building and parsing must share one module. State must survive reload, while malformed values and search hits without a v1 entity address are ignored rather than coerced or minted |
+| D-120 | No Map operation is WebGL- or pointer-only; a bounded semantic DOM companion exposes graph state, search, selection, neighbourhood, inspector and Reader navigation ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | WebGL is the right overview renderer and the wrong accessibility tree. The companion preserves keyboard operation and text alternatives without putting a heavy HTML component on every graph node |
+| D-121 | ForceAtlas2 runs synchronously in the Map; no layout worker until a measurement demands one | accepted | 200 iterations over the real 86/118 graph measured 2.7–9.0 ms on the target machine, against a 16.7 ms frame. A worker adds a second lifecycle to kill and a layout that can outlive its renderer, to hide a pass that does not block |
+| D-122 | The Map draws a truncated label under a stated density policy, never the raw `label` field; the full statement stays in the inspector | accepted | A knowledge unit's label is its whole `normalized_statement`. The gate drew 86 of them and they overlap into a pile that hides the graph. Truncating for display invents nothing as long as the inspector shows the statement in full |
+
+> **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
+> `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
+> already-accepted rows here is documentation consolidation work, not part of the Phase 2
+> implementation and not a reason to renumber D-117–D-120.
 
 ## 20. Open questions
 
-These do not block the start of Phases 0 and 1, and must be answered at the appropriate time:
+These do not block Phase 2 and must be answered at the appropriate later phase:
 
 - Should boards enter Git by default, or only have a local backup?
 - Should user notes stay limited to plain Markdown, or is rich text required?
@@ -1024,15 +1074,18 @@ An agent must not guess the answers to these if the decision would cause a notic
 - [x] Phase 0 / T-008: the [`web/`](../web/README.md) scaffold, the `ui` extra, the `ui` CLI stub, and the first Node job in CI (`tsc --noEmit`, closing risk R17)
 - [x] Phase 0 / T-009: re-confirmed the zero-dependency install after the `ui` extra existed
 - [x] **Phase 0 complete** — the exit gate in `docs/PROJECT_MANAGEMENT.md` §5 is met; Phase 1 may fan out
+- [x] **Phase 1 complete** — SQLite/FTS5 index, all eleven HTTP endpoints, Library, Reader,
+  honest status/provenance, real-API frontend integration and `x2knwldg ui`; end-to-end
+  scenarios 1–3 and the cache half of scenario 7 walked on 2026-09-02
+- [x] Phase 2 selected and approved as the `T-201` Knowledge Map epic
+- [x] Phase 2 decomposed into claimable `T-202`–`T-209`, with [ADR 0005](adr/0005-knowledge-map-client.md)
+  fixing the Sigma v4 gate, progressive graph truth, URL identity and accessible DOM boundary
 - [x] Translate this document to English per D-014
 
-### Not started
+### Planned / not started
 
-- [ ] SQLite index
-- [ ] FastAPI local API
-- [ ] React/Vite scaffolding
-- [ ] Library/Reader
-- [ ] Knowledge Map
+- [ ] `T-202`: Sigma v4 compatibility and layout gate
+- [ ] `T-203`–`T-209`: Knowledge Map implementation and phase gate
 - [ ] Canvas
 - [ ] Pen annotations
 - [ ] Adapters for future sources
@@ -1041,38 +1094,25 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-The next execution session must start Phase 0 only:
+The next execution session claims **`T-202` only**, inside the approved `T-201` Knowledge Map
+epic:
 
-1. Review the current schemas and the real knowledge unit/source IDs.
-2. ~~Write the architecture ADR in `docs/adr/`.~~ Done — [ADR 0001](adr/0001-local-web-ui.md), with the ADR convention in `docs/adr/README.md`.
-3. ~~Define version 1 schemas for Source, Artifact, Locator, EntityRef, and IndexedRelation.~~
-   Done — [`schemas/v1/`](../schemas/v1/README.md), validated by `tests/test_index_schemas.py`.
-   Three invariants are beyond JSON Schema and remain the adapter's obligation: a global id equals
-   its three parts, a source id equals its two, and a `time_range` locator has
-   `end_sec >= start_sec`.
-4. ~~Define the YouTube adapter contract without changing any existing canonical output.~~
-   Done — [`src/x2knwldg/adapters/`](../src/x2knwldg/adapters/README.md). The shape probe is gone:
-   `tests/test_index_schemas.py` now validates the records the real adapter produces, and
-   `tests/test_adapters.py` covers what it refuses and never invents.
-5. ~~Build valid, clearly labelled test-only fixtures for the `PARTIAL` and `FAIL` states.~~
-   Done — [`tests/fixtures/runs/`](../tests/fixtures/runs/README.md), generated by driving the real
-   pipeline. A real, complete graph was already available from the existing `PASS` sample.
-6. ~~Freeze the API contract (`T-005`).~~ Done — [`schemas/api/v1/`](../schemas/api/v1/README.md):
-   eleven `GET` endpoints, every response body `$ref`-ing `schemas/v1/`, with a committed
-   `types.d.ts` generated by a stdlib-only script.
-7. ~~Fix the indexer/API repository seam (`T-007`).~~ Done —
-   [`src/x2knwldg/repository/`](../src/x2knwldg/repository/README.md) and
-   [ADR 0002](adr/0002-index-repository-seam.md). `MemoryRepository` answers the whole frozen
-   contract from the adapters today, so Track B can start before Track A finishes.
-8. ~~Scaffold `web/` plus the `ui` extra (`T-008`), then re-confirm the no-extras install
-   (`T-009`).~~ Done — [`web/`](../web/README.md) holds the TypeScript toolchain and nothing
-   more (D-038); the `ui` extra is `fastapi` + `uvicorn`; `x2knwldg ui` was a refusing stub until `T-116` wired it
-   that `T-116` wires (D-037); and CI now type-checks the generated declarations, which
-   closes risk R17. The core package still reports 333 passed, 4 skipped with no extras.
+1. Read [ADR 0005](adr/0005-knowledge-map-client.md), `PROJECT_MANAGEMENT.md` §5 Phase 2,
+   D-059 and D-117–D-120.
+2. Check current official Sigma v4 beta and compatible Graphology package versions, then pin
+   one exact set in `web/package.json` and the lockfile. Do not accept a moving prerelease
+   range.
+3. Build the smallest isolated Sigma v4 renderer over the real 86-node/118-edge sample. Use
+   the existing `EntityRef` and `IndexedRelation` types; do not design a second API shape.
+4. Seed deterministic non-zero `x`/`y` positions, exercise create/update/resize/selection/
+   teardown, and record layout/render observations on the user's MacBook.
+5. If v4 has a blocking defect, record the evidence and pin stable v3 before proceeding. Do
+   not implement both majors. If it passes, mark `T-202` done and make `T-203` the only next
+   claimable task.
+6. Run the frontend checks and prove `git diff --stat -- output/` is empty.
 
-**Phase 0 is complete.** The next session opens Phase 1 and is the first that may run more
-than one agent — see `docs/PROJECT_MANAGEMENT.md` §8.2 for the four tracks and §11 for the
-suggested fan-out. Phase 3 Canvas and Phase 4 pen work stay out of scope until their phases.
+Do not start Map routing, pagination state, styling or the inspector inside the spike; those
+belong to `T-203`–`T-207`. Phase 3 Canvas and Phase 4 pen remain out of scope.
 
 ## 24. Research references
 
@@ -1087,6 +1127,15 @@ suggested fan-out. Phase 3 Canvas and Phase 4 pen work stay out of scope until t
 - React Flow performance: <https://reactflow.dev/learn/advanced-use/performance>
 - React Flow attribution: <https://reactflow.dev/remove-attribution>
 - Sigma.js: <https://github.com/jacomyal/sigma.js>
+- Sigma v4 beta: <https://v4.sigmajs.org/>
+- Sigma v4 quickstart: <https://v4.sigmajs.org/get-started/quickstart/>
+- Sigma v3 → v4 migration: <https://v4.sigmajs.org/how-to/technical/migration-v3-v4/>
+- Sigma v4 maturity discussion: <https://github.com/jacomyal/sigma.js/discussions/1539>
+- Graphology `MultiDirectedGraph`: <https://graphology.github.io/instantiation.html>
+- Graphology ForceAtlas2: <https://graphology.github.io/standard-library/layout-forceatlas2.html>
+- W3C keyboard technique G202: <https://www.w3.org/WAI/WCAG22/Techniques/general/G202.html>
+- W3C accessibility principles: <https://www.w3.org/WAI/fundamentals/accessibility-principles/>
+- Playwright visual comparisons: <https://playwright.dev/docs/test-snapshots>
 - perfect-freehand: <https://github.com/steveruizok/perfect-freehand>
 - PointerEvent pressure: <https://developer.mozilla.org/en-US/docs/Web/API/PointerEvent/pressure>
 - tldraw licence: <https://tldraw.dev/community/license>
@@ -1096,6 +1145,16 @@ suggested fan-out. Phase 3 Canvas and Phase 4 pen work stay out of scope until t
 - FastAPI: <https://fastapi.tiangolo.com/>
 
 ## 25. Document change history
+
+### 2026-09-02 — Phase 2 planning
+
+- Recorded Phases 0 and 1 as complete and selected `T-201` as the approved Knowledge Map epic.
+- Decomposed Phase 2 into claimable `T-202`–`T-209` in `PROJECT_MANAGEMENT.md`.
+- Accepted [ADR 0005](adr/0005-knowledge-map-client.md): exact Sigma v4 beta pin behind a
+  real-device compatibility gate, progressive graph snapshots, one Map URL grammar and a
+  semantic DOM companion to the WebGL view.
+- Expanded Phase 2 deliverables, acceptance criteria, performance rules and the precise next
+  step. Canvas transfer remains Phase 3 rather than a false Phase 2 dependency.
 
 ### 2026-08-31 — initial version
 
