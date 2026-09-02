@@ -27,6 +27,8 @@ export const en = {
   "app.subtitle": "Local, read-only view of the canonical pipeline output.",
 
   "nav.library": "Library",
+  "nav.map": "Map",
+  "nav.sections": "Sections",
   "nav.skipToContent": "Skip to content",
 
   "locale.label": "Language",
@@ -126,6 +128,37 @@ export const en = {
   "search.openSource": "Open the source",
   "search.openExternal": "Open at this timestamp on the source site",
 
+  "map.title": "Knowledge Map",
+  "map.subtitle":
+    "The graph the index actually holds: entities as nodes, indexed relations as directed edges.",
+  "map.stage.label": "Knowledge graph, drawn",
+  "map.controls": "Map view controls",
+  "map.zoomIn": "Zoom in",
+  "map.zoomOut": "Zoom out",
+  "map.resetView": "Reset the view",
+  "map.loadMore": "Load the next page",
+  "map.stopLoading": "Stop loading",
+  "map.empty":
+    "The index holds no graph node, so there is nothing to draw. This is not a drawing that failed.",
+  "map.state.title": "What is drawn",
+  "map.state.nodes": "Nodes loaded",
+  "map.state.edges": "Edges drawn",
+  "map.state.held": "Edges held",
+  "map.state.heldNote":
+    "waiting for an endpoint on a page that is not loaded yet, and never dropped",
+  "map.state.pages": "Pages loaded",
+  "map.state.extent": "Extent",
+  "map.state.complete": "This is the whole graph these filters describe.",
+  "map.state.partial": "Part of the graph. More of it exists than is drawn.",
+  "map.state.truncated":
+    "the server cut the last page's node list short at the requested limit",
+  "map.conflict.title": "Two pages disagreed, so the page was refused",
+  "map.conflict.detail":
+    "One {kind} arrived twice with different content: {field} differs for {id}. The page was refused whole rather than merged, because a merge would draw a record no request returned.",
+  "map.renderer.failed": "The graph could not be drawn",
+  "map.renderer.failedNote":
+    "The counts above are what the index returned; only the drawing is missing. A browser without WebGL2, or a container with no size, refuses the renderer.",
+
   "reader.tab.overview": "Overview",
   "reader.tab.transcript": "Transcript",
   "reader.tab.report": "Report",
@@ -220,6 +253,8 @@ export const fa: Messages = {
   "app.subtitle": "نمای محلی و فقط‌خواندنی از خروجی متعارف خط لوله.",
 
   "nav.library": "کتابخانه",
+  "nav.map": "نقشه",
+  "nav.sections": "بخش‌ها",
   "nav.skipToContent": "پرش به محتوا",
 
   "locale.label": "زبان",
@@ -318,6 +353,37 @@ export const fa: Messages = {
     "زیرنویس در نسخهٔ ۱ موجودیت نشانی‌پذیر نیست؛ پس این نتیجه به منبع و زمانش پیوند می‌خورد، نه به صفحهٔ موجودیت.",
   "search.openSource": "گشودن منبع",
   "search.openExternal": "گشودن در این زمان در سایت منبع",
+
+  "map.title": "نقشهٔ دانش",
+  "map.subtitle":
+    "همان گرافی که نمایه در خود دارد: موجودیت‌ها به‌عنوان گره و روابط نمایه‌شده به‌عنوان یال‌های جهت‌دار.",
+  "map.stage.label": "گراف دانش، ترسیم‌شده",
+  "map.controls": "کنترل‌های نمای نقشه",
+  "map.zoomIn": "بزرگ‌نمایی",
+  "map.zoomOut": "کوچک‌نمایی",
+  "map.resetView": "بازنشانی نما",
+  "map.loadMore": "بارگذاری صفحهٔ بعد",
+  "map.stopLoading": "توقف بارگذاری",
+  "map.empty":
+    "نمایه هیچ گره گرافی ندارد، پس چیزی برای ترسیم نیست. این یک ترسیمِ ناکام نیست.",
+  "map.state.title": "آنچه ترسیم شده",
+  "map.state.nodes": "گره‌های بارگذاری‌شده",
+  "map.state.edges": "یال‌های ترسیم‌شده",
+  "map.state.held": "یال‌های نگه‌داشته",
+  "map.state.heldNote":
+    "در انتظار سری که در صفحه‌ای بارگذاری‌نشده قرار دارد؛ هرگز کنار گذاشته نمی‌شود",
+  "map.state.pages": "صفحه‌های بارگذاری‌شده",
+  "map.state.extent": "گستره",
+  "map.state.complete": "این تمام گرافی است که این صافی‌ها توصیف می‌کنند.",
+  "map.state.partial": "بخشی از گراف. بیش از آنچه ترسیم شده وجود دارد.",
+  "map.state.truncated":
+    "سرور فهرست گره‌های آخرین صفحه را در حدِ درخواست‌شده کوتاه کرد",
+  "map.conflict.title": "دو صفحه با هم اختلاف داشتند، پس صفحه رد شد",
+  "map.conflict.detail":
+    "یک {kind} دو بار با محتوای متفاوت رسید: {field} برای {id} تفاوت دارد. صفحه به‌جای ادغام، یکجا رد شد؛ چون ادغام رکوردی را ترسیم می‌کرد که هیچ درخواستی آن را برنگردانده است.",
+  "map.renderer.failed": "گراف ترسیم نشد",
+  "map.renderer.failedNote":
+    "شمارش‌های بالا همان چیزی است که نمایه برگرداند؛ فقط ترسیم انجام نشده است. مرورگر بدون WebGL2، یا ظرفی بدون اندازه، رندرکننده را نمی‌پذیرد.",
 
   "reader.tab.overview": "نمای کلی",
   "reader.tab.transcript": "رونویس",

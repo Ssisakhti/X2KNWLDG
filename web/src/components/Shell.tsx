@@ -7,7 +7,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 
 import { LOCALES, useI18n } from "../i18n";
 import type { Locale } from "../i18n";
@@ -64,10 +64,20 @@ export function Shell({ children }: { children: ReactNode }) {
         <Link className="shell__brand" to="/">
           {t("app.title")}
         </Link>
-        <nav className="shell__nav" aria-label={t("nav.library")}>
-          <Link className="button" to="/">
+        {/*
+          The nav is labelled for itself now that it holds more than one
+          destination (`T-204`): labelling it "Library" was fine while the
+          Library was the only entry and would announce the Map as part of it.
+          `NavLink` sets `aria-current="page"` on the active entry, which
+          `.button[aria-current="page"]` already styles.
+        */}
+        <nav className="shell__nav" aria-label={t("nav.sections")}>
+          <NavLink className="button" to="/" end>
             {t("nav.library")}
-          </Link>
+          </NavLink>
+          <NavLink className="button" to="/map">
+            {t("nav.map")}
+          </NavLink>
         </nav>
         <span className="shell__spacer" />
         <LocaleSwitch />

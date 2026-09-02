@@ -27,8 +27,8 @@ npm run build      # production bundle into dist/
 | `src/i18n/` | Catalogues and the locale/`dir` provider (`T-110`) |
 | `src/styles/` | Design tokens and the stylesheet, logical properties throughout |
 | `src/components/` | Provenance and status badges (`T-113`), the media panel (`T-114`), the virtualized list, the report renderer |
-| `src/views/` | Library (`T-111`) and Reader (`T-112`) |
-| [`src/map/`](src/map/README.md) | The Knowledge Map: deterministic seed positions (`T-202`), the graph projection, progressive snapshot and page walk (`T-203`), and the `T-202` renderer gate. Not routed yet |
+| `src/views/` | Library (`T-111`), Reader (`T-112`) and Map (`T-204`) |
+| [`src/map/`](src/map/README.md) | The Knowledge Map's machinery: deterministic seed positions (`T-202`), the graph projection, progressive snapshot and page walk (`T-203`), the renderer lifecycle and the one Sigma constructor (`T-204`), and the `T-202` renderer gate |
 | `scripts/dev_api.py` | Stands up the real server over the committed fixtures |
 | `gate.html` | The `T-202` gate harness, development-only and outside the production build ([why](src/map/README.md)) |
 
@@ -134,6 +134,8 @@ preferences, and each one has a test:
 | An `external` artifact has no local bytes (`T-114`) | `localMedium` accepts only a non-external, pathed, available artifact |
 | `runs` absent (not reported) vs `runs.skipped: []` (nothing skipped) — D-050 | `IndexStatusPanel` |
 | The adapter's `unmappable_artifacts` and `unreadable_files` — D-045 | `SourceCard` flags them, `AdapterDiagnostics` names them |
+| A graph **page** vs the graph (D-059, D-123) | `MapView` states loaded / counted total, edges drawn, edges **held** for an endpoint that has not arrived, and whether the accumulated graph is whole — from `GraphSnapshot.state`, never recomputed |
+| A graph that is empty vs one that could not be **drawn** (D-129) | `MapView` renders the counts before the canvas, and a renderer refusal (no WebGL2, unsized container) as its own stated state |
 
 ## Known gaps
 
@@ -143,11 +145,14 @@ preferences, and each one has a test:
   No aggregate count is shown, because the server never computed one. A
   cross-source entity list taking those filters would be a contract change.
 - **No entity page.** `/api/entities/{entity_id}` is served and unused: nothing
-  in the Library or the Reader needs to address one entity on its own yet. The
-  Map (`T-201`) is its first consumer.
-- **The graph endpoints are not reached from a route yet.** They belong to
-  `T-201`. `/api/graph` has two consumers: the `T-202` gate harness at
-  `/gate.html`, which is not part of the app and not built into `dist/`, and
-  `T-203`'s `apiGraphPages`, which is application code with no view on it until
-  `T-204` adds `#/map`. `/api/graph/neighborhood/{entity_id}` is still
-  untouched, and is `T-207`'s.
+  in the Library, the Reader or the Map shell needs to address one entity on its
+  own yet. `T-207`'s inspector is its first consumer.
+- **The Map is a shell.** `#/map` draws the graph and states what it holds, and
+  that is all `T-204` was: nothing is styled (Sigma's own uniform default size
+  and colour, no labels at all until D-122's policy), nothing is selectable,
+  there are no filters, and there is no URL state beyond the route itself. Those
+  are `T-205`–`T-207`. `/api/graph/neighborhood/{entity_id}` is still untouched.
+- **The Map has not been walked in a real browser.** `T-202` proved the renderer
+  over this graph in Chrome on the target machine, and `#/map` itself is checked
+  in jsdom against an injected fake and against a real server. The route's own
+  browser walk is `T-209`'s.

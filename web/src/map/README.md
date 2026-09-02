@@ -1,7 +1,8 @@
 # `web/src/map/` — the Knowledge Map
 
-Phase 2. Four things live here so far — `T-202`'s seeding and compatibility
-harness, and `T-203`'s projection ([ADR 0005](../../../docs/adr/0005-knowledge-map-client.md)):
+Phase 2: `T-202`'s seeding and compatibility harness, `T-203`'s projection, and
+`T-204`'s renderer lifecycle
+([ADR 0005](../../../docs/adr/0005-knowledge-map-client.md)):
 
 | Path | Holds |
 |---|---|
@@ -9,10 +10,13 @@ harness, and `T-203`'s projection ([ADR 0005](../../../docs/adr/0005-knowledge-m
 | `graphProjection.ts` | The typed conversion of one `EntityRef`/`IndexedRelation` into graph attributes, and the equality that decides whether a repeated identity is a repeat or a conflict |
 | `graphSnapshot.ts` | `GraphSnapshot` — pages accumulate into one `MultiDirectedGraph`, edges wait for their endpoints, and the snapshot states what it does and does not yet hold |
 | `graphWalk.ts` | `GraphWalk` — the cancellable, framework-free driver: one question at a time, opaque cursors carried and never read |
+| `useGraphWalk.ts` | That walk bound to a component: `deps` name the question, unmount disposes it, and nothing here decides what a page means |
+| `mapSession.ts` | `MapSession` — **the** renderer lifecycle: lay out, draw, resize, zoom, reset, kill. Framework-free, and reached through an injected factory |
+| `sigmaRenderer.ts` | The only module that imports `sigma`, and the only place the application constructs it |
 | `gate/` | The `T-202` compatibility harness: a single-page graph builder and the renderer lifecycle it exercises |
 
-`#/map`, the Sigma lifecycle, the style matrix and the inspector are
-`T-204`–`T-208`. Nothing here is routed, and nothing here imports Sigma.
+The route itself is [`../views/MapView.tsx`](../views/MapView.tsx). The style
+matrix, `mapLink`, the neighbourhood and the inspector are `T-205`–`T-208`.
 
 ## Seeding is not decoration
 
@@ -106,6 +110,51 @@ counts every WebGL context it has created against the ones that have been lost.
 A teardown that leaves a context live is the leak invariant 10 of ADR 0005
 forbids. The recorded result of that walk, its measurements and its four
 findings are in the ADR under *Gate result*.
+
+## One renderer, and a kill that is counted
+
+`MapSession` is the only Sigma lifecycle in the application, and
+`tests/test_ui_scaffold.py` fails if a second constructor appears. The reason is
+that the failure it guards against is a *sequence*: a second `attach` must kill
+the first renderer, `kill` must be idempotent because an unmount can follow a
+replacement, and an operation arriving after the kill — a `ResizeObserver`
+callback, a page that merged while the route was closing — must do nothing
+rather than throw or reach a dead context.
+
+None of that is observable in jsdom, which has no WebGL, so the renderer is
+reached through `MapRenderer`/`MapRendererFactory` and the tests inject a fake
+that records the order it was asked in. `creates` and `kills` must finish equal
+after any sequence, which is how a leaked WebGL context shows up as a number
+rather than as a blank canvas in an unrelated place: the browser answers an
+excess of live contexts by losing the **oldest** one. Sigma v4's `kill()` calls
+`WEBGL_lose_context.loseContext()`, so `T-202` was able to prove the release
+really happens; this module is what keeps calling it.
+
+React 19's `StrictMode` double-invokes effects, so an attach that did not kill
+its predecessor would leak a context on the very first mount.
+
+## Sigma is loaded on demand, not imported
+
+`sigmaRenderer.ts` is the only module that names `sigma`, and nothing imports it
+statically. That is not tidiness: `sigma`'s default primitives call `layerFill`
+while the module body evaluates, and `layerFill` destructures `UNSIGNED_BYTE`
+off the global `WebGL2RenderingContext`, which jsdom does not define. A static
+import anywhere in the application's module graph is therefore a
+`ReferenceError` at load that fails the Library's and the Reader's suites for a
+module neither of them uses. `MapView` reaches it through
+`import("../map/sigmaRenderer")` instead, which also keeps a 362 kB chunk out of
+the two routes that draw no graph.
+
+## The layout moves when the graph grows
+
+A continuation page's nodes arrive on their identity seeds, and a seed says
+nothing about the structure the layout has already found — drawn unrelaxed, a
+second page is a scatter of dots over a settled graph. So `update()` relaxes the
+whole graph again and the picture shifts. The alternative is pinning what is
+placed, and `graphology-layout-forceatlas2` reads a `fixed` node attribute for
+exactly that: it is not used, because D-124 lets a node carry `x`, `y` and the
+API's record and nothing else, and layout state on the data is the thing that
+rule exists to prevent.
 
 ## Running the projection against the real server
 
