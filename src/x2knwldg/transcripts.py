@@ -16,14 +16,21 @@ class TranscriptError(ValueError):
     """Raised when a transcript cannot satisfy the canonical timing contract."""
 
 
+# D-165: the fraction was capped at three digits, so `00:00:01,0000` matched
+# nothing, every timing line in such a file fell through to body text, and the
+# file was rejected as "No timestamped cues were found" — contradicting the
+# promise below that a damaged timing line reaches `parse_timestamp` and is
+# reported. It is read as a decimal fraction of a second (`float("0." + digits)`),
+# which is well defined at any length, so accepting more digits accepts more
+# real files and misreads none.
 _TIMESTAMP = re.compile(
     r"^(?:(?P<hours>\d+):)?(?P<minutes>\d{1,2}):(?P<seconds>\d{1,2})"
-    r"(?P<fraction>[.,]\d{1,3})?$"
+    r"(?P<fraction>[.,]\d+)?$"
 )
 # The same grammar without the capture names, so the cue-timing detector below
 # cannot drift from the parser that then has to accept what it found. Their
 # agreement is asserted in tests/test_transcripts_hardening.py.
-_TIMESTAMP_TOKEN = r"(?:\d+:)?\d{1,2}:\d{1,2}(?:[.,]\d{1,3})?"
+_TIMESTAMP_TOKEN = r"(?:\d+:)?\d{1,2}:\d{1,2}(?:[.,]\d+)?"
 # A cue timing line is one whose **left side** is a timestamp. Judging it by the
 # bare presence of ``-->`` read ``The mapping A --> B is important.`` as a
 # timing line and rejected the entire file with ``Invalid timestamp: 'The'``
@@ -208,13 +215,22 @@ def _cue_chunks(block: str) -> Iterable[tuple[str | None, str, list[str]]]:
         body = lines[timing_index + 1 : next_timing]
         # A blank-ish line followed by one non-blank line, immediately before the
         # next timing line, is that next cue's identifier \u2014 not this cue's text.
-        if (
-            next_timing < len(lines)
-            and len(body) >= 2
-            and not body[-2].strip()
-            and body[-1].strip()
-        ):
-            body = body[:-2]
+        #
+        # D-165: that was the *only* rule, and it needs the blank line. SRT
+        # written without blank separators is ordinary output from real muxers,
+        # and there `body[-2]` is the previous cue's own text, so the guard
+        # never fired and every cue absorbed the next cue's index number:
+        # `'One. 2'`, `'Two. 3'`. The corruption landed in the canonical
+        # `transcript.json` \u2014 the extraction input \u2014 and, through the
+        # segments, in the text evidence excerpts are matched against. A bare
+        # integer on the line immediately before a timing line is an SRT
+        # sequence number by the format's own grammar; nothing else in a cue's
+        # text sits there alone.
+        if next_timing < len(lines) and body and body[-1].strip():
+            if len(body) >= 2 and not body[-2].strip():
+                body = body[:-2]
+            elif body[-1].strip().isdigit():
+                body = body[:-1]
         identifier = None
         if timing_index > 0 and timing_index - 1 >= consumed_until:
             candidate = lines[timing_index - 1].strip()
@@ -517,6 +533,26 @@ def transcript_integrity(
         previous_start = start
         previous_end = max(previous_end, end)
         previous_text = normalized_text
+    character_count = sum(
+        len(str(c.get("text") or "")) for c in captions if isinstance(c, dict)
+    )
+    if captions and character_count == 0:
+        # D-167: a transcript with timing and no words at all. `character_count`
+        # was already computed here and read by nothing, so the signal existed
+        # and nothing looked at it. The way in is a caption source that renames
+        # its text field: `item.get("text")` returns `None`,
+        # `_canonical_caption` cleans that to `""` and marks the cue
+        # `non_speech` — the `[music]` concession — and `empty_text` above is
+        # disarmed by exactly that flag. Six snippets carrying their text under
+        # `.content` therefore produced `character_count: 0`,
+        # `validation.transcript: PASS` and exit `0`: a run with full-length
+        # coverage windows over nothing anyone said.
+        #
+        # A cue is allowed to be non-speech. A whole transcript is not: there is
+        # no video whose entire caption track is `[music]`, and if there were,
+        # it carries no knowledge to extract and must not be imported as though
+        # it did.
+        errors.append({"code": "transcript_has_no_text", "caption_count": len(captions)})
     return {
         "status": "PASS" if not errors else "FAIL",
         "errors": errors,
@@ -524,9 +560,7 @@ def transcript_integrity(
         "stats": {
             "caption_count": len(captions),
             "duration_sec": round(transcript_end_sec(captions), 3),
-            "character_count": sum(
-                len(str(c.get("text") or "")) for c in captions if isinstance(c, dict)
-            ),
+            "character_count": character_count,
             "adjacent_duplicate_count": duplicate_count,
         },
     }

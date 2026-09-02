@@ -104,6 +104,7 @@ from ..repository import (
     SearchQuery,
     SourceDetail,
     SourceQuery,
+    bounded_edges,
     encode_cursor,
     graph_nodes,
     key_digest,
@@ -135,6 +136,12 @@ _TABLES: Mapping[str, str] = {
 #: because ``identity >= bound`` returns the boundary row that ``Cursor.tail``
 #: drops); a Python predicate that thins the result then costs one round trip per
 #: this many rows rather than one per row.
+#: How many per-walk answers one repository keeps at once (D-188). A walk needs
+#: one; a server answering several readers from one repository needs a few. It
+#: is a bound rather than a size: the entries are small, and the point is that
+#: the memo cannot become a second index.
+_WALK_CACHE_ENTRIES = 8
+
 _SCAN_BATCH = 256
 
 #: How many ids go into one ``IN (…)`` list. Well under ``SQLITE_MAX_VARIABLE_
@@ -221,8 +228,15 @@ class SqliteRepository:
         *,
         project_root: Path | None = None,
         search: SearchRetrieval | None = None,
+        unreadable: str | None = None,
     ) -> None:
         self._connection = connection
+        #: Why there is a file at the index path that could not be opened at
+        #: all (D-160). Distinct from "no connection because no file": the
+        #: first is an index in ``error``, the second is one that is ``absent``,
+        #: and reporting the first as the second would tell a reader their
+        #: index is merely unbuilt when it is in fact unopenable.
+        self._unreadable = unreadable
         #: Serialises access to the connection. See :func:`_serialized`.
         self._lock = threading.RLock()
         #: The project this index is a cache for. Recorded, never joined onto:
@@ -231,6 +245,14 @@ class SqliteRepository:
             None if project_root is None else Path(project_root).expanduser().resolve()
         )
         self._search = search
+        #: Answers that are the same for every page of one walk, kept for the
+        #: length of that walk and no longer (D-188). Keyed by the index
+        #: *generation* — `(state, built_at)` — so a refresh landing under a
+        #: reader drops everything rather than serving a count of records that
+        #: are no longer there. Bounded, because a cache with no bound is a
+        #: second index.
+        self._per_walk: dict[tuple[Any, ...], Any] = {}
+        self._per_walk_generation: tuple[Any, ...] | None = None
 
     # ------------------------------------------------------------------
     # Construction
@@ -264,6 +286,26 @@ class SqliteRepository:
             connection = schema.connect(path, create=False, multithreaded=True)
         except FileNotFoundError:
             return cls(None, project_root=project_root, search=search)
+        except sqlite3.DatabaseError as exc:
+            # D-160: an index file that exists but cannot be *opened* — mode 0,
+            # a directory at that path, a read-only parent with no room for the
+            # journal — raises `sqlite3.OperationalError` here, which is not a
+            # `FileNotFoundError`. It escaped as a bare driver error with no
+            # `code` and no `http_status`, out of `build_repository`, out of
+            # `create_app`: the application failed to *construct*, so there was
+            # no reader left to explain anything. Garbage bytes at the same path
+            # were already handled correctly just below, for the reason stated
+            # there — "a reader that cannot be constructed cannot say why" —
+            # and this is the same case reached one step earlier.
+            #
+            # `error`, not `absent`: there is a file here, and the reason it
+            # cannot be read is a fact about it rather than about its absence.
+            return cls(
+                None,
+                project_root=project_root,
+                search=search,
+                unreadable=f"the index cannot be opened: {exc}",
+            )
         try:
             version = schema.schema_version(connection)
         except sqlite3.DatabaseError:
@@ -299,6 +341,8 @@ class SqliteRepository:
         ``building`` and then ``ready``, and a repository that cached the first
         answer would keep reporting a finished index as unbuilt.
         """
+        if self._unreadable is not None:
+            return "error", None, self._unreadable
         if self._connection is None:
             return "absent", None, None
         try:
@@ -340,9 +384,20 @@ class SqliteRepository:
         return row is not None
 
     def _require_ready(self) -> sqlite3.Connection:
-        """The connection, or the reason there is no answer to be had."""
-        state, _, message = self._index_state()
-        if state != READY or self._connection is None:
+        """The connection, or the reason there is no answer to be had.
+
+        D-162: ``building`` answers **when it names a generation**. A build
+        writes every row inside one transaction, so a reader during one — and a
+        reader after one that was killed — sees the last completed generation
+        whole, and ``built_at`` says which. Refusing it served nothing from an
+        index that was entirely readable, and cost a full rebuild to escape.
+        ``building`` with no ``built_at`` is still refused, because then there
+        genuinely is no finished build here to answer from; ``status()``
+        reports the state either way, so nothing is hidden by answering.
+        """
+        state, built_at, message = self._index_state()
+        answerable = state == READY or (state == "building" and built_at is not None)
+        if not answerable or self._connection is None:
             raise IndexUnavailable(
                 message or f"the index is {state}, so it cannot answer", state=state
             )
@@ -606,7 +661,14 @@ class SqliteRepository:
         offset = _offset(query)
         if query.source_id is not None and self._one("source", query.source_id) is None:
             return Page(items=[], limit=query.limit, next_cursor=None, total=0)
-        found = self._candidates(query)
+        # D-188: retrieved and ranked once per walk, not once per page. The
+        # whole hit list is the same for every page of one query — the cursor
+        # is an offset *into it* — and it was re-retrieved and re-ranked each
+        # time, then sliced. The fingerprint is the query without its cursor,
+        # which is exactly "the same walk".
+        found = self._walk_cached(
+            ("search", query.fingerprint), lambda: self._candidates(query)
+        )
         ranked = list(found.hits)
         window = [record_copy(hit) for hit in ranked[offset : offset + query.limit]]
         exhausted = len(ranked) <= offset + query.limit
@@ -723,10 +785,11 @@ class SqliteRepository:
             and relation.get("to_id") in visible
             and (relation.get("from_id") in on_page or relation.get("to_id") in on_page)
         ]
+        edges, edges_cut = bounded_edges(edges)
         return GraphPage(
             nodes=page.items,
             edges=edges,
-            truncated=len(page.items) < len(nodes),
+            truncated=len(page.items) < len(nodes) or edges_cut,
             limit=page.limit,
             next_cursor=page.next_cursor,
             total=page.total,
@@ -791,12 +854,13 @@ class SqliteRepository:
             and relation.get("from_id") in collected
             and relation.get("to_id") in collected
         ]
+        edges, edges_cut = bounded_edges(edges)
         return Neighborhood(
             center_id=str(center.get("global_id")),
             depth=query.depth,
             nodes=[collected[key] for key in sorted(collected)],
             edges=edges,
-            truncated=truncated,
+            truncated=truncated or edges_cut,
         )
 
     # ------------------------------------------------------------------
@@ -853,6 +917,21 @@ class SqliteRepository:
         """
         if all(value is None for value in query.filters().values()):
             return self._count_all(_TABLES[model])
+        return int(
+            self._walk_cached(
+                ("total", model, query.fingerprint),
+                lambda: self._scan_total(model, predicate, narrow, params),
+            )
+        )
+
+    def _scan_total(
+        self,
+        model: str,
+        predicate: Callable[[Mapping[str, Any]], bool],
+        narrow: Sequence[str],
+        params: Sequence[Any],
+    ) -> int:
+        """The count itself: one pass, the seam's own predicate deciding."""
         return sum(
             1
             for record in self._records_after(
@@ -970,6 +1049,43 @@ class SqliteRepository:
             "ORDER BY identity, digest LIMIT ?"
         )
         return self._query(sql, [*params, limit]).fetchall()
+
+    def _walk_cached(self, key: tuple[Any, ...], compute: Callable[[], Any]) -> Any:
+        """*compute*'s answer, computed once per walk (D-188).
+
+        Two paths reach here, and both were paying a whole-collection cost on
+        **every page** of a walk that asks the same question each time:
+
+        * ``_total`` — "how many records match" is the same on every page, and
+          it was recomputed from row zero each time, JSON-parsing every row.
+          On 4000 entities filtered by ``source_id`` — which
+          ``/api/sources/{id}/entities`` always supplies, so this is the common
+          path, not an edge — one page cost 17 selects and 4051 parsed rows,
+          and an 80-page walk cost 324,158.
+        * ``search`` — the FTS retrieval and the re-rank of the whole hit list,
+          re-run per page and then sliced by offset. At 4003 hits that was
+          0.062 s per page and 3.79 s to walk 61 pages, ranking 4003 documents
+          61 times — reintroducing per page exactly the cost ADR 0004's D-042
+          removed from the oracle.
+
+        Correctness comes from the generation key, not from hoping nothing
+        changes: the state row is read on every call anyway, so a rebuild that
+        lands mid-walk is seen and the memo is emptied.
+        """
+        state, built_at, _message = self._index_state()
+        generation = (state, built_at)
+        if self._per_walk_generation != generation:
+            self._per_walk.clear()
+            self._per_walk_generation = generation
+        if key in self._per_walk:
+            return self._per_walk[key]
+        value = compute()
+        if len(self._per_walk) >= _WALK_CACHE_ENTRIES:
+            # One walk needs one entry. Several readers on one repository need a
+            # few. Oldest out first, which is insertion order in a dict.
+            del self._per_walk[next(iter(self._per_walk))]
+        self._per_walk[key] = value
+        return value
 
     def _count_all(self, table: str) -> int:
         row = self._query(f"SELECT COUNT(*) AS n FROM {table}").fetchone()

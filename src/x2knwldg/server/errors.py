@@ -6,12 +6,18 @@ the whole rule here — no route may catch a repository error and pick a
 different status for the same refusal, because then the taxonomy would live in
 eleven places instead of one.
 
-Two things routes *do* raise themselves, because the repository cannot:
+One thing routes *do* raise themselves, because the repository cannot:
+:class:`NotFound` — the repository returns ``None`` for absence rather than
+raising (see ``repository/README.md``), so the ``404`` is the route's to make.
 
-* :class:`NotFound` — the repository returns ``None`` for absence rather than
-  raising (see ``repository/README.md``), so the ``404`` is the route's to make.
-* :class:`Unavailable` — an artifact whose record exists but whose file does
-  not. The honest answer; a placeholder is forbidden by canvas plan §15.
+D-174: this used to name a second, :class:`Unavailable`, "an artifact whose
+record exists but whose file does not". Nothing ever instantiated it, and
+``media.py`` — the only route that has that case — defines its own
+``MediaUnavailable`` and its own ``RangeNotSatisfiable`` (with a ``size``
+attribute the copy here lacked), importing only ``ApiError`` and ``NotFound``.
+Both classes and the sentence advertising one of them are gone: a module
+docstring that describes a class no caller can reach is a claim about the code
+that the code does not make.
 """
 
 from __future__ import annotations
@@ -43,20 +49,6 @@ class NotFound(ApiError):
 
     code = "not_found"
     http_status = 404
-
-
-class Unavailable(ApiError):
-    """The record exists; the bytes it names do not."""
-
-    code = "unavailable"
-    http_status = 503
-
-
-class RangeNotSatisfiable(ApiError):
-    """A ``Range`` header the artifact cannot satisfy (``416``)."""
-
-    code = "invalid_request"
-    http_status = 416
 
 
 def _response(code: str, message: str, status: int, detail: Any = None) -> JSONResponse:

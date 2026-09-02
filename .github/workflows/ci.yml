@@ -65,13 +65,46 @@ jobs:
           python -m pip install --upgrade pip
           pip install . pytest
       - name: Fail if an optional dependency crept into the core install
+        # The list is derived from pyproject.toml rather than restated here.
+        # A hand-maintained list named seven of the fourteen declared optional
+        # distributions, so `mcp`, `youtube-transcript-api` and `requests`
+        # could have crept in with nothing to say so. `pytest` is exempt: this
+        # job installs it on purpose, because it is what runs the suite.
         run: |
-          for package in jsonschema openapi-spec-validator networkx pyvis yt-dlp fastapi uvicorn; do
-            if pip show "$package" > /dev/null 2>&1; then
-              echo "$package is installed; it must stay an optional extra" >&2
-              exit 1
-            fi
-          done
+          python - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+
+          with open("pyproject.toml", "rb") as handle:
+              project = tomllib.load(handle)["project"]
+
+          INSTALLED_ON_PURPOSE = {"pytest"}
+          names = set()
+          for requirements in project["optional-dependencies"].values():
+              for requirement in requirements:
+                  name = requirement.split(";")[0].strip()
+                  for separator in ("[", "=", "<", ">", "!", "~", " "):
+                      name = name.split(separator)[0]
+                  name = name.strip()
+                  if name and name not in INSTALLED_ON_PURPOSE:
+                      names.add(name)
+
+          print(f"checking {len(names)} declared optional distributions")
+          leaked = [
+              name
+              for name in sorted(names)
+              if subprocess.run(
+                  ["pip", "show", name], capture_output=True
+              ).returncode == 0
+          ]
+          if leaked:
+              print(
+                  f"{', '.join(leaked)} installed; each must stay an optional extra",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
       - name: Run the suite
         run: pytest -q
 
@@ -162,14 +195,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
       - name: Regenerate and diff
+        # `git status --porcelain`, not `git diff`: a generator that starts
+        # writing an extra artifact leaves it *untracked*, and `git diff` is
+        # blind to that, so the check passed while the fixtures had changed.
         run: |
           python tests/fixtures/runs/build_fixtures.py
-          git diff --stat -- tests/fixtures/runs/
-          git diff --quiet -- tests/fixtures/runs/ || {
+          git status --porcelain -- tests/fixtures/runs/
+          if [ -n "$(git status --porcelain -- tests/fixtures/runs/)" ]; then
             echo "Regenerating the fixtures changed them; commit the result." >&2
             git diff -- tests/fixtures/runs/ | head -100
             exit 1
-          }
+          fi
 
   web-typecheck:
     # Risk R17: tests/test_api_types.py proves the committed types.d.ts matches
@@ -196,9 +232,11 @@ jobs:
         run: npm run typecheck
       - name: Type-check the browser gate
         # Playwright transpiles specs without type-checking them, so without
-        # this the `T-209` gate would be the only unchecked TypeScript in the
-        # repository. Its own program, because it needs `skipLibCheck` for
-        # declarations this project does not own; `src` keeps it off (R17).
+        # this the `T-209` gate would go unchecked. Its own program, because it
+        # needs `skipLibCheck` for declarations this project does not own;
+        # `src` keeps it off (R17). This program also carries `vite.config.ts`,
+        # which belonged to neither program and owns the `/api` proxy the
+        # `integration` and `browser` jobs both depend on.
         working-directory: web
         run: npm run typecheck:browser
       - name: Test the frontend
@@ -232,9 +270,13 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install with dev extras
+        # `mcp` is here because `mypy` checks `src/x2knwldg/mcp_server.py`.
+        # Without it the import is unresolved, `ignore_missing_imports` makes
+        # `MCPServer` `Any`, and the one module that fails the check is the one
+        # module the check cannot see.
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev,legacy,ui]'
+          pip install -e '.[dev,legacy,ui,mcp]'
       - name: ruff
         run: ruff check .
       - name: mypy

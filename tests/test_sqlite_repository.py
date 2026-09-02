@@ -795,8 +795,15 @@ def test_a_malformed_id_is_refused_as_malformed(sqlite_repo, method, bad_id):
 
 @requires_fts5
 def test_an_index_that_is_not_ready_refuses_every_question_but_its_status(tmp_path):
+    """D-162: ``building`` and *no* ``built_at`` — no build has ever finished."""
     records = _fixture_project(tmp_path)
-    write_index(tmp_path, records, state="building", message="a build is in flight")
+    write_index(
+        tmp_path,
+        records,
+        state="building",
+        built_at=None,
+        message="a build is in flight",
+    )
     repo = SqliteRepository.open(tmp_path)
     try:
         status = repo.status()
@@ -823,6 +830,94 @@ def test_an_index_that_is_not_ready_refuses_every_question_but_its_status(tmp_pa
             assert raised.value.state == "building", name
             assert raised.value.http_status == 503
             assert "a build is in flight" in str(raised.value)
+    finally:
+        repo.close()
+
+
+@requires_fts5
+def test_a_killed_build_still_serves_the_generation_it_left_intact(tmp_path):
+    """D-162. SIGKILL a refresh and the tables still hold the whole previous
+    index — every write ``_apply`` makes is in one transaction, so the rollback
+    is complete. Clearing ``built_at`` on the way in threw that away: the state
+    said ``building`` forever, every endpoint answered ``503``, and getting the
+    library back cost a full rebuild of a cache that was never damaged.
+    """
+    records = _fixture_project(tmp_path)
+    write_index(tmp_path, records, state="building", message="a build is in flight")
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        status = repo.status()
+        # Honest about what it is: still `building`, and it says why.
+        assert status.state == "building"
+        assert status.built_at == BUILT_AT
+        assert status.message == "a build is in flight"
+        # And answerable, from the generation `built_at` names.
+        assert repo.list_sources(SourceQuery()).items
+        assert repo.get_source(PASS_SOURCE) is not None
+        assert repo.graph(GraphQuery()).payload()["nodes"]
+    finally:
+        repo.close()
+
+
+@requires_fts5
+def test_a_reader_answers_honestly_while_a_writer_holds_the_index(tmp_path):
+    """D-159. Without WAL a writer locks the whole database.
+
+    A reader during a build then got `database is locked`, which `_index_state`
+    maps to `state='error'` with no counts — and `payload()` renders an absent
+    count as `0`. So the one endpoint that exists to be honest reported
+    `state: error, sources: 0, artifacts: 0` about an index that was intact and
+    whose stored row said `building`. Two `x2knwldg serve` processes reach it:
+    the second one's startup `refresh_index` holds the lock at commit while the
+    first answers `/api/status`.
+    """
+    records = _fixture_project(tmp_path)
+    write_index(tmp_path, records, state="ready")
+
+    repo = SqliteRepository.open(tmp_path)
+    writer = schema.connect(schema.database_path(tmp_path))
+    try:
+        assert (
+            writer.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        ), "the mode this test is about"
+        # A writer mid-transaction, holding everything it is going to hold.
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("DELETE FROM sources")
+
+        status = repo.status()
+        assert status.state == "ready", "not 'error': the index is fine, it is busy"
+        assert status.payload()["counts"]["sources"] > 0, "no fabricated zero"
+        # And the rows it serves are the last committed generation, whole —
+        # not the writer's uncommitted deletion.
+        assert repo.list_sources(SourceQuery()).items
+    finally:
+        writer.rollback()
+        writer.close()
+        repo.close()
+
+
+def test_an_unopenable_index_file_reports_error_rather_than_failing_to_open(tmp_path):
+    """D-160: `SqliteRepository.open` caught only `FileNotFoundError`.
+
+    A file at the index path that cannot be opened at all raises
+    `sqlite3.OperationalError`, which escaped with no `code` and no
+    `http_status` out of `build_repository` and out of `create_app` — so the
+    application failed to *construct* and there was no reader left to say why.
+    """
+    path = schema.database_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.mkdir()  # a directory where the database should be
+
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        status = repo.status()
+        # `error`, not `absent`: there is something here, and it cannot be read.
+        assert status.state == "error"
+        assert status.message and "cannot be opened" in status.message
+        with pytest.raises(IndexUnavailable) as raised:
+            repo.list_sources(SourceQuery())
+        assert raised.value.state == "error"
+        assert raised.value.http_status == 503
     finally:
         repo.close()
 
@@ -1043,5 +1138,130 @@ def test_a_corpus_that_could_not_be_read_whole_reports_an_unknown_total(project)
         assert page.items == hits
         assert page.total is None
         assert page.next_cursor is None
+    finally:
+        repo.close()
+
+
+# ---------------------------------------------------------------------------
+# One walk, one pass (D-188)
+# ---------------------------------------------------------------------------
+
+
+def _many_entities(count: int) -> IndexRecords:
+    return IndexRecords(
+        entities=[
+            {
+                "schema_version": "1.0",
+                "global_id": f"youtube:s:KU-{index:06d}",
+                "source_id": "youtube:s",
+                "source_type": "youtube",
+                "local_id": f"KU-{index:06d}",
+                "kind": "principle",
+                "provenance_class": "source",
+                "label": f"Node {index}",
+            }
+            for index in range(count)
+        ]
+    )
+
+
+def _walk(repo, **filters):
+    """Every page of one filtered walk, and the totals each page reported."""
+    cursor, pages, totals = None, 0, []
+    while True:
+        page = repo.list_entities(EntityQuery(limit=50, cursor=cursor, **filters))
+        pages += 1
+        totals.append(page.total)
+        cursor = page.next_cursor
+        if cursor is None:
+            return pages, totals
+
+
+def test_a_filtered_walk_scans_the_table_once_rather_than_once_per_page(tmp_path):
+    """`_total` restarted from row zero on **every** page, parsing every row.
+
+    `/api/sources/{id}/entities` always supplies a `source_id`, so this was the
+    common path rather than an edge: 80 pages over 4000 entities meant 324,158
+    rows read and JSON-parsed, for a number that is the same on every page of
+    the walk — as `_total`'s own docstring says.
+    """
+    write_index(tmp_path, _many_entities(4000))
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        passes = 0
+        real_scan = repo._scan_total
+
+        def counting(*args, **kwargs):
+            nonlocal passes
+            passes += 1
+            return real_scan(*args, **kwargs)
+
+        repo._scan_total = counting  # type: ignore[method-assign]
+        pages, totals = _walk(repo, source_id="youtube:s")
+        assert pages == 80
+        assert set(totals) == {4000}, "the total is the same on every page, and true"
+        assert passes == 1, f"the table was scanned {passes} times for one walk"
+    finally:
+        repo.close()
+
+
+def test_the_memo_is_dropped_when_the_index_changes_under_the_reader(tmp_path):
+    """Correctness comes from the generation key, not from hoping."""
+    write_index(tmp_path, _many_entities(100))
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        first = repo.list_entities(EntityQuery(source_id="youtube:s", limit=10))
+        assert first.total == 100
+
+        # A rebuild lands: fewer records, a new `built_at`.
+        connection = schema.connect(schema.database_path(tmp_path))
+        try:
+            with connection:
+                connection.execute("DELETE FROM entities WHERE identity > ?", ("youtube:s:KU-000049",))
+                connection.execute(
+                    "INSERT OR REPLACE INTO index_state (id, state, built_at) VALUES (1, 'ready', ?)",
+                    ("2026-02-02T00:00:00+00:00",),
+                )
+        finally:
+            connection.close()
+
+        again = repo.list_entities(EntityQuery(source_id="youtube:s", limit=10))
+        assert again.total == 50, "a stale count is a wrong count"
+    finally:
+        repo.close()
+
+
+@requires_fts5
+def test_a_search_walk_ranks_the_corpus_once(tmp_path):
+    """Every page re-ran the whole FTS retrieval and re-ranked every hit.
+
+    The offset then discarded all but `limit` of it — reintroducing per page
+    the cost ADR 0004's D-042 removed from the oracle, whose own words are
+    "Search costs one pass over the library per repository, not one per page."
+    """
+    hits = [
+        {"type": "knowledge_unit", "id": f"KU-{index:06d}", "score": 1.0 - index / 1000}
+        for index in range(200)
+    ]
+    calls = 0
+
+    def counting_search(connection, query):
+        nonlocal calls
+        calls += 1
+        return SearchCandidates(hits=hits, complete=True)
+
+    write_index(tmp_path, _many_entities(10))
+    repo = SqliteRepository.open(tmp_path, search=counting_search)
+    try:
+        cursor, pages = None, 0
+        while True:
+            page = repo.search(SearchQuery(q="evidence", limit=20, cursor=cursor))
+            pages += 1
+            assert page.total == 200
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+        assert pages == 10
+        assert calls == 1, f"the corpus was ranked {calls} times for one walk"
     finally:
         repo.close()

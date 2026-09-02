@@ -16,8 +16,10 @@
  * new one.
  */
 
+import { useCallback, useState } from "react";
 import { HashRouter, Route, Routes } from "react-router-dom";
 
+import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { Shell } from "./components/Shell";
 import { I18nProvider } from "./i18n";
 import { LibraryView } from "./views/LibraryView";
@@ -37,11 +39,19 @@ export function AppRoutes() {
 }
 
 export function App() {
+  // D-179: the boundary sits *inside* `Shell` so a route that throws leaves the
+  // navigation, the language switch and the skip link reachable -- a reader who
+  // hits one is one click from somewhere that works, rather than looking at a
+  // blank document.
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((value) => value + 1), []);
   return (
     <I18nProvider>
       <HashRouter>
         <Shell>
-          <AppRoutes />
+          <RouteErrorBoundary resetKey={attempt} onRetry={retry}>
+            <AppRoutes key={attempt} />
+          </RouteErrorBoundary>
         </Shell>
       </HashRouter>
     </I18nProvider>

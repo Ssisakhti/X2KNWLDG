@@ -38,5 +38,12 @@
     }
   ],
   "schema_version": "1.0",
-  "video_id": "fixture-partial"
+  "video_id": "fixture-partial",
+  "window_size_sec": 300,
+  "summary": {
+    "total_windows": 2,
+    "covered_windows": 1,
+    "pending_windows": 0,
+    "unresolved_important_items": 1
+  }
 }

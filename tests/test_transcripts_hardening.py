@@ -567,3 +567,163 @@ class CoverageWindowBoundTests(unittest.TestCase):
                 for window in windows:
                     self.assertLessEqual(window["end_sec"], round(duration, 3))
                     self.assertLess(window["start_sec"], window["end_sec"] + 1e-9)
+
+
+class SeparatorlessSrtTests(unittest.TestCase):
+    """D-165: SRT written without blank separators between cues.
+
+    Ordinary output from real muxers, and the trim heuristic that removes the
+    next cue's identifier from this cue's text needed a blank line to fire. So
+    every cue absorbed the next cue's index number — and the corruption landed
+    in the canonical ``transcript.json``, which is the extraction input and,
+    through the segments, the text every evidence excerpt is matched against.
+    """
+
+    SEPARATED = (
+        "1\n00:00:01,000 --> 00:00:03,000\nOne.\n\n"
+        "2\n00:00:03,000 --> 00:00:05,000\nTwo.\n\n"
+        "3\n00:00:05,000 --> 00:00:07,000\nThree.\n"
+    )
+    RUN_TOGETHER = (
+        "1\n00:00:01,000 --> 00:00:03,000\nOne.\n"
+        "2\n00:00:03,000 --> 00:00:05,000\nTwo.\n"
+        "3\n00:00:05,000 --> 00:00:07,000\nThree.\n"
+    )
+
+    def _captions(self, text):
+        with tempfile.TemporaryDirectory() as directory:
+            return parse_transcript_file(_write(directory, "cues.srt", text))
+
+    def test_the_text_is_the_same_with_and_without_blank_separators(self):
+        expected = [(1.0, 3.0, "One."), (3.0, 5.0, "Two."), (5.0, 7.0, "Three.")]
+        for label, text in (
+            ("with separators", self.SEPARATED),
+            ("without separators", self.RUN_TOGETHER),
+        ):
+            with self.subTest(label):
+                captions = self._captions(text)
+                self.assertEqual(
+                    [(c["start_sec"], c["end_sec"], c["text"]) for c in captions], expected
+                )
+
+    def test_the_identifiers_survive_too(self):
+        captions = self._captions(self.RUN_TOGETHER)
+        self.assertEqual([c.get("original_id") for c in captions], ["1", "2", "3"])
+
+    def test_a_caption_ending_in_a_number_keeps_it_when_a_blank_line_follows(self):
+        """Only a bare integer *immediately* before a timing line is an index."""
+        text = (
+            "1\n00:00:01,000 --> 00:00:03,000\nThe answer is 42\n\n"
+            "2\n00:00:03,000 --> 00:00:05,000\nTwo.\n"
+        )
+        self.assertEqual([c["text"] for c in self._captions(text)], ["The answer is 42", "Two."])
+
+
+class WideFractionTests(unittest.TestCase):
+    """D-165: the fraction was capped at three digits.
+
+    ``00:00:01,0000`` matched no timing grammar, so every timing line fell
+    through to body text and the file was rejected as *"No timestamped cues
+    were found"* — contradicting the docstring's promise that a damaged timing
+    line reaches ``parse_timestamp`` and is reported.
+    """
+
+    def test_a_four_digit_fraction_is_read_as_a_decimal_fraction(self):
+        self.assertEqual(parse_timestamp("00:00:01,0000"), 1.0)
+        self.assertEqual(parse_timestamp("00:00:01.2500"), 1.25)
+        self.assertEqual(parse_timestamp("00:00:01,5"), 1.5)
+
+    def test_a_file_using_them_parses_rather_than_being_rejected(self):
+        text = "1\n00:00:01,0000 --> 00:00:02,5000\nWide fraction.\n"
+        with tempfile.TemporaryDirectory() as directory:
+            captions = parse_transcript_file(_write(directory, "wide.srt", text))
+        self.assertEqual(
+            [(c["start_sec"], c["end_sec"], c["text"]) for c in captions],
+            [(1.0, 2.5, "Wide fraction.")],
+        )
+
+
+class EmptyTranscriptTests(unittest.TestCase):
+    """D-167: timing, no words, ``PASS``, exit ``0``.
+
+    A caption source that renames its text field produces cues that clean away
+    to nothing, and ``_canonical_caption`` marks each one ``non_speech`` — the
+    ``[music]`` concession — which is exactly what disarms the ``empty_text``
+    check. ``character_count`` was already computed and read by nothing.
+    """
+
+    def _captions(self, texts):
+        return captions_from_items(
+            [
+                {"text": text, "start": float(index * 10), "duration": 10.0}
+                for index, text in enumerate(texts)
+            ],
+            language="en",
+            source="youtube_caption",
+        )
+
+    def test_a_transcript_with_no_text_at_all_fails(self):
+        captions = self._captions(["", "", ""])
+        result = transcript_integrity(captions)
+        self.assertEqual(result["stats"]["character_count"], 0)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("transcript_has_no_text", {e["code"] for e in result["errors"]})
+
+    def test_the_music_concession_still_holds_for_a_single_cue(self):
+        """One non-speech cue among real ones keeps its timing and passes."""
+        captions = self._captions(["Something said.", "[music]", "Something else."])
+        result = transcript_integrity(captions)
+        self.assertEqual(result["status"], "PASS", result["errors"])
+        self.assertGreater(result["stats"]["character_count"], 0)
+        self.assertEqual(len(captions), 3, "the silent cue keeps its place in the timeline")
+
+    def test_an_empty_caption_list_is_not_a_textless_transcript(self):
+        """Nothing to say about a transcript with no captions; other checks own that."""
+        result = transcript_integrity([])
+        self.assertNotIn("transcript_has_no_text", {e["code"] for e in result["errors"]})
+
+
+class MediaDurationCoverageTests(unittest.TestCase):
+    """D-168: coverage was measured against the transcript, not the video.
+
+    ``fetch_metadata`` discarded ``duration`` from the yt-dlp info dict, so
+    ``duration_sec`` became the caption span, the windows were minted over that
+    span, and ``timeline_not_fully_covered`` compared coverage against it too.
+    A caption track covering the first ten minutes of a two-hour talk therefore
+    yielded a fully covered timeline — and no comparison between those three
+    numbers could ever detect the truncation, because all three derived from
+    the same truncated number.
+    """
+
+    #: Ten minutes of captions on a two-hour video.
+    CAPTIONS = [
+        {
+            "segment_id": f"cap_{index:06d}",
+            "start_sec": float(index * 60),
+            "end_sec": float((index + 1) * 60),
+            "text": "Something said.",
+        }
+        for index in range(10)
+    ]
+
+    def test_windows_are_minted_over_the_video_when_its_length_is_known(self):
+        captions_only = create_pending_coverage(self.CAPTIONS, "vid")
+        self.assertEqual(len(captions_only["windows"]), 2, "600s at 300s per window")
+
+        whole_video = create_pending_coverage(self.CAPTIONS, "vid", duration_sec=7200.0)
+        self.assertEqual(len(whole_video["windows"]), 24, "7200s at 300s per window")
+        self.assertEqual(whole_video["windows"][-1]["end_sec"], 7200.0)
+
+    def test_the_windows_past_the_captions_have_nothing_to_audit(self):
+        document = create_pending_coverage(self.CAPTIONS, "vid", duration_sec=7200.0)
+        with_captions = [w for w in document["windows"] if w["caption_ids"]]
+        self.assertEqual(len(with_captions), 2)
+        self.assertTrue(
+            all(not w["caption_ids"] for w in document["windows"][2:]),
+            "twenty-two windows of video no caption covers, stated rather than hidden",
+        )
+
+    def test_a_shorter_reported_duration_never_shrinks_the_timeline(self):
+        """The captions are evidence; a duration that contradicts them loses."""
+        document = create_pending_coverage(self.CAPTIONS, "vid", duration_sec=60.0)
+        self.assertEqual(document["windows"][-1]["end_sec"], 600.0)

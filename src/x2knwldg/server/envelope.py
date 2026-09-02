@@ -16,6 +16,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from ..constants import ERROR_CODES as ERROR_CODES
+
 #: ``ApiVersion`` — a const in the frozen document. A breaking change becomes
 #: ``schemas/api/v2/`` and a ``/api/v2/`` prefix, leaving these paths on v1
 #: (D-026), so this string is fixed for the life of ``schemas/api/v1/``.
@@ -28,16 +30,13 @@ API_VERSION = "v1"
 #: records under a new number they did not change under.
 SCHEMA_VERSION = "1.0"
 
-#: The closed ``ErrorCode`` vocabulary. Listed here so a typo in a route is a
-#: failing assertion rather than a body that quietly violates the contract.
-ERROR_CODES = (
-    "invalid_id",
-    "invalid_request",
-    "not_found",
-    "unavailable",
-    "index_unavailable",
-    "internal",
-)
+#: The closed ``ErrorCode`` vocabulary, so a typo in a route is a failing
+#: assertion rather than a body that quietly violates the contract.
+#:
+#: Re-exported from :mod:`x2knwldg.constants` (D-184), which is where it lives
+#: now that the MCP transport reads the same one. Every existing
+#: ``from .envelope import ERROR_CODES`` keeps working.
+ERROR_CODES = ERROR_CODES
 
 #: ``ErrorBody.message`` is ``maxLength: 1024`` in the frozen document.
 MAX_MESSAGE = 1024

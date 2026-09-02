@@ -67,6 +67,12 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
           }
@@ -109,6 +115,9 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
           }
@@ -144,6 +153,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
@@ -197,6 +209,9 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
           }
@@ -243,6 +258,9 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
           }
@@ -279,6 +297,9 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
           }
@@ -314,6 +335,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
@@ -402,6 +426,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
           }
@@ -462,6 +489,9 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
           }
@@ -506,6 +536,9 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
@@ -560,6 +593,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "$ref": "#/components/responses/IndexUnavailable"
@@ -1390,10 +1426,12 @@
             }
           },
           "edges": {
+            "description": "The relations among the nodes on this page, at most `maxItems` of them. `limit` bounds the *nodes*, and an edge list is quadratic in the nodes it connects, so the two are not the same size; `truncated` is true when either was cut.",
             "type": "array",
             "items": {
               "$ref": "../../v1/indexed_relation.schema.json"
-            }
+            },
+            "maxItems": 5000
           },
           "truncated": {
             "description": "True when `limit` cut the result short. Stated rather than implied, so the Map never presents a partial graph as the whole one.",
@@ -1451,10 +1489,12 @@
             }
           },
           "edges": {
+            "description": "The relations among the nodes on this page, at most `maxItems` of them. `limit` bounds the *nodes*, and an edge list is quadratic in the nodes it connects, so the two are not the same size; `truncated` is true when either was cut.",
             "type": "array",
             "items": {
               "$ref": "../../v1/indexed_relation.schema.json"
-            }
+            },
+            "maxItems": 5000
           },
           "truncated": {
             "type": "boolean"
@@ -1493,8 +1533,8 @@
           }
         }
       },
-      "NotFound": {
-        "description": "The id is well-formed but names nothing (`not_found`), or names an artifact whose file is absent (`unavailable`).",
+      "IndexUnavailable": {
+        "description": "The index is absent, building, or in error, so no honest answer can be given yet (`index_unavailable`).",
         "content": {
           "application/json": {
             "schema": {
@@ -1503,8 +1543,18 @@
           }
         }
       },
-      "IndexUnavailable": {
-        "description": "The index is absent, building, or in error, so no honest answer can be given yet (`index_unavailable`).",
+      "InternalError": {
+        "description": "The server could not complete the request (`internal`). Declared because the handler that produces it exists: any unforeseen failure is rendered in this envelope rather than as a framework traceback, and a contract that does not say so is a contract a client cannot hold the server to.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "The id is well-formed but names nothing (`not_found`), or names an artifact whose file is absent (`unavailable`).",
         "content": {
           "application/json": {
             "schema": {

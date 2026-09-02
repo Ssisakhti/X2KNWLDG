@@ -3,8 +3,8 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0, 1 and 2 complete — the Knowledge Map has a renderer, a graph, an address, a visual grammar, a search rail, a bounded card constellation, a complete related list, Quick Read, a stated state for everything it cannot show, a DOM companion listing everything it draws, foldable panels, touch targets, reduced motion and the Persian pass; and `T-209` has **opened it in a browser** — 27 automated specs over the built bundle and the real API, green on the real 86/118 library and on the committed fixtures, which is where four defects no jsdom test could reach were found and fixed (D-145–D-149). Next: Phase 3 (Canvas), which needs its own decomposition
-**Last updated:** 2026-09-02
+**Current stage:** Phases 0, 1 and 2 are complete. Phase 2.1 (`T-210`) is approved and blocks Phase 3: the functional Map passed its real-browser gate, but the user rejected its composition against the approved visual references. `T-211`, high-fidelity Explore and Focus mockups with explicit approval before production UI work, is the only claimable task (D-150–D-154; [ADR 0006](adr/0006-map-visual-quality.md))
+**Last updated:** 2026-09-03
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
 
@@ -249,7 +249,7 @@ UX principles:
 - Selecting a node in the Map, Canvas, or Reader must refer to one shared entity.
 - Heavy details load only on selection.
 - Colour must not be the only indicator of provenance; icon, label, or line style must also be used.
-- The exact visual language is settled after wireframes, but distinguishing these three categories is mandatory:
+- The exact visual language is approved in `T-211`'s high-fidelity mockups, but distinguishing these three categories is mandatory:
   - source-grounded
   - derived
   - user-authored
@@ -310,6 +310,85 @@ The stage does not become an HTML renderer. It carries one primary selected card
 transient Peek and only density-budgeted neighbour previews. Sigma/WebGL retains every loaded
 graph mark; every neighbour returned by the bounded API is also present in the semantic
 related list even when its card cannot fit on stage.
+
+### 7.2 Approved visual-quality direction
+
+The Phase 2 journey and content rules are correct, but the first implementation does not meet
+the visual bar of the references: the stage is pushed down by document-flow controls, the
+selected item has no commanding centre, and ForceAtlas labels, cards and edges compete in one
+layer. Phase 2.1 changes the composition, not the data model.
+
+The Map has two modes over the same snapshot and selection identity:
+
+- **Explore** is a quiet topology overview. Marks and structure dominate; text appears through
+  semantic zoom, hover, keyboard focus or selection. No large card field covers the graph.
+- **Focus** is a content-reading composition called **Directional Orbit**. The selected card is
+  fixed at the visual centre. Incoming relations occupy the left side, outgoing relations the
+  right, and actual hop count determines radial distance. Relation names are horizontal pills
+  on readable paths. Unrelated topology remains present but faint.
+
+Explore composition:
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Knowledge Canvas   [Library] [Map: Explore]      [Search] [Filters] [EN/FA] │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ┌ Search drawer (closed) ┐                         86 nodes · 118 relations │
+│ └────────────────────────┘                         [Legend] [−] [fit] [+]   │
+│                                                                              │
+│          ·───◇                 ○                                              │
+│        ╱       ╲             ╱   ╲       quiet full-graph topology           │
+│      ○           ·─────────□       ·      labels on zoom / hover / focus      │
+│       ╲         ╱            ╲   ╱                                           │
+│        ·───────·               ○                                             │
+│                                                                              │
+│  status stays available but compact; no panel pushes this stage downward     │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+Focus / Directional Orbit composition:
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ [← Explore]  Focus · 2 hops                         [Search] [Quick Read ▸]  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                 hop 2             hop 1             hop 1          hop 2     │
+│                                                                              │
+│ ┌ related preview ┐   ┌ related preview ┐   ┌ related preview ┐   ┌ preview┐│
+│ │ verbatim text…  │───┤ verbatim text…  │   │ verbatim text…  ├───│ text…  ││
+│ └───────●─────────┘   └───────●─────────┘   └─────────●───────┘   └──●─────┘│
+│          ╲             [supports →]       [← derived from]          ╱        │
+│           ╲                    ╲           ╱                       ╱         │
+│ incoming   ╲          ┌─────────●─────────┐             outgoing  ╱          │
+│  LEFT       ──────────┤ SELECTED KNOWLEDGE├────────────────────── RIGHT       │
+│                       │ complete readable │                                 │
+│                       │ statement preview │   ┌ Quick Read drawer ────────┐ │
+│                       │ source · kind · at │   │ full statement             │ │
+│                       └─────────●─────────┘   │ evidence + locator          │ │
+│                                               │ active relations            │ │
+│   unrelated graph remains as low-contrast context                           │ │
+│                                               └────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+These diagrams specify hierarchy and geometry, not final styling. `T-211` must replace them
+with screenshot-level mockups and obtain explicit user approval before implementation.
+
+Visual language:
+
+- neutral charcoal field and neutral cards; one strong accent for the active reading path;
+- provenance remains a shape/border/badge distinction, with hue only as reinforcement;
+- kind colour is a small cue, not a competing full-card fill;
+- card content follows D-131 and the existing formatter: verbatim, visibly truncated where
+  bounded, with the complete text in Quick Read;
+- readable card content has an exclusion zone: no graph label or edge may pass through it;
+- drawers are bounded overlays, with one primary drawer competing with the stage at a time;
+- the semantic DOM order, keyboard route, bidi rules and honest states remain primary even
+  when the visual layout uses floating surfaces.
+
+The four references contribute mood, hierarchy, paths, ports, a definite centre and editorial
+radial composition. They do not justify copying their domain-specific workflow semantics or
+inventing radar values, community clusters, importance, strength or similarity.
 
 ## 8. System architecture
 
@@ -719,6 +798,10 @@ Excluded from the current choice because of its production licence and the requi
 - The card overlay is bounded and measured: one selected card, one Peek and only neighbour
   previews that fit the stated density policy. Every returned neighbour remains in WebGL and
   the semantic list, so performance culling is never silent data omission (D-132, R20).
+- Phase 2.1 qualifies the placement, not the bound: Explore remains the WebGL overview, while
+  Focus may assign deterministic Directional Orbit presentation positions to the bounded
+  neighbourhood. Those positions never become `GraphSnapshot` attributes or stored graph data
+  (D-152, R10).
 - Card content is copied from the API; visible preview truncation is permitted, client-authored
   summaries and inferred importance/cluster/quantitative axes are not (D-131, D-133).
 - The full graph and the Canvas layout are two separate states.
@@ -888,6 +971,45 @@ Moving a selected node or subgraph to the Canvas is deliberately not an acceptan
 for this phase: the board schema and write API do not exist until Phase 3. Phase 2 may expose
 selection in a form Phase 3 can consume, but it must not guess that contract.
 
+### Phase 2.1 — Map visual-quality remediation
+
+**Goal:** bring the already-correct Map journey to the visual and interaction quality of the
+approved references before building another major surface on top of it.
+
+Deliverables:
+
+- User-approved high-fidelity Explore and Focus mockups before production implementation
+- Full-viewport Map workspace with compact floating status/controls and bounded drawers
+- Quiet Explore overview with semantic label reveal rather than persistent label noise
+- Directional Orbit Focus layout using only real direction and hop count
+- Selected Knowledge Card as the definite centre, with readable neighbouring previews,
+  visible ports and horizontal active-relation pills
+- Editorial dark/light visual system with restrained colour, explicit type/spacing hierarchy
+  and provenance distinguishable without colour
+- Screenshot-backed real-browser QA at the review viewport and existing tested breakpoints,
+  in English/Persian and normal/reduced motion
+
+Acceptance criteria:
+
+- The user approves both high-fidelity mockups before production UI changes begin.
+- At 2852×1688, the graph is above the fold and Search → Focus → Quick Read requires no
+  document scrolling.
+- Focus is unmistakably central; incoming relations are left, outgoing relations right, and
+  ring/distance means only the returned hop count.
+- No two readable cards overlap; no card, relation pill or important text is clipped; no graph
+  label or active edge runs through card content.
+- Unrelated topology remains available as low-contrast context and never competes with the
+  active reading path.
+- Explore and Focus use the same `GraphSnapshot`, selected `global_id`, neighbourhood,
+  formatter and URL history. The visual layout creates no second data truth.
+- Dark/light and English/Persian preserve the same hierarchy; keyboard, touch, reduced-motion,
+  no-WebGL and partial/refused-data journeys remain honest and usable.
+- All Phase 2 behavioural, accessibility and renderer-lifecycle gates remain green, and raw,
+  canonical and workspace files remain unchanged.
+
+Phase 3 is blocked until these criteria pass. The implementation units and their serial order
+are `T-211`–`T-215` in `PROJECT_MANAGEMENT.md` §5.
+
 ### Phase 3 — Canvas and board persistence
 
 **Goal:** building a personal workspace on top of existing knowledge.
@@ -1040,6 +1162,22 @@ Mitigation: build schema-valid fixtures clearly labelled as test data for `PARTI
 
 Mitigation: pin versions at implementation time; review licences before any major upgrade; do not use tldraw in its current state.
 
+### Risk 9: functional completion is mistaken for visual acceptance
+
+Status: **open; blocks Phase 3.** The Map passes its behavioural browser gate, but the reviewed
+composition does not meet the user's reference bar.
+
+Mitigation: Phase 2.1 separates visual acceptance from Phase 2 history. `T-211` requires
+approved Explore and Focus mockups before implementation, and `T-215` requires final browser
+captures plus geometry assertions. A green behavioural suite alone cannot close the risk.
+
+### Risk 10: Focus becomes a second graph or invents meaning
+
+Mitigation: Directional Orbit is presentation derived from the existing snapshot, selection
+and bounded neighbourhood. It may use returned direction and hop count only; it cannot mint an
+identity, infer importance/clusters, merge neighbourhood data into the snapshot or persist its
+positions as graph truth. Explore restores deterministically.
+
 ## 19. Recorded decisions
 
 This table is the canonical index of decisions and answers "what was decided". The reasoning, rejected alternatives, and consequences are recorded in `docs/adr/`. The ADR convention is described in `docs/adr/README.md`.
@@ -1110,15 +1248,36 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-131 | Search, Peek, selected and related cards use only verbatim API records; on-stage previews may visibly truncate, while Quick Read exposes the complete stored statement and recorded evidence; no client-generated summary is allowed ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | `EntityRef.label` is already the pipeline's selected `normalized_statement`/content and its locator may state an excerpt and time. Summarising again would introduce an unproven claim between canonical evidence and the user |
 | D-132 | Focus is a bounded card constellation over the same graph: one primary selected card, at most one transient Peek, active relation labels and density-budgeted neighbour previews; every returned neighbour is also present in the complete semantic related list ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Permanent HTML for every node defeats WebGL and creates overlap, while circles alone recreate the blind-click problem. Sigma's graph-to-viewport overlay pattern supports a bounded focus layer, and the semantic list prevents a viewport budget from becoming silent data loss |
 | D-133 | Focus selection pushes `mapLink` history so Back restores prior focus without leaving Map; Peek is history-free. Grouping/ordering use only stated relation, direction, vocabulary, provenance, source and identity, never inferred importance or decorative quantities ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | A navigation trail preserves context; hover entries would pollute it. The approved radial and infographic references justify visual hierarchy and labelled paths, not a radar metric or cluster the project does not hold |
+| D-134 | A bounded neighbourhood is a transient projected structure and is never merged into the filtered `GraphSnapshot` ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | It answers a different question from the filtered graph; merging it would make nodes, totals and completion disagree |
+| D-135 | Edge events stay disabled; relations, direction, vocabulary and provenance are named in the DOM ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Selection addresses entities, not relations, and active-edge styling derives from endpoints without another hit-test path |
+| D-136 | Neighbourhood depth is a bounded view control, not `mapLink` URL state ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | It changes a transient request rather than graph scope or selected identity; invalid values are ignored rather than clamped |
+| D-137 | The on-stage card overlay is presentation-only, pointer-free and hidden from accessibility APIs; its actions live in the semantic DOM ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | This avoids a second interaction/accessibility tree and keeps the renderer from destroying owned React content |
+| D-138 | On-stage cards are placed only when the camera settles and are hidden while it moves ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Per-frame HTML placement would repeatedly re-render reading surfaces and their omission accounting |
+| D-139 | Map honesty is expressed by two total state functions that preserve unasked ≠ empty, partial ≠ whole, refused ≠ empty and undrawn ≠ absent ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Distributed render-site conditions had no single statement of these required distinctions |
+| D-140 | A renderer module that never loads and a renderer that refuses its current container are separate states with separate messages ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | The first is a permanent capability absence; the second normally recovers after layout |
+| D-141 | The canvas is described as drawn, and receives `role="img"`, only while a live renderer holds the current graph ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | React renders before its effects attach the renderer; claiming a picture earlier is false |
+| D-142 | A non-windowed semantic DOM companion lists every drawn entity in API order, initially bounded at 25 with the remainder counted ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | The graph must remain reachable without pointer, WebGL or an initial search, and degree ordering would invent importance |
+| D-143 | Map panels share one `Disclosure`; its summary states its count and its open state is synchronized without fighting the asynchronous `toggle` event ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Multiple independent disclosures compete, while a controlled `<details>` can revert a later programmatic state |
+| D-144 | Reduced motion is handled in CSS and at the JavaScript camera boundary; touch targets are at least 44 px and narrow screens retain a usable stage ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | CSS cannot reach Sigma's camera animation, and zero/near-zero stages create misleading renderer states |
+| D-145 | Card placement tests measured footprints in four orientations, includes the pointed mark in its exclusion rectangle, counts `no_room`, and forces at most four neighbour labels ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | The browser showed the former fixed grid both rejecting cards that fit and accepting severe overlaps |
+| D-146 | A new focus frames itself and its drawn neighbours once, with the shared reduced-motion argument ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Selection and camera were disconnected, leaving the focus small or off-stage and preventing usable card placement |
+| D-147 | A renderer that refuses its container explicitly releases its WebGL context; CSS stage minimums are load-bearing for readability ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | Browser testing found each refusal leaking a live context, while Sigma accepts any non-zero container even when unreadable |
+| D-148 | Escape is read on `window`, and only while a Peek is open ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | A canvas does not focus the route element, so an element-local handler could not dismiss pointer-created Peek state |
+| D-149 | `interpolate` supports the English singular/plural form `{count|singular|plural}` chosen at one; Persian does not use it ([ADR 0005](adr/0005-knowledge-map-client.md)) | accepted | The real-browser walk exposed three English singular errors; Persian follows a different rule and needs no such branch |
+| D-150 | Phase 2 remains functionally complete; Phase 2.1 (`T-210`) is a visual-quality gate that blocks Phase 3 ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The behavioural gate passed, but the user rejected the current composition against the approved references |
+| D-151 | High-fidelity Explore and Focus screenshots require explicit user approval before production UI work starts ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Visual hierarchy and geometry must be agreed before refactoring shared Map surfaces |
+| D-152 | Explore and Focus are different presentations of the same graph; Focus uses a Directional Orbit with centre, side and radius derived only from selection, direction and hop ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Global topology and local reading need different compositions, while invented importance, clusters and metrics remain forbidden |
+| D-153 | The Map is a viewport workspace with compact floating controls and bounded Search/related/Quick Read drawers, while truthful DOM order and keyboard access remain intact ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Document-flow panels currently push the core graph and reading journey below the fold |
+| D-154 | An editorial visual system plus screenshot-based browser QA is mandatory: no clipping, card overlap or labels beneath cards; relation pills stay horizontal; light/dark and English/Persian are verified ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Behavioural tests alone did not reveal the visual hierarchy, collision and polish failures seen in the reviewed screenshot |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
 > already-accepted rows here is documentation consolidation work, not part of the Phase 2
-> implementation and not a reason to renumber D-117–D-133.
+> implementation and not a reason to renumber D-117–D-154.
 
 ## 20. Open questions
 
-These do not block Phase 2 and must be answered at the appropriate later phase:
+These board/media questions do not block Phase 2.1 and must be answered at the appropriate later phase:
 
 - Should boards enter Git by default, or only have a local backup?
 - Should user notes stay limited to plain Markdown, or is rich text required?
@@ -1127,7 +1286,6 @@ These do not block Phase 2 and must be answered at the appropriate later phase:
 - Can one entity have independent view state across multiple boards? Probably yes, but the schema must be fixed.
 - Is a summary snapshot of a node inside a board needed to survive source deletion?
 - How much recovery does the board and attachment deletion policy require?
-- The final visual theme and design tokens are decided after wireframes.
 
 An agent must not guess the answers to these if the decision would cause a noticeable change in the product or the schema.
 
@@ -1214,14 +1372,23 @@ An agent must not guess the answers to these if the decision would cause a notic
 ### Planned / not started
 
 - [x] Phase 2 / T-209: the real-browser anti-pogo phase gate over everything `T-202`–`T-208`
-  built — [`web/browser/`](../web/browser/gate.ts), 30 specs over the production bundle and
+  built — [`web/browser/`](../web/browser/gate.ts), 31 specs over the production bundle and
   the real API in Google Chrome on the target machine, plus the same walk on a software
   rasteriser; the WebGL context leak on a refused container, the camera that had never been
   told about selection, the density grid that answered the wrong question and the Escape key
   the canvas could not reach (D-145–D-149)
 - [x] **Phase 2 complete** — every clause of the Phase 2 gate in `docs/PROJECT_MANAGEMENT.md`
   §5 is met, and met in a browser
-- [ ] Canvas
+- [ ] **Phase 2.1 / T-210 — Map Visual Quality Pass** — approved corrective epic; preserves
+  Phase 2 functionality while replacing the weak shared composition with distinct Explore
+  and Focus presentations (D-150–D-154; [ADR 0006](adr/0006-map-visual-quality.md))
+- [ ] **T-211 — next and only claimable task:** high-fidelity Explore and Focus mockups at the
+  review viewport, followed by explicit user approval before production UI work
+- [ ] `T-212` viewport workspace shell — blocked by approval of `T-211`
+- [ ] `T-213` Directional Orbit Focus composition — blocked by `T-212`
+- [ ] `T-214` editorial visual system — blocked by `T-213`
+- [ ] `T-215` real-browser visual-quality gate — blocked by `T-212`–`T-214`
+- [ ] Canvas — Phase 3, blocked by completion of `T-210`
 - [ ] Pen annotations
 - [ ] Adapters for future sources
 
@@ -1229,35 +1396,29 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**Phase 2 is finished.** `T-209` opened the Map in a browser, which is what the phase had
-never had: 30 specs in [`web/browser/`](../web/browser/gate.ts) walk the built bundle over
-the real API in Google Chrome on the target machine — the journey, the seven states, the
-keyboard with and without a renderer, a coarse pointer, Persian, reduced motion, the WebGL
-context count and the anti-pogo baseline — and pass again on a software rasteriser and on
-the committed fixtures. Four defects that only a browser could show were found and fixed
-(D-145–D-149; ADR 0005 § *Walk result* records them and the measurements).
+**Claim only `T-211`.** Phase 2 remains complete as a functional milestone, but Phase 3 is
+blocked by the approved `T-210` visual-quality epic. Production implementation must not begin
+until the user approves two screenshot-level compositions.
 
-**The next execution session opens Phase 3 (Canvas), and its first act is to decompose it**,
-the way `T-201` was decomposed before anything was built. Nothing in Phase 3 is claimable
-yet. Before writing any of it:
+The `T-211` session must:
 
-1. Read §6.4 and §13 of this document for what a board is, §16 Phase 3 for the deliverables,
-   and `docs/PROJECT_MANAGEMENT.md` §5 for the phase gate the Map has just cleared — the
-   Canvas inherits the Map's boundaries rather than restating them.
-2. Take the transfer seriously as a *contract* question first. A board that stores a
-   knowledge unit stores an **identity**, never a copy of the statement: the Map's whole
-   argument is that what is on screen is the record's own text, and the first Canvas that
-   writes its own copy of a statement breaks D-131 permanently. The board schema and its
-   write API do not exist yet, and inventing them in a component is the failure to avoid.
-3. Reuse, do not reimplement. `PROJECT_MANAGEMENT.md` §10 and §11 list what already exists
-   and what must not grow a second copy: one graph store, one selection grammar, one style
-   table, one card-content formatter, one renderer lifecycle, one disclosure, one reader of
-   the reduced-motion query. A Canvas is a fourth caller of the selection identity, not a
-   second one.
-4. Extend the browser gate rather than starting a second harness. It is
-   `web/browser/`, it costs one `npm run browser`, and it is the only witness this project
-   has for layout, focus order, pointer behaviour and WebGL lifetime. The pattern to copy is
-   that no spec holds a number the server can state.
+1. Read §7.2, §16 Phase 2.1, [ADR 0006](adr/0006-map-visual-quality.md) and the detailed task
+   row in `PROJECT_MANAGEMENT.md` §5.
+2. Capture the current UI at **2852×1688** as the comparison baseline and use realistic
+   long-form knowledge in both English and Persian.
+3. Produce a high-fidelity **Explore** screenshot: full usable viewport, quiet graph, compact
+   toolbar, semantic label reveal and a Search drawer that does not push the graph down.
+4. Produce a high-fidelity **Focus / Directional Orbit** screenshot: selected Knowledge Card
+   at the centre, incoming left, outgoing right, hop rings, ports, horizontal relation pills,
+   de-emphasised background topology and a bounded Quick Read drawer.
+5. State dark/light, narrow-screen, keyboard-focus and reduced-motion behaviour, and annotate
+   how each reference influenced the result without copying its domain semantics.
+6. Present both screenshots to the user and stop for explicit approval. Do not edit production
+   Map code as part of `T-211`.
+
+After approval only, execute serially: `T-212` workspace shell → `T-213` Directional Orbit →
+`T-214` visual system → `T-215` browser visual gate. All reuse boundaries from Phase 2 remain
+binding, especially one graph store, identity, URL grammar, formatter and renderer lifecycle.
 
 ## 24. Research references
 
@@ -1300,6 +1461,20 @@ yet. Before writing any of it:
 - FastAPI: <https://fastapi.tiangolo.com/>
 
 ## 25. Document change history
+
+### 2026-09-03 — Map visual-quality remediation approved
+
+- Preserved Phase 2 and `T-201` as functionally complete, but inserted Phase 2.1 / `T-210` as
+  a visual release gate before Phase 3 after the user rejected the reviewed composition.
+- Added §7.2's Explore and Directional Orbit Focus direction, including updated ASCII
+  compositions derived from the four approved references without inventing graph meaning.
+- Accepted [ADR 0006](adr/0006-map-visual-quality.md) and D-150–D-154: separate Explore/Focus
+  presentations, viewport workspace, user-approved high-fidelity mockups before production
+  work, and screenshot-backed browser QA.
+- Decomposed execution into `T-211`–`T-215`; `T-211` is the only claimable task and Phase 3 is
+  blocked until the final visual gate passes.
+- Consolidated Phase 2 implementation decisions D-134–D-149 into the canonical §19 ledger;
+  their detailed live rationale remains in `PROJECT_MANAGEMENT.md` §6 and ADR 0005.
 
 ### 2026-09-02 — Phase 2 planning
 
@@ -1347,7 +1522,7 @@ yet. Before writing any of it:
 
 - `T-209` completed, and with it Phase 2. The gate is `web/browser/` on
   `@playwright/test@1.62.1`: the built bundle, the real API, Google Chrome 152 on the target
-  machine through `ANGLE Metal`, and the same 30 specs green on Playwright's bundled Chromium
+  machine through `ANGLE Metal`, and the same 31 specs green on Playwright's bundled Chromium
   over SwiftShader and on the committed fixtures.
 - D-145 (the card policy tests measured footprints for overlap in four orientations, and the
   forced label budget is 4), D-146 (a new focus is framed with its drawn neighbours),

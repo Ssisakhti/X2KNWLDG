@@ -40,6 +40,7 @@ from x2knwldg.validators import (
     MAX_AUDIT_ATTEMPTS,
     MIN_EVIDENCE_EXCERPT_CHARS,
     validate_coverage,
+    validate_coverage_links,
     validate_knowledge_units,
     validate_provenance,
     validate_relationships,
@@ -569,8 +570,10 @@ def test_a_string_timestamp_cannot_clear_apply_bundle(tmp_path: Path) -> None:
     shutil.copytree(fixture, run_dir)
 
     units = json.loads((fixture / "knowledge_units.json").read_text())["units"]
+    # D-169: exactly the schema's keys. This bundle used to carry a
+    # `schema_version` the schema does not declare, and `additionalProperties:
+    # false` was enforced nowhere at runtime, so it was silently accepted.
     bundle = {
-        "schema_version": "1.0",
         "knowledge_units": units,
         "relationships": json.loads((fixture / "relationships.json").read_text())[
             "relationships"
@@ -809,6 +812,74 @@ COVERAGE_CODES: list[tuple[str, Any]] = [
             windows=[_window(unresolved_items=[{"type": "unclear", "note": "n"}])],
         ),
     ),
+    # D-164: the window geometry, and the summary that used to be write-only.
+    ("missing_window_size", _coverage(status="PASS", audit_attempts=1)),
+    ("invalid_window_size", _coverage(window_size_sec=0)),
+    (
+        "window_wider_than_window_size",
+        _coverage(
+            window_size_sec=4,
+            windows=[_window(start_sec=0.0, end_sec=TRANSCRIPT_END)],
+        ),
+    ),
+    ("coverage_summary_not_object", _coverage(summary=[])),
+    (
+        "coverage_summary_disagrees_with_windows",
+        _coverage(
+            summary={
+                "total_windows": 1,
+                "covered_windows": 0,
+                "pending_windows": 0,
+                "unresolved_important_items": 0,
+            }
+        ),
+    ),
+]
+
+#: D-164. The rules that need both documents, so they belong to neither alone:
+#: a window's citations, checked against the window's own span.
+COVERAGE_LINK_CODES: list[tuple[str, Any, Any]] = [
+    (
+        "coverage_references_unknown_unit",
+        _coverage(windows=[_window(knowledge_units=["KU-999999"])]),
+        _units(_source_unit()),
+    ),
+    (
+        "window_knowledge_units_not_array",
+        _coverage(windows=[_window(knowledge_units="KU-000001")]),
+        _units(_source_unit()),
+    ),
+    (
+        "coverage_pass_omits_source_units",
+        _coverage(status="PASS", windows=[_window(knowledge_units=[], omitted_items=[
+            {"type": "sponsor", "note": "A sponsor read."}
+        ])]),
+        _units(_source_unit()),
+    ),
+    # The bypass the audit demonstrated: every window marked covered, every one
+    # naming the same unit from the first ten seconds.
+    (
+        "coverage_unit_outside_window",
+        _coverage(
+            window_size_sec=5,
+            windows=[
+                _window(window_id="CW-0001", start_sec=0.0, end_sec=5.0),
+                _window(window_id="CW-0002", start_sec=5.0, end_sec=TRANSCRIPT_END),
+            ],
+        ),
+        _units(_source_unit(source={
+            "video_id": VIDEO_ID,
+            "segment_id": "seg_000001",
+            "start_sec": 0.0,
+            "end_sec": 4.0,
+            "evidence_excerpt": SEGMENT_TEXT,
+        })),
+    ),
+    (
+        "covered_window_without_evidence_in_it",
+        _coverage(windows=[_window(knowledge_units=["KU-D-0001"])]),
+        _units(_source_unit(), _derived_unit()),
+    ),
 ]
 
 WARNING_CODES: list[tuple[str, Any]] = [
@@ -866,6 +937,82 @@ def test_the_unit_validator_warns(code: str, document: Any) -> None:
     assert code in {warning["code"] for warning in result["warnings"]}
 
 
+@pytest.mark.parametrize(
+    "code,coverage,units",
+    COVERAGE_LINK_CODES,
+    ids=[code for code, _, _ in COVERAGE_LINK_CODES],
+)
+def test_the_coverage_link_check_emits(code: str, coverage: Any, units: Any) -> None:
+    errors = validate_coverage_links(coverage, units["units"])
+    assert code in {error["code"] for error in errors}, sorted(
+        {error["code"] for error in errors}
+    )
+
+
+def test_one_window_over_the_whole_timeline_cannot_claim_pass() -> None:
+    """The first bypass the audit demonstrated, on a 30-minute run.
+
+    Collapse six 300-second windows into a single ``[0, 1800]`` window citing
+    one unit at 0-10s, and the coverage audit reported ``PASS`` over 29
+    unaudited minutes. Nothing read ``window_size_sec``, so a window's span was
+    whatever the document said it was.
+    """
+    collapsed = _coverage(
+        status="PASS",
+        audit_attempts=1,
+        window_size_sec=300,
+        windows=[_window(window_id="CW-0001", start_sec=0.0, end_sec=1800.0)],
+    )
+    result = validate_coverage(collapsed, 1800.0)
+    assert result["status"] == "FAIL"
+    assert "window_wider_than_window_size" in _codes(result)
+
+
+def test_every_window_naming_the_same_first_unit_cannot_claim_pass() -> None:
+    """The second bypass: six honest windows, one unit, cited six times.
+
+    The geometry is correct here — every window is exactly ``window_size_sec``
+    and they tile the timeline — so only the link between a window and the
+    evidence *inside it* can catch this one.
+    """
+    windows = [
+        _window(
+            window_id=f"CW-{index + 1:04d}",
+            start_sec=float(index * 300),
+            end_sec=float((index + 1) * 300),
+            knowledge_units=["KU-000001"],
+        )
+        for index in range(6)
+    ]
+    coverage = _coverage(
+        status="PASS", audit_attempts=1, window_size_sec=300, windows=windows
+    )
+    assert validate_coverage(coverage, 1800.0)["status"] == "PASS", (
+        "the document is internally consistent; only the units expose it"
+    )
+
+    units = _units(
+        _source_unit(
+            source={
+                "video_id": VIDEO_ID,
+                "segment_id": "seg_000001",
+                "start_sec": 0.0,
+                "end_sec": 10.0,
+                "evidence_excerpt": SEGMENT_TEXT,
+            }
+        )
+    )
+    errors = validate_coverage_links(coverage, units["units"])
+    outside = [error for error in errors if error["code"] == "coverage_unit_outside_window"]
+    assert [error["window_id"] for error in outside] == [
+        "CW-0002",
+        "CW-0003",
+        "CW-0004",
+        "CW-0005",
+        "CW-0006",
+    ], "the first window is the only one that unit is evidence for"
+
+
 def test_every_emittable_code_is_covered_here() -> None:
     """The guard that keeps the lists above from going stale.
 
@@ -899,6 +1046,7 @@ def test_every_emittable_code_is_covered_here() -> None:
             *WARNING_CODES,
         )
     }
+    covered |= {code for code, _, _ in COVERAGE_LINK_CODES}
     # Named elsewhere in this file, by the tests that introduced them.
     covered |= {"source_time_outside_segment", "invalid_source_timing"}
     missing = sorted(emittable - covered)

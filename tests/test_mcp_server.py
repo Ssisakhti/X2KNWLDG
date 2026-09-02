@@ -395,7 +395,10 @@ def test_an_unexpected_exception_becomes_a_coded_error_not_a_traceback(
     monkeypatch.setattr(mcp_server, "validate_run", explode)
     with pytest.raises(mcp_server.McpToolError) as caught:
         mcp_server.validate_video_output(PASS_RUN)
-    assert caught.value.code == "internal_error"
+    # D-184: `internal`, the code the frozen `ErrorCode` enum publishes. This
+    # module used to say `internal_error` — one taxonomy, two spellings, and
+    # no test imported both lists, so nothing could see the divergence.
+    assert caught.value.code == "internal"
     assert str(project) not in str(caught.value)
 
 
@@ -764,3 +767,51 @@ def test_the_bound_is_the_one_the_http_surface_uses() -> None:
         "x2knwldg.server.params", reason="the HTTP layer is the `ui` extra"
     )
     assert params.MAX_LIMIT == MAX_PAGE_LIMIT
+
+
+# ---------------------------------------------------------------------------
+# One taxonomy (D-184)
+# ---------------------------------------------------------------------------
+
+
+def test_the_mcp_and_http_error_vocabularies_are_the_same_one() -> None:
+    """The test that did not exist, which is why the two had already diverged.
+
+    Both modules carried a list, both called it "D-030's taxonomy", and they
+    disagreed: the MCP server said ``internal_error`` where the envelope and
+    the frozen ``ErrorCode`` enum both say ``internal``. So an agent reading an
+    MCP reply got a code outside the closed vocabulary the HTTP contract
+    publishes, and its own test asserted the divergent value.
+    """
+    import json
+    from pathlib import Path
+
+    from x2knwldg.server.envelope import ERROR_CODES as HTTP_CODES
+
+    assert set(mcp_server.ERROR_CODES) == set(HTTP_CODES)
+
+    frozen = json.loads(
+        (Path(__file__).resolve().parents[1] / "schemas" / "api" / "v1" / "openapi.json")
+        .read_text(encoding="utf-8")
+    )
+    published = set(frozen["components"]["schemas"]["ErrorCode"]["enum"])
+    assert set(mcp_server.ERROR_CODES) == published, "the frozen document is what closes it"
+
+
+def test_a_malformed_video_id_is_invalid_id_from_every_tool() -> None:
+    """The same bad id was two codes depending on which tool was called.
+
+    ``_run_dir`` states the rule -- a rejected id is ``invalid_id``, and
+    collapsing it into anything else hides a traversal attempt behind an
+    ordinary refusal -- and ``search_video_knowledge`` let the id reach
+    ``search_knowledge``, come back a ``PipelineError``, and be rendered
+    ``invalid_request``.
+    """
+    for bad in ("../other", ".hidden", "with/slash"):
+        with pytest.raises(mcp_server.McpToolError) as searched:
+            mcp_server.search_video_knowledge("anything", video_id=bad)
+        assert searched.value.code == "invalid_id", bad
+
+        with pytest.raises(mcp_server.McpToolError) as segmented:
+            mcp_server.get_extraction_segment(bad, "seg_000001")
+        assert segmented.value.code == "invalid_id", bad

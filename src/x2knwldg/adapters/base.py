@@ -450,6 +450,17 @@ def read_status(document: Any | None) -> str:
     if not isinstance(document, Mapping):
         return UNKNOWN_STATUS
     status = document.get("status")
+    # D-161: `in` against a frozenset hashes its left operand, so a validator
+    # file carrying `{"status": ["PASS"]}` or `{"status": {}}` raised
+    # `TypeError: unhashable type` from inside a function whose whole contract
+    # is that it never raises. `scanner` catches only `AdapterError` and
+    # `TypeError` is not in `cli.USER_FACING_ERRORS`, so `x2knwldg ui` died on
+    # a raw traceback with no `{"status": "ERROR"}` envelope — and every other
+    # run in the project became unreachable because of one malformed file in
+    # one of them. A status that is not a string is not a recognised status,
+    # which is what the docstring above already promises `UNKNOWN` covers.
+    if not isinstance(status, str):
+        return UNKNOWN_STATUS
     return status if status in RUN_STATUSES else UNKNOWN_STATUS
 
 

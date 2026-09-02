@@ -57,6 +57,16 @@ function PeekProbe({ records }: { records: readonly EntityRef[] }) {
       <button type="button" onClick={() => peek.close()}>
         dismiss
       </button>
+      {peek.peek !== null && (
+        // The card the Map renders, reduced to the one control that was
+        // unreachable: it carries `data-map-peek`, which is what tells the
+        // blur handler that focus is staying with this Peek.
+        <div data-map-peek={peek.peek.globalId}>
+          <button type="button" onClick={() => peek.close()}>
+            close the peek
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -104,6 +114,41 @@ describe("useMapPeek", () => {
     fireEvent.mouseEnter(screen.getByText("row two"));
     expect(peeked()).toBe(KU2.global_id);
     expect(document.querySelector("[data-cards]")?.textContent).toBe("1");
+  });
+
+  it("stays open when focus moves into the card, so its Close is reachable", () => {
+    // D-181: `onBlur` closed unconditionally, so the very Tab that would move
+    // focus *toward* the card unmounted it first. The card's own "Close the
+    // peek" button existed in the DOM only while a different element held
+    // focus, which made it unreachable from the keyboard. The pointer path was
+    // fine and Escape worked, so nothing else showed it.
+    mountPeek();
+    const row = screen.getByText("row one");
+    fireEvent.focus(row);
+    expect(peeked()).toBe(KU1.global_id);
+
+    const close = screen.getByText("close the peek");
+    fireEvent.blur(row, { relatedTarget: close });
+    expect(peeked()).toBe(KU1.global_id);
+
+    fireEvent.click(close);
+    expect(peeked()).toBe("");
+  });
+
+  it("still closes when focus leaves for anything else", () => {
+    mountPeek();
+    const row = screen.getByText("row one");
+    fireEvent.focus(row);
+    fireEvent.blur(row, { relatedTarget: screen.getByText("row two") });
+    expect(peeked()).toBe("");
+  });
+
+  it("still closes when focus leaves the document entirely", () => {
+    mountPeek();
+    const row = screen.getByText("row one");
+    fireEvent.focus(row);
+    fireEvent.blur(row, { relatedTarget: null });
+    expect(peeked()).toBe("");
   });
 
   it("does not let a stale leave close the Peek that replaced it", () => {

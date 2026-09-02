@@ -51,6 +51,7 @@ import { DefinitionList, ExternalLink, Missing, Mono } from "../components/primi
 import { useI18n } from "../i18n";
 import type { MessageKey } from "../i18n";
 import { formatBytes, formatSeconds, formatTimestamp } from "../lib/format";
+import { withFocusRescue } from "../lib/focusRescue";
 import {
   DEFAULT_TAB,
   parseSeconds,
@@ -233,7 +234,11 @@ function UnitsPanel({ source, onSeek }: { source: Source; onSeek: (seconds: numb
             />
           ))}
           {state.hasMore && (
-            <button type="button" className="button" onClick={state.loadMore}>
+            <button
+              type="button"
+              className="button"
+              onClick={withFocusRescue(state.loadMore)}
+            >
               {t("common.more")}
             </button>
           )}
@@ -303,7 +308,11 @@ function RelationsPanel({ source }: { source: Source }) {
             <RelationRow key={relation.id} relation={relation} />
           ))}
           {state.hasMore && (
-            <button type="button" className="button" onClick={state.loadMore}>
+            <button
+              type="button"
+              className="button"
+              onClick={withFocusRescue(state.loadMore)}
+            >
               {t("common.more")}
             </button>
           )}

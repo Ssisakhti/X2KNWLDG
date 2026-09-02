@@ -380,3 +380,68 @@ def test_every_served_artifact_answers_a_declared_status(tmp_path: Path) -> None
                 artifact["id"],
                 response.status_code,
             )
+
+
+# ---------------------------------------------------------------------------
+# Two undeclared responses (D-173)
+# ---------------------------------------------------------------------------
+
+
+def _empty_artifact(root: Path) -> str:
+    """Truncate a local artifact to zero bytes and return its id."""
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+    (root / artifact["path"]).write_bytes(b"")
+    return str(artifact["id"])
+
+
+@pytest.mark.parametrize("header", ["bytes=-5", "bytes=-1", "bytes=-9999"])
+def test_a_suffix_range_over_a_zero_byte_artifact_is_416(tmp_path: Path, header: str) -> None:
+    """RFC 9110: no suffix range is satisfiable against an empty representation.
+
+    The `start >= size` guard was on the explicit-first branch only, so
+    `bytes=-5` against a zero-byte artifact returned `(0, -1)` and the route
+    answered `206 Content-Range: bytes 0--1/0` — a satisfied range over a
+    representation with no bytes to satisfy it. The sibling branch, `bytes=0-`,
+    already got this right.
+    """
+    root = h.project(tmp_path)
+    artifact_id = _empty_artifact(root)
+    with h.client(h.memory_repository(root)) as client:
+        response = client.get(f"/api/media/{artifact_id}", headers={"Range": header})
+        h.assert_error(response, 416, "invalid_request")
+        assert response.headers["content-range"] == "bytes */0"
+
+
+def test_an_explicit_range_over_a_zero_byte_artifact_is_still_416(tmp_path: Path) -> None:
+    """The branch that was already right, asserted beside the one that was not."""
+    root = h.project(tmp_path)
+    artifact_id = _empty_artifact(root)
+    with h.client(h.memory_repository(root)) as client:
+        response = client.get(f"/api/media/{artifact_id}", headers={"Range": "bytes=0-"})
+        h.assert_error(response, 416, "invalid_request")
+
+
+def test_a_zero_byte_artifact_with_no_range_is_an_empty_200(tmp_path: Path) -> None:
+    """An empty file is not an error; only a *range* over it is unsatisfiable."""
+    root = h.project(tmp_path)
+    artifact_id = _empty_artifact(root)
+    with h.client(h.memory_repository(root)) as client:
+        response = client.get(f"/api/media/{artifact_id}")
+        assert response.status_code == 200, response.text
+        assert response.content == b""
+
+
+def test_a_record_path_holding_a_nul_is_a_404_not_a_500(tmp_path: Path) -> None:
+    """`Path.resolve()` raises `ValueError`, which is not an `OSError`.
+
+    `posixpath.realpath` catches `OSError` and nothing caught this, so it
+    reached `handle_unexpected` as an undeclared `500`. A path that cannot even
+    be named is a path this route cannot read — the same answer as every other
+    unreadable one.
+    """
+    from x2knwldg.server.errors import NotFound
+    from x2knwldg.server.routes.media import _resolve
+
+    with pytest.raises(NotFound):
+        _resolve(tmp_path, "output/run/raw/sour\x00ce.srt")

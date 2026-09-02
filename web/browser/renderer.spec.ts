@@ -37,6 +37,18 @@ import {
 } from "./gate";
 
 test.describe("the renderer's lifecycle", () => {
+  /**
+   * D-182: what this file can and cannot prove.
+   *
+   * `playwright.config.ts` serves `npm run build` through `vite preview`, so
+   * this is **production** React and `<StrictMode>` does not double-invoke
+   * effects. That is why `{ created: 1, live: 1 }` holds below on first load
+   * without `MapSession` having to do anything — and it means the scenario
+   * `mapSession.ts` cites as its justification, a StrictMode double-invoke
+   * leaking one context per mount, is asserted against the jsdom fake and
+   * never here. What is proved here, and can be proved nowhere else, is that
+   * repeated real attaches release real WebGL contexts.
+   */
   test("releases every context it creates, across filters and route changes", async ({ page }) => {
     await countContexts(page);
     await openDrawnMap(page);

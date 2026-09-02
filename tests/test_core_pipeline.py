@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -15,7 +16,9 @@ from x2knwldg.io import (
     format_timestamp,
     read_json,
     timestamp_url,
+    write_group,
     write_json,
+    write_text,
 )
 from x2knwldg.pipeline import (
     PipelineError,
@@ -552,6 +555,184 @@ class BundleKeyTests(unittest.TestCase):
             self.assertIn("knowledge_units", str(caught.exception))
 
 
+#: "this key is absent", distinct from "this key is present and is None".
+_ABSENT = object()
+
+
+class RequiredBundleKeyTests(unittest.TestCase):
+    """D-169 — of three required keys, two were guarded and one was not.
+
+    ``bundle.get("relationships", [])`` defaulted in silence, so a bundle that
+    misspelled the key or dropped it applied cleanly and wiped
+    ``relationships.json`` to ``[]`` — reporting ``PASS`` over a run that had
+    just lost every relationship it had. The schema's
+    ``additionalProperties: false`` could not help: nothing applies the schema
+    at runtime, because ``jsonschema`` is a dev extra.
+    """
+
+    def _run_and_bundle(self, directory, **overrides):
+        fixture = Path(__file__).resolve().parent / "fixtures" / "runs" / "pass-run"
+        run_dir = Path(directory) / "run"
+        shutil.copytree(fixture, run_dir)
+        document = {
+            "knowledge_units": json.loads(
+                (fixture / "knowledge_units.json").read_text()
+            )["units"],
+            "relationships": json.loads(
+                (fixture / "relationships.json").read_text()
+            )["relationships"],
+            "coverage": json.loads((fixture / "coverage.json").read_text()),
+        }
+        document.update(overrides)
+        for key, value in list(document.items()):
+            if value is _ABSENT:
+                del document[key]
+        path = Path(directory) / "bundle.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return run_dir, path
+
+    def test_a_bundle_missing_relationships_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, bundle = self._run_and_bundle(directory, relationships=_ABSENT)
+            before = (run_dir / "relationships.json").read_bytes()
+            with self.assertRaises(PipelineError) as caught:
+                apply_extraction_bundle(run_dir, bundle)
+            self.assertIn("relationships", str(caught.exception))
+            self.assertEqual(
+                (run_dir / "relationships.json").read_bytes(),
+                before,
+                "a refused bundle changes nothing",
+            )
+
+    def test_a_misspelled_relationships_key_names_itself(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, bundle = self._run_and_bundle(
+                directory, relationships=_ABSENT, relations=[]
+            )
+            with self.assertRaises(PipelineError) as caught:
+                apply_extraction_bundle(run_dir, bundle)
+            message = str(caught.exception)
+            self.assertIn("relationships", message)
+
+    def test_an_unknown_top_level_key_is_refused(self):
+        """``additionalProperties: false``, enforced where the bundle is read."""
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, bundle = self._run_and_bundle(directory, notes="anything")
+            with self.assertRaises(PipelineError) as caught:
+                apply_extraction_bundle(run_dir, bundle)
+            self.assertIn("notes", str(caught.exception))
+
+    def test_extraction_metadata_must_be_an_object_or_absent(self):
+        """It was discarded in silence while ``extracted_at`` was stamped anyway."""
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, bundle = self._run_and_bundle(
+                directory, extraction_metadata="a note about the model"
+            )
+            with self.assertRaises(PipelineError) as caught:
+                apply_extraction_bundle(run_dir, bundle)
+            self.assertIn("extraction_metadata", str(caught.exception))
+
+    def test_the_four_accepted_keys_still_apply_cleanly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, bundle = self._run_and_bundle(
+                directory, extraction_metadata={"model": "none - a test"}
+            )
+            apply_extraction_bundle(run_dir, bundle)
+            metadata = json.loads((run_dir / "metadata.json").read_text())
+            self.assertEqual(metadata["extraction"], {"model": "none - a test"})
+
+
+class VaultCollisionTests(unittest.TestCase):
+    """D-171 — two unit ids that address one note on a case-insensitive disk.
+
+    ``ku-a`` and ``KU-A`` are distinct to every validator, and ``_slug`` does
+    not case-fold. On macOS the second write won: ``finalize`` reported ``PASS``
+    and claimed four files, the disk held three, ``report.md`` listed both units
+    and one note was gone. ``write_group`` treated the two unresolved paths as
+    distinct, so no duplicate-path check fired. CI is Linux, which is why the
+    rule here is case-insensitive on every platform rather than on the ones
+    where the filesystem is.
+    """
+
+    def test_two_entries_naming_one_file_are_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(CanonicalValueError) as caught:
+                write_group([(root / "ku-a.md", "one"), (root / "KU-A.md", "two")])
+            message = str(caught.exception)
+            self.assertIn("ku-a.md", message)
+            self.assertIn("KU-A.md", message)
+            self.assertFalse(
+                any(path.is_file() for path in root.iterdir()),
+                "a refused group writes nothing",
+            )
+
+    def test_unicode_composition_counts_as_the_same_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(CanonicalValueError):
+                write_group(
+                    [
+                        (root / "cafe\u0301.md", "decomposed"),
+                        (root / "caf\u00e9.md", "composed"),
+                    ]
+                )
+
+    def test_distinct_names_are_untouched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_group([(root / "a.md", "one"), (root / "b.md", "two")])
+            self.assertEqual((root / "a.md").read_text(encoding="utf-8"), "one")
+            self.assertEqual((root / "b.md").read_text(encoding="utf-8"), "two")
+
+
+class DurableWriteTests(unittest.TestCase):
+    """D-170 — eleven layered atomic replaces and no ``fsync`` anywhere.
+
+    The per-file claim holds against a concurrent reader and not against power
+    loss: a rename can be durable while the data it names is not, leaving a
+    zero-length canonical file that ``write_group``'s rollback can no longer
+    undo, because the bytes it would restore are gone too.
+    """
+
+    def test_the_file_is_synced_before_the_rename_and_the_directory_after(self):
+        synced: list[str] = []
+        real_fsync = os.fsync
+
+        def recording_fsync(descriptor):
+            try:
+                synced.append("dir" if os.path.isdir(f"/dev/fd/{descriptor}") else "file")
+            except OSError:  # pragma: no cover - platform detail
+                synced.append("unknown")
+            return real_fsync(descriptor)
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "canonical.json"
+            with mock.patch.object(os, "fsync", recording_fsync):
+                write_text(target, "durable\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "durable\n")
+            self.assertGreaterEqual(len(synced), 1, "nothing was synced at all")
+
+    def test_a_failure_to_sync_the_directory_does_not_fail_the_write(self):
+        """A landed write is not undone by a platform that will not sync a dir."""
+        real_fsync = os.fsync
+
+        def refuse_directory_fsync(descriptor):
+            try:
+                is_directory = os.path.isdir(f"/dev/fd/{descriptor}")
+            except OSError:  # pragma: no cover - platform detail
+                is_directory = False
+            if is_directory:
+                raise OSError("this platform does not sync directories")
+            return real_fsync(descriptor)
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "canonical.json"
+            with mock.patch.object(os, "fsync", refuse_directory_fsync):
+                write_text(target, "still written\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "still written\n")
+
+
 class FinalizeVerdictExitTests(unittest.TestCase):
     """D-082 — a run that validated as failing exits 4, not 1.
 
@@ -764,3 +945,81 @@ class AtomicRunTests(unittest.TestCase):
             mine.write_text("Mine, not generated.", encoding="utf-8")
             finalize_run(run_dir)
             self.assertTrue(mine.is_file(), "finalize deleted a file it does not own")
+
+
+class SecondsRuleTests(unittest.TestCase):
+    """D-185 — "seconds" was validated in six places, and one had no rule at all.
+
+    `io.is_finite_seconds`'s docstring claimed to be "the one predicate behind
+    every timestamp guard in the package", naming four deferrers. Two of them
+    deferred; `ids` and `segmenter` were near-verbatim copies that never
+    imported it, and `query._seconds` — which the docstring did not name — had
+    **no finiteness check at all**, so a `NaN` became a sort key on which every
+    comparison is `False`.
+    """
+
+    #: Every value the rule is about, and what each tier answers for it.
+    CASES = [
+        (3.0, True, 3.0),
+        (0, True, 0.0),
+        (-1, False, -1.0),
+        (float("inf"), False, None),
+        (float("-inf"), False, None),
+        (float("nan"), False, None),
+        (True, False, None),
+        (False, False, None),
+        ("3", False, None),
+        (None, False, None),
+        ([3.0], False, None),
+    ]
+
+    def test_the_optional_tier_lets_no_non_finite_value_through(self):
+        from x2knwldg.io import seconds_or_none
+        from x2knwldg.query import _seconds
+
+        for value, _ok, expected in self.CASES:
+            with self.subTest(repr(value)):
+                # `-1` is a *finite* number of seconds; the optional tier is
+                # about representability, not about the schema's lower bound.
+                want = -1.0 if value == -1 and not isinstance(value, bool) else expected
+                self.assertEqual(seconds_or_none(value), want)
+                self.assertEqual(_seconds(value), want, "query reads the same rule")
+
+    def test_every_raising_coercer_is_the_same_rule_in_its_own_error_type(self):
+        from x2knwldg.ids import IdError
+        from x2knwldg.ids import _require_seconds as ids_seconds
+        from x2knwldg.io import require_seconds
+        from x2knwldg.segmenter import _require_seconds as segmenter_seconds
+
+        for value, ok, _optional in self.CASES:
+            with self.subTest(repr(value)):
+                if ok:
+                    expected = float(value)
+                    self.assertEqual(require_seconds(value, "bound"), expected)
+                    self.assertEqual(ids_seconds(value, "bound"), expected)
+                    self.assertEqual(segmenter_seconds(value, "bound"), expected)
+                    continue
+                with self.assertRaises(IdError):
+                    ids_seconds(value, "bound")
+                with self.assertRaises(ValueError):
+                    segmenter_seconds(value, "bound")
+
+    def test_the_two_coercers_still_say_the_same_words(self):
+        """The messages were identical before; sharing must not change them."""
+        from x2knwldg.ids import _require_seconds as ids_seconds
+        from x2knwldg.segmenter import _require_seconds as segmenter_seconds
+
+        for value in ("3", float("nan"), -1):
+            with self.subTest(repr(value)):
+                with self.assertRaises(Exception) as ids_error:
+                    ids_seconds(value, "start_sec")
+                with self.assertRaises(Exception) as segmenter_error:
+                    segmenter_seconds(value, "start_sec")
+                self.assertEqual(str(ids_error.exception), str(segmenter_error.exception))
+
+    def test_a_nan_can_no_longer_become_a_search_sort_key(self):
+        """The consequence, not the predicate: `NaN` compares False to everything."""
+        from x2knwldg.query import _seconds
+
+        self.assertIsNone(_seconds(float("nan")))
+        self.assertIsNone(_seconds(float("inf")))

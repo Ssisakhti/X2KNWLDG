@@ -107,7 +107,8 @@ from ..adapters import (
     project_relative,
     read_optional_json_or_reason,
 )
-from ..io import scrub_host_paths, sha256_file
+from ..io import discover_run_dirs, scrub_host_paths, sha256_file
+from ..io import run_dirs as io_run_dirs
 from ..repository import (
     RepositoryError,
     check_index_integrity,
@@ -275,18 +276,14 @@ class ScanReport:
 def run_dirs(output_root: Path) -> list[Path]:
     """Every ingested run under *output_root*, in ``adapt_project``'s order.
 
-    Deliberately the same three rules: ``sorted(glob("*/metadata.json"))``, no
-    dotted directory, and never ``library/`` — which is not an ingested source
-    but the cross-source projection over all of them. ``adapt_project``'s
-    docstring names this scan as the one ``T-102`` makes incremental, so it is
-    mirrored rather than re-derived: a second opinion about which directories
-    are runs would be a second index.
+    D-158: the rules were mirrored here rather than shared, on the argument
+    that "a second opinion about which directories are runs would be a second
+    index" — which was right, and is why they are now *called* rather than
+    restated. :func:`io.discover_run_dirs` is the one implementation, and it
+    added the clause all three copies were missing: a directory resolving to
+    one already discovered is an alias, not a second run.
     """
-    return [
-        path.parent
-        for path in sorted(Path(output_root).glob("*/metadata.json"))
-        if not path.parent.name.startswith(".") and path.parent.name != LIBRARY_DIR_NAME
-    ]
+    return io_run_dirs(output_root)
 
 
 def _canonical_key(path: Path, project_root: Path) -> tuple[str, str | None]:
@@ -314,20 +311,31 @@ def _canonical_key(path: Path, project_root: Path) -> tuple[str, str | None]:
     try:
         return project_relative(path, project_root), None
     except AdapterError:
-        root = Path(os.path.abspath(project_root.expanduser()))
-        lexical = Path(os.path.abspath(path.expanduser()))
-        try:
-            key = lexical.relative_to(root).as_posix()
-        except ValueError:
-            # Not under the project root even before resolution. `run_dirs`
-            # globs under `output_root`, so this needs an `output_root` from
-            # outside the project; the bare name still keys a row and still
-            # names the run.
-            key = path.name
+        key = _lexical_key(path, project_root)
         return key, (
             f"{key} resolves outside the project root; index records carry "
             "project-relative paths only (risk R15)"
         )
+
+
+def _lexical_key(path: Path, project_root: Path) -> str:
+    """*path*'s place in the project, computed without resolving it.
+
+    Where the scan *found* the directory, which is a symlink's own identity
+    rather than its target's. D-078 needs it because resolution raises for a
+    link pointing outside the root; D-158 needs it because resolution
+    *succeeds* for a link pointing at another run, and hands back the target's
+    key — which is the collision that refused the whole index.
+    """
+    root = Path(os.path.abspath(project_root.expanduser()))
+    lexical = Path(os.path.abspath(path.expanduser()))
+    try:
+        return lexical.relative_to(root).as_posix()
+    except ValueError:
+        # Not under the project root even before resolution. `run_dirs` globs
+        # under `output_root`, so this needs an `output_root` from outside the
+        # project; the bare name still keys a row and still names the run.
+        return path.name
 
 
 def _project_relative_reason(
@@ -943,8 +951,21 @@ def _scan(
         whole = not incremental or previous_state != "ready"
         # Committed on its own, before any work: a crash from here on reopens as
         # `building`, never as a `ready` half-full index.
+        #
+        # D-162: `built_at` is carried forward rather than cleared. Every write
+        # `_apply` makes is inside one transaction, so a reader during a build —
+        # or after a build that was killed — sees the *previous* generation,
+        # whole. Clearing `built_at` threw that away: SIGKILL a refresh and the
+        # tables still held the full previous index, but `state='building'` with
+        # `built_at=None` made `_require_ready` refuse every endpoint, so an
+        # intact library cost a full rebuild to get back. This is D-086's own
+        # reasoning — "the stored records are exactly what they were and
+        # refusing every endpoint would cost the reader a library they can still
+        # be shown" — applied to the crash path, which is the likelier one.
+        # `building` with no `built_at` still means what it always meant: no
+        # build has ever finished here, so there is nothing to serve.
         with connection:
-            _write_state(connection, "building")
+            _write_state(connection, "building", built_at=previous_built_at)
         try:
             return _apply(
                 connection,
@@ -1001,9 +1022,32 @@ def _apply(
     version: int,
 ) -> ScanReport:
     previous = {} if whole else _stored_runs(connection)
-    discovered = run_dirs(output_root)
+    discovered, aliases = discover_run_dirs(output_root)
 
     runs = []
+    for alias, target in aliases:
+        # D-158. Named rather than dropped: a run that vanishes from the
+        # library with nothing said is the failure D-043 exists to prevent, and
+        # before this the symptom was the *whole index* refused for a duplicate
+        # `video_id` that no directory in the project actually declared twice.
+        # The key is lexical — `_canonical_key` resolves, and resolving is
+        # precisely what makes the alias collide with its target's row. `strict`
+        # does not raise here: `adapt_project` skips the alias too, so the
+        # oracle and the index still agree record for record.
+        alias_key = _lexical_key(alias, project_root)
+        target_key, _ = _canonical_key(target, project_root)
+        runs.append(
+            _Run(
+                alias_key,
+                _SKIPPED,
+                _digest_of(alias, None),
+                reason=(
+                    f"{alias_key} resolves to {target_key}, which this scan already "
+                    "indexed; it is an alias of that run, not a second one"
+                ),
+                had_records=False,
+            )
+        )
     for run_dir in discovered:
         # D-078: one computation of the key, used for the lookup and the row.
         canonical_dir, unindexable = _canonical_key(run_dir, project_root)
@@ -1186,7 +1230,10 @@ def _apply(
     if library_reason is not None:
         skipped_runs.append({"relative_path": library_key, "reason": library_reason})
     return ScanReport(
-        runs_discovered=len(discovered),
+        # D-158: aliases are discovered directories too, and each is accounted
+        # for as skipped. Leaving them out of the total would satisfy the
+        # invariant by not counting the thing being reported.
+        runs_discovered=len(discovered) + len(aliases),
         runs_indexed=sum(1 for run in runs if run.state != _SKIPPED),
         runs_skipped=sum(1 for run in runs if run.state == _SKIPPED),
         runs_unchanged=sum(1 for run in runs if run.state == _UNCHANGED),

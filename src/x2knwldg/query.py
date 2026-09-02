@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .io import timestamp_url
+from .io import seconds_or_none, timestamp_url
 from .pipeline import PipelineError, resolve_run_dir
 
 #: A caption match is worth half a knowledge-unit match at the same score: the
@@ -76,10 +76,15 @@ def _tokens(value: str) -> set[str]:
 
 
 def _seconds(value: Any) -> float | None:
-    """*value* as a timing, or ``None`` when it does not state one."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value)
+    """*value* as a timing, or ``None`` when it does not state one.
+
+    D-185: ``io.seconds_or_none``. This was the fifth copy of the seconds rule
+    and the only one with **no finiteness check at all**, so ``inf`` and ``NaN``
+    came back as floats and became sort keys on which every comparison is
+    ``False`` — a search result ordered by a value that cannot order, which is
+    the exact failure ``io.is_finite_seconds``'s docstring says is excluded.
+    """
+    return seconds_or_none(value)
 
 
 @dataclass(frozen=True)

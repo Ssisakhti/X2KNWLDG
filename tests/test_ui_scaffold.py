@@ -713,12 +713,82 @@ def test_ci_type_checks_the_frontend() -> None:
 
 
 def test_ci_refuses_a_ui_dependency_in_the_bare_core_install() -> None:
+    """The creep check covers every optional distribution, not a hand-kept list.
+
+    D-157: the list used to be seven names written into the workflow, and
+    ``pyproject.toml`` declares fourteen — so ``mcp``,
+    ``youtube-transcript-api`` and ``requests`` could have crept into the core
+    install with nothing to say so. The job now derives the names from
+    ``pyproject.toml``, which is why this test checks the *derivation* rather
+    than a literal line: that the check reads the declarations, that it exempts
+    only ``pytest``, and that the UI dependencies this test is named for are in
+    fact declared optional and would therefore be caught.
+    """
     workflow = _workflow()
-    creep_check = next(
-        line for line in workflow.splitlines() if line.strip().startswith("for package in")
-    )
+    assert 'tomllib.load(handle)["project"]' in workflow, "the creep check must read pyproject"
+    assert 'project["optional-dependencies"]' in workflow, "it must read every declared extra"
+    assert 'INSTALLED_ON_PURPOSE = {"pytest"}' in workflow, "pytest is the only exemption"
+
+    declared = set()
+    for requirements in _optional_dependencies().values():
+        declared |= {_distribution_name(entry) for entry in requirements}
     for name in cli.UI_DEPENDENCIES:
-        assert name in creep_check, f"{name} may creep into the core install unnoticed"
+        assert name in declared, f"{name} is not a declared extra, so nothing checks it"
+
+
+def test_ci_sees_a_fixture_the_generator_newly_writes() -> None:
+    """D-157: `git diff` cannot see an untracked file, `git status` can.
+
+    The reproducibility job's whole claim is that regenerating the committed
+    fixtures changes nothing. A generator that starts writing an *extra*
+    artifact leaves it untracked, which `git diff --quiet` reports as no
+    change — so the one failure mode the job cannot afford is the one it could
+    not see.
+    """
+    workflow = _workflow()
+    fixtures = workflow.split("  fixtures:", 1)[1].split("\n  web-typecheck:", 1)[0]
+    assert "git status --porcelain -- tests/fixtures/runs/" in fixtures
+    assert "git diff --quiet -- tests/fixtures/runs/" not in fixtures
+
+
+def _distribution_name(requirement: str) -> str:
+    """The distribution a requirement names, without its extras or version."""
+    name = requirement.split(";")[0].strip()
+    for separator in ("[", "=", "<", ">", "!", "~", " "):
+        name = name.split(separator)[0]
+    return name.strip()
+
+
+def _optional_dependencies() -> dict[str, list[str]]:
+    """``pyproject``'s optional-dependency groups, read as text so 3.10 runs it."""
+    section = _pyproject_text().split("[project.optional-dependencies]", 1)[1]
+    section = section.split("\n[project.scripts]", 1)[0]
+    groups: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in section.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        opened = re.match(r"^([A-Za-z][\w.-]*) = \[(.*)$", stripped)
+        if opened is not None:
+            current = opened.group(1)
+            groups[current] = re.findall(r'"([^"]+)"', opened.group(2))
+            # `mcp = ["mcp>=2,<3"]` closes on its own line. Reading only the
+            # multi-line form is how `mcp` fell out of the creep list in the
+            # first place, so the one-line form is parsed here rather than
+            # assumed not to occur.
+            if opened.group(2).rstrip().endswith("]"):
+                current = None
+            continue
+        if current is None:
+            continue
+        if stripped.startswith("]"):
+            current = None
+            continue
+        quoted = re.match(r'^"([^"]+)"', stripped)
+        if quoted is not None:
+            groups[current].append(quoted.group(1))
+    return groups
 
 
 def _declared_extras() -> set[str]:

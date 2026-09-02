@@ -14,6 +14,7 @@ be had, this module raises and the CLI asks the user for a file.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any
@@ -152,12 +153,25 @@ def fetch_native_transcript(url: str, preferred_languages: list[str] | None = No
         for item in fetched:
             if len(items) >= MAX_CAPTIONS:
                 raise _too_many_captions()
+            # D-167: both spellings used to default to empty — `.get("text")`
+            # to `None` and `getattr(item, "text", "")` to `""` — so a caption
+            # API that renames its text field produced a full-length transcript
+            # of nothing, every cue marked `non_speech`, reported as a
+            # successful import at exit `0`. A field that is *absent* is a
+            # library that changed under us; a field that is *empty* is a
+            # `[music]` cue. Only the second is a caption.
             if isinstance(item, dict):
-                text = item.get("text")
+                if "text" not in item:
+                    raise _renamed_caption_field(sorted(item))
+                text = item["text"]
                 start = item.get("start")
                 duration = item.get("duration")
             else:
-                text = getattr(item, "text", "")
+                if not hasattr(item, "text"):
+                    raise _renamed_caption_field(
+                        sorted(name for name in dir(item) if not name.startswith("_"))
+                    )
+                text = item.text
                 start = getattr(item, "start", None)
                 duration = getattr(item, "duration", None)
             items.append({"text": text, "start": start, "duration": duration, "language": language})
@@ -262,7 +276,32 @@ def fetch_metadata(url: str) -> dict[str, Any]:
         "title": info.get("title") if info else None,
         "channel": (info.get("uploader") or info.get("channel")) if info else None,
         "language": info.get("language") if info else None,
+        # D-168: `duration` was in the info dict and was dropped, so
+        # `duration_sec` became the *caption* span and coverage was measured
+        # against the transcript rather than against the video. A caption track
+        # covering the first ten minutes of a two-hour talk yielded a fully
+        # covered timeline — and the check could not detect the truncation,
+        # because both sides of the comparison derived from the same truncated
+        # number.
+        "media_duration_sec": _media_duration(info),
     }
+
+
+def _media_duration(info: Any) -> float | None:
+    """The video's own length in seconds, when yt-dlp reported one."""
+    duration = info.get("duration") if isinstance(info, dict) else None
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+        return None
+    duration = float(duration)
+    return duration if math.isfinite(duration) and duration > 0 else None
+
+
+def _renamed_caption_field(available: list[str]) -> PipelineError:
+    """A caption carrying no ``text`` field at all — the library changed."""
+    return PipelineError(
+        "A caption snippet carries no `text` field; the transcript API has "
+        f"changed its shape. Fields present: {', '.join(available) or 'none'}"
+    )
 
 
 def process_youtube_url(
@@ -288,6 +327,9 @@ def process_youtube_url(
             source="youtube_caption",
             # D-099: so `metadata.json` can say *why* the title is unknown.
             metadata_error=metadata.get("metadata_error"),
+            # D-168: the video's own length, so coverage is audited against the
+            # video rather than against however much of it the captions cover.
+            media_duration_sec=metadata.get("media_duration_sec"),
         )
     finally:
         temporary.unlink(missing_ok=True)

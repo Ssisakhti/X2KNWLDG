@@ -119,3 +119,39 @@ TIME_TOLERANCE_SEC = 0.01
 #: reply. Two bounds for the same data was the defect, so the bound lives here
 #: and both surfaces read it.
 MAX_PAGE_LIMIT = 500
+
+#: The most edges any one graph response carries.
+#:
+#: Defect D-175: `limit` bounded the *nodes* and nothing bounded the edges, and
+#: the two are not the same size — an edge list is quadratic in the nodes it
+#: connects. `GraphPayload.edges` declared no `maxItems`, so one unauthenticated
+#: `GET` returned an arbitrarily large body built entirely in memory: on a
+#: 600-node all-pairs index, `limit=500` produced **349,500 edges in an 83 MB
+#: response at 265 MB peak allocation**, with `page.total: 600` giving the
+#: client no signal that anything was unusual. The Map cannot draw that many
+#: edges either, so this is a bound the reader was already living inside.
+#:
+#: `truncated` is what says the graph was cut, and it already means exactly
+#: that: "a slice of a larger graph", stated rather than implied.
+MAX_GRAPH_EDGES = 5000
+
+#: D-030's error taxonomy, as the closed ``ErrorCode`` vocabulary the frozen
+#: `schemas/api/v1/openapi.json` publishes.
+#:
+#: Defect D-184: this lived in `server/envelope.py` and a *second* list lived in
+#: `mcp_server.py`, both described as "D-030's taxonomy", and they already
+#: disagreed — the MCP server said `internal_error` where the envelope and the
+#: frozen enum both say `internal`. No test imported both, so nothing could see
+#: it, and an agent reading an MCP reply got a code outside the vocabulary the
+#: HTTP contract publishes. It lives here for the same reason `MAX_PAGE_LIMIT`
+#: does: two statements of one fact was the defect, so the fact has one home and
+#: both surfaces read it. `server/envelope.py` re-exports it, so every existing
+#: import keeps working.
+ERROR_CODES = (
+    "invalid_id",
+    "invalid_request",
+    "not_found",
+    "unavailable",
+    "index_unavailable",
+    "internal",
+)

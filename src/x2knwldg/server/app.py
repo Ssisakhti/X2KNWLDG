@@ -19,13 +19,14 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..repository.base import IndexRepository
 from . import errors
 from .deps import build_repository
+from .envelope import error_body
 from .routes import ROUTERS
 
 #: The frozen contract, shipped **inside** the package.
@@ -61,6 +62,73 @@ _FROZEN_SPEC = Path(__file__).resolve().parent / "openapi.json"
 #: resolution is the attacker's to control, and the set of names this server is
 #: reachable at is small and knowable.
 LOOPBACK_HOST_NAMES = ("localhost", "127.0.0.1", "[::1]", "::1")
+
+
+def host_name(header: str) -> str:
+    """The host a ``Host:`` header names, without its port.
+
+    D-172: Starlette's ``TrustedHostMiddleware`` does
+    ``headers.get("host", "").split(":")[0]``, so ``Host: [::1]:8931`` becomes
+    ``'['``. The allowlist entries ``"[::1]"`` and ``"::1"`` were therefore
+    unreachable dead code and **every** request to an IPv6-bound server was
+    ``400`` — including the UI root, at the exact URL ``serve.py`` prints and
+    opens in the browser. Two of the three documented ``--host`` values
+    produced a UI that answered nothing, and ``localhost`` was one of them,
+    because ``getaddrinfo`` returns ``AF_INET6`` first on macOS.
+
+    An IPv6 literal is bracketed in an authority (RFC 3986), so the brackets
+    are what separate the address from the port; everything else splits on the
+    last colon. Both spellings are accepted for the same address, which is what
+    the allowlist already assumed.
+    """
+    header = header.strip()
+    if header.startswith("["):
+        closing = header.find("]")
+        return header[: closing + 1] if closing != -1 else header
+    if header.count(":") > 1:
+        # An unbracketed IPv6 literal. Not legal in an authority, but `::1` is
+        # in the allowlist and a client that sends it means the address, not an
+        # address named `:` with a port.
+        return header
+    return header.rsplit(":", 1)[0] if ":" in header else header
+
+
+def _host_variants(name: str) -> set[str]:
+    """*name* and its bracketed/unbracketed twin, lower-cased."""
+    name = name.strip().lower()
+    stripped = name[1:-1] if name.startswith("[") and name.endswith("]") else name
+    return {name, stripped, f"[{stripped}]"}
+
+
+class LoopbackHostMiddleware(BaseHTTPMiddleware):
+    """Refuse a rebound name, in the frozen error envelope.
+
+    D-103 put ``TrustedHostMiddleware`` here, and it did the right thing for
+    the wrong shape twice over. Besides mis-parsing IPv6 (see :func:`host_name`),
+    it is *user* middleware and therefore sits **outside** the exception
+    handlers, so its refusal was ``400 text/plain "Invalid host header"`` rather
+    than ``ErrorResponse`` — the one thing ``errors.handle_http_exception``
+    exists to prevent, in its own words: answering off-contract "would teach a
+    client that the envelope is optional".
+    """
+
+    def __init__(self, app: Any, allowed_hosts: Sequence[str]) -> None:
+        super().__init__(app)
+        self._allowed: set[str] = set()
+        for name in allowed_hosts:
+            self._allowed |= _host_variants(name)
+
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        name = host_name(request.headers.get("host", "")).lower()
+        if name not in self._allowed:
+            return JSONResponse(
+                status_code=400,
+                content=error_body(
+                    "invalid_request",
+                    "This server answers only on the loopback names it was started for.",
+                ),
+            )
+        return await call_next(request)
 
 
 def create_app(
@@ -112,7 +180,7 @@ def create_app(
     # a parameter because `serve.py` knows what it bound and the tests know
     # what they call; the default is the loopback set and never `*`.
     app.add_middleware(
-        TrustedHostMiddleware,
+        LoopbackHostMiddleware,
         allowed_hosts=list(allowed_hosts if allowed_hosts is not None else LOOPBACK_HOST_NAMES),
     )
 

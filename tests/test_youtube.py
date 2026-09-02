@@ -225,8 +225,44 @@ def test_fetch_metadata_carries_the_timeout(monkeypatch: pytest.MonkeyPatch) -> 
         "title": "T",
         "channel": "C",
         "language": "en",
+        # D-168: absent from the info dict here, and reported as unknown rather
+        # than guessed. `None` and "zero seconds" are not the same claim.
+        "media_duration_sec": None,
     }
     assert constructed[0]["socket_timeout"] == youtube.NETWORK_TIMEOUT_SEC
+
+
+@pytest.mark.parametrize(
+    "duration,expected",
+    [
+        (7200, 7200.0),
+        (7200.5, 7200.5),
+        (None, None),
+        (0, None),
+        (-1, None),
+        ("7200", None),
+        (True, None),
+        (float("inf"), None),
+        (float("nan"), None),
+    ],
+    ids=repr,
+)
+def test_fetch_metadata_carries_the_media_duration(
+    monkeypatch: pytest.MonkeyPatch, duration: Any, expected: float | None
+) -> None:
+    """D-168: `duration` was in the info dict and was dropped.
+
+    `duration_sec` then became the caption span, so a caption track covering
+    the first ten minutes of a two-hour talk yielded a fully covered timeline —
+    and `timeline_not_fully_covered` could not detect the truncation, because
+    both sides of its comparison derived from the same truncated number.
+    """
+    _install(
+        monkeypatch,
+        "yt_dlp",
+        _ytdlp_module(info={"title": "T", "duration": duration}, constructed=[]),
+    )
+    assert youtube.fetch_metadata(REAL_URL)["media_duration_sec"] == expected
 
 
 # ---------------------------------------------------------------------------

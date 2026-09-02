@@ -380,6 +380,17 @@ export async function contextReport(page: Page): Promise<ContextReport> {
  * `GL_INVALID_OPERATION` a few times per context while drawing correctly
  * (ADR 0005, finding 2), so the beta's own noise is named and skipped and
  * anything else is returned for a spec to assert on.
+ *
+ * D-183: what that costs is stated rather than left implied. The allowlist
+ * cannot tell the beta's noise from a *real* `GL_INVALID_OPERATION`, so this
+ * gate is blind to that one class of GL error for as long as the renderer is a
+ * prerelease. `sigma` is pinned exactly at `4.0.0-beta.5` — right for a
+ * prerelease, and it means no upstream fix arrives without a manual bump, and
+ * `npm view sigma dist-tags` still has no stable 4.x (`latest` is 3.x, which
+ * this Map is not written against). The bump condition: when a stable 4.x
+ * ships, take it, delete this allowlist, and run the gate — if it stays green
+ * the blindness is gone; if it does not, the errors it now reports were always
+ * there.
  */
 export function watchForTrouble(page: Page): { trouble: string[] } {
   const trouble: string[] = [];

@@ -59,17 +59,33 @@ When the coverage audit finds missing meaningful content:
 4. Stop after three total audit attempts. `MAX_AUDIT_ATTEMPTS` in `src/x2knwldg/constants.py` is the number, and the coverage document must report how many it took: `audit_attempts` is **required**, an integer, and never above the cap. The validator accepts `0` only while the document does not claim `PASS`, which is the honest state of a scaffolded, never-audited run.
 5. If important content remains unresolved, use `PARTIAL`, never `PASS`.
 
+A window's audit is checked against the window (D-164), so three rules bind:
+
+- `window_size_sec` is required whenever coverage claims `PASS`, and **no window
+  may be wider than it**. Subdividing a scaffolded window is fine — auditing at a
+  finer granularity is honest work. Merging windows is not.
+- A `covered` window must name at least one `source` knowledge unit whose
+  evidence **overlaps that window's own span**, or account for what it left out
+  in `omitted_items`. A `derived` unit carries no timing and can never anchor a
+  window.
+- `summary` is derived from the windows and is recomputed on apply. Do not
+  hand-write it.
+
 ## 5. Apply and finalize
 
 Assemble `extraction_bundle.json` using `schemas/extraction_bundle.schema.json`. It has
-exactly three required keys, and the schema sets `additionalProperties: false`, so no other
-top-level key is accepted:
+three **required** keys and one **optional** one, and the schema sets
+`additionalProperties: false`, so no other top-level key is accepted. All four are listed
+here: this table used to omit `extraction_metadata` while saying "exactly three… no other
+top-level key is accepted", so an agent following it silently dropped the provenance record
+the pipeline does consume (D-189).
 
-| Bundle key | Comes from | Note |
-|---|---|---|
-| `knowledge_units` | passes 1, 2 and 4 | The **bundle** key is `knowledge_units`. The canonical `knowledge_units.json` file writes the same list under `units`; do not carry that spelling into the bundle (D-073) |
-| `relationships` | pass 3 | |
-| `coverage` | pass 5 | `audit_attempts` is required; `0` is the honest never-audited state and may not accompany a `PASS` (§4.4) |
+| Bundle key | Required | Comes from | Note |
+|---|---|---|---|
+| `knowledge_units` | yes | passes 1, 2 and 4 | The **bundle** key is `knowledge_units`. The canonical `knowledge_units.json` file writes the same list under `units`; do not carry that spelling into the bundle (D-073) |
+| `relationships` | yes | pass 3 | Required, and refused when missing or misspelled — it used to default silently to `[]` and wipe every relationship the run had (D-169) |
+| `coverage` | yes | pass 5 | `audit_attempts` is required; `0` is the honest never-audited state and may not accompany a `PASS` (§4.4). See the three window rules in §4 |
+| `extraction_metadata` | no | the run itself | An object describing what produced the extraction. `apply-bundle` copies it into `metadata.extraction`; a non-object is refused rather than dropped (D-169). All three committed fixtures carry one |
 
 Then run:
 

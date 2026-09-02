@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..io import run_dirs
 from .base import (
     CANONICAL_PROVENANCE_CLASSES,
     CANONICAL_RELATION_TYPES,
@@ -120,9 +121,14 @@ def adapt_project(
 ) -> IndexRecords:
     """Map every ingested source under ``output/``, plus the shared library.
 
-    The scan is what ``T-102`` will make incremental: sorted for determinism,
-    skipping dotfiles and the ``library/`` directory, which is not an ingested
-    source but the cross-source index over all of them.
+    The scan is what ``T-102`` will make incremental, and it is
+    ``io.discover_run_dirs`` — one rule, shared with the scanner and with
+    ``rebuild_library`` (D-158): sorted for determinism, skipping dotfiles and
+    the ``library/`` directory, which is not an ingested source but the
+    cross-source index over all of them, and walking a directory that resolves
+    to one already seen no more than once. That last clause is what keeps a
+    convenience symlink under ``output/`` from producing every record twice and
+    making ``check_records`` refuse the whole projection.
 
     Every run is checked as it is mapped, and the union is checked again before
     it is returned. Per-run uniqueness is not project-wide uniqueness: two
@@ -134,10 +140,7 @@ def adapt_project(
     project_root = project_root.expanduser().resolve()
     output_root = project_root / output_dir
     records = IndexRecords()
-    for metadata_path in sorted(output_root.glob("*/metadata.json")):
-        run_dir = metadata_path.parent
-        if run_dir.name.startswith(".") or run_dir.name == LIBRARY_DIR_NAME:
-            continue
+    for run_dir in run_dirs(output_root):
         records = records + adapt_run(
             run_dir, project_root, hash_artifacts=hash_artifacts
         )

@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -106,11 +107,23 @@ def scrub_host_paths(
 def is_finite_seconds(value: Any) -> TypeGuard[float]:
     """Whether ``value`` is a real, finite number of seconds.
 
-    The one predicate behind every timestamp guard in the package —
-    ``transcripts._is_finite_number``, ``validators._is_seconds`` and the
-    ``_require_seconds`` coercers in ``ids`` and ``segmenter`` all defer to it,
-    keeping their own error types and their own extra rules. It lives here
-    because ``io`` imports nothing from the package, so everything can reach it.
+    The base of the three tiers below, and the one place the rule is written.
+    It lives here because ``io`` imports nothing from the package, so everything
+    can reach it.
+
+    D-185: this docstring used to claim that ``transcripts._is_finite_number``,
+    ``validators._is_seconds`` and the ``_require_seconds`` coercers in ``ids``
+    and ``segmenter`` "all defer to it". Only the first two did. The other two
+    were near-verbatim reimplementations that never imported it, and a fifth
+    guard the docstring did not name — ``query._seconds`` — had **no finiteness
+    check at all**, so a ``NaN`` reached a sort key on which every comparison is
+    ``False``: precisely the failure the paragraph below says is excluded. Six
+    implementations of one rule, described as one.
+
+    The tiers are :func:`is_finite_seconds` (the predicate),
+    :func:`is_non_negative_seconds` (the predicate plus the schema's
+    ``timestampSec`` rule), :func:`require_seconds` (the raising coercer, in the
+    caller's own exception type) and :func:`seconds_or_none` (the optional one).
 
     ``bool`` is excluded because ``True`` is an ``int`` in Python and is not a
     time. ``NaN`` and the infinities are excluded because every comparison
@@ -125,6 +138,46 @@ def is_finite_seconds(value: Any) -> TypeGuard[float]:
     way the guard is legible to a reader who is not the author.
     """
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def is_non_negative_seconds(value: Any) -> TypeGuard[float]:
+    """:func:`is_finite_seconds`, and not negative (D-185).
+
+    The rule ``schemas/v1/common.schema.json`` states as ``timestampSec``, and
+    the one extra clause the two coercers below add over the bare predicate.
+    """
+    return is_finite_seconds(value) and value >= 0
+
+
+def require_seconds(
+    value: Any, label: str, *, error: type[Exception] = ValueError
+) -> float:
+    """*value* as a non-negative finite number of seconds, or raise (D-185).
+
+    The three messages are the ones ``ids`` and ``segmenter`` each wrote out,
+    kept word for word: they differed only in the exception type, which is what
+    *error* is for — ``ids`` refuses with ``IdError`` because a bad bound there
+    is a bad identifier, and ``segmenter`` with ``ValueError``.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise error(f"{label} must be a number, got {type(value).__name__}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise error(f"{label} must be a finite number of seconds, got {value!r}")
+    if number < 0:
+        raise error(f"{label} must not be negative, got {value!r}")
+    return number
+
+
+def seconds_or_none(value: Any) -> float | None:
+    """*value* as a timing, or ``None`` when it does not state one (D-185).
+
+    The optional tier: absence is an answer here, so this returns rather than
+    raises. It still applies the *whole* rule — ``query._seconds`` did not, and
+    let ``inf`` and ``NaN`` through as sort keys on which every comparison is
+    ``False``, which is a search result ordered by a value that cannot order.
+    """
+    return float(value) if is_finite_seconds(value) else None
 
 
 def _whole_seconds(value: Any, label: str) -> int:
@@ -145,12 +198,93 @@ def _whole_seconds(value: Any, label: str) -> int:
     return max(0, int(value))
 
 
+#: The directory under ``output/`` that is not an ingested run but the
+#: cross-source projection over all of them. It used to live in
+#: ``adapters/youtube.py``, which is re-exported for every existing caller;
+#: it moved here because run discovery is stated here now (D-158).
+LIBRARY_DIR_NAME = "library"
+
+
+def discover_run_dirs(output_root: Path) -> tuple[list[Path], list[tuple[Path, Path]]]:
+    """``(runs, aliases)`` — every ingested run under *output_root*, once each.
+
+    The one statement of a rule that was written three times and disagreed
+    three ways (D-158). ``index.scanner.run_dirs`` skipped dotted directories
+    and ``library/``; ``adapters.adapt_project`` did the same; and
+    ``library._run_dirs`` did neither, so a rebuild indexed runs the scanner
+    refuses. A rule with three implementations is three rules.
+
+    The third clause is new, and it is the one that was missing everywhere.
+    ``glob`` **follows directory symlinks**, so an ordinary convenience link —
+    ``ln -s output/pqlWNihgdjI output/latest`` — is discovered as a second run.
+    Every record it produces is a duplicate of the first's, and
+    ``check_index_integrity`` then refuses the *entire* index: every endpoint
+    ``503``, both runs lost, and the message blames a duplicate ``video_id``
+    rather than the link. ``_run_files`` has excluded symlinks since D-100;
+    discovery did not. A directory that resolves to one already yielded is
+    reported as an *alias* rather than walked again — named, because a run that
+    silently disappears from the library is the failure D-043 exists to
+    prevent, and because "this is the same run under another name" is a true
+    and useful thing to say.
+
+    Resolution is only used to *recognise* the alias. A symlink resolving
+    outside the project keeps its own identity here and reaches D-078's
+    skip-and-name path unchanged, which is what refuses to read through it.
+    """
+    candidates = [
+        metadata_path.parent
+        for metadata_path in sorted(Path(output_root).glob("*/metadata.json"))
+        if not metadata_path.parent.name.startswith(".")
+        and metadata_path.parent.name != LIBRARY_DIR_NAME
+    ]
+
+    # Which directory *owns* each resolved location. A real directory always
+    # wins over a link to it, whatever the sort order says: `output/latest`
+    # sorts before `output/pass-run`, and calling the real run an alias of the
+    # convenience link would be the same loss under a politer name. Among links
+    # alone the first in sorted order owns it, so the choice stays deterministic.
+    owner: dict[str, Path] = {}
+    for run_dir in candidates:
+        resolved = os.path.realpath(run_dir)
+        held = owner.get(resolved)
+        if held is None or (held.is_symlink() and not run_dir.is_symlink()):
+            owner[resolved] = run_dir
+
+    runs: list[Path] = []
+    aliases: list[tuple[Path, Path]] = []
+    for run_dir in candidates:
+        held = owner[os.path.realpath(run_dir)]
+        if held == run_dir:
+            runs.append(run_dir)
+        else:
+            aliases.append((run_dir, held))
+    return runs, aliases
+
+
+def run_dirs(output_root: Path) -> list[Path]:
+    """Every ingested run under *output_root*, for a caller with no use for
+    the aliases :func:`discover_run_dirs` names."""
+    return discover_run_dirs(output_root)[0]
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def sha256_text(text: str) -> str:
+    """The digest of *text* as it will be written — UTF-8, no BOM.
+
+    The counterpart of :func:`sha256_file` for a document that has been
+    serialised but not yet stored. ``write_text`` encodes UTF-8 and delegates to
+    ``write_bytes``, so hashing ``dumps_json(document)`` here and hashing the
+    resulting file later give the same value, which is what lets a digest be
+    recorded at import and checked against the bytes on disk afterwards (D-163).
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _reject_non_finite(constant: str) -> Any:
@@ -186,11 +320,22 @@ def dumps_json(value: Any) -> str:
 
 
 def write_bytes(path: Path, data: bytes) -> None:
-    """Write *data* to *path* atomically and without leaving a stray temp file.
+    """Write *data* to *path* atomically and durably, leaving no stray temp file.
 
     The replace is atomic per file: a reader sees either the old file or the new
     one, never a half-written one. Atomicity *across* files is a separate problem
-    and belongs to the caller — see ``artifacts._write_group``.
+    and belongs to the caller — see :func:`write_group`.
+
+    D-170: ordering was all this guaranteed, and it said so. ``grep -rn fsync
+    src`` returned nothing, under eleven layered atomic replaces. The per-file
+    claim holds against a concurrent *reader* and not against power loss: a
+    rename can reach the disk while the data it names has not, and what a run
+    then holds is a zero-length canonical file that ``write_group``'s rollback
+    can no longer undo, because the bytes it would restore are gone too. Two
+    syncs close it — the file's own before the rename, so the rename can never
+    name unwritten data, and the directory's after, so the rename itself is
+    durable. Every write in the package funnels through here, so this is the
+    only place either has to happen.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None
@@ -198,11 +343,33 @@ def write_bytes(path: Path, data: bytes) -> None:
         with NamedTemporaryFile("wb", dir=path.parent, delete=False, suffix=".tmp") as handle:
             temporary = Path(handle.name)
             handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, path)
+        _sync_directory(path.parent)
     except BaseException:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
         raise
+
+
+def _sync_directory(directory: Path) -> None:
+    """Make a rename in *directory* durable, where the platform allows it.
+
+    Opening a directory for ``fsync`` is POSIX; on Windows it raises, and there
+    the file's own ``fsync`` above is as far as this can go. A failure to sync
+    the directory is never worth failing a write that has already landed.
+    """
+    try:
+        descriptor = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
 
 
 def write_text(path: Path, text: str) -> None:
@@ -261,6 +428,48 @@ def write_group(
     the other way round. ``io`` imports nothing from the package, which is what
     lets both reach it.
     """
+    # D-171: two entries that name one file. Unit ids `ku-a` and `KU-A` are
+    # distinct to every validator — `validate_knowledge_units` dedupes
+    # case-sensitively and `ids.is_id_part` permits mixed case — and
+    # `artifacts._slug` does not case-fold, so on macOS's default
+    # case-insensitive filesystem the two produce one path and the second write
+    # wins. `finalize` then reported `PASS` and claimed four files while the
+    # disk held three, `report.md` listed both units, and one unit's note was
+    # simply gone. `written` is a *set* of unresolved paths, so nothing here
+    # noticed. CI is Linux; the stated development platform is macOS (D-115).
+    #
+    # Refused rather than repaired: which of the two notes should survive is not
+    # this function's to decide, and silently keeping one is exactly the
+    # behaviour that lost the other.
+    # The key is case-folded and NFC-normalised on *every* platform, not only
+    # where the filesystem is. `os.path.normcase` is a no-op on macOS, so a
+    # platform-accurate rule would make this defect invisible to Linux CI —
+    # which is exactly how it survived. Two canonical files differing only in
+    # case or in Unicode composition are a hazard wherever they are written, and
+    # nothing this package writes needs the distinction.
+    collisions: dict[str, list[Path]] = {}
+    for path, _ in entries:
+        key = unicodedata.normalize("NFC", str(path.resolve())).casefold()
+        collisions.setdefault(key, []).append(path)
+    duplicated = sorted(
+        (paths for paths in collisions.values() if len(paths) > 1),
+        key=lambda paths: str(paths[0]),
+    )
+    if duplicated:
+        named = "; ".join(
+            " and ".join(sorted(str(path) for path in paths)) for paths in duplicated
+        )
+        # `CanonicalValueError`, not a bare `ValueError`: it is a bad *value* in
+        # a canonical document (two unit ids that address one note), and it is
+        # in `cli.USER_FACING_ERRORS`, so the CLI keeps its documented
+        # `{"status": "ERROR"}` contract instead of dying on a traceback. Same
+        # reasoning as D-074.
+        raise CanonicalValueError(
+            "write_group was given two entries that name one file once case and "
+            f"Unicode composition are accounted for, so one would silently "
+            f"overwrite the other: {named}"
+        )
+
     written = {path.resolve() for path, _ in entries}
     stale = [
         path

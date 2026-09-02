@@ -344,7 +344,7 @@ holding the door until this policy existed, and it has two halves:
   from 42 characters for an ambient label to 160 for the focus — never the 4096
   a `label` may hold.
 - **Density is a rule.** A label is forced only for the focus, the node under
-  the pointer or the keyboard, and up to `MAP_LABEL_NEIGHBOUR_BUDGET` (12)
+  the pointer or the keyboard, and up to `MAP_LABEL_NEIGHBOUR_BUDGET` (4)
   neighbours of the focus. Everything else is `"auto"`, and Sigma's own grid
   decides it: one label per 180×180 px cell, and only for a node drawn at least
   14 px across, which is the zoom rule — the overview is quiet and zooming in

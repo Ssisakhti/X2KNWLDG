@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -906,6 +907,53 @@ def test_a_symlink_that_stays_inside_the_output_root_is_accepted(tmp_path: Path)
 
 
 # ---------------------------------------------------------------------------
+# A URL names one video, or it names none
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        # D-166: the regex was unanchored and used with `.search`, so a
+        # malformed id was truncated to its first 11 characters and the fetched
+        # captions were filed under **a different real video's id**.
+        ("https://www.youtube.com/shorts/dQw4w9WgXcQABC", None),
+        ("https://www.youtube.com/embed/dQw4w9WgXcQXYZ123", None),
+        ("https://www.youtube.com/anything/shorts/dQw4w9WgXcQ", None),
+        # And the three live URL forms that returned `None` while
+        # `is_youtube_url` said `True`.
+        ("https://www.youtube.com/live/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/v/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/watch/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        # Unchanged, and asserted here so the anchoring cannot have narrowed
+        # them by accident.
+        ("https://www.youtube.com/shorts/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/embed/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else repr(value),
+)
+def test_a_youtube_path_names_one_video_or_none(url: str, expected: str | None) -> None:
+    assert is_youtube_url(url), "every case here is a YouTube host"
+    assert extract_video_id(url) == expected
+
+
+def test_a_truncated_id_is_never_a_different_real_video(tmp_path: Path) -> None:
+    """The consequence, stated as the property that matters.
+
+    `is_youtube_url` exists to stop captions from an attacker's host being
+    filed under a real 11-character id. Truncation did the same thing one layer
+    in, from a host that really is YouTube.
+    """
+    real = "dQw4w9WgXcQ"
+    assert extract_video_id(f"https://www.youtube.com/shorts/{real}") == real
+    for suffix in ("A", "AB", "ABC", "XYZ123", "_", "-"):
+        assert extract_video_id(f"https://www.youtube.com/shorts/{real}{suffix}") is None
+
+
+# ---------------------------------------------------------------------------
 # "Immutable evidence" now has a detection story
 # ---------------------------------------------------------------------------
 
@@ -972,6 +1020,164 @@ def test_a_run_that_records_no_hash_is_refused(tmp_path: Path) -> None:
     (run_dir / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
     result = validate_run(run_dir)
     assert "transcript_hash_missing" in {e["code"] for e in result["evidence"]["errors"]}
+
+
+def _rewrite(path: Path, mutate: Callable[[dict], object]) -> None:
+    """Rewrite a canonical document the way the pipeline would write it."""
+    from x2knwldg.io import dumps_json
+
+    document = json.loads(path.read_text(encoding="utf-8"))
+    mutate(document)
+    path.write_text(dumps_json(document), encoding="utf-8")
+
+
+FABRICATED = "the speaker endorsed this product without reservation."
+
+
+def test_a_fabricated_quotation_in_the_canonical_files_cannot_reach_pass(
+    tmp_path: Path,
+) -> None:
+    """D-163. The hole the digest was supposed to close and did not.
+
+    ``transcript_hash`` covered ``raw/source.<ext>`` and was compared back to
+    that same file; the second comparison was against ``transcript.json``'s copy
+    of the same *string*. Nothing hashed the canonical documents. So a sentence
+    the speaker never said could be written into the files extraction reads,
+    cited as evidence, and printed into ``report.md`` — with ``raw/`` untouched,
+    ``apply-bundle`` returning ``PASS`` and the evidence section returning
+    ``{"status": "PASS", "errors": []}``.
+
+    Written the way the pipeline writes, so this is not a test about formatting.
+    """
+    run_dir = _pass_run(tmp_path)
+    _rewrite(
+        run_dir / "segments.json",
+        lambda doc: doc["segments"][0].update(
+            text=doc["segments"][0]["text"] + " " + FABRICATED
+        ),
+    )
+    _rewrite(
+        run_dir / "transcript.json",
+        lambda doc: doc["captions"][0].update(text=FABRICATED),
+    )
+
+    result = validate_run(run_dir)
+    assert result["evidence"]["status"] == "FAIL"
+    assert result["status"] == "FAIL"
+    codes = {error["code"] for error in result["evidence"]["errors"]}
+    assert "canonical_hash_mismatch" in codes
+    assert "canonical_transcript_disagrees_with_evidence" in codes
+    assert "segments_disagree_with_transcript" in codes
+    # The premise of the attack: the preserved original was never touched.
+    assert FABRICATED not in (run_dir / "raw" / "source.srt").read_text(encoding="utf-8")
+
+
+def test_editing_only_the_segments_is_detected(tmp_path: Path) -> None:
+    """``segments.json`` is the file that matters most, and had no raw copy.
+
+    ``validate_provenance`` matches every evidence excerpt against a *segment's*
+    text rather than against the captions, so a fabricated quotation only ever
+    had to live here.
+    """
+    run_dir = _pass_run(tmp_path)
+    _rewrite(
+        run_dir / "segments.json",
+        lambda doc: doc["segments"][0].update(
+            text=doc["segments"][0]["text"] + " " + FABRICATED
+        ),
+    )
+    result = validate_run(run_dir)
+    assert result["evidence"]["status"] == "FAIL"
+    codes = {error["code"] for error in result["evidence"]["errors"]}
+    assert "canonical_hash_mismatch" in codes
+    assert "segments_disagree_with_transcript" in codes
+
+
+def test_a_forged_digest_does_not_launder_a_forged_transcript(tmp_path: Path) -> None:
+    """The recorded digest is one of three checks, not the only one.
+
+    Rewriting ``metadata.canonical_hashes`` to match the edited files defeats
+    check 1 — and check 2 (the preserved ``raw/transcript.json``) and check 3
+    (recomputing the segments) are exactly what still stand.
+    """
+    from x2knwldg.io import sha256_text
+
+    run_dir = _pass_run(tmp_path)
+    _rewrite(
+        run_dir / "transcript.json",
+        lambda doc: doc["captions"][0].update(text=FABRICATED),
+    )
+    _rewrite(
+        run_dir / "segments.json",
+        lambda doc: doc["segments"][0].update(text=FABRICATED),
+    )
+    _rewrite(
+        run_dir / "metadata.json",
+        lambda doc: doc.__setitem__(
+            "canonical_hashes",
+            {
+                name: sha256_text((run_dir / name).read_text(encoding="utf-8"))
+                for name in ("transcript.json", "segments.json")
+            },
+        ),
+    )
+    result = validate_run(run_dir)
+    assert result["evidence"]["status"] == "FAIL"
+    codes = {error["code"] for error in result["evidence"]["errors"]}
+    assert "canonical_hash_mismatch" not in codes, "the forged digest does agree"
+    assert "canonical_transcript_disagrees_with_evidence" in codes
+    assert "segments_disagree_with_transcript" in codes
+
+
+def test_a_run_recorded_before_the_digests_is_still_checked_and_says_so(
+    tmp_path: Path,
+) -> None:
+    """No migration: every run ever imported carries ``raw/transcript.json``.
+
+    A run with no recorded digests is warned about — the warning names
+    re-import as the way to get the exact check — and is still refused if its
+    canonical files have moved away from the preserved evidence.
+    """
+    run_dir = _pass_run(tmp_path)
+    _rewrite(run_dir / "metadata.json", lambda doc: doc.pop("canonical_hashes", None))
+
+    result = validate_run(run_dir)
+    assert result["evidence"]["status"] == "PASS", "an honest old run still passes"
+    assert "canonical_hashes_not_recorded" in {
+        warning["code"] for warning in result["evidence"]["warnings"]
+    }
+
+    _rewrite(
+        run_dir / "segments.json",
+        lambda doc: doc["segments"][0].update(text=FABRICATED),
+    )
+    refused = validate_run(run_dir)
+    assert refused["evidence"]["status"] == "FAIL"
+    assert "segments_disagree_with_transcript" in {
+        error["code"] for error in refused["evidence"]["errors"]
+    }
+
+
+def test_an_import_records_a_digest_over_what_it_writes(tmp_path: Path) -> None:
+    """The digests are over the bytes on disk, not over a re-serialisation."""
+    from x2knwldg.io import sha256_file
+
+    run_dir = _pass_run(tmp_path)
+    recorded = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))[
+        "canonical_hashes"
+    ]
+    assert set(recorded) == {"transcript.json", "segments.json"}
+    for name, digest in recorded.items():
+        assert digest == sha256_file(run_dir / name), name
+
+
+def test_deleting_the_preserved_transcript_copy_is_detected(tmp_path: Path) -> None:
+    run_dir = _pass_run(tmp_path)
+    (run_dir / "raw" / "transcript.json").unlink()
+    result = validate_run(run_dir)
+    assert "raw_transcript_missing" in {
+        error["code"] for error in result["evidence"]["errors"]
+    }
 
 
 def test_the_two_canonical_files_must_agree_about_the_hash(tmp_path: Path) -> None:

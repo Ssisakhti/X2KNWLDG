@@ -46,7 +46,6 @@ but it may never lose the original caption ids or source span.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 from .constants import (
@@ -55,6 +54,7 @@ from .constants import (
     SEGMENT_OVERLAP_SEC,
     SEGMENT_TARGET_SEC,
 )
+from .io import require_seconds
 
 #: Seconds of score credit a candidate end earns for landing on a sentence
 #: boundary. Expressed in the same units as the distance from ``target_sec``
@@ -67,15 +67,13 @@ def _ends_thought(text: str) -> bool:
 
 
 def _require_seconds(value: Any, label: str) -> float:
-    """A bound is a finite, non-negative real number of seconds."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{label} must be a number, got {type(value).__name__}")
-    number = float(value)
-    if not math.isfinite(number):
-        raise ValueError(f"{label} must be a finite number of seconds, got {value!r}")
-    if number < 0:
-        raise ValueError(f"{label} must not be negative, got {value!r}")
-    return number
+    """A bound is a finite, non-negative real number of seconds.
+
+    D-185: ``io.require_seconds``, in this module's exception type. It was a
+    byte-for-byte copy of ``ids._require_seconds`` apart from that type, and
+    both were copies of a rule ``io`` already stated.
+    """
+    return require_seconds(value, label)
 
 
 def _check_bounds(

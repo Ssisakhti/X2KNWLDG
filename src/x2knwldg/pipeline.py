@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,8 +18,10 @@ from .io import (
     JsonReadError,
     dumps_json,
     format_timestamp,
+    is_finite_seconds,
     read_json,
     sha256_file,
+    sha256_text,
     timestamp_url,
     write_group,
     write_json,
@@ -28,6 +31,7 @@ from .segmenter import create_segments
 from .transcripts import parse_transcript_file, transcript_end_sec, transcript_integrity
 from .validators import (
     validate_coverage,
+    validate_coverage_links,
     validate_knowledge_units,
     validate_provenance,
     validate_relationships,
@@ -89,7 +93,21 @@ YOUTUBE_HOSTS = YOUTUBE_SHORT_HOSTS | YOUTUBE_WATCH_HOSTS
 
 _VIDEO_ID_RE = re.compile(r"[0-9A-Za-z_-]{11}")
 _LOCAL_ID_RE = re.compile(r"[0-9A-Za-z_-]{6,64}")
-_YOUTUBE_PATH_ID_RE = re.compile(r"/(?:shorts|embed)/([0-9A-Za-z_-]{11})")
+#: The path forms that name a video directly. D-166: this was used with
+#: ``.search`` and anchored at neither end, so ``/shorts/dQw4w9WgXcQABC`` — a
+#: malformed id, and one an attacker chooses — matched its first 11 characters
+#: and filed the fetched captions under **a different real video's id**. That is
+#: exactly the provenance poisoning ``is_youtube_url`` exists to prevent, one
+#: layer further in. It is now anchored at the start of the path and bounded at
+#: the end, so an id that is too long is refused rather than truncated.
+#:
+#: ``live``, ``v`` and ``watch`` join ``shorts`` and ``embed``: all three are
+#: live YouTube URL forms — a premiere, the old embed spelling, and the path
+#: form of a watch page — and all three returned ``None`` while
+#: ``is_youtube_url`` said ``True``.
+_YOUTUBE_PATH_ID_RE = re.compile(
+    r"^/(?:shorts|embed|live|v|watch)/([0-9A-Za-z_-]{11})(?:[/?#]|$)"
+)
 
 
 def _normalize_host(host: str | None) -> str | None:
@@ -146,7 +164,7 @@ def extract_video_id(value: str) -> str | None:
         candidate = parse_qs(parsed.query).get("v", [None])[0]
         if candidate and _VIDEO_ID_RE.fullmatch(candidate):
             return candidate
-        path_match = _YOUTUBE_PATH_ID_RE.search(parsed.path)
+        path_match = _YOUTUBE_PATH_ID_RE.match(parsed.path)
         return path_match.group(1) if path_match else None
     if host is not None:
         # Some other host. A URL is never a bare identifier, so it must not
@@ -222,6 +240,8 @@ def _metadata(
     transcript_hash: str,
     integrity: dict[str, Any],
     metadata_error: str | None = None,
+    canonical_hashes: Mapping[str, str] | None = None,
+    media_duration_sec: float | None = None,
 ) -> dict[str, Any]:
     document: dict[str, Any] = {
         "schema_version": "1.0",
@@ -234,8 +254,23 @@ def _metadata(
         "transcript_source": transcript_source,
         "transcript_hash": transcript_hash,
         "imported_at": datetime.now(timezone.utc).isoformat(),
-        "duration_sec": integrity["stats"]["duration_sec"],
+        # D-168: the video's length when it is known, and the caption span
+        # otherwise. `duration_sec` is what the coverage windows are minted over
+        # and what completeness is checked against, so a run whose captions stop
+        # ten minutes into a two-hour talk must not report itself as ten minutes
+        # long. The caption span is kept beside it rather than replaced: the gap
+        # between the two is the fact, and hiding either half hides it.
+        "duration_sec": _run_duration(integrity, media_duration_sec),
+        "captions_end_sec": integrity["stats"]["duration_sec"],
     }
+    if canonical_hashes:
+        # D-163. `transcript_hash` covers the *preserved original*; these cover
+        # the canonical documents extraction actually reads. Additive, and
+        # absent rather than empty on a run that recorded none, so
+        # `_evidence_integrity` can tell "no digests were taken" from "the
+        # digests do not match" — the first is an older run, the second is
+        # tampering.
+        document["canonical_hashes"] = dict(canonical_hashes)
     if metadata_error:
         # D-099: `title` and `channel` fall back to "Unknown ...", and without
         # this there was no way to tell an unknown title from a fetch that
@@ -243,6 +278,29 @@ def _metadata(
         # nothing went wrong; never an empty string.
         document["metadata_error"] = metadata_error
     return document
+
+
+def run_duration_sec(metadata: Any, captions: Any) -> float:
+    """How long the run is, as ``metadata.json`` recorded it (D-168).
+
+    The one number the coverage windows are minted over and completeness is
+    checked against, so every reader of it must reach it the same way. Falls
+    back to the caption span for a run imported before ``duration_sec`` could
+    mean anything else.
+    """
+    recorded = metadata.get("duration_sec") if isinstance(metadata, dict) else None
+    caption_end = transcript_end_sec(captions)
+    if not is_finite_seconds(recorded) or recorded < caption_end:
+        return caption_end
+    return float(recorded)
+
+
+def _run_duration(integrity: dict[str, Any], media_duration_sec: float | None) -> float:
+    """How long the run is at import: the media when known, the captions otherwise."""
+    caption_end = float(integrity["stats"]["duration_sec"])
+    if media_duration_sec is None or not is_finite_seconds(media_duration_sec):
+        return caption_end
+    return round(max(caption_end, float(media_duration_sec)), 3)
 
 
 def _transcript_markdown(captions: list[dict[str, Any]], video_id: str) -> str:
@@ -296,6 +354,7 @@ def import_transcript(
     language: str = "unknown",
     source: str | None = None,
     metadata_error: str | None = None,
+    media_duration_sec: float | None = None,
     target_segment_sec: float = SEGMENT_TARGET_SEC,
     overlap_sec: float = SEGMENT_OVERLAP_SEC,
 ) -> Path:
@@ -320,17 +379,6 @@ def import_transcript(
     )
     transcript_hash = sha256_file(transcript_path)
     transcript_source = source or captions[0]["source"]
-    metadata = _metadata(
-        video_id,
-        video_url,
-        title,
-        channel,
-        language,
-        transcript_source,
-        transcript_hash,
-        integrity,
-        metadata_error,
-    )
     transcript_document = {
         "schema_version": "1.0",
         "video_id": video_id,
@@ -343,19 +391,45 @@ def import_transcript(
         "schema_version": "1.0",
         "video_id": video_id,
         "strategy": {
-            "type": "time_aware_with_boundary_preference",
+            "type": _SEGMENT_STRATEGY,
             "target_sec": target_segment_sec,
             "overlap_sec": overlap_sec,
         },
         "segments": segments,
     }
+    # Serialised here rather than at the `write_group` below, because the
+    # digests recorded in `metadata.json` must be over exactly the bytes that
+    # reach disk — and `metadata.json` is written in the same group (D-163).
+    transcript_text = dumps_json(transcript_document)
+    segment_text = dumps_json(segment_document)
+    canonical_hashes = {
+        "transcript.json": sha256_text(transcript_text),
+        "segments.json": sha256_text(segment_text),
+    }
+
+    metadata = _metadata(
+        video_id,
+        video_url,
+        title,
+        channel,
+        language,
+        transcript_source,
+        transcript_hash,
+        integrity,
+        metadata_error,
+        canonical_hashes=canonical_hashes,
+        media_duration_sec=media_duration_sec,
+    )
+
     knowledge_document = {"schema_version": "1.0", "video_id": video_id, "units": []}
     relationship_document = {
         "schema_version": "1.0",
         "video_id": video_id,
         "relationships": [],
     }
-    coverage = create_pending_coverage(captions, video_id)
+    coverage = create_pending_coverage(
+        captions, video_id, duration_sec=metadata["duration_sec"]
+    )
 
     raw_dir = run_dir / "raw"
     # `raw/` is immutable evidence *of a run that exists*. The guard above has
@@ -380,7 +454,20 @@ def import_transcript(
     # itself because nothing has been audited yet.
     initial_validation: dict[str, Any] = {
         "transcript": integrity,
-        "evidence": _evidence_integrity(run_dir, metadata, transcript_document),
+        "evidence": _evidence_integrity(
+            run_dir,
+            metadata,
+            transcript_document,
+            segment_document,
+            # The files are written below, in one group, so the check runs over
+            # the text that group will write rather than over a directory that
+            # does not hold it yet.
+            canonical_text={
+                "transcript.json": transcript_text,
+                "segments.json": segment_text,
+                "raw/transcript.json": transcript_text,
+            },
+        ),
         "knowledge_units": validate_knowledge_units(knowledge_document),
         "provenance": validate_provenance(
             knowledge_document, transcript_document, segment_document, video_id
@@ -404,11 +491,11 @@ def import_transcript(
     # rewrites every `\n` as `os.linesep`.
     write_group(
         [
-            (raw_dir / "transcript.json", dumps_json(transcript_document)),
+            (raw_dir / "transcript.json", transcript_text),
             (raw_dir / "transcript.md", _transcript_markdown(captions, video_id)),
             (run_dir / "metadata.json", dumps_json(metadata)),
-            (run_dir / "transcript.json", dumps_json(transcript_document)),
-            (run_dir / "segments.json", dumps_json(segment_document)),
+            (run_dir / "transcript.json", transcript_text),
+            (run_dir / "segments.json", segment_text),
             (run_dir / "knowledge_units.json", dumps_json(knowledge_document)),
             (run_dir / "relationships.json", dumps_json(relationship_document)),
             (run_dir / "coverage.json", dumps_json(coverage)),
@@ -450,62 +537,6 @@ Whisper and WhisperX are intentionally disabled.
     return inbox
 
 
-def _coverage_link_errors(
-    coverage: Any, units: list[Any], unit_ids: set[str]
-) -> list[dict[str, Any]]:
-    """Errors from cross-checking ``coverage.json`` against ``knowledge_units.json``.
-
-    ``validate_coverage`` only ever reads ``coverage.json``, so it can confirm
-    that a window *names* knowledge units without knowing whether any of them
-    exist. Emptying the unit store while leaving coverage claiming ``covered``
-    therefore left the run reporting ``PASS`` — coverage asserting evidence
-    that is not there, which is precisely the fabrication AGENTS.md forbids.
-
-    ``artifacts.apply_extraction_bundle`` already refuses both of these at
-    write time; they are re-checked here because ``validation.json`` is the
-    run's standing verdict and the canonical files can be edited after a
-    bundle is applied.
-    """
-    errors: list[dict[str, Any]] = []
-    if not isinstance(coverage, dict) or not isinstance(coverage.get("windows"), list):
-        # validate_coverage already reports the shape failure.
-        return errors
-    referenced: set[str] = set()
-    for index, window in enumerate(coverage["windows"]):
-        if not isinstance(window, dict):
-            continue
-        named = window.get("knowledge_units") or []
-        if not isinstance(named, list):
-            errors.append({"code": "window_knowledge_units_not_array", "window": index})
-            continue
-        for unit_id in named:
-            if isinstance(unit_id, str):
-                referenced.add(unit_id)
-            if unit_id not in unit_ids:
-                errors.append(
-                    {
-                        "code": "coverage_references_unknown_unit",
-                        "window": index,
-                        "window_id": window.get("window_id"),
-                        "value": unit_id,
-                    }
-                )
-    if coverage.get("status") == "PASS":
-        unaccounted = sorted(
-            unit["id"]
-            for unit in units
-            if isinstance(unit, dict)
-            and unit.get("source_class") == "source"
-            and isinstance(unit.get("id"), str)
-            and unit["id"] not in referenced
-        )
-        if unaccounted:
-            errors.append(
-                {"code": "coverage_pass_omits_source_units", "units": unaccounted}
-            )
-    return errors
-
-
 def _read_canonical(path: Path) -> dict[str, Any]:
     """One canonical file, or a :class:`PipelineError` naming what is wrong.
 
@@ -522,20 +553,73 @@ def _read_canonical(path: Path) -> dict[str, Any]:
     return document
 
 
-def _evidence_integrity(run_dir: Path, metadata: Any, transcript: Any) -> dict[str, Any]:
-    """Does the preserved evidence still hash to what the run recorded?
+#: The segmentation strategy this code implements, named in every
+#: ``segments.json`` it writes. A run recording a different one cannot be
+#: re-derived here, which is a fact about this code and not about that run.
+_SEGMENT_STRATEGY = "time_aware_with_boundary_preference"
+
+#: The canonical documents a digest is recorded over at import (D-163). Not
+#: every canonical file: these two are the ones extraction *reads* and evidence
+#: is matched against, and they are the two the pipeline itself never rewrites
+#: after import, so a digest over them stays valid for the life of the run.
+#: ``knowledge_units.json``, ``relationships.json`` and ``coverage.json`` are
+#: rewritten by ``apply-bundle`` on purpose and cannot be pinned this way.
+SEALED_CANONICAL_FILES = ("transcript.json", "segments.json")
+
+
+def _evidence_integrity(
+    run_dir: Path,
+    metadata: Any,
+    transcript: Any,
+    segments: Any = None,
+    *,
+    canonical_text: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Does the evidence still hash to what the run recorded — all of it?
 
     ``metadata.transcript_hash`` was written once, at import, over the file the
-    caller supplied — the file preserved as ``raw/source.<ext>``. Nothing ever
-    read it back, so "immutable evidence" was a policy with no detection story:
-    no write path targets ``raw/`` (that held up under audit), but nothing
-    would have noticed if something else did.
+    caller supplied — the file preserved as ``raw/source.<ext>``. Recomputing it
+    is where this check started, and it is still the first thing below.
 
-    Recomputing it is the whole check. A run whose evidence no longer matches
-    its own record cannot be finalized, because every downstream artifact would
-    cite a transcript the repository can no longer produce.
+    It was not enough, and the gap was the whole promise. The hash covered
+    ``raw/source.<ext>`` and was then compared to *that same file*; the second
+    comparison was against ``transcript.json``'s **copy of the same string**.
+    Nothing hashed the canonical documents themselves. So editing
+    ``segments.json`` to contain a sentence the speaker never said — leaving
+    ``raw/`` untouched, which no attacker has any reason to touch — produced a
+    run where ``apply-bundle`` returned ``PASS``, this section returned
+    ``{"status": "PASS", "errors": []}``, and the invented quotation was printed
+    into ``report.md`` while being absent from the preserved original.
+    ``segments.json`` is the file that matters most here: ``validate_provenance``
+    matches every evidence excerpt against a *segment's* text, not against the
+    captions.
+
+    Three checks now stand between a fabricated quotation and ``PASS``, and they
+    are deliberately independent — each covers what the others cannot:
+
+    1. **The recorded digests** (D-163). ``metadata.canonical_hashes`` pins the
+       exact bytes of each :data:`SEALED_CANONICAL_FILES` entry as written at
+       import. Exact and cheap, and the only one of the three that would survive
+       a change to the segmenter.
+    2. **The preserved copy.** ``raw/transcript.json`` is written at import
+       beside ``raw/source.<ext>`` and is evidence in the same sense, so the
+       canonical ``transcript.json`` must still equal it byte for byte. This
+       holds for every run ever imported, including those recorded before the
+       digests existed.
+    3. **Recomputation.** ``segments.json`` is a pure function of the captions
+       and the strategy it records, so it is recomputed and compared. This is
+       what covers ``segments.json`` on a run with no recorded digests, and it
+       is what catches an edit that also rewrites the digest in
+       ``metadata.json``. It is skipped, with a warning rather than an error,
+       when the run records a segmentation strategy this code does not
+       implement — a future strategy is not a tampered run.
+
+    A run whose evidence no longer matches its own record cannot be finalized,
+    because every downstream artifact would cite a transcript the repository can
+    no longer produce.
     """
     errors: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
     recorded = metadata.get("transcript_hash") if isinstance(metadata, dict) else None
     sources = sorted((run_dir / "raw").glob("source.*")) if (run_dir / "raw").is_dir() else []
     if not isinstance(recorded, str) or not recorded:
@@ -564,7 +648,138 @@ def _evidence_integrity(run_dir: Path, metadata: Any, transcript: Any) -> dict[s
         errors.append(
             {"code": "transcript_hash_disagreement", "metadata": recorded, "transcript": stated}
         )
-    return {"status": "PASS" if not errors else "FAIL", "errors": errors, "warnings": []}
+
+    def text_of(name: str) -> str | None:
+        """*name*'s bytes as text, from the group being written or from disk."""
+        if canonical_text is not None:
+            return canonical_text.get(name)
+        path = run_dir / name
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+    # 1. The recorded digests.
+    sealed = metadata.get("canonical_hashes") if isinstance(metadata, dict) else None
+    if not isinstance(sealed, dict) or not sealed:
+        # Every run imported before D-163. Named, not silently excused: checks 2
+        # and 3 below still stand over it, and re-importing from the preserved
+        # original is what upgrades it to the exact check.
+        warnings.append(
+            {
+                "code": "canonical_hashes_not_recorded",
+                "note": (
+                    "this run predates the canonical digests; its canonical files are "
+                    "checked against the preserved copy and by recomputation instead. "
+                    "Re-import from raw/source.<ext> to record them."
+                ),
+            }
+        )
+    else:
+        for name in SEALED_CANONICAL_FILES:
+            expected = sealed.get(name)
+            if not isinstance(expected, str) or not expected:
+                errors.append({"code": "canonical_hash_missing", "file": name})
+                continue
+            content = text_of(name)
+            if content is None:
+                errors.append({"code": "canonical_file_unreadable", "file": name})
+                continue
+            actual = sha256_text(content)
+            if actual != expected:
+                errors.append(
+                    {
+                        "code": "canonical_hash_mismatch",
+                        "file": name,
+                        "recorded": expected,
+                        "actual": actual,
+                    }
+                )
+
+    # 2. The preserved copy of the transcript.
+    canonical_transcript = text_of("transcript.json")
+    preserved_transcript = text_of("raw/transcript.json")
+    if preserved_transcript is None:
+        errors.append({"code": "raw_transcript_missing", "expected": "raw/transcript.json"})
+    elif canonical_transcript is None:
+        errors.append({"code": "canonical_file_unreadable", "file": "transcript.json"})
+    elif canonical_transcript != preserved_transcript:
+        errors.append(
+            {
+                "code": "canonical_transcript_disagrees_with_evidence",
+                "file": "transcript.json",
+                "evidence": "raw/transcript.json",
+            }
+        )
+
+    # 3. Recomputation of the segments.
+    errors.extend(_segment_recomputation_errors(transcript, segments, warnings))
+
+    return {
+        "status": "PASS" if not errors else "FAIL",
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
+def _segment_recomputation_errors(
+    transcript: Any, segments: Any, warnings: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """``segments.json`` re-derived from the captions, and compared.
+
+    Evidence excerpts are matched against segment *text*, so this is the file a
+    fabricated quotation has to live in. It states the strategy that produced
+    it, and that strategy is a pure function of the captions, so the honest
+    check is to run it again.
+    """
+    if segments is None:
+        # `import_transcript` before D-163 passed no segments; nothing else does.
+        return []
+    if not isinstance(segments, dict) or not isinstance(segments.get("segments"), list):
+        return [{"code": "segments_not_an_object"}]
+    strategy = segments.get("strategy")
+    strategy_type = strategy.get("type") if isinstance(strategy, dict) else None
+    if strategy_type != _SEGMENT_STRATEGY:
+        # A run written by a future segmenter, or one that records no strategy
+        # at all. Reported, and not treated as tampering: this code cannot
+        # reproduce what it does not implement.
+        warnings.append(
+            {
+                "code": "segments_strategy_not_recomputable",
+                "strategy": strategy_type,
+                "known": _SEGMENT_STRATEGY,
+            }
+        )
+        return []
+    captions = transcript.get("captions") if isinstance(transcript, dict) else None
+    if not isinstance(captions, list):
+        return [{"code": "segments_unverifiable", "reason": "transcript.json has no captions"}]
+    assert isinstance(strategy, dict)
+    target = strategy.get("target_sec")
+    overlap = strategy.get("overlap_sec")
+    if not is_finite_seconds(target) or not is_finite_seconds(overlap):
+        return [
+            {"code": "segments_strategy_incomplete", "target_sec": target, "overlap_sec": overlap}
+        ]
+    try:
+        again = create_segments(captions, target_sec=float(target), overlap_sec=float(overlap))
+    except (PipelineError, ValueError) as exc:
+        return [{"code": "segments_unverifiable", "reason": str(exc)}]
+    if dumps_json(again) != dumps_json(segments["segments"]):
+        return [
+            {
+                "code": "segments_disagree_with_transcript",
+                "file": "segments.json",
+                "note": (
+                    "the segments on disk are not what this transcript segments to; "
+                    "an evidence excerpt matched against them is not matched against "
+                    "the preserved original"
+                ),
+            }
+        ]
+    return []
+
+
 
 
 def _run_verdict(sections: dict[str, Any], coverage: Any) -> str:
@@ -612,17 +827,23 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
     }
     result: dict[str, Any] = {
         "transcript": integrity,
-        "evidence": _evidence_integrity(run_dir, metadata, transcript),
+        "evidence": _evidence_integrity(run_dir, metadata, transcript, segments),
         "knowledge_units": validate_knowledge_units(knowledge),
         "provenance": validate_provenance(
             knowledge, transcript, segments, metadata.get("video_id", "")
         ),
         "relationships": validate_relationships(relationships, unit_ids),
-        "coverage": validate_coverage(coverage, transcript_end_sec(captions)),
+        # D-168: `metadata.duration_sec`, not the caption span. The two are the
+        # same number for a run whose captions cover the whole video, and for
+        # one whose captions stop early the caption span is exactly the number
+        # that cannot detect the truncation.
+        "coverage": validate_coverage(coverage, run_duration_sec(metadata, captions)),
     }
     # The one check no single-file validator can make: coverage.json and
     # knowledge_units.json describing the same run.
-    link_errors = _coverage_link_errors(coverage, units, unit_ids)
+    # D-164: one implementation, shared with `apply-bundle`, which used to
+    # carry a partial copy of the same rules.
+    link_errors = validate_coverage_links(coverage, units)
     if link_errors:
         result["coverage"]["errors"] = list(result["coverage"]["errors"]) + link_errors
         result["coverage"]["status"] = "FAIL"
