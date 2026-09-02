@@ -27,6 +27,7 @@ import {
   busiest,
   contextReport,
   countContexts,
+  degrees,
   findMark,
   mapUrl,
   openDrawnMap,
@@ -315,6 +316,53 @@ test.describe("the numbers the stage was given by argument", () => {
           expect(overlap, `${a.id} and ${b.id} overlap on the stage`).toBe(false);
         }
       }
+    }
+  });
+
+  test("keeps every card it draws inside the stage (D-145)", async ({ page }) => {
+    // Seen in the shipped UI, which is how it was found: two cards anchored
+    // near the middle of the stage opened upwards, spilled out of the top --
+    // the overlay is a sibling of the container, so nothing clips it -- and
+    // had the first line of their statements covered by the panel above. A
+    // statement whose first line is hidden is the silent cut D-131 forbids,
+    // because nothing says it was cut.
+    const graph = await servedGraph(page);
+    const degree = degrees(graph);
+    // Several focuses, because one arrangement proves one arrangement: the
+    // busiest entity, a middling one and a leaf.
+    const ranked = [...degree.entries()].sort((left, right) => right[1] - left[1]);
+    const chosen = [ranked[0], ranked[Math.floor(ranked.length / 2)], ranked[ranked.length - 1]]
+      .filter((entry): entry is [string, number] => entry !== undefined)
+      .map(([id]) => id);
+
+    for (const centre of chosen) {
+      await openDrawnMap(page, { focus: centre });
+      await settledStage(page);
+      const outside = await page.evaluate(() => {
+        const stage = document.querySelector("[data-map-stage]")?.getBoundingClientRect();
+        if (stage === undefined) return ["no stage"];
+        return [...document.querySelectorAll(".map__overlay [data-map-card]")]
+          .map((element) => ({ element, box: element.getBoundingClientRect() }))
+          .filter(
+            ({ box }) =>
+              box.top < stage.top - 0.5 ||
+              box.bottom > stage.bottom + 0.5 ||
+              box.left < stage.left - 0.5 ||
+              box.right > stage.right + 0.5,
+          )
+          .map(
+            ({ element, box }) =>
+              `${(element as HTMLElement).dataset.mapCard} out by ${Math.round(
+                Math.max(
+                  stage.top - box.top,
+                  box.bottom - stage.bottom,
+                  stage.left - box.left,
+                  box.right - stage.right,
+                ),
+              )}px`,
+          );
+      });
+      expect(outside, `a card left the stage with ${centre} focused`).toEqual([]);
     }
   });
 

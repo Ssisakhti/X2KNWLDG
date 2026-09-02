@@ -124,8 +124,10 @@ describe("the related list", () => {
     const placement = placeConstellation({
       centreId: KU1,
       related: neighbourhood.related,
-      // Every mark in one cell, so the policy has to refuse all but the first.
-      position: () => ({ x: 400, y: 300 }),
+      // Every mark on one point, so the policy has to refuse all but the
+      // first. The `y` is one with room for a card below it: the fit clause
+      // needs `height + gap + inset` of clear stage on one side (D-145).
+      position: () => ({ x: 400, y: 150 }),
       stage: { width: 900, height: 600 },
     });
 
@@ -144,7 +146,7 @@ describe("the related list", () => {
     const placement = placeConstellation({
       centreId: KU1,
       related: neighbourhood.related,
-      position: (globalId) => (globalId === KU2 ? { x: 400, y: 300 } : null),
+      position: (globalId) => (globalId === KU2 ? { x: 400, y: 150 } : null),
       stage: { width: 900, height: 600 },
     });
     list({ neighbourhood, placement });

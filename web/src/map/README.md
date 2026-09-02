@@ -453,23 +453,35 @@ the real graph's widest fan-out is eight. `VirtualList` exists and measures its
 rows; it is the Reader's tool, not this one's, and a scaffold guard fails if it
 appears here.
 
-### The density policy is four clauses, each of them counted
+### The density policy is five clauses, each of them counted
 
 `placeConstellation` walks the related list in its own order and answers, for
 each entity: no mark on this Map (`not_loaded`), a mark outside the stage at
-this camera position (`off_stage`), a card that would cover one already placed
-in **any** of the four ways it can open (`crowded`), or beyond the four-card
-budget (`budget`). Crowding is checked *before* the budget, so the budget is
-spent on cards a reader can actually read.
+this camera position (`off_stage`), a mark on the stage with no room for a
+card beside it in any of the four ways one can open (`no_room`), a card that
+would cover one already placed in every direction that does fit (`crowded`),
+or beyond the four-card budget (`budget`). The order is the order of the
+questions: no room at all is not the same answer as a neighbour already
+there, and crowding is checked *before* the budget, so the budget is spent on
+cards a reader can actually read.
+
+`no_room` is `T-209`'s, and it came from looking at the running UI rather than
+from the gate: two cards hung 21 and 69 px out of the top of the stage with
+the first line of their statements behind the search rail. The overlay is a
+*sibling* of the renderer's container, so nothing clips a card that leaves the
+stage — and a statement whose first line is hidden is the one cut D-131
+forbids, since nothing on screen says it was cut.
 
 The crowding clause used to be a 240 px grid cell, the same device Sigma's
 `labelDensity` uses for labels, and `T-209` measured what that cost on the real
 graph: it refused **7 of 8** neighbour cards that would have fitted *and*
 placed two that overlapped by two thirds of a card, because a grid answers
 "same cell?" when the question is "same pixels?" (D-145). It is now an overlap
-test over the card's measured footprint — 320×248 for a neighbour, 416×176 for
-the primary, which is what Chrome laid them out at — and the rectangle it
-reserves is the card, its gap, **and the mark it points at**, because two cards
+test over the card's measured footprint — 320×296 for a neighbour, 416×176 for
+the primary, which is what Chrome laid them out at, the height being the
+*tallest* card seen across eighteen focuses rather than the first one measured
+— and the rectangle it reserves is the card, its gap, **and the mark it points
+at**, because two cards
 opening in opposite directions from marks four pixels apart overlap nothing and
 still point into the same four pixels. Four orientations are tried in a stated
 order before a refusal, since a card prefers to open towards the middle of the
