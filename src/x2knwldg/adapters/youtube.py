@@ -52,6 +52,7 @@ from typing import Any
 
 from .. import ids
 from ..constants import MAX_AUDIT_ATTEMPTS
+from ..io import LIBRARY_DIR_NAME as LIBRARY_DIR_NAME
 from ..io import scrub_host_paths, sha256_file
 from .base import (
     CANONICAL_PROVENANCE_CLASSES,
@@ -84,7 +85,9 @@ from .base import (
 )
 
 #: Directory name of the cross-source library inside ``output/``.
-LIBRARY_DIR_NAME = "library"
+#: Re-exported from :mod:`x2knwldg.io` (D-158), where run discovery is stated
+#: now that one rule serves the scanner, the adapters and the library rebuild.
+#: Every existing ``from .adapters import LIBRARY_DIR_NAME`` keeps working.
 
 
 @dataclass(frozen=True)

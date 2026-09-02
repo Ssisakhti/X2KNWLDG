@@ -795,8 +795,15 @@ def test_a_malformed_id_is_refused_as_malformed(sqlite_repo, method, bad_id):
 
 @requires_fts5
 def test_an_index_that_is_not_ready_refuses_every_question_but_its_status(tmp_path):
+    """D-162: ``building`` and *no* ``built_at`` — no build has ever finished."""
     records = _fixture_project(tmp_path)
-    write_index(tmp_path, records, state="building", message="a build is in flight")
+    write_index(
+        tmp_path,
+        records,
+        state="building",
+        built_at=None,
+        message="a build is in flight",
+    )
     repo = SqliteRepository.open(tmp_path)
     try:
         status = repo.status()
@@ -823,6 +830,94 @@ def test_an_index_that_is_not_ready_refuses_every_question_but_its_status(tmp_pa
             assert raised.value.state == "building", name
             assert raised.value.http_status == 503
             assert "a build is in flight" in str(raised.value)
+    finally:
+        repo.close()
+
+
+@requires_fts5
+def test_a_killed_build_still_serves_the_generation_it_left_intact(tmp_path):
+    """D-162. SIGKILL a refresh and the tables still hold the whole previous
+    index — every write ``_apply`` makes is in one transaction, so the rollback
+    is complete. Clearing ``built_at`` on the way in threw that away: the state
+    said ``building`` forever, every endpoint answered ``503``, and getting the
+    library back cost a full rebuild of a cache that was never damaged.
+    """
+    records = _fixture_project(tmp_path)
+    write_index(tmp_path, records, state="building", message="a build is in flight")
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        status = repo.status()
+        # Honest about what it is: still `building`, and it says why.
+        assert status.state == "building"
+        assert status.built_at == BUILT_AT
+        assert status.message == "a build is in flight"
+        # And answerable, from the generation `built_at` names.
+        assert repo.list_sources(SourceQuery()).items
+        assert repo.get_source(PASS_SOURCE) is not None
+        assert repo.graph(GraphQuery()).payload()["nodes"]
+    finally:
+        repo.close()
+
+
+@requires_fts5
+def test_a_reader_answers_honestly_while_a_writer_holds_the_index(tmp_path):
+    """D-159. Without WAL a writer locks the whole database.
+
+    A reader during a build then got `database is locked`, which `_index_state`
+    maps to `state='error'` with no counts — and `payload()` renders an absent
+    count as `0`. So the one endpoint that exists to be honest reported
+    `state: error, sources: 0, artifacts: 0` about an index that was intact and
+    whose stored row said `building`. Two `x2knwldg serve` processes reach it:
+    the second one's startup `refresh_index` holds the lock at commit while the
+    first answers `/api/status`.
+    """
+    records = _fixture_project(tmp_path)
+    write_index(tmp_path, records, state="ready")
+
+    repo = SqliteRepository.open(tmp_path)
+    writer = schema.connect(schema.database_path(tmp_path))
+    try:
+        assert (
+            writer.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        ), "the mode this test is about"
+        # A writer mid-transaction, holding everything it is going to hold.
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("DELETE FROM sources")
+
+        status = repo.status()
+        assert status.state == "ready", "not 'error': the index is fine, it is busy"
+        assert status.payload()["counts"]["sources"] > 0, "no fabricated zero"
+        # And the rows it serves are the last committed generation, whole —
+        # not the writer's uncommitted deletion.
+        assert repo.list_sources(SourceQuery()).items
+    finally:
+        writer.rollback()
+        writer.close()
+        repo.close()
+
+
+def test_an_unopenable_index_file_reports_error_rather_than_failing_to_open(tmp_path):
+    """D-160: `SqliteRepository.open` caught only `FileNotFoundError`.
+
+    A file at the index path that cannot be opened at all raises
+    `sqlite3.OperationalError`, which escaped with no `code` and no
+    `http_status` out of `build_repository` and out of `create_app` — so the
+    application failed to *construct* and there was no reader left to say why.
+    """
+    path = schema.database_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.mkdir()  # a directory where the database should be
+
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        status = repo.status()
+        # `error`, not `absent`: there is something here, and it cannot be read.
+        assert status.state == "error"
+        assert status.message and "cannot be opened" in status.message
+        with pytest.raises(IndexUnavailable) as raised:
+            repo.list_sources(SourceQuery())
+        assert raised.value.state == "error"
+        assert raised.value.http_status == 503
     finally:
         repo.close()
 

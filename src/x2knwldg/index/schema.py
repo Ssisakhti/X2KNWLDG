@@ -276,6 +276,14 @@ def require_fts5(connection: sqlite3.Connection) -> None:
         )
 
 
+#: How long a connection waits for another writer before deciding the index
+#: cannot be read (D-159). Long enough to outlast a commit of a project-sized
+#: index, short enough that a genuinely stuck writer is still reported rather
+#: than hung on: the endpoints answer in milliseconds, and a reader that waits
+#: five seconds has learned something real about the store.
+BUSY_TIMEOUT_MS = 5000
+
+
 def connect(
     path: Path, *, create: bool = True, multithreaded: bool = False
 ) -> sqlite3.Connection:
@@ -311,6 +319,25 @@ def connect(
     # seam uses, but the pragma costs nothing and closes the gap where a future
     # migration adds a real foreign key and nobody notices it is unenforced.
     connection.execute("PRAGMA foreign_keys = ON")
+    # D-159. These two were missing, and their absence was visible on the one
+    # endpoint that exists to be honest. In the classic rollback journal a
+    # writer takes an exclusive lock over the whole database, so a reader
+    # during a build gets `database is locked` — which `_index_state` maps to
+    # `state='error'` with no counts, and `payload()` renders as
+    # `sources: 0, artifacts: 0`. Two `x2knwldg serve` processes are enough:
+    # the second one's startup `refresh_index` holds the lock at commit while
+    # the first answers `/api/status`. WAL lets readers read the last committed
+    # generation *while* a build writes, which is both faster and truthful —
+    # the rows they see are a real, complete generation. The busy timeout is
+    # the belt to that brace: a writer waiting on another writer waits rather
+    # than immediately declaring the index broken.
+    #
+    # `journal_mode` is persistent in the file, so it is set once and inherited;
+    # it is executed on every connect anyway because a fresh clone, a deleted
+    # cache and a database created by an older version all reach this line.
+    # `busy_timeout` is per connection and must be.
+    connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     return connection
 
 

@@ -145,6 +145,75 @@ def _whole_seconds(value: Any, label: str) -> int:
     return max(0, int(value))
 
 
+#: The directory under ``output/`` that is not an ingested run but the
+#: cross-source projection over all of them. It used to live in
+#: ``adapters/youtube.py``, which is re-exported for every existing caller;
+#: it moved here because run discovery is stated here now (D-158).
+LIBRARY_DIR_NAME = "library"
+
+
+def discover_run_dirs(output_root: Path) -> tuple[list[Path], list[tuple[Path, Path]]]:
+    """``(runs, aliases)`` — every ingested run under *output_root*, once each.
+
+    The one statement of a rule that was written three times and disagreed
+    three ways (D-158). ``index.scanner.run_dirs`` skipped dotted directories
+    and ``library/``; ``adapters.adapt_project`` did the same; and
+    ``library._run_dirs`` did neither, so a rebuild indexed runs the scanner
+    refuses. A rule with three implementations is three rules.
+
+    The third clause is new, and it is the one that was missing everywhere.
+    ``glob`` **follows directory symlinks**, so an ordinary convenience link —
+    ``ln -s output/pqlWNihgdjI output/latest`` — is discovered as a second run.
+    Every record it produces is a duplicate of the first's, and
+    ``check_index_integrity`` then refuses the *entire* index: every endpoint
+    ``503``, both runs lost, and the message blames a duplicate ``video_id``
+    rather than the link. ``_run_files`` has excluded symlinks since D-100;
+    discovery did not. A directory that resolves to one already yielded is
+    reported as an *alias* rather than walked again — named, because a run that
+    silently disappears from the library is the failure D-043 exists to
+    prevent, and because "this is the same run under another name" is a true
+    and useful thing to say.
+
+    Resolution is only used to *recognise* the alias. A symlink resolving
+    outside the project keeps its own identity here and reaches D-078's
+    skip-and-name path unchanged, which is what refuses to read through it.
+    """
+    candidates = [
+        metadata_path.parent
+        for metadata_path in sorted(Path(output_root).glob("*/metadata.json"))
+        if not metadata_path.parent.name.startswith(".")
+        and metadata_path.parent.name != LIBRARY_DIR_NAME
+    ]
+
+    # Which directory *owns* each resolved location. A real directory always
+    # wins over a link to it, whatever the sort order says: `output/latest`
+    # sorts before `output/pass-run`, and calling the real run an alias of the
+    # convenience link would be the same loss under a politer name. Among links
+    # alone the first in sorted order owns it, so the choice stays deterministic.
+    owner: dict[str, Path] = {}
+    for run_dir in candidates:
+        resolved = os.path.realpath(run_dir)
+        held = owner.get(resolved)
+        if held is None or (held.is_symlink() and not run_dir.is_symlink()):
+            owner[resolved] = run_dir
+
+    runs: list[Path] = []
+    aliases: list[tuple[Path, Path]] = []
+    for run_dir in candidates:
+        held = owner[os.path.realpath(run_dir)]
+        if held == run_dir:
+            runs.append(run_dir)
+        else:
+            aliases.append((run_dir, held))
+    return runs, aliases
+
+
+def run_dirs(output_root: Path) -> list[Path]:
+    """Every ingested run under *output_root*, for a caller with no use for
+    the aliases :func:`discover_run_dirs` names."""
+    return discover_run_dirs(output_root)[0]
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:

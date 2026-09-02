@@ -556,6 +556,66 @@ def test_two_run_dirs_declaring_one_video_id_are_refused(tmp_path: Path) -> None
     }
 
 
+def test_a_convenience_symlink_is_an_alias_and_not_a_second_run(tmp_path: Path) -> None:
+    """D-158. ``glob`` follows directory symlinks, so ``output/latest`` was a run.
+
+    Every record it produced was a duplicate of its target's, and
+    ``check_index_integrity`` then refused the *whole* index: every count zero,
+    every endpoint ``503``, both real runs lost — and the message blamed a
+    duplicate ``video_id`` that no directory in the project declares twice.
+    """
+    root = _project(tmp_path, "pass-run", "partial-run", library=False)
+    (root / "output" / "latest").symlink_to(root / "output" / "pass-run")
+
+    report = scanner.build_index(root)
+
+    assert _state(root)[0] == "ready"
+    sources = {record["id"] for record in _stored_records(root)["source"]}
+    assert sources == {"youtube:fixture-pass", "youtube:fixture-partial"}
+
+    # Named, not silently dropped: the reader is told the link is an alias.
+    skipped = {run["relative_path"]: run["reason"] for run in report.payload()["skipped_runs"]}
+    assert "output/latest" in skipped
+    assert "alias" in skipped["output/latest"]
+    assert "output/pass-run" in skipped["output/latest"]
+
+
+def test_the_oracle_and_the_index_agree_about_an_alias(tmp_path: Path) -> None:
+    """``adapt_project`` walked the link too, so both had to learn one rule.
+
+    If only the scanner had, ``strict=True`` — which exists so ``T-104``'s
+    equivalence proof holds record for record — would have compared a refusal
+    with a clean build.
+    """
+    root = _project(tmp_path, "pass-run", library=False)
+    (root / "output" / "latest").symlink_to(root / "output" / "pass-run")
+
+    records = adapt_project(root)
+    assert [record["id"] for record in records.by_model()["source"]] == ["youtube:fixture-pass"]
+    scanner.build_index(root, strict=True)
+    assert _state(root)[0] == "ready"
+
+
+def test_the_library_rebuild_sees_the_runs_the_scanner_sees(tmp_path: Path) -> None:
+    """D-158: three implementations of one rule, and one had neither guard.
+
+    ``rebuild_library`` globbed with no dot-directory and no ``library/``
+    filter, so a staging directory under ``output/`` reached it and nothing
+    else. The symptom was every canonical concept and every
+    ``expresses_concept`` edge disappearing from a rebuilt library, with
+    ``runs_skipped: 0`` reporting nothing wrong.
+    """
+    root = _project(tmp_path, "pass-run", library=False)
+    output = root / "output"
+    shutil.copytree(FIXTURE_RUNS / "pass-run", output / ".staging")
+    (output / "latest").symlink_to(output / "pass-run")
+
+    status = rebuild_library(output)
+
+    assert status["runs_indexed"] == 1
+    assert [run.name for run in scanner.run_dirs(output)] == ["pass-run"]
+
+
 def test_strict_mode_refuses_the_whole_project_exactly_as_adapt_project_does(
     tmp_path: Path,
 ) -> None:

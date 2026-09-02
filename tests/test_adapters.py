@@ -158,6 +158,31 @@ def test_read_status_has_no_path_to_pass() -> None:
     assert read_status({"status": "FAIL"}) == "FAIL"
 
 
+@pytest.mark.parametrize(
+    "value", [["PASS"], {"a": 1}, {"PASS"}, 3, 3.5, True, ("PASS",), b"PASS"]
+)
+def test_a_wrongly_typed_status_is_unknown_rather_than_a_type_error(value: object) -> None:
+    """D-161. ``status in RUN_STATUSES`` hashes its left operand.
+
+    A validator file carrying a list or a dict under ``status`` raised
+    ``TypeError: unhashable type`` out of a function whose contract is that a
+    missing, unreadable or unrecognised file becomes ``UNKNOWN`` and never
+    raises. The scanner catches only ``AdapterError`` and ``TypeError`` is not
+    in ``cli.USER_FACING_ERRORS``, so one malformed file in one run killed
+    ``x2knwldg ui`` on a raw traceback and took every other run in the project
+    with it. Every other malformed shape was already an ``AdapterError``; this
+    was the one hole.
+    """
+    assert read_status({"status": value}) == "UNKNOWN"
+
+
+def test_a_wrongly_typed_status_does_not_take_the_scan_down(run: Path) -> None:
+    """The same defect where it was reached from: a run on disk."""
+    _edit(run / "validation.json", lambda doc: doc.update(status=["PASS"]))
+    status = adapt_run(run, run.parents[1]).sources[0]["status"]
+    assert status["overall"] == "UNKNOWN"
+
+
 def test_counts_are_omitted_rather_than_zeroed_when_unknown(run: Path) -> None:
     """Reporting 0 captions for an unreadable file states something false."""
     (run / "transcript.json").write_text("{not json", encoding="utf-8")

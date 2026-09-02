@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from . import ids
-from .io import read_json_or_reason, write_json
+from .io import read_json_or_reason, run_dirs, write_json
 
 CONCEPT_KINDS = {"concept", "definition", "framework", "principle", "mental_model"}
 
@@ -22,7 +22,15 @@ def _concept_key(unit: dict[str, Any]) -> str:
 
 
 def _run_dirs(output_root: Path) -> list[Path]:
-    return [path.parent for path in sorted(output_root.glob("*/metadata.json"))]
+    """The same runs the scanner and the adapters see, and no others.
+
+    D-158: this used to be a bare ``glob`` with neither of the two guards the
+    other two implementations had, so ``rebuild_library`` indexed runs the
+    scanner refuses. Adding ``output/.staging/`` made every canonical concept
+    and every ``expresses_concept`` edge disappear from a rebuilt library while
+    ``runs_skipped: 0`` reported nothing wrong.
+    """
+    return run_dirs(output_root)
 
 
 def _read_list(path: Path, key: str) -> tuple[list[dict[str, Any]], list[str]]:

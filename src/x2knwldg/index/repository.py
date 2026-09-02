@@ -221,8 +221,15 @@ class SqliteRepository:
         *,
         project_root: Path | None = None,
         search: SearchRetrieval | None = None,
+        unreadable: str | None = None,
     ) -> None:
         self._connection = connection
+        #: Why there is a file at the index path that could not be opened at
+        #: all (D-160). Distinct from "no connection because no file": the
+        #: first is an index in ``error``, the second is one that is ``absent``,
+        #: and reporting the first as the second would tell a reader their
+        #: index is merely unbuilt when it is in fact unopenable.
+        self._unreadable = unreadable
         #: Serialises access to the connection. See :func:`_serialized`.
         self._lock = threading.RLock()
         #: The project this index is a cache for. Recorded, never joined onto:
@@ -264,6 +271,26 @@ class SqliteRepository:
             connection = schema.connect(path, create=False, multithreaded=True)
         except FileNotFoundError:
             return cls(None, project_root=project_root, search=search)
+        except sqlite3.DatabaseError as exc:
+            # D-160: an index file that exists but cannot be *opened* — mode 0,
+            # a directory at that path, a read-only parent with no room for the
+            # journal — raises `sqlite3.OperationalError` here, which is not a
+            # `FileNotFoundError`. It escaped as a bare driver error with no
+            # `code` and no `http_status`, out of `build_repository`, out of
+            # `create_app`: the application failed to *construct*, so there was
+            # no reader left to explain anything. Garbage bytes at the same path
+            # were already handled correctly just below, for the reason stated
+            # there — "a reader that cannot be constructed cannot say why" —
+            # and this is the same case reached one step earlier.
+            #
+            # `error`, not `absent`: there is a file here, and the reason it
+            # cannot be read is a fact about it rather than about its absence.
+            return cls(
+                None,
+                project_root=project_root,
+                search=search,
+                unreadable=f"the index cannot be opened: {exc}",
+            )
         try:
             version = schema.schema_version(connection)
         except sqlite3.DatabaseError:
@@ -299,6 +326,8 @@ class SqliteRepository:
         ``building`` and then ``ready``, and a repository that cached the first
         answer would keep reporting a finished index as unbuilt.
         """
+        if self._unreadable is not None:
+            return "error", None, self._unreadable
         if self._connection is None:
             return "absent", None, None
         try:
@@ -340,9 +369,20 @@ class SqliteRepository:
         return row is not None
 
     def _require_ready(self) -> sqlite3.Connection:
-        """The connection, or the reason there is no answer to be had."""
-        state, _, message = self._index_state()
-        if state != READY or self._connection is None:
+        """The connection, or the reason there is no answer to be had.
+
+        D-162: ``building`` answers **when it names a generation**. A build
+        writes every row inside one transaction, so a reader during one — and a
+        reader after one that was killed — sees the last completed generation
+        whole, and ``built_at`` says which. Refusing it served nothing from an
+        index that was entirely readable, and cost a full rebuild to escape.
+        ``building`` with no ``built_at`` is still refused, because then there
+        genuinely is no finished build here to answer from; ``status()``
+        reports the state either way, so nothing is hidden by answering.
+        """
+        state, built_at, message = self._index_state()
+        answerable = state == READY or (state == "building" and built_at is not None)
+        if not answerable or self._connection is None:
             raise IndexUnavailable(
                 message or f"the index is {state}, so it cannot answer", state=state
             )
