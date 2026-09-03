@@ -539,6 +539,8 @@ So the fixes are guards at the level the misses happened, not repairs: 53 contra
 | D-218 | At the qualified local route a capture carries **mention spans and no URL spans**, and that is a property of the route | accepted | Measured live on 2026-09-04. x-cli's `entities.urls` holds *expanded* URLs that appear nowhere in the authored text, so a `t.co` link can be located in the text but not paired with what it points at: one post of the NASA thread carried `https://t.co/ZKTzQCAGxC https://t.co/IOuHw9MYwr` against the single entry `https://go.nasa.gov/4chzg9c`, reproducing the pairing failure T-222 described. A span whose target is guessed is worse than no span, and the facet triple that makes the pairing safe comes from the opt-in route `T-225` owns. Mentions are different and do work: the tool lists the handles, the span is located in the text, and only an unambiguous single occurrence is recorded — verified live, 7 of the 10 thread posts carrying mention spans that re-slice to their own handle. Absent, not wrong; `T-225` is what adds URL spans, and `T-227` decides whether it needs them |
 | D-219 | The record→capture normalization has **one implementation**, in the package, and `T-223`'s fixture builder imports it | accepted | `post_from`, `entities_from` and `mentions_from` were written for the `T-223` fixtures and the seam needs exactly them; two copies of "how a provider record becomes a capture" would be two answers the moment one was edited, and the codepoint-offset rule and the absent-not-empty rule are precisely the kind that drift silently. They moved to `src/x2knwldg/twitter/normalize.py` unchanged and `tests/fixtures/captures/build_captures.py` now imports them over `sys.path`, the way `tests/fixtures/runs/build_fixtures.py` already imports the pipeline. The move needed no new test to be trusted: `T-223`'s byte-identical regeneration check *is* the proof, and all eight committed captures still rebuild to the same bytes |
 | D-220 | A source claim cites a **post id and a text span**; URL entity spans are not a prerequisite, so `T-227` runs before `T-225` | accepted | The `T-227` row already names the citation unit in as many words — "a source claim cites a post id and exact text span/excerpt" — and D-218 measured that the qualified local route yields mention spans and **no** URL spans, because `x-cli`'s `entities.urls` holds expanded targets that appear nowhere in the authored text. Making URL spans a prerequisite would put an **explicit opt-in network route** on the critical path of the default local one, inverting the provider order [ADR 0007](adr/0007-twitter-acquisition-boundary.md) approved, where FxTwitter is opt-in and oEmbed is corroborative. The contract already absorbs the later addition: `text.entities` is optional and `textEntity.kind` already accepts `url`, so `T-225` adds spans additively — no capture is re-acquired, no locator changes basis, and no `schemas/capture/v2/`. The cost is recorded rather than hidden: until `T-225` exists a claim about a link cites the span of the `t.co` text **as authored** (D-211), and every capture extraction consumes carries `text.completeness.status: unverified` |
+| D-221 | The **dangling-chain capture has no fixture**, and D-217's refinement is therefore unexercised — `T-227`'s partial-thread case builds one | accepted | `test_thread_order_is_root_first_and_parent_consistent` grew an `else` branch for the chain that honestly does not begin at a root, and **no committed capture reaches it**: it returns early unless `order.basis` is `parent_links` with two or more items, and the only capture meeting that is `pass-thread-terminal-anchor`, which is `upward: complete`. `partial-thread-root-anchor` is `PARTIAL` for the *other* reason — a root anchor whose descendants are unenumerable — and is a single item. So the one assertion that ties the item set to the completeness claim has been dead against the fixture set since D-217 was written. It is buildable from evidence already committed: `docs/spikes/T-222/fixtures/` confirms `2094033367767339277`'s parent is `2094028067924504596`, both in the NASA thread, so `MANIFEST.json[7:]` plus a `not_found` read for that parent yields a three-item `PARTIAL` whose first item keeps the `parent_post_id` that `upward.unresolved_at` names. This is also the tombstone-inside-a-thread shape: `twitter.acquire._walk_upward` stops at an unavailable parent rather than including it, so a missing member is an omitted item with a reason, never an unavailable item mid-chain |
+| D-222 | The **edit case is covered by a capture labelled synthetic**, because no measured route produces one | accepted | The `T-227` row's acceptance clause names an `edit/tombstone` case and [the spike report](spikes/T-222/REPORT.md) §12 measured edited posts as `NOT_SUPPORTED` — no instance in the 610-post credential-free scan, and `x fields tweet` declares `edits` with no surface at any tier. There is no raw evidence in this repository from which an `edits` capture can be built, and the three ways out are not equal: a refusal-catalogue entry leaves no canonical output for the shape, and narrowing the clause to tombstone would make `T-229`'s capability table say edits are *unhandled* when the contract can represent them. So one capture carries `edits` and is marked synthetic the way the run fixtures are (`"fixture": true` with a `fixture_note`, the `T-006` pattern), with the note saying no route produced it. What it pins is behaviour, not a measurement: extraction cites only `text.canonical`, names the prior ids as omitted, and **never fetches them** — so if `edits` ever arrives on a real capture, the handling is already decided rather than improvised against live data |
 
 ---
 
@@ -1036,12 +1038,39 @@ D-218 measured are not a prerequisite. `T-225` stays a genuine fallback and land
 | **Metrics** | Absent unless carried as an explicitly time-stamped observation. The contract requires `metrics.observed_at` for exactly this reason; linked pages are never fetched |
 | **Text completeness** | `unverified` on every capture this task consumes (D-220). Extraction must not read that as a defect, and must not launder it into a claim |
 
-Deterministic canonical outputs and prompts for the six cases the row names — Persian/RTL,
-single-post, complete self-thread, partial thread, edit/tombstone and quote — and validators
-that recompute digests and enforce locators, order and coverage, with `PASS` impossible while an
-expected item is unaccounted for. Raw evidence stays byte-identical: `output/<id>/raw/` is
-write-once and `capture.json` is immutable, which `twitter.acquire.acquire` already refuses to
-overwrite.
+Validators that recompute digests and enforce locators, order and coverage, with `PASS`
+impossible while an expected item is unaccounted for. Raw evidence stays byte-identical:
+`output/<id>/raw/` is write-once and `capture.json` is immutable, which
+`twitter.acquire.acquire` already refuses to overwrite.
+
+### The six fixture cases
+
+A fixture is a **run directory** under `tests/fixtures/twitter-runs/<case>/` — the input
+`capture.json` and `raw/` beside the canonical extraction outputs — **built by driving the real
+extraction code**, the way `tests/fixtures/runs/build_fixtures.py` drives the real pipeline
+(`T-006`, D-157). Hand-written expected JSON is what lets a fixture drift from what the code
+writes. Re-running the builder must leave `git status` clean.
+
+Five of the six inputs already exist as `T-223` captures; the table says which, and what each
+case exists to prevent rather than merely to exercise.
+
+| Case | Input capture | What it prevents |
+|---|---|---|
+| **single-post** | `pass-single-post-en.json` | The baseline: a claim carrying a `post_id`, a codepoint span and an excerpt that re-slices exactly, before a thread complicates it |
+| **Persian/RTL** | `pass-single-post-fa.json` | 418 characters carrying ZWNJ, Persian digits, a **NBSP** and paragraph breaks. Any normalization or trimming on the excerpt path breaks the re-slice *here and nowhere else* |
+| **Persian/RTL + LTR run** | `video_post_fa` — one new line in `build_captures.py`'s `FIXTURES` | The only bidi case with an embedded LTR `t.co` link, and the only media with **no `alt_text`**: extraction must not claim to know what the video shows |
+| **complete self-thread** | `pass-thread-terminal-anchor.json` | Root-first over ten items from `parent_links`, first item with **no** `parent_post_id`. Order derived from parent links, never arrival order |
+| **partial thread** | **new** — `MANIFEST.json[7:]` with `unresolved_at: 2094028067924504596` (D-221) | The mirror, and the one place extraction can silently lie: a truncated chain presented as though it began at a root. Also the tombstone-inside-a-thread shape |
+| **edit** | **new** — labelled synthetic (D-222) | An edit history read as content, or the prior ids fetched. Extraction cites `text.canonical` only and names them omitted |
+| **tombstone** | `fail-unavailable-post.json` | Zero source claims and nothing invented from an item with no author, timestamp or text — and `FAIL` surviving into the canonical outputs |
+| **quote** | `pass-quote-post.json` | A quoted post becoming embedded content or a fetch. It is a separate cited source relation (ADR 0007 decision 8); doubles as the mention-span passthrough case |
+
+### Four things the fixtures pin, found while planning them
+
+1. **`validate_knowledge_units` hard-requires `{video_id, segment_id, start_sec, end_sec, evidence_excerpt}`** for every source unit, unconditionally, and a post claim has no seconds. That `required` set becomes medium-dispatched **inside the one validator** — a second validator for the same rule is what D-185 is about.
+2. **A Twitter run has no `segments.json`.** The capture's `items` array *is* the segmentation, so `segmenter.create_segments` is not reached and no second answer to "what a segment is" is written. `SEALED_CANONICAL_FILES` gains `capture.json` instead.
+3. **The provenance check gets stronger.** `validate_provenance` asks whether the excerpt appears *somewhere* in its segment; a capture carries exact codepoint text, so here it is whether the excerpt **is** `text.canonical[start_char:end_char]`. The fixtures pin the exact form, not the substring form.
+4. **No locator branch can express a Twitter claim.** `schemas/v1/locator.schema.json` reserves `post_id` with no span fields and `text_span` with no post id — D-212 hands that widening to `T-228`, so these fixtures must state the pipeline-side source shape precisely enough that `T-228` has nothing to guess.
 
 Then `T-228` serializes adapter, index and UI coexistence, and inherits the locator finding in
 D-212; `T-229` is the phase gate and runs alone.
