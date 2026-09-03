@@ -1594,10 +1594,14 @@ An agent must not guess the answers to these if the decision would cause a notic
   the `T-223` contract. Verified live on the target machine over the tunnel on 2026-09-04 — a
   single post, a Persian post, a ten-post self-thread walked from its **last** post, and an
   unavailable id (D-213–D-219)
-- [ ] Phase 2.2 / `T-227`–`T-229`: extraction and coverage, adapter/product coexistence and the
-  full phase gate. `T-225` (opt-in network fallback and corroboration) and `T-226` (passive
-  browser capture) are now genuine fallbacks rather than the way forward — `T-225` is what adds
-  URL entity spans and corroborated text (D-218)
+- [ ] **Phase 2.2 / `T-227`: claimed and in progress** — item-based extraction, segmentation,
+  provenance and coverage over the capture. D-220 settles the ordering: a source claim cites a
+  post id and a codepoint span into the authored text, so the URL spans D-218 found missing are
+  not a prerequisite
+- [ ] Phase 2.2 / `T-228`–`T-229`: adapter/product coexistence and the full phase gate.
+  `T-225` (opt-in network fallback and corroboration) and `T-226` (passive browser capture) are
+  genuine fallbacks rather than the way forward — `T-225` is what adds URL entity spans and
+  corroborated text, additively (D-218, D-220)
 - [ ] Canvas — Phase 3 / `T-301`: technically unblocked by `T-210`, deliberately deferred
   until the Twitter phase gate closes (D-204)
 - [ ] Pen annotations
@@ -1607,9 +1611,8 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**Claim `T-227` — extraction, provenance and coverage over the capture — unless URL spans are
-wanted first, in which case `T-225` comes before it.** The acquisition half of Phase 2.2 is
-done: the boundary was accepted (D-204), the qualification returned a `GO` (D-205), the capture
+**`T-227` is claimed — extraction, provenance and coverage over the capture.** The acquisition
+half of Phase 2.2 is done: the boundary was accepted (D-204), the qualification returned a `GO` (D-205), the capture
 contract is frozen (D-212), and the qualified local provider seam now writes it and was verified
 live on the target machine over the tunnel (D-213–D-219).
 
@@ -1622,11 +1625,13 @@ author archive that looks like a substitute held 3 of 10 posts of a real thread.
 ingests from the thread's **last** post (D-206), and `completeness.downward` has no field in
 which to claim otherwise.
 
-The question that decides the order: a capture from the local route carries mention spans and no
-URL spans (D-218), because the tool's expanded-URL list cannot be paired with the `t.co` links in
-the authored text. If a source claim must cite a link's span, `T-225` first. If citing the post
-and a text span is enough — what ADR 0007's MVP asks for — `T-227` can start now, and URL spans
-arrive additively later, since `entities` is already optional in the contract.
+The question that decided the order, now answered as D-220: a capture from the local route
+carries mention spans and no URL spans (D-218), because the tool's expanded-URL list cannot be
+paired with the `t.co` links in the authored text. Citing the post and a text span **is** enough
+— it is what ADR 0007's MVP asks for and what the `T-227` row says in as many words — so `T-227`
+starts now and URL spans arrive additively, since `entities` is already optional in the contract
+and `textEntity.kind` already accepts `url`. Putting `T-225` first would have made an explicit
+opt-in network route a prerequisite of the default local one.
 
 What acquisition deliberately did **not** do, so the next task does not have to guess:
 

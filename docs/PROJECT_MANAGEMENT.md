@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-09-04 · **Phases 0, 1, 2 and 2.1 are complete.** The user has reprioritized Twitter/X ahead of Canvas, so **Phase 2.2 / `T-220` is active. `T-222` is complete (D-205, D-209): the capability matrix is done and the environment premise is verified — the user's always-on tunnel is the target environment and is now a named phase dependency. Every question it raised is answered (D-206–D-211): threads are ingested from their last post, Tier 1 is the default read, the canonical text is the authored form, and the pin is installed and digest-verified. **`T-223` is complete (D-212): the provider-neutral capture contract is frozen in [`schemas/capture/v1/`](../schemas/capture/v1/README.md) on the twelve measured requirements in [the spike report](spikes/T-222/REPORT.md) §12. `T-224` is complete (D-213–D-219): the qualified local provider seam exists and was verified live on the target machine over the tunnel on 2026-09-04 — a single post, a Persian post, a ten-post self-thread walked from its last post, and an unavailable id, all schema-valid with their digests recomputing from the preserved bytes. The phase gate is still not met: extraction, the adapter and the rehearsal (`T-227`–`T-229`) are ahead.** `T-221` is complete: [ADR 0007](adr/0007-twitter-acquisition-boundary.md) records the approved acquisition boundary — qualify `x-cli` first from the real Iran environment; keep FxTwitter/FxEmbed explicit opt-in, official oEmbed corroborative, and Firefox capture passive and credential-free; do not transplant Treasury/twscrape account-pool or evasion patterns. Canvas remains technically unblocked but deliberately deferred until the Twitter phase gate closes. The Map's accepted regression surface remains unchanged (D-202), and D-204 records this roadmap decision.
+**Last updated:** 2026-09-04 · **Phases 0, 1, 2 and 2.1 are complete.** The user has reprioritized Twitter/X ahead of Canvas, so **Phase 2.2 / `T-220` is active. `T-222` is complete (D-205, D-209): the capability matrix is done and the environment premise is verified — the user's always-on tunnel is the target environment and is now a named phase dependency. Every question it raised is answered (D-206–D-211): threads are ingested from their last post, Tier 1 is the default read, the canonical text is the authored form, and the pin is installed and digest-verified. **`T-223` is complete (D-212): the provider-neutral capture contract is frozen in [`schemas/capture/v1/`](../schemas/capture/v1/README.md) on the twelve measured requirements in [the spike report](spikes/T-222/REPORT.md) §12. `T-224` is complete (D-213–D-219): the qualified local provider seam exists and was verified live on the target machine over the tunnel on 2026-09-04 — a single post, a Persian post, a ten-post self-thread walked from its last post, and an unavailable id, all schema-valid with their digests recomputing from the preserved bytes. **`T-227` is now claimed and in progress**: D-220 settles the ordering question its row raised — a source claim cites a post id and a text span, so URL spans are not a prerequisite and `T-225` becomes an additive follow-on rather than a dependency. The phase gate is still not met: extraction, the adapter and the rehearsal (`T-227`–`T-229`) are ahead.** `T-221` is complete: [ADR 0007](adr/0007-twitter-acquisition-boundary.md) records the approved acquisition boundary — qualify `x-cli` first from the real Iran environment; keep FxTwitter/FxEmbed explicit opt-in, official oEmbed corroborative, and Firefox capture passive and credential-free; do not transplant Treasury/twscrape account-pool or evasion patterns. Canvas remains technically unblocked but deliberately deferred until the Twitter phase gate closes. The Map's accepted regression surface remains unchanged (D-202), and D-204 records this roadmap decision.
 **Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
@@ -538,6 +538,7 @@ So the fixes are guards at the level the misses happened, not repairs: 53 contra
 | D-217 | The **root-first thread invariant is conditional on upward completeness**, which is a `T-223` refinement `T-224` forced | accepted | `test_thread_order_is_root_first_and_parent_consistent` asserted unconditionally that a `parent_links` capture's first item carries no `parent_post_id`. That is true of every committed fixture and false of an honestly truncated chain: a walk that stops at an unavailable parent, or at a parent by **another author** (outside the MVP per ADR 0007), does not begin at a root, and its first item keeps the `parent_post_id` that proves it. Dropping that link to satisfy a root-first rule would hide the very incompleteness the capture is reporting, so the rule moved instead: the root claim now applies when `completeness.upward.status` is `complete`, and where the chain dangles the dangling end **must equal** the id `upward.unresolved_at` names — a stronger statement than the one it replaces, since it ties the item set and the completeness claim together. The eight committed captures are unaffected and still pass |
 | D-218 | At the qualified local route a capture carries **mention spans and no URL spans**, and that is a property of the route | accepted | Measured live on 2026-09-04. x-cli's `entities.urls` holds *expanded* URLs that appear nowhere in the authored text, so a `t.co` link can be located in the text but not paired with what it points at: one post of the NASA thread carried `https://t.co/ZKTzQCAGxC https://t.co/IOuHw9MYwr` against the single entry `https://go.nasa.gov/4chzg9c`, reproducing the pairing failure T-222 described. A span whose target is guessed is worse than no span, and the facet triple that makes the pairing safe comes from the opt-in route `T-225` owns. Mentions are different and do work: the tool lists the handles, the span is located in the text, and only an unambiguous single occurrence is recorded — verified live, 7 of the 10 thread posts carrying mention spans that re-slice to their own handle. Absent, not wrong; `T-225` is what adds URL spans, and `T-227` decides whether it needs them |
 | D-219 | The record→capture normalization has **one implementation**, in the package, and `T-223`'s fixture builder imports it | accepted | `post_from`, `entities_from` and `mentions_from` were written for the `T-223` fixtures and the seam needs exactly them; two copies of "how a provider record becomes a capture" would be two answers the moment one was edited, and the codepoint-offset rule and the absent-not-empty rule are precisely the kind that drift silently. They moved to `src/x2knwldg/twitter/normalize.py` unchanged and `tests/fixtures/captures/build_captures.py` now imports them over `sys.path`, the way `tests/fixtures/runs/build_fixtures.py` already imports the pipeline. The move needed no new test to be trusted: `T-223`'s byte-identical regeneration check *is* the proof, and all eight committed captures still rebuild to the same bytes |
+| D-220 | A source claim cites a **post id and a text span**; URL entity spans are not a prerequisite, so `T-227` runs before `T-225` | accepted | The `T-227` row already names the citation unit in as many words — "a source claim cites a post id and exact text span/excerpt" — and D-218 measured that the qualified local route yields mention spans and **no** URL spans, because `x-cli`'s `entities.urls` holds expanded targets that appear nowhere in the authored text. Making URL spans a prerequisite would put an **explicit opt-in network route** on the critical path of the default local one, inverting the provider order [ADR 0007](adr/0007-twitter-acquisition-boundary.md) approved, where FxTwitter is opt-in and oEmbed is corroborative. The contract already absorbs the later addition: `text.entities` is optional and `textEntity.kind` already accepts `url`, so `T-225` adds spans additively — no capture is re-acquired, no locator changes basis, and no `schemas/capture/v2/`. The cost is recorded rather than hidden: until `T-225` exists a claim about a link cites the span of the `t.co` text **as authored** (D-211), and every capture extraction consumes carries `text.completeness.status: unverified` |
 
 ---
 
@@ -885,9 +886,10 @@ badge component and rules in `base.css`. `T-215` added no application surface at
 
 ### 8.8 Phase 2.2 starts serially, then fans out only at the provider boundary
 
-`T-221`, `T-222`, `T-223` and `T-224` are complete. The default provider path exists, so
-`T-225` and `T-226` are now genuinely optional fallbacks rather than the only way forward, and
-`T-227` has the "at least one passing acquisition task" its dependency asks for.
+`T-221`, `T-222`, `T-223` and `T-224` are complete, and `T-227` is claimed. The default
+provider path exists, so `T-225` and `T-226` are now genuinely optional fallbacks rather than
+the only way forward, and `T-227` has the "at least one passing acquisition task" its
+dependency asks for. D-220 removed the one thing that could have re-ordered them.
 `T-222` owned the qualification matrix and report and changed no production integration.
 
 Its result is the case for this ordering rather than a formality about it. The candidate's own
@@ -899,7 +901,9 @@ advertised response would have promised whole threads while dropping seven posts
 (D-212), so the gate that held provider work is open and it may fan out:
 
 - `T-224` owns the qualified local provider seam (`x-cli`, which the spike passed) — **done**.
-- `T-225` owns the opt-in FxTwitter fallback and official oEmbed corroboration.
+- `T-225` owns the opt-in FxTwitter fallback and official oEmbed corroboration. Not a
+  dependency of `T-227` (D-220); it raises `text.completeness` to `corroborated` and adds URL
+  spans to captures acquired after it lands.
 - `T-226` owns passive Firefox capture and its local importer.
 
 Those three tasks may run in parallel only if their files and fixtures are disjoint and every
@@ -1006,27 +1010,38 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 **Vocabulary the Map must style:** `derived_from` and `expresses_concept` are library-only synthetic relations that are **not** in `RELATION_TYPES`. In the current data they are the two most common edges (45 and 17 of 118).
 
 ---
-
 ## 11. Next step
 
-**Claim `T-227`, unless URL spans are wanted first — then `T-225` before it.** Phase 2.2's
-default path now exists end to end: `T-222` measured the routes (D-205–D-211), `T-223` froze the
-capture contract (D-212), and `T-224` built the seam that writes it and verified it live on the
-target machine over the tunnel (D-213–D-219). What is missing is everything downstream — no
-extraction, no adapter, no validator, no UI, and nothing ingested into `output/`.
+**`T-227` is claimed: extraction, segmentation, provenance and coverage over the capture.**
+Phase 2.2's default path exists end to end — `T-222` measured the routes (D-205–D-211), `T-223`
+froze the capture contract (D-212), and `T-224` built the seam that writes it and verified it
+live on the target machine over the tunnel (D-213–D-219). What is missing is everything
+downstream: no extraction, no adapter, no validator, no UI, and nothing ingested into `output/`.
 
-| Task | Owns | Note |
-|---|---|---|
-| `T-227` | Extraction, segmentation, provenance and coverage over the capture | Its dependency — "at least one passing acquisition task" — is met. It transforms the **capture**, never provider JSON. One question to settle first, below |
-| `T-225` | Opt-in FxTwitter fallback and oEmbed corroboration | Now a genuine fallback rather than a way forward. It is what makes two things possible that `T-224` cannot do alone: `text.completeness: corroborated` instead of `unverified`, and **URL entity spans**, because the facet triple only comes from that route (D-218) |
-| `T-226` | Passive Firefox capture | Still **optional** (D-206), and still only worth doing if it can beat the wall the report names |
+**The ordering question is settled (D-220).** A source claim cites a **post id and a text
+span** — what the `T-227` row and ADR 0007's MVP both ask for — so the missing URL spans that
+D-218 measured are not a prerequisite. `T-225` stays a genuine fallback and lands additively:
+`text.entities` is optional and `textEntity.kind` already accepts `url`.
 
-**The question that decides the order:** a `T-224` capture carries mention spans and no URL spans
-(D-218), because x-cli's `entities.urls` holds expanded targets that appear nowhere in the
-authored text. If `T-227`'s source claims need to cite a link's span, `T-225` comes first. If
-citing the post and a text span is enough — which is what ADR 0007's MVP actually asks for —
-`T-227` can start now and URL spans arrive additively later, since the contract already carries
-`entities` as optional.
+### What `T-227` owns
+
+| Piece | The rule it must hold |
+|---|---|
+| **Item-based segmentation** | A post is the segment. `segmenter.create_segments` is time-aware over captions and does not apply — do not force a capture through it, and do not invent a boundary inside a post's text |
+| **Order** | Root-first, from `order.basis: parent_links`, never arrival order. Where `completeness.upward.status` is `incomplete` the first item is **not** a root and keeps the `parent_post_id` that proves it (D-217) |
+| **Locators** | A source claim names a `post_id` and a codepoint span into `text.canonical` — the authored form, `t.co` links intact (D-211). Not the rendered form, and not a re-expanded URL, because one measured expansion was *longer* than the link it replaced |
+| **Quotes** | A separate cited source relation, never embedded content (ADR 0007 decision 8). The capture carries `quote.quoted_post_id` and its author and nothing else — extraction may not fetch the quoted post |
+| **Exclusions** | Third-party replies and unavailable items are **named**, with the reason the capture already states. An `availability.state: unavailable` item carries no author, timestamp or text, and extraction may not supply one |
+| **Coverage** | Item-based: every included post is covered, omitted with a reason, or unresolved. `coverage.create_pending_coverage` mints *time* windows and does not apply — the second implementation of "what a window is" is the thing to avoid |
+| **Metrics** | Absent unless carried as an explicitly time-stamped observation. The contract requires `metrics.observed_at` for exactly this reason; linked pages are never fetched |
+| **Text completeness** | `unverified` on every capture this task consumes (D-220). Extraction must not read that as a defect, and must not launder it into a claim |
+
+Deterministic canonical outputs and prompts for the six cases the row names — Persian/RTL,
+single-post, complete self-thread, partial thread, edit/tombstone and quote — and validators
+that recompute digests and enforce locators, order and coverage, with `PASS` impossible while an
+expected item is unaccounted for. Raw evidence stays byte-identical: `output/<id>/raw/` is
+write-once and `capture.json` is immutable, which `twitter.acquire.acquire` already refuses to
+overwrite.
 
 Then `T-228` serializes adapter, index and UI coexistence, and inherits the locator finding in
 D-212; `T-229` is the phase gate and runs alone.
