@@ -27,6 +27,7 @@ import {
   panels,
   reading,
   servedGraph,
+  settledStage,
   sourceBacked,
   watchForTrouble,
 } from "./gate";
@@ -260,13 +261,17 @@ test.describe("search, preview, focus, read, and back", () => {
     const neighbour = await neighbourButton.getAttribute("data-map-focus-action");
     await neighbourButton.click();
     await expect(page).toHaveURL(new RegExp(`focus=${encodeURIComponent(neighbour ?? "")}`));
-    // Waited for, not raced: the URL changes before the neighbour's own two
-    // requests are answered, and going back on top of them aborts requests
-    // that were about to succeed -- which `watchForTrouble` reports as a
+    // Waited for, not raced, and waited for on **both** of the neighbour's
+    // requests. The URL changes first, and going back on top of an answer that
+    // was about to arrive aborts it -- which `watchForTrouble` reports as a
     // failed request, correctly, because from the network's side that is what
-    // it is. A reader reads the neighbour before pressing Back, so the test
-    // does too.
+    // it is. `useNeighbourhood` asks two questions per selection, and Quick
+    // Read only proves the first: the entity landed. `settledStage` is what
+    // proves the second, because the orbit cannot place a card until the
+    // neighbourhood has answered. A reader reads the neighbour before pressing
+    // Back, and reading it means both.
     await expect(page.locator("[data-map-quickread]")).toContainText(String(neighbour));
+    await settledStage(page);
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`focus=${encodeURIComponent(chosen ?? "")}`));
     await expect(page.locator('.map[data-map-canvas="drawing"]')).toBeVisible();
@@ -327,7 +332,19 @@ test.describe("search, preview, focus, read, and back", () => {
     await expect(page.locator("[data-map-quickread]")).toContainText(found.globalId);
 
     // Escape dismisses the Peek from anywhere on the route (`T-208`).
-    await page.mouse.move(found.clientX, found.clientY);
+    //
+    // Hunted again rather than by moving back to the coordinate above, and the
+    // difference is the whole reason this assertion was fragile: the click
+    // focused that mark, D-146 frames the camera on a new focus, and the graph
+    // has therefore moved under the pointer -- so the pixel that was over a
+    // mark is now over the field. Marks used to be multiplied up by the
+    // framing, which over the seven-node fixtures made them big enough that
+    // re-using the coordinate was accidentally safe; a mark sized in screen
+    // pixels (D-197) is 12 px across and it is not. The sweep is cheap here
+    // because it probes outward from the middle of the field, which is exactly
+    // where the camera has just put the focused mark.
+    const again = await findMark(page);
+    expect(again, "no mark answered the pointer once the camera had framed the focus").not.toBeNull();
     await expect(page.locator("[data-map-peek]")).toHaveCount(1);
     await page.keyboard.press("Escape");
     await expect(page.locator("[data-map-peek]")).toHaveCount(0);
