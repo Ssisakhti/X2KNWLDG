@@ -150,8 +150,16 @@ indistinguishable from a truncated long one.
 **This is the one place where the most conservative route is the least honest**,
 and it is why the recommendation below is not "Tier 0 for everything". It is also
 the strongest argument for keeping a second route: Tier 1 and FxTwitter agreed
-character-for-character at both 521 and 2967, so cross-route agreement is a real
+character-for-character at 521 and 2967, so cross-route agreement is a real
 verification mechanism where no in-band completeness signal exists.
+
+The ceiling was probed once further, outside the matrix, on a 3659-character
+post: Tier 0 returned **276 characters**, Tier 1 and FxTwitter both returned all
+3659, and the two agreed exactly again. So Tier 1 is intact to at least 3659
+characters. That is a **measured floor on its capacity, not a proof of it** —
+X's note posts run to far greater lengths than anything located here without
+search, so a higher ceiling may exist and has not been ruled out. `T-223` should
+therefore treat text completeness as corroborated, never as asserted (§12).
 
 ## 6. Failure semantics are clean and distinguishable
 
