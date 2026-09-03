@@ -276,3 +276,67 @@ describe("VirtualList estimateHeight", () => {
     }
   });
 });
+
+describe("what a windowed list announces about the collection", () => {
+  /*
+   * D-203: three generic elements stood between `role="list"` and each
+   * `role="listitem"` — the runway, the window and the per-row wrapper —
+   * which several screen readers resolve by dropping the items out of the
+   * list entirely. And only the windowed rows existed with no
+   * `aria-setsize`, so a 1,200-caption transcript announced as "list, 20
+   * items" while the paragraph above it said 1,200.
+   */
+  it("puts nothing between the list and its items", () => {
+    renderApp(
+      <VirtualList
+        items={ITEMS}
+        estimateHeight={40}
+        itemKey={(item) => item.id}
+        renderItem={(item) => <span>{item.id}</span>}
+        label="rows"
+      />,
+    );
+
+    const list = document.querySelector<HTMLElement>("[role='list']");
+    if (list === null) throw new Error("the list has no role");
+    for (const generic of list.querySelectorAll<HTMLElement>(
+      ".virtual__runway, .virtual__window",
+    )) {
+      expect(generic.getAttribute("role")).toBe("presentation");
+    }
+
+    const items = [...list.querySelectorAll<HTMLElement>("[role='listitem']")];
+    expect(items.length).toBeGreaterThan(0);
+    // Every item's path back to the list crosses only presentational nodes.
+    for (const item of items) {
+      let node = item.parentElement;
+      while (node !== null && node !== list) {
+        expect(node.getAttribute("role")).toBe("presentation");
+        node = node.parentElement;
+      }
+      expect(node).toBe(list);
+    }
+  });
+
+  it("states the size of the collection, not the size of the window", () => {
+    renderApp(
+      <VirtualList
+        items={ITEMS}
+        estimateHeight={40}
+        itemKey={(item) => item.id}
+        renderItem={(item) => <span>{item.id}</span>}
+        label="rows"
+      />,
+    );
+
+    const items = [...document.querySelectorAll<HTMLElement>("[role='listitem']")];
+    expect(items.length).toBeLessThan(ITEMS.length);
+    for (const item of items) {
+      expect(item.getAttribute("aria-setsize")).toBe(String(ITEMS.length));
+    }
+    // And each row says where it sits in that collection.
+    expect(items[0]?.getAttribute("aria-posinset")).toBe("1");
+    const positions = items.map((item) => Number(item.getAttribute("aria-posinset")));
+    expect(positions).toEqual(positions.map((_, index) => positions[0]! + index));
+  });
+});

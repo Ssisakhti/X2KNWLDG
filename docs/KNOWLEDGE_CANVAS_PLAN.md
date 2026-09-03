@@ -1013,7 +1013,7 @@ than the five first planned, because `T-215`'s gate was green and its captures w
 (D-196), which is ADR 0006 clause 5 behaving as designed. What the phase leaves standing is an
 approved reference set regenerable from committed sources, sixteen browser scenarios whose
 recorded numbers are a regression surface, a per-tier bound on the share of the field floating
-chrome may cover, and four measured differences recorded in `docs/mockups/T-211/SPEC.md` §17
+chrome may cover, and four measured differences recorded in `docs/mockups/T-211/SPEC.md` §17 (which D-203 later added two more to, items 5 and 6)
 rather than remembered.
 
 ### Phase 3 — Canvas and board persistence
@@ -1202,7 +1202,7 @@ none of them fired on.
 What the closed risk leaves behind is machinery rather than a warning: an approved reference
 set regenerable from committed sources, sixteen browser scenarios whose recorded numbers are a
 regression surface, a per-tier bound on the share of the field floating chrome may cover — read
-off the reference by the instrument that measures the build — and four measured differences
+off the reference by the instrument that measures the build — and four measured differences (D-203 added two more, §17 items 5 and 6)
 standing in `SPEC.md` §17. A later surface that repeats this mistake is caught by those.
 
 ### Risk 10: Focus becomes a second graph or invents meaning
@@ -1316,6 +1316,7 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-201 | The browser gate bounds the share of the field floating chrome may cover, per tier, measured over both capture sets by one implementation — and at `compact` that bound is a ratchet rather than the reference's share ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The failure it catches is four honest surfaces adding up rather than one oversized panel, which is what the comparison found and what no per-surface rule reports. `coveredShare` takes the union of the rectangles clipped to the field, and `capture_mockups.ts` calls it over the mockups' own surfaces, so the bound is read off the reference by the instrument that measures the build. `full` and `stack` are asserted at that measurement; `compact` is not, because the chrome's rectangles are what the orbit refuses cards against — bounding those surfaces to 14.4 % placed three cards at 1440×900 where D-193 recorded two. The gap is a finding in `SPEC.md` §17 and the trade is stated: the reference's 10.3 % costs the recorded 2 / 6 |
 
 | D-202 | The `T-216` captures are accepted: `T-215`, `T-216` and `T-210` close, R21 closes, and Phase 3 is unblocked — and the `compact` tier's chrome bound is accepted as a ratchet rather than as the reference's own share ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The decision the whole of Phase 2.1 existed to make possible, made the way ADR 0006 clause 5 says it must be: by a person looking at two sets of pictures. D-196 was the same clause exercised in the other direction, which is what makes this one worth recording — the gate was green both times and only one of the two answers was yes. What is accepted is the composition **and** the four differences `SPEC.md` §17 records as remaining. The first of them was a trade rather than an explanation and was taken deliberately: the chrome's rectangles are what the orbit refuses cards against, so bringing the `compact` share down to the reference's 10.3 % was measured to place three cards at 1440×900 where D-193 recorded two. The recorded numbers stand and the bound is a ratchet, so a later task may still take that trade — what it may not do is take it silently |
+| D-203 | A green suite is evidence about what it looks at: seventy-one findings from a six-reader audit of a tree whose every gate was passing, closed with guards at the level the misses happened | accepted | The shape they share is the decision. Each guard that missed one was real and pointed at the known half of its problem: a stylesheet suite that never computed a contrast **number**; `validate_coverage` measuring a window against a bound the audited document supplied; the `ui` extra checked against the packages it declares, so an undeclared import was invisible to the job built to catch it; a drift guard asserted in prose and never written; six of sixteen visual scenarios whose numbers assert only on the machine holding the private library. So the remediation is 53 contrast assertions, a frontend lint gate and a type-check program for the capture scripts (both CI steps, and the second found a fault on its first run), a parameter-by-parameter served-versus-frozen comparison, one `PagedList` for the ladder five surfaces had copied, and guards that read every component through a glob rather than a list. Two further defects were found by the new tests rather than by the audit. What is not fixed is named rather than closed |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
@@ -1469,7 +1470,7 @@ The `T-301` session must:
 4. Make a partially corrupt board openable. §16's second criterion is about one bad node not
    costing a whole board, which is a loading policy rather than a rendering detail.
 5. Leave the Map alone. `T-210` left an approved reference set, sixteen browser scenarios
-   holding recorded numbers, a per-tier chrome-share bound and four measured differences in
+   holding recorded numbers, a per-tier chrome-share bound and four measured differences (six since D-203) in
    `docs/mockups/T-211/SPEC.md` §17. The Canvas is a new surface and does not touch them; a
    task that reaches back into the Map's style table, label policy, stylesheet or route owes a
    re-run of `visual.spec.ts` and a sentence about what moved.

@@ -678,6 +678,124 @@ def test_a_fresh_run_writes_windows_the_bundle_schema_accepts() -> None:
     ]
 
 
+def test_the_bundle_schema_and_the_validator_accept_the_same_bundles() -> None:
+    """The schema blessed bundles ``apply-bundle`` then rejected.
+
+    Three places were looser than ``validators.py``: ``kind`` had no enum,
+    ``relation`` had neither an enum nor a ``minLength``, and a
+    ``source_class: "source"`` unit was not required to carry a ``source``
+    block. A model that validated its output against the *published* schema
+    still got ``invalid_kind`` / ``invalid_relation`` / ``missing_source`` —
+    the same defect class as D-092 and D-110.
+    """
+    from x2knwldg.constants import KNOWLEDGE_KINDS, RELATION_TYPES, SOURCE_KINDS
+
+    schema = json.loads(
+        (PROJECT_ROOT / "schemas" / "extraction_bundle.schema.json").read_text(encoding="utf-8")
+    )
+    unit = schema["$defs"]["knowledgeUnit"]
+    relationship = schema["$defs"]["relationship"]
+
+    assert set(unit["properties"]["kind"]["enum"]) == KNOWLEDGE_KINDS, (
+        "`canonical_concept` is library.py's and belongs in no bundle"
+    )
+    assert set(relationship["properties"]["relation"]["enum"]) == RELATION_TYPES
+
+    # The provenance obligation follows the declared class *or* the kind, which
+    # is the rule `validate_knowledge_units` applies.
+    guard = unit["allOf"][0]
+    branches = guard["if"]["anyOf"]
+    assert branches[0]["properties"]["source_class"]["const"] == "source"
+    assert set(branches[1]["properties"]["kind"]["enum"]) == SOURCE_KINDS
+    assert guard["then"]["required"] == ["source"]
+
+
+def test_a_bundle_the_schema_blesses_is_a_bundle_the_validator_accepts() -> None:
+    """Asserted over the documents, not over the two vocabularies.
+
+    Every rejection the validator can produce for these three fields is now a
+    rejection the schema produces first.
+    """
+    from x2knwldg.validators import validate_knowledge_units, validate_relationships
+
+    schema = json.loads(
+        (PROJECT_ROOT / "schemas" / "extraction_bundle.schema.json").read_text(encoding="utf-8")
+    )
+    validator = Draft202012Validator(schema)
+    coverage = {"status": "PARTIAL", "audit_attempts": 0, "windows": []}
+
+    def unit(**overrides):
+        base = {
+            "id": "KU-000001",
+            "kind": "claim",
+            "source_class": "source",
+            "content": "A claim.",
+            "confidence": 0.8,
+            "source": {
+                "video_id": "vid1",
+                "segment_id": "seg_0001",
+                "start_sec": 0.0,
+                "end_sec": 1.0,
+                "evidence_excerpt": "A claim.",
+            },
+        }
+        base.update(overrides)
+        return base
+
+    def relationship(**overrides):
+        base = {
+            "from": "KU-000001",
+            "relation": "supports",
+            "to": "KU-000002",
+            "confidence": 0.9,
+            "source_class": "source",
+        }
+        base.update(overrides)
+        return base
+
+    # Each of these is what the validator refuses; the schema must refuse it too.
+    refused_units = [
+        ("invalid_kind", unit(kind="vibes")),
+        ("missing_source", {k: v for k, v in unit().items() if k != "source"}),
+    ]
+    for code, bad in refused_units:
+        assert validator.iter_errors(
+            {"knowledge_units": [bad], "relationships": [], "coverage": coverage}
+        ), f"the schema accepts a unit the validator refuses with {code}"
+        codes = {error["code"] for error in validate_knowledge_units([bad])["errors"]}
+        assert code in codes, codes
+
+    for code, bad in [
+        ("invalid_relation", relationship(relation="")),
+        ("invalid_relation", relationship(relation="folklore")),
+    ]:
+        assert validator.iter_errors(
+            {"knowledge_units": [], "relationships": [bad], "coverage": coverage}
+        ), f"the schema accepts a relationship the validator refuses with {code}"
+        codes = {
+            error["code"]
+            for error in validate_relationships([bad], {"KU-000001", "KU-000002"})["errors"]
+        }
+        assert code in codes, codes
+
+    # And the honest documents still validate on both sides.
+    good = {
+        "knowledge_units": [unit(), unit(id="KU-000002", kind="synthesis",
+                                        source_class="derived",
+                                        derived_from=["KU-000001"],
+                                        derivation_note="because")],
+        "relationships": [relationship()],
+        "coverage": coverage,
+    }
+    del good["knowledge_units"][1]["source"]
+    assert not list(validator.iter_errors(good)), [
+        error.message for error in validator.iter_errors(good)
+    ]
+    assert validate_knowledge_units(good["knowledge_units"])["status"] == "PASS"
+    unit_ids = {item["id"] for item in good["knowledge_units"]}
+    assert validate_relationships(good["relationships"], unit_ids)["status"] == "PASS"
+
+
 def test_the_schemas_audit_attempt_cap_is_the_constant() -> None:
     """D-081: the bound is stated twice, so the two must be asserted equal."""
     from x2knwldg.constants import MAX_AUDIT_ATTEMPTS

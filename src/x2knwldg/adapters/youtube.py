@@ -224,6 +224,32 @@ class YouTubeAdapter(SourceAdapter):
         """
         document, reason = read_optional_json_or_reason(path)
         if reason is not None:
+            # D-100's wrap, which `_file_artifact` got and this did not.
+            # `self.relative` **resolves**, so a canonical file that is a
+            # symlink to somewhere outside the project raised `AdapterError`
+            # here and took the whole run down — downgrading it from "indexed,
+            # with this file named as damaged" to "absent". A run whose
+            # `validation.json` is both symlinked outside the root *and*
+            # unparseable is damaged in a way this record can state, and
+            # stating it is the whole point of this channel.
+            #
+            # The lexical path is used when the resolved one cannot be
+            # expressed, for the reason `_file_artifact` gives: the bytes
+            # really do live outside the project, and the entry is a
+            # *report*, not an addressable artifact.
+            try:
+                relative = self.relative(path)
+            except AdapterError:
+                damaged.append(
+                    {
+                        "path": path.name,
+                        "reason": scrub_host_paths(
+                            f"{reason}; it also resolves outside the project root, "
+                            "so it has no project-relative path (risk R15)"
+                        ),
+                    }
+                )
+                return document
             # D-051's rule, on D-045's other channel. Every ``JsonReadError``
             # names the file it could not read and names it *absolutely*, and
             # this record is served verbatim inside a 200 body by

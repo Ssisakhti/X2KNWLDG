@@ -7,6 +7,7 @@ Library and the Reader on them.
 ```bash
 cd web
 npm ci             # reproducible install from package-lock.json
+npm run lint       # eslint — the hooks rules a type checker cannot express
 npm run typecheck  # tsc --noEmit — the check CI runs
 npm test           # vitest, jsdom
 npm run dev:api    # the real API over the committed run fixtures, on :8931
@@ -15,6 +16,23 @@ npm run build      # production bundle into dist/
 
 npm run browser           # the gate: the built bundle in a real browser (T-209, T-215)
 npm run typecheck:browser # and the gate's own types
+npm run typecheck:scripts # and the capture/measurement scripts' (D-203)
+```
+
+The capture and measurement scripts are `npm` scripts rather than
+`npx tsx …` invocations, and that is D-203: `tsx` appeared in the lockfile only
+as an optional peer of Vite, so every documented `npx tsx web/scripts/…`
+silently fetched an unpinned copy from the registry at run time — an
+undeclared, unversioned execution dependency in the path that produces the
+acceptance captures. It is a declared devDependency now, and each command has
+one name:
+
+```bash
+npm run mockups:layout    # real forceAtlas2 -> layout.json
+npm run mockups:capture   # the approved captures
+npm run mockups:review    # the page they are compared on
+npm run mockups:baseline  # the shipped UI, for comparison
+npm run measure:orbit     # the composition, read back off a browser
 ```
 
 The browser gate starts both servers itself — the API over the committed run

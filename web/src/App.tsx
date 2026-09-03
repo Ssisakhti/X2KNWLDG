@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { HashRouter, Route, Routes } from "react-router-dom";
+import { HashRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { Shell } from "./components/Shell";
@@ -38,20 +38,47 @@ export function AppRoutes() {
   );
 }
 
+/**
+ * The routes under their boundary, reset by a retry *or* by a navigation.
+ *
+ * D-179 put the boundary inside `Shell` so a route that throws leaves the
+ * navigation, the language switch and the skip link reachable -- "a reader who
+ * hits one is one click from somewhere that works". The click did not work:
+ * the boundary cleared its error only when `resetKey` changed and nothing
+ * bumped it on navigation, so opening a bad source id and then clicking
+ * Library changed the URL, moved `aria-current`, and went on rendering the
+ * fallback. Every route was broken until a reload.
+ *
+ * So the boundary's key carries the location as well as the retry counter.
+ * Clearing the error remounts the children -- React has already unmounted them
+ * -- which is what makes the navigation a fresh view rather than the failed one
+ * resumed.
+ *
+ * `AppRoutes` is keyed on the *attempt* alone, deliberately. Keying it on the
+ * location too would remount the route on every query change, and on the Map
+ * that would throw away the accumulated graph every time a reader selected a
+ * node (D-128, D-178).
+ */
+function RoutedViews({ attempt, onRetry }: { attempt: number; onRetry: () => void }) {
+  const location = useLocation();
+  return (
+    <RouteErrorBoundary
+      resetKey={`${attempt}:${location.pathname}${location.search}`}
+      onRetry={onRetry}
+    >
+      <AppRoutes key={attempt} />
+    </RouteErrorBoundary>
+  );
+}
+
 export function App() {
-  // D-179: the boundary sits *inside* `Shell` so a route that throws leaves the
-  // navigation, the language switch and the skip link reachable -- a reader who
-  // hits one is one click from somewhere that works, rather than looking at a
-  // blank document.
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
   return (
     <I18nProvider>
       <HashRouter>
         <Shell>
-          <RouteErrorBoundary resetKey={attempt} onRetry={retry}>
-            <AppRoutes key={attempt} />
-          </RouteErrorBoundary>
+          <RoutedViews attempt={attempt} onRetry={retry} />
         </Shell>
       </HashRouter>
     </I18nProvider>

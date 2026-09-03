@@ -19,7 +19,7 @@ import type { MapPoint } from "../map/mapSession";
 import { App } from "../App";
 import { fakeRenderers } from "../test/mapRenderer";
 import { concept, edge, expressesConcept, unit } from "../test/graphRecords";
-import { ORBIT_TIERS } from "../map/constellation";
+import { ORBIT_TIERS, orbitTier } from "../map/constellation";
 import { mapStyle } from "../map/mapStyle";
 import { jsonFetch, renderApp } from "../test/render";
 // The route's server stub and its sized stage live beside the renderer fake
@@ -153,6 +153,32 @@ describe("the Map", () => {
     // concept does not. Nothing here claims that is the whole neighbourhood --
     // the bounded one over the API is `T-207`'s.
     expect([...mapStyle.view.neighbourNodes]).toEqual([KU2]);
+  });
+
+  it("leaves the style table unfocused when the route unmounts", async () => {
+    /*
+     * `mapStyle` is a module singleton, and `clear()` was called only in test
+     * setup — by the four suites that need it *precisely because* the
+     * singleton carries state across mounts. Production never called it:
+     * focus something, leave for the Library, come back, and the session
+     * effect runs before the view-state write, so the first painted frame
+     * dimmed all 86 marks around a selection that no longer existed.
+     */
+    vi.stubGlobal("fetch", library());
+    const { factory } = recorder();
+    const view = renderApp(<MapView createRenderer={factory} />, {
+      route: `/map?focus=${KU1}`,
+    });
+
+    await drawn();
+    await waitFor(() => expect(mapStyle.view.selectedNode).toBe(KU1));
+
+    view.unmount();
+
+    expect(mapStyle.view.selectedNode).toBeNull();
+    expect(mapStyle.view.hoveredNode).toBeNull();
+    expect([...mapStyle.view.neighbourNodes]).toEqual([]);
+    expect([...mapStyle.view.cardedNodes]).toEqual([]);
   });
 
   it("highlights nothing when the URL names a focus the loaded pages do not hold", async () => {
@@ -555,6 +581,136 @@ describe("the Map's canvas and its constellation", () => {
     await drawn();
     await waitFor(() => expect(document.querySelector("[data-map-nodes]")).not.toBeNull());
     expect(harness.latest()?.framings).toHaveLength(0);
+  });
+
+  it("gives the narrow field SPEC §5's stack tier, with no relation dropped", async () => {
+    /*
+     * The tier the stylesheet contradicted itself about. One paragraph called
+     * the document composition a scope boundary owed to `T-213`; the rule at
+     * the end of the same block already said the document *is* the `stack`
+     * tier. `T-213` closed and `T-216` closed after it, so each half pointed
+     * at the other and no ticket owned the tier.
+     *
+     * What SPEC §5 asks for below 900px: no orbit at all, the focus card, and
+     * then every relation as a row with its own direction and its hop count,
+     * none of them dropped.
+     */
+    sizeTheStage({ width: 390, height: 480 });
+    vi.stubGlobal("fetch", library());
+    const harness = recorder();
+    renderApp(<MapView createRenderer={harness.factory} />, { route: `/map?focus=${KU1}` });
+    await drawn();
+
+    // The `stack` tier draws no orbit at all.
+    expect(orbitTier(390)).toBe("stack");
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-map-related-entity]").length).toBeGreaterThan(0),
+    );
+    expect(document.querySelector("[data-map-overlay]")).toBeNull();
+
+    // The focus card.
+    expect(document.querySelector("[data-map-quickread]")).not.toBeNull();
+
+    // And every relation as a row: the neighbourhood's own count, with a hop
+    // count on each. `library()` answers KU1 with two neighbours.
+    const rows = [...document.querySelectorAll("[data-map-related-entity]")];
+    expect(rows.map((row) => row.getAttribute("data-map-related-entity")).sort()).toEqual(
+      [C1, KU2].sort(),
+    );
+    for (const row of rows) {
+      expect(row.textContent).toMatch(/hop/i);
+    }
+  });
+
+  it("puts the search rail before the counts, which is the order a reader reads", async () => {
+    /*
+     * The counts are at the inline *end* and the search rail at the inline
+     * *start*, and the counts came first in the DOM — so focus landed
+     * top-end, jumped to the start, back to the end for the drawer and the
+     * camera, and back to the start for the legend: the field crossed twice,
+     * in a file that argues tab order must follow visual order.
+     *
+     * D-129's constraint is the other one asserted here: the counts still
+     * precede the stage, because they are the text that survives when the
+     * WebGL view cannot be read at all.
+     */
+    sizeTheStage();
+    vi.stubGlobal("fetch", library());
+    const harness = recorder();
+    renderApp(<MapView createRenderer={harness.factory} />, { route: "/map" });
+    await drawn();
+
+    const order = [...document.querySelectorAll(".map__float--search, .map__float--status, [data-map-stage]")];
+    const index = (selector: string) =>
+      order.findIndex((element) => element.matches(selector));
+    expect(index(".map__float--search")).toBeGreaterThanOrEqual(0);
+    expect(index(".map__float--search")).toBeLessThan(index(".map__float--status"));
+    expect(index(".map__float--status")).toBeLessThan(index("[data-map-stage]"));
+  });
+
+  it("still draws the orbit for a focus these pages have not loaded", async () => {
+    /*
+     * The other half of the case above, and the half that was missing.
+     *
+     * The test before this one checked only that no camera framing happened,
+     * never whether the composition was drawn -- so the orbit memo guarding on
+     * `focus.focus` and then passing `drawnFocus` (null unless the graph
+     * already holds the node) was invisible to the whole suite. Open
+     * `#/map?focus=...` cold and the field drew no centre card, no neighbours,
+     * no pills and no rings, while Quick Read and the related list rendered
+     * the entity and its neighbours from the same entity request.
+     */
+    sizeTheStage();
+    const one = unit("KU-000001", { label: LONG_STATEMENT });
+    const two = unit("KU-000002");
+    const three = concept("C-000001");
+    // The page holds only KU2 -- the graph filter never reached the focus --
+    // while the entity and neighbourhood requests answer for KU1 in full.
+    vi.stubGlobal(
+      "fetch",
+      mapFetch(
+        () => ({ body: graphBody([two], [], { total: 1 }) }),
+        (url) => {
+          if (url.includes("/api/entities/")) {
+            return entityIdOf(url) === KU1 ? { body: entityBody(one) } : null;
+          }
+          if (url.includes("/api/graph/neighborhood/")) {
+            return entityIdOf(url) === KU1
+              ? {
+                  body: neighbourhoodBody(
+                    KU1,
+                    [one, two, three],
+                    [edge(KU1, KU2, "supports"), expressesConcept(KU1, C1)],
+                  ),
+                }
+              : null;
+          }
+          return null;
+        },
+      ),
+    );
+    const harness = recorder({ display: { [KU2]: { x: 0.2, y: 0.2 } } });
+    renderApp(<MapView createRenderer={harness.factory} />, { route: `/map?focus=${KU1}` });
+    await drawn();
+
+    // The premise: no page holds the focus, so no camera framing happens.
+    await waitFor(() => expect(document.querySelector("[data-map-nodes]")).not.toBeNull());
+    expect(harness.latest()?.framings).toHaveLength(0);
+
+    // And the related list proves the entity request answered: the record is
+    // in hand even though the graph does not hold the node.
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-map-related-entity]").length).toBeGreaterThan(0),
+    );
+
+    await waitFor(() => expect(document.querySelector("[data-map-overlay]")).not.toBeNull());
+    const primary = document.querySelector(`[data-map-card='${KU1}']`);
+    expect(primary).not.toBeNull();
+    expect(primary?.getAttribute("data-map-card-primary")).toBe("true");
+    // And the neighbours it came with, so this is a composition and not a
+    // lone card: a centre, at least one neighbour, and a ring.
+    expect(document.querySelectorAll("[data-map-card]").length).toBeGreaterThan(1);
+    expect(document.querySelectorAll(".map__orbit-ring").length).toBeGreaterThan(0);
   });
 
   it("closes the Peek on Escape even when nothing on the route has focus", async () => {

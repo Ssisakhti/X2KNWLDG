@@ -285,6 +285,80 @@ def test_asking_about_one_damaged_run_by_name_still_raises(tmp_path: Path) -> No
         search_knowledge(tmp_path, "coverage", video_id="broken")
 
 
+@pytest.mark.parametrize(
+    "file_name",
+    ["metadata.json", "knowledge_units.json", "transcript.json"],
+)
+def test_a_canonical_file_of_the_wrong_shape_only_costs_its_own_run(
+    tmp_path: Path, file_name: str
+) -> None:
+    """``[]`` where an object belongs used to escape as ``AttributeError``.
+
+    ``run_documents`` read its three canonical files with a bare
+    ``json.loads``, so a document of the wrong *shape* parsed fine and then
+    reached ``.get(...)``. ``AttributeError`` is neither a ``ValueError`` — so
+    the per-run recovery below did not catch it — nor in
+    ``cli.USER_FACING_ERRORS``, so the whole search died on a raw traceback:
+    the exact failure this function's docstring says it fixed.
+    """
+    write_run(tmp_path, video_id="good", content="coverage windows", text="coverage windows")
+    damaged = write_run(tmp_path, video_id="broken", content="coverage windows")
+    (damaged / file_name).write_text("[]", encoding="utf-8")
+
+    unreadable: list[dict[str, str]] = []
+    hits = search_knowledge(tmp_path, "coverage", unreadable=unreadable)
+
+    assert {hit["video_id"] for hit in hits} == {"good"}
+    assert [entry["video_id"] for entry in unreadable] == ["broken"]
+    assert file_name in unreadable[0]["reason"]
+
+
+def test_a_non_object_entry_in_a_canonical_collection_is_reported(tmp_path: Path) -> None:
+    """A unit or caption that is a string is damage, not a hit."""
+    write_run(tmp_path, video_id="good", content="coverage windows", text="coverage windows")
+    damaged = write_run(tmp_path, video_id="broken", content="coverage windows")
+    (damaged / "knowledge_units.json").write_text(
+        json.dumps({"units": ["not an object"]}), encoding="utf-8"
+    )
+
+    unreadable: list[dict[str, str]] = []
+    hits = search_knowledge(tmp_path, "coverage", unreadable=unreadable)
+    assert {hit["video_id"] for hit in hits} == {"good"}
+    assert [entry["video_id"] for entry in unreadable] == ["broken"]
+
+
+# ---------------------------------------------------------------------------
+# What counts as a run to search (D-158)
+# ---------------------------------------------------------------------------
+
+
+def test_a_convenience_symlink_does_not_duplicate_every_hit(tmp_path: Path) -> None:
+    """``ln -s vid1 output/latest`` gave two identical hits for one run.
+
+    ``search_knowledge`` globbed ``output/*`` — a fourth implementation of run
+    discovery, missing the symlink clause ``io.discover_run_dirs`` names as
+    "the one that was missing everywhere".
+    """
+    write_run(tmp_path, video_id="vid1", content="coverage windows", text="coverage windows")
+    (tmp_path / "latest").symlink_to(tmp_path / "vid1", target_is_directory=True)
+
+    hits = search_knowledge(tmp_path, "coverage")
+    assert {hit["video_id"] for hit in hits} == {"vid1"}
+    # One unit and one caption, each once. Before the fix the link was walked
+    # as a second run and every document came back twice.
+    assert sorted(hit["type"] for hit in hits) == ["knowledge_unit", "transcript_caption"]
+
+
+def test_staging_and_library_directories_are_not_searched_as_runs(tmp_path: Path) -> None:
+    """``output/.staging/`` and ``output/library/`` are not videos."""
+    write_run(tmp_path, video_id="vid1", content="coverage windows", text="coverage windows")
+    write_run(tmp_path / ".staging", video_id="vid2", content="coverage windows")
+    write_run(tmp_path, video_id="library", content="coverage windows")
+
+    hits = search_knowledge(tmp_path, "coverage")
+    assert {hit["video_id"] for hit in hits} == {"vid1"}
+
+
 def test_a_scan_of_healthy_runs_reports_nothing_unreadable(tmp_path: Path) -> None:
     write_run(tmp_path, video_id="a", content="coverage windows", text="coverage windows")
     write_run(tmp_path, video_id="b", content="coverage windows", text="coverage windows")

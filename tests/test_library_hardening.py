@@ -174,6 +174,73 @@ def test_a_run_whose_video_id_cannot_be_addressed_is_skipped_by_name(tmp_path: P
     assert "video_id" in status["skipped_runs"][0]["reason"]
 
 
+def test_two_runs_claiming_one_video_id_are_not_both_indexed(tmp_path: Path) -> None:
+    """``adapters.check_records`` refuses this; ``rebuild_library`` did not.
+
+    An id is unique per run by construction, but two runs are free to declare
+    the same ``video_id``, and every library id is built from it — so the graph
+    got two nodes with one id, which ``repository.check_index_integrity`` then
+    refuses for the *whole* index, while ``runs_skipped: 0`` reported nothing
+    wrong.
+    """
+    _write_run(tmp_path, "run-a", units=[_unit("KU-000001")], relationships=[],
+               metadata={"video_id": "vid00000001"})
+    _write_run(tmp_path, "run-b", units=[_unit("KU-000001")], relationships=[],
+               metadata={"video_id": "vid00000001"})
+
+    status = rebuild_library(tmp_path)
+
+    assert status["runs_discovered"] == 2
+    assert status["runs_indexed"] == 1
+    assert status["runs_skipped"] == 1, "the second claimant is skipped, not indexed"
+    assert status["videos"] == 1
+    assert "vid00000001" in status["skipped_runs"][0]["reason"]
+    assert "run-a" in status["skipped_runs"][0]["reason"], "the owner is named"
+
+    ids = [node["id"] for node in _graph(tmp_path)["nodes"]]
+    assert len(ids) == len(set(ids)), "two nodes with one id cannot be paged or drawn"
+
+
+def test_the_librarys_four_documents_are_written_as_one_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-090's rule, applied to the last multi-file writer that skipped it.
+
+    Four ``write_json`` calls in a row meant a failure between the
+    ``graph.json`` and ``status.json`` writes left each file individually well
+    formed and the set mutually inconsistent — a ``status.json`` from the
+    previous rebuild beside this one's graph.
+    """
+    _write_run(tmp_path, "vid00000001", units=[_unit("KU-000001")], relationships=[])
+    first = rebuild_library(tmp_path)
+    before = {
+        name: (tmp_path / "library" / name).read_text(encoding="utf-8")
+        for name in ("graph.json", "concepts.json", "videos.json", "status.json")
+    }
+    assert first["videos"] == 1
+
+    _write_run(tmp_path, "vid00000002", units=[_unit("KU-000002")], relationships=[])
+
+    real_write_text = io_module.write_text
+    calls: list[Path] = []
+
+    def failing(path: Path, text: str) -> None:
+        calls.append(path)
+        if path.name == "status.json":
+            raise OSError("disk full")
+        real_write_text(path, text)
+
+    monkeypatch.setattr(io_module, "write_text", failing)
+    with pytest.raises(OSError):
+        rebuild_library(tmp_path)
+
+    after = {
+        name: (tmp_path / "library" / name).read_text(encoding="utf-8")
+        for name in ("graph.json", "concepts.json", "videos.json", "status.json")
+    }
+    assert after == before, "a failed rebuild leaves the whole set as it was"
+
+
 # --------------------------------------------------------------------------
 # A damaged run is visible, not fatal
 # --------------------------------------------------------------------------
@@ -362,6 +429,37 @@ def test_the_tolerant_reader_returns_the_reason_rather_than_discarding_it(
     assert "absent.json" in reason
     write_json(tmp_path / "present.json", {"a": 1})
     assert read_json_or_reason(tmp_path / "present.json") == ({"a": 1}, None)
+
+
+def test_a_canonical_file_is_readable_by_whoever_the_umask_says(tmp_path: Path) -> None:
+    """``NamedTemporaryFile`` creates at ``0600`` and ``os.replace`` keeps it.
+
+    Every file the package wrote landed owner-only, with nothing documenting
+    the narrowing — while ``output/`` is meant to be a portable canonical
+    directory other tools and other users read, and no canonical document
+    holds a secret. The process umask decides, as it does for every other file
+    the operator creates.
+    """
+    if os.name != "posix":  # pragma: no cover - POSIX modes only
+        pytest.skip("file modes are POSIX")
+    previous = os.umask(0o022)
+    try:
+        write_json(tmp_path / "canonical.json", {"a": 1})
+        mode = (tmp_path / "canonical.json").stat().st_mode & 0o777
+        assert mode == 0o644, oct(mode)
+    finally:
+        os.umask(previous)
+
+
+def test_a_mode_an_operator_chose_survives_a_rewrite(tmp_path: Path) -> None:
+    """``os.replace`` discards the destination's mode; a chmod meant something."""
+    if os.name != "posix":  # pragma: no cover - POSIX modes only
+        pytest.skip("file modes are POSIX")
+    path = tmp_path / "canonical.json"
+    write_json(path, {"a": 1})
+    os.chmod(path, 0o640)
+    write_json(path, {"a": 2})
+    assert path.stat().st_mode & 0o777 == 0o640
 
 
 def test_a_failed_write_still_leaves_no_temp_file(tmp_path: Path) -> None:

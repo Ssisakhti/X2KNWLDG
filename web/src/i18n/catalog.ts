@@ -36,6 +36,8 @@ export const en = {
   "locale.fa": "فارسی",
 
   "common.loading": "Loading…",
+  "common.loadingNamed": "Loading {name}…",
+  "common.pageFailed": "That page did not arrive. What is listed here is still complete.",
   "common.retry": "Retry",
   "common.notStated": "not stated",
   "common.notRecorded": "not recorded",
@@ -330,6 +332,7 @@ export const en = {
   "map.related.unreachable":
     "{count} returned {count|entity has|entities have} no path to the focus over the relations this response returned.",
 
+  "reader.tablist": "Reader sections",
   "reader.tab.overview": "Overview",
   "reader.tab.transcript": "Transcript",
   "reader.tab.report": "Report",
@@ -433,6 +436,8 @@ export const fa: Messages = {
   "locale.fa": "فارسی",
 
   "common.loading": "در حال بارگذاری…",
+  "common.loadingNamed": "در حال بارگذاری {name}…",
+  "common.pageFailed": "آن صفحه نرسید. آنچه در اینجا فهرست شده است هنوز کامل است.",
   "common.retry": "تلاش دوباره",
   "common.notStated": "بیان نشده",
   "common.notRecorded": "ثبت نشده",
@@ -727,6 +732,7 @@ export const fa: Messages = {
   "map.related.unreachable":
     "{count} هستارِ بازگردانده‌شده بر پایهٔ رابطه‌های همین پاسخ هیچ مسیری به کانون ندارند.",
 
+  "reader.tablist": "بخش‌های خواننده",
   "reader.tab.overview": "نمای کلی",
   "reader.tab.transcript": "رونویس",
   "reader.tab.report": "گزارش",

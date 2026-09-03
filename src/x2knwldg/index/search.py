@@ -135,6 +135,7 @@ from ..query import SearchDocument, rank_documents, run_documents
 from ..repository import SearchQuery
 from .errors import StoreError
 from .repository import SearchCandidates
+from .schema import SEARCH_PROBLEM_PREFIX
 
 __all__ = [
     "HIT_TYPES",
@@ -195,7 +196,11 @@ _GLOB_UNSAFE_TOKEN = "·x2knwldg:glob-unsafe"
 #: not zero, and :func:`unreadable_sources` reads them back so ``total`` can say
 #: so (ADR 0004 invariant 6). Set and cleared on every index pass, so it always
 #: describes the most recent attempt rather than an old one.
-_UNSEARCHABLE_PREFIX = "search: "
+#:
+#: Imported from :mod:`x2knwldg.index.schema`, which declares the table whose
+#: column holds it, so the scanner can fold the same marker into the report of
+#: the pass that wrote it.
+_UNSEARCHABLE_PREFIX = SEARCH_PROBLEM_PREFIX
 
 #: Scratch tables the query binds its token and scope sets through. A long
 #: ``IN (?, ?, ?, …)`` list would do the same job until it did not:
@@ -565,23 +570,34 @@ def _record_searchability(
 def unreadable_sources(connection: sqlite3.Connection) -> frozenset[str]:
     """The indexed sources whose searchable text could not be read.
 
-    Two ways to be in here, and they are the two tiers D-043 established. A run
-    with a ``skipped_reason`` could not be indexed at all. A run carrying a
-    :data:`_UNSEARCHABLE_PREFIX` problem was indexed, but its canonical files
-    would not yield documents.
+    A source in here has **unknown** search hits, not zero of them, and that
+    distinction is the whole of ADR 0004 invariant 6: ``PageInfo.total`` is null
+    for unknown and never zero for it. The way in is a
+    :data:`_UNSEARCHABLE_PREFIX` problem: the run was indexed, and its canonical
+    files would not yield documents.
 
-    A source in either tier has **unknown** search hits, not zero of them, and
-    that distinction is the whole of ADR 0004 invariant 6: ``PageInfo.total`` is
-    null for unknown and never zero for it.
+    D-043's **other** tier — a run that could not be indexed at all — is
+    deliberately not here, and this used to claim it was. Every skipped run is
+    constructed with ``source_id=None`` (``scanner._Run``'s default, on all four
+    of its skip paths), because a run with no records has no ``Source`` and so
+    no id to attribute anything to; its records are evicted, so it is not in
+    ``_resolve_scope``'s scope either. The branch that read
+    ``skipped_reason IS NOT NULL`` was therefore unreachable twice over, and
+    the test that covered it inserted a row shape production never writes —
+    proving the branch worked rather than that it happened.
+
+    Nothing is lost by dropping it: a skipped run is reported to a reader by
+    ``/api/status``, which names every one of them in ``runs.skipped`` with its
+    reason. ``tests/test_sqlite_search.py`` asserts the ``source_id IS NULL``
+    shape, so if a skipped run ever gains an id this decision gets revisited
+    instead of silently coming back to life.
     """
     unreadable: set[str] = set()
     rows = connection.execute(
-        "SELECT source_id, problems, skipped_reason FROM runs WHERE source_id IS NOT NULL"
+        "SELECT source_id, problems FROM runs "
+        "WHERE source_id IS NOT NULL AND skipped_reason IS NULL"
     ).fetchall()
     for row in rows:
-        if row["skipped_reason"] is not None:
-            unreadable.add(row["source_id"])
-            continue
         try:
             problems = json.loads(row["problems"])
         except ValueError:

@@ -33,7 +33,7 @@
  *   ../.venv/bin/python scripts/dev_api.py --project-root .. --port 8955
  *   X2KNWLDG_API_BASE=http://127.0.0.1:8955 npm run build
  *   X2KNWLDG_API_BASE=http://127.0.0.1:8955 npx vite preview --port 4199
- *   npx tsx scripts/measure_orbit.ts
+ *   npm run measure:orbit
  */
 import { chromium } from "@playwright/test";
 

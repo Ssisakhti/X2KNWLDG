@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import api_harness as h
 import pytest
@@ -388,6 +389,175 @@ def test_the_served_surface_is_exactly_the_frozen_one(served: Path) -> None:
     )
 
 
+#: The keys of a parameter schema that are *bounds* rather than prose. The
+#: generated document carries FastAPI's own ``title`` and rewords a
+#: ``description``, deliberately; a ``maximum`` is the contract.
+_BOUND_KEYS = (
+    "type",
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "minLength",
+    "maxLength",
+    "pattern",
+    "enum",
+    "default",
+)
+
+
+def _bounds(schema: dict[str, Any]) -> dict[str, Any]:
+    """*schema*'s bounds, with an optional parameter's ``anyOf`` unwrapped.
+
+    FastAPI renders ``str | None`` as ``anyOf: [{...}, {"type": "null"}]``
+    where the frozen document writes the bare type, so the non-null branch is
+    what the two have to agree about.
+    """
+    branches = schema.get("anyOf")
+    if isinstance(branches, list):
+        concrete = [b for b in branches if isinstance(b, dict) and b.get("type") != "null"]
+        if len(concrete) == 1:
+            schema = {**concrete[0], **{k: v for k, v in schema.items() if k != "anyOf"}}
+    return {key: schema[key] for key in _BOUND_KEYS if key in schema}
+
+
+def test_every_query_parameter_bound_matches_the_frozen_document(served: Path) -> None:
+    """The drift guard ``server/params.py`` documented and nobody wrote.
+
+    Its module docstring says the bounds are enforced twice and that "neither
+    can drift silently — ``tests/test_api_contract`` compares the served
+    document against the frozen one". No such comparison existed: the only
+    check was on path *names*. Editing ``"maximum": 500`` to ``1000`` in the
+    frozen spec left the whole suite green while the server went on refusing
+    ``limit=501``, so the published contract and the enforced one disagreed
+    with nothing to notice.
+    """
+    from x2knwldg.repository import MemoryRepository
+    from x2knwldg.server.app import create_app
+
+    frozen = json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))
+    generated = create_app(repository=MemoryRepository.from_project(served)).openapi()
+
+    def resolve(parameter: dict[str, Any]) -> dict[str, Any]:
+        ref = parameter.get("$ref")
+        if ref is None:
+            return parameter
+        name = ref.rsplit("/", 1)[-1]
+        return frozen["components"]["parameters"][name]
+
+    compared = 0
+    for path, operations in frozen["paths"].items():
+        for method, operation in operations.items():
+            frozen_params = {
+                resolved["name"]: resolved
+                for resolved in (resolve(p) for p in operation.get("parameters", []))
+            }
+            served_params = {
+                p["name"]: p
+                for p in generated["paths"][path][method].get("parameters", [])
+            }
+            assert set(frozen_params) == set(served_params), f"{method.upper()} {path}"
+            for name, declared in frozen_params.items():
+                assert declared["in"] == served_params[name]["in"], (path, name)
+                assert declared.get("required", False) == served_params[name].get(
+                    "required", False
+                ), (path, name)
+                schema = declared.get("schema", {})
+                if "$ref" in schema:
+                    # A value whose vocabulary lives in `schemas/v1/common`.
+                    # The route's own docstring records the decision: those
+                    # vocabularies are `constants.py`'s, and a second copy in
+                    # a route is the copy that goes stale, so they are plain
+                    # strings here and refused by the query dataclasses.
+                    # `test_every_frozen_vocabulary_is_actually_enforced`
+                    # below checks the refusal rather than the JSON.
+                    continue
+                expected = _bounds(schema)
+                actual = _bounds(served_params[name].get("schema", {}))
+                # `enum` for the same reason as a `$ref`, and checked the
+                # same way.
+                expected.pop("enum", None)
+                actual.pop("enum", None)
+                assert expected == actual, (
+                    f"{method.upper()} {path} parameter {name!r}: "
+                    f"frozen {expected} vs served {actual}"
+                )
+                compared += 1
+    assert compared >= 10, "the comparison found almost no parameters to compare"
+
+
+def test_every_frozen_vocabulary_is_actually_enforced(served: Path) -> None:
+    """A closed vocabulary the route declares as a plain string.
+
+    The routes' docstrings record why — a second copy of
+    ``constants.py``'s thirty-one kinds in a route is the copy that goes
+    stale — so what has to be asserted is the *refusal*: every member is
+    accepted and a non-member is a ``400``, which is what makes the
+    published enum true.
+    """
+    frozen = json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))
+    vocabularies = {
+        parameter["name"]: parameter["schema"]["enum"]
+        for parameter in frozen["components"]["parameters"].values()
+        if "enum" in parameter.get("schema", {})
+    }
+    assert vocabularies, "the document declares no inline vocabulary to check"
+
+    # Every path that takes each vocabulary, not just one: the same parameter
+    # is declared on more than one operation.
+    paths: dict[str, list[str]] = {name: [] for name in vocabularies}
+    for path, operations in frozen["paths"].items():
+        for operation in operations.values():
+            for reference in operation.get("parameters", []):
+                referenced = frozen["components"]["parameters"].get(
+                    reference.get("$ref", "").rsplit("/", 1)[-1], {}
+                )
+                if referenced.get("name") in vocabularies:
+                    paths[referenced["name"]].append(path)
+
+    with h.client(h.memory_repository(served)) as client:
+        source_id = client.get("/api/sources").json()["data"][0]["id"]
+        entity_id = client.get("/api/graph").json()["data"]["nodes"][0]["global_id"]
+        for name, members in vocabularies.items():
+            assert paths[name], name
+            for template in paths[name]:
+                path = template.replace("{source_id}", source_id).replace(
+                    "{entity_id}", entity_id
+                )
+                for member in members:
+                    response = client.get(f"{path}?{name}={member}")
+                    assert response.status_code == 200, (path, name, member, response.text)
+                refused = client.get(f"{path}?{name}=not-a-vocabulary-member")
+                h.assert_error(refused, 400, "invalid_request")
+
+
+def test_the_page_limit_the_document_publishes_is_the_one_enforced(served: Path) -> None:
+    """The bound in three places, asserted against the one that is published."""
+    from x2knwldg.constants import MAX_PAGE_LIMIT
+    from x2knwldg.repository.base import PagedQuery
+    from x2knwldg.server.params import MAX_LIMIT
+
+    frozen = json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))
+    published = frozen["components"]["parameters"]["Limit"]["schema"]["maximum"]
+    assert MAX_LIMIT == published
+    assert MAX_PAGE_LIMIT == published
+    assert frozen["components"]["schemas"]["PageInfo"]["properties"]["limit"][
+        "maximum"
+    ] == published
+
+    with h.client(h.memory_repository(served)) as client:
+        assert client.get(f"/api/sources?limit={published}").status_code == 200
+        h.assert_error(
+            client.get(f"/api/sources?limit={published + 1}"), 400, "invalid_request"
+        )
+
+    # And the repository refuses it too, for a caller that never went over HTTP.
+    from x2knwldg.repository.base import InvalidQuery
+
+    with pytest.raises(InvalidQuery):
+        PagedQuery(limit=published + 1)
+
+
 def test_an_empty_id_is_refused_rather_than_serving_the_collection(served: Path) -> None:
     """``/api/sources/`` must not answer with every source.
 
@@ -406,12 +576,80 @@ def test_an_empty_id_is_refused_rather_than_serving_the_collection(served: Path)
 
 
 def test_v1_is_read_only(served: Path) -> None:
-    """No write reaches any route. ADR 0001 invariant 1, checked over HTTP."""
+    """No write reaches any route. ADR 0001 invariant 1, checked over HTTP.
+
+    A ``405`` is the *expected* refusal here, so it is asserted rather than
+    tolerated: it used to be accepted as one of two allowed outcomes while the
+    frozen document declared it on no path, and while it carried no ``Allow``.
+    """
+    spec = json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))
     with h.client(h.memory_repository(served)) as client:
         for path in ("/api/sources", "/api/status", "/api/graph", "/api/search?q=a"):
             for method in ("post", "put", "patch", "delete"):
                 response = getattr(client, method)(path)
-                assert response.status_code in (404, 405), f"{method.upper()} {path} was allowed"
+                assert response.status_code == 405, f"{method.upper()} {path} was allowed"
+                # RFC 9110 requires `Allow` on a 405; `handle_http_exception`
+                # discarded Starlette's, so the response carried only
+                # content-length and content-type.
+                allowed = {
+                    value.strip()
+                    for value in response.headers["allow"].split(",")
+                    if value.strip()
+                }
+                assert "GET" in allowed, f"{method.upper()} {path}: {allowed}"
+                # And `HEAD`, which is answered on every one of these paths.
+                # `Allow` names the methods the *target resource* supports, and
+                # Starlette builds it from a router that only knows about `GET`
+                # — because `HeadAsGet` rewrites a `HEAD` into one before
+                # routing. A header omitting it would tell a client that a
+                # method it just used successfully is not allowed.
+                assert "HEAD" in allowed, f"{method.upper()} {path}: {allowed}"
+                assert allowed.isdisjoint({"POST", "PUT", "PATCH", "DELETE"})
+                h.assert_error(response, 405, "invalid_request")
+                template = path.split("?")[0]
+                assert "405" in spec["paths"][template]["get"]["responses"], template
+
+
+def test_head_is_answered_wherever_get_is(served: Path) -> None:
+    """FastAPI's ``APIRoute`` does not add ``HEAD`` alongside ``GET``.
+
+    Every route answered ``405`` to it, ``/api/media`` included — which is how
+    a player learns ``Content-Length`` and ``Accept-Ranges`` before it asks
+    for a range.
+    """
+    spec = json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))
+    with h.client(h.memory_repository(served)) as client:
+        source_id = client.get("/api/sources").json()["data"][0]["id"]
+        artifacts = client.get(f"/api/sources/{source_id}").json()["data"]["artifacts"]
+        local = next(a for a in artifacts if a.get("path") and a.get("available"))
+        concrete = {
+            "{source_id}": source_id,
+            "{entity_id}": client.get("/api/graph").json()["data"]["nodes"][0]["global_id"],
+            "{artifact_id}": local["id"],
+        }
+        for template in spec["paths"]:
+            path = template
+            for placeholder, value in concrete.items():
+                path = path.replace(placeholder, value)
+            query = "?q=a" if path == "/api/search" else ""
+            head = client.head(path + query)
+            get = client.get(path + query)
+            assert head.status_code == get.status_code, template
+            assert head.headers["content-length"] == get.headers["content-length"], template
+            assert head.content == b"", f"{template}: HEAD is GET without the body"
+
+
+def test_head_declares_no_operation_of_its_own(served: Path) -> None:
+    """``HEAD`` is ``GET`` without the body, so it needs no second declaration.
+
+    Adding ``"HEAD"`` to each route's ``methods`` would have made FastAPI
+    generate eleven new ``head`` operations the frozen contract does not carry.
+    """
+    from x2knwldg.server.app import create_app
+
+    generated = create_app(repository=h.memory_repository(served)).openapi()
+    for path, operations in generated["paths"].items():
+        assert "head" not in operations, path
 
 
 # --------------------------------------------------------------------------
@@ -483,6 +721,10 @@ def test_every_endpoint_declares_the_statuses_the_host_check_can_produce() -> No
             declared = set(operation["responses"])
             assert "400" in declared, f"{verb.upper()} {path}"
             assert "500" in declared, f"{verb.upper()} {path}"
+            # The same reasoning, applied to the other refusal every path can
+            # produce: the router answers `405` on all eleven, and the frozen
+            # document declared it on none.
+            assert "405" in declared, f"{verb.upper()} {path}"
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "127.0.0.1:8931", "localhost:8931"])

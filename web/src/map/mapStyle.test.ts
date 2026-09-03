@@ -621,6 +621,39 @@ describe("MapStyle, and the graph it must not touch", () => {
     expect(active.depth).toBe("topEdges");
   });
 
+  it("does not cut a label the policy has already hidden", () => {
+    /*
+     * `truncateForDisplay` is a regex plus a per-code-point walk over a
+     * statement up to 4,096 characters by schema, and `mapNodeStyle` ran it
+     * unconditionally and only then asked whether the label was visible. The
+     * edge reducer gets this right. With anything focused, 85 of 86 marks are
+     * hidden and paid the cost anyway, on every hover.
+     *
+     * `label: null` is the assertion, and it is exact: no cut of any statement
+     * produces `null`, so a hidden mark carrying `null` is a mark whose label
+     * was never cut. The edge reducer states the same thing the same way.
+     */
+    const style = new MapStyle();
+    const long = "A statement the transcript actually makes. ".repeat(90);
+    const other = "youtube:pqlWNihgdjI:KU-000003";
+    const attributes = nodeAttributes(unit("KU-000003", { label: long }));
+
+    // Something focused, and this mark is neither it nor a neighbour.
+    style.setView({ selectedNode: KU1, neighbourNodes: new Set([KU2]) });
+    const hidden = style.nodeReducer(other, {}, attributes, { isHovered: false });
+    expect(hidden.labelVisibility).toBe("hidden");
+    expect(hidden.label).toBeNull();
+
+    // And a mark whose label *is* drawn still gets one, cut to its budget.
+    const shown = style.nodeReducer(KU1, {}, nodeAttributes(unit("KU-000001", { label: long })), {
+      isHovered: false,
+    });
+    expect(shown.labelVisibility).toBe("visible");
+    expect(shown.label).not.toBeNull();
+    expect(isTruncated(shown.label ?? "")).toBe(true);
+    expect((shown.label ?? "").length).toBeLessThanOrEqual(MAP_LABEL_CHARS.selected);
+  });
+
   it("reports whether a view change is actually a change", () => {
     // A pointer moving inside the node it is already on must not cost a
     // redraw, and a redraw is what `MapSession.refresh()` costs.

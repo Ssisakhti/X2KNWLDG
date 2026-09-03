@@ -33,8 +33,8 @@ from typing import Any
 
 import pytest
 
-from x2knwldg.artifacts import apply_extraction_bundle
-from x2knwldg.constants import DERIVED_KINDS, SOURCE_KINDS
+from x2knwldg.artifacts import _carry_coverage_scaffold_forward, apply_extraction_bundle
+from x2knwldg.constants import COVERAGE_WINDOW_SEC, DERIVED_KINDS, SOURCE_KINDS
 from x2knwldg.pipeline import PipelineError
 from x2knwldg.validators import (
     MAX_AUDIT_ATTEMPTS,
@@ -966,6 +966,81 @@ def test_one_window_over_the_whole_timeline_cannot_claim_pass() -> None:
     result = validate_coverage(collapsed, 1800.0)
     assert result["status"] == "FAIL"
     assert "window_wider_than_window_size" in _codes(result)
+
+
+def test_a_bundle_cannot_name_the_bound_it_is_measured_against(tmp_path: Path) -> None:
+    """The third bypass: not a wider window, a wider *ruler*.
+
+    `validate_coverage` measures every window against the ``window_size_sec``
+    the audited document itself carries, and `_carry_coverage_scaffold_forward`
+    restored the scaffold's value only when the bundle omitted it. So the
+    window `test_one_window_over_the_whole_timeline_cannot_claim_pass` proves
+    is refused came back by *stating* its own bound — identical geometry, one
+    extra field, `FAIL` becomes `PASS`. That test cannot see this one, because
+    it pins ``window_size_sec=300`` in its own fixture, which is the input the
+    bypass changes.
+
+    Both halves are asserted here: that the two documents differ only in the
+    field, and that the carry-forward is what closes it.
+    """
+    honest = _coverage(
+        status="PASS",
+        audit_attempts=1,
+        window_size_sec=300,
+        windows=[_window(window_id="CW-0001", start_sec=0.0, end_sec=1795.0)],
+    )
+    assert validate_coverage(honest, 1795.0)["status"] == "FAIL"
+
+    claimed = _coverage(
+        status="PASS",
+        audit_attempts=1,
+        window_size_sec=1795.0,
+        windows=[_window(window_id="CW-0001", start_sec=0.0, end_sec=1795.0)],
+    )
+    assert validate_coverage(claimed, 1795.0)["status"] == "PASS", (
+        "the validator measures the document against itself; the guard is upstream"
+    )
+
+    # Upstream is the carry-forward, and it has to overwrite rather than fill in.
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "coverage.json").write_text(
+        json.dumps(
+            _coverage(
+                status="pending",
+                audit_attempts=0,
+                window_size_sec=300,
+                windows=[_window(window_id="CW-0001", status="pending")],
+            )
+        ),
+        encoding="utf-8",
+    )
+    _carry_coverage_scaffold_forward(run_dir, claimed)
+    assert claimed["window_size_sec"] == 300, "the scaffold's bound is the run's bound"
+    assert "window_wider_than_window_size" in _codes(validate_coverage(claimed, 1795.0))
+
+
+def test_a_bundle_applied_without_a_scaffold_still_cannot_name_its_own_bound(
+    tmp_path: Path,
+) -> None:
+    """The same rule where there is no scaffold left to carry forward.
+
+    A run whose ``coverage.json`` was removed or damaged has no stored bound,
+    and the bundle must not get to supply one: the widest window the format
+    allows is what `create_pending_coverage` would have minted.
+    """
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    for stated in (1795.0, "wide", True, None):
+        coverage: dict[str, Any] = {"windows": []}
+        if stated is not None:
+            coverage["window_size_sec"] = stated
+        _carry_coverage_scaffold_forward(run_dir, coverage)
+        assert coverage["window_size_sec"] == COVERAGE_WINDOW_SEC, stated
+
+    narrower: dict[str, Any] = {"window_size_sec": 120, "windows": []}
+    _carry_coverage_scaffold_forward(run_dir, narrower)
+    assert narrower["window_size_sec"] == 120, "subdividing is honest work"
 
 
 def test_every_window_naming_the_same_first_unit_cannot_claim_pass() -> None:

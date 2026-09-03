@@ -212,8 +212,22 @@ def test_no_record_carries_an_absolute_path(run: Path) -> None:
 
 
 def test_a_run_outside_the_project_root_is_refused(run: Path, tmp_path: Path) -> None:
-    with pytest.raises(AdapterError, match="outside the project root"):
-        adapt_run(run, tmp_path / "elsewhere")
+    """The message names both paths and says what the model asks for instead.
+
+    It reads "lies outside <root>", not "lies outside the project root <root>":
+    ``scanner._project_relative_reason`` substitutes the root for the words
+    "the project root", and the longer phrasing scrubbed to "…lies outside the
+    project root the project root".
+    """
+    elsewhere = tmp_path / "elsewhere"
+    with pytest.raises(AdapterError, match="lies outside") as caught:
+        adapt_run(run, elsewhere)
+    message = str(caught.value)
+    assert str(elsewhere.resolve()) in message
+    assert "project-relative paths only" in message
+    assert "the project root" not in message, (
+        "the words belong to the scrubber's substitution, not to the sentence"
+    )
 
 
 def test_project_relative_refuses_an_escape(tmp_path: Path) -> None:

@@ -503,3 +503,50 @@ def test_the_route_serves_the_spec_rather_than_refusing(tmp_path: Path) -> None:
         body = response.json()
         assert body["openapi"].startswith("3.1")
         assert body["paths"], "the served spec declares no paths"
+
+
+@h.requires_fastapi
+def test_the_spec_is_served_byte_for_byte_and_revalidates(tmp_path: Path) -> None:
+    """It was re-read and re-parsed on every request, with no cache and no ETag.
+
+    51,883 bytes plus a ``json.loads`` per request for an immutable file that
+    ships inside the package — and a client polling the contract could never
+    be told "unchanged".
+    """
+    import x2knwldg
+
+    packaged = Path(x2knwldg.__file__).resolve().parent / "server" / "openapi.json"
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        response = client.get("/api/openapi.json")
+        assert response.content == packaged.read_bytes(), "served as written"
+        etag = response.headers["etag"]
+        assert etag
+
+        revalidated = client.get("/api/openapi.json", headers={"If-None-Match": etag})
+        assert revalidated.status_code == 304
+        assert revalidated.content == b""
+        assert revalidated.headers["etag"] == etag
+
+
+@h.requires_fastapi
+def test_an_unpackaged_spec_still_answers_in_the_frozen_envelope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one response in the package that was not the envelope.
+
+    It returned FastAPI's default ``{"detail": ...}`` — the shape
+    ``handle_http_exception``'s own docstring says "would teach a client that
+    the envelope is optional" — and D-084 records that this branch was live in
+    every installed wheel.
+    """
+    from x2knwldg.server import app as app_module
+
+    monkeypatch.setattr(app_module, "_FROZEN_SPEC", tmp_path / "nowhere.json")
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        response = client.get("/api/openapi.json")
+        assert response.status_code == 404
+        body = response.json()
+        assert "detail" not in body
+        h.assert_error(response, 404, "not_found")

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from . import ids
-from .io import read_json_or_reason, run_dirs, write_json
+from .io import dumps_json, read_json_or_reason, run_dirs, write_group
 
 CONCEPT_KINDS = {"concept", "definition", "framework", "principle", "mental_model"}
 
@@ -91,6 +91,9 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
     concepts_by_key: dict[str, dict[str, Any]] = {}
     videos: list[dict[str, Any]] = []
     skipped_runs: list[dict[str, Any]] = []
+    #: ``video_id`` -> the run that owns it, so a second claimant is named
+    #: rather than silently overwriting the first's nodes.
+    claimed_by: dict[str, str] = {}
     incomplete_runs: list[dict[str, Any]] = []
     knowledge_node_count = 0
 
@@ -118,6 +121,33 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
                 }
             )
             continue
+        if video_id in claimed_by:
+            # ``adapters.check_records`` refuses this in as many words: an id
+            # is unique per run by construction, but two runs are free to
+            # declare the same ``video_id``, and every library id is built from
+            # it. Indexing the second run gave ``graph.json`` two nodes with
+            # one id — which ``repository.check_index_integrity`` then refuses
+            # for the *whole* index — while ``runs_skipped: 0`` reported
+            # nothing wrong: a claim of completeness over an index in which one
+            # run's knowledge is indistinguishable from another's.
+            #
+            # Skipped rather than fatal, because that is this function's rule
+            # for a run it cannot index, and named because skipping quietly is
+            # the failure the two counts exist to prevent. The first run in
+            # discovery order owns the id, so the choice is deterministic.
+            skipped_runs.append(
+                {
+                    "relative_path": relative,
+                    "reason": (
+                        f"metadata.json declares video_id {video_id!r}, which "
+                        f"{claimed_by[video_id]} already claims; two runs cannot "
+                        "share one video id, because every library id is built "
+                        "from it"
+                    ),
+                }
+            )
+            continue
+        claimed_by[video_id] = relative
         declared_type = metadata.get("source_type")
         source_type = (
             declared_type
@@ -277,9 +307,6 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
                 }
             )
 
-    write_json(library_dir / "graph.json", {"nodes": nodes, "edges": edges})
-    write_json(library_dir / "concepts.json", {"concepts": concepts})
-    write_json(library_dir / "videos.json", {"videos": videos})
     result = {
         "videos": len(videos),
         # Counted as the nodes are built rather than re-derived from the ``kind``
@@ -301,5 +328,21 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
         "path": str(library_dir),
         "relative_path": library_dir.relative_to(output_root).as_posix(),
     }
-    write_json(library_dir / "status.json", result)
+    # D-090: the library's four documents are only meaningful together — a
+    # ``status.json`` claiming N videos beside a ``graph.json`` holding the
+    # previous rebuild's nodes is the condition ``write_group``'s docstring
+    # names, where each file is individually well formed and the set is
+    # mutually inconsistent. Every other multi-file writer in the package uses
+    # ``write_group``; this one wrote four files one at a time, so a failure
+    # between the ``graph.json`` and ``status.json`` writes left exactly that.
+    # Serialised before the first write, so a value that cannot be represented
+    # fails with nothing on disk changed.
+    write_group(
+        [
+            (library_dir / "graph.json", dumps_json({"nodes": nodes, "edges": edges})),
+            (library_dir / "concepts.json", dumps_json({"concepts": concepts})),
+            (library_dir / "videos.json", dumps_json({"videos": videos})),
+            (library_dir / "status.json", dumps_json(result)),
+        ]
+    )
     return result

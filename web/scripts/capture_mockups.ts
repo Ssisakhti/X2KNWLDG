@@ -6,8 +6,8 @@
  * T-211 produces pictures for a human to approve; T-215 is where captures grow
  * assertions.
  *
- *   npx tsx web/scripts/capture_mockups.ts            # every capture
- *   npx tsx web/scripts/capture_mockups.ts explore    # one page's captures
+ *   npm --prefix web run mockups:capture            # every capture
+ *   npm --prefix web run mockups:capture explore    # one page's captures
  *
  * It prints one measurement beside each picture, and that measurement is the
  * source of a number the browser gate asserts (`T-216`): the share of the
@@ -68,7 +68,12 @@ const TYPES: Record<string, string> = {
 
 async function serve(root: string): Promise<{ origin: string; close: () => Promise<void> }> {
   const server = http.createServer((request, response) => {
-    const name = decodeURIComponent((request.url ?? "/").split("?")[0]);
+    // `split` can yield `undefined` under `noUncheckedIndexedAccess`, and a
+    // `path.join(root, undefined)` throws inside the request handler — an
+    // unhandled rejection that takes the capture run down with no output.
+    // Found by `scripts/tsconfig.json`, which is the first program to type-check
+    // this file at all (D-203).
+    const name = decodeURIComponent((request.url ?? "/").split("?")[0] ?? "/");
     const file = path.join(root, path.normalize(name).replace(/^(\.\.[/\\])+/, ""));
     if (!file.startsWith(root)) {
       response.writeHead(403).end();

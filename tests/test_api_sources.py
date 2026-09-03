@@ -330,6 +330,42 @@ def test_relations_of_an_unknown_source_are_not_found_rather_than_empty(api: Any
     assert "data" not in response.json()
 
 
+def test_an_existing_source_costs_one_index_read_per_sub_collection(
+    tmp_path: Path,
+) -> None:
+    """``_require_source`` was a second round trip with a race in it.
+
+    It existed only to turn an empty page into a ``404``, and then the real
+    query ran again — so a source that vanished between the two answered
+    ``200`` with an empty page, which *asserts* the source exists and holds
+    nothing: the claim the helper was written to prevent. The existence
+    question is now asked only when the page comes back empty.
+    """
+    from x2knwldg.repository import MemoryRepository, SourceQuery
+
+    root = h.project(tmp_path, "pass-run")
+    repository = MemoryRepository.from_project(root)
+    source_id = repository.list_sources(SourceQuery(limit=1)).items[0]["id"]
+
+    looked_up: list[str] = []
+    real_get_source = repository.get_source
+
+    def counted(value: str):
+        looked_up.append(value)
+        return real_get_source(value)
+
+    repository.get_source = counted  # type: ignore[method-assign]
+    with h.client(repository) as client:
+        for path in ("entities", "relations"):
+            looked_up.clear()
+            response = client.get(f"/api/sources/{source_id}/{path}")
+            assert response.status_code == 200, response.text
+            assert response.json()["data"], f"the fixture has no {path}"
+            assert looked_up == [], (
+                f"{path}: a non-empty page still paid for an existence check"
+            )
+
+
 def test_relations_of_a_malformed_source_are_refused(api: Any) -> None:
     for source_id in MALFORMED_IDS:
         h.assert_error(api.get(f"/api/sources/{source_id}/relations"), 400, "invalid_id")

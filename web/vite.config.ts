@@ -45,6 +45,23 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    /*
+     * Source maps ship, and that is a decision rather than a default (D-203).
+     *
+     * `x2knwldg ui` mounts the whole of `dist/` with `StaticFiles`, so the
+     * ~3.5 MB of `.map` files are served alongside the bundle and roughly
+     * triple the payload of a cold load. Kept anyway, for the reason this is
+     * a local-first tool: the server binds loopback only (ADR 0001 invariant
+     * 9), so there is no exposure — the reader is the only person who can
+     * fetch them — and a reader who opens the console on their own machine
+     * should get a stack in this project's own source rather than in a
+     * minified chunk, which is the same argument `RouteErrorBoundary` makes
+     * for logging the stack at all.
+     *
+     * What was wrong was that no document recorded it. If the payload ever
+     * matters, the change is `sourcemap: "hidden"` — maps emitted for a local
+     * debugger and no `sourceMappingURL` in the bundle — not deleting them.
+     */
     sourcemap: true,
   },
   test: {

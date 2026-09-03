@@ -33,7 +33,7 @@ import type { ActiveRelation, RelationDirection } from "../map/neighbourhood";
 import { useI18n } from "../i18n";
 import { formatConfidence } from "../lib/format";
 import { ProvenanceBadge, VocabularyBadge } from "./Provenance";
-import { Bidi, Missing, Mono } from "./primitives";
+import { Bidi, InlineArrow, Missing, Mono } from "./primitives";
 
 /** Which endpoint is "the one being looked at", in words. */
 export type RelationSubject = "this" | "focus";
@@ -67,9 +67,9 @@ export function RelationCue({
       <VocabularyBadge vocabulary={record.relation_vocabulary} />
       <ProvenanceBadge provenance={record.provenance_class} />
       {direction === "incoming" ? far : near}
-      <span aria-hidden="true">→</span>
+      <InlineArrow />
       <Bidi>{record.relation}</Bidi>
-      <span aria-hidden="true">→</span>
+      <InlineArrow />
       {direction === "incoming" ? near : far}
       {direction === "self" && <span className="faint">{t("map.relation.self")}</span>}
       {confidence && (
@@ -129,7 +129,12 @@ export function RelationPill({
       {nearId === null ? t("map.orbit.focus") : nearId}
     </span>
   );
-  const arrow = <span aria-hidden="true">→</span>;
+  // The same mirrored glyph as the cue above (D-203): a horizontal pill's
+  // items reverse under `dir="rtl"` and U+2192 does not, so the pill named the
+  // relation and then pointed the wrong way along it. This site is a fourth
+  // one the audit did not name; `primitives.test.tsx` sweeps for the bare
+  // glyph so a fifth cannot appear unnoticed.
+  const arrow = <InlineArrow />;
 
   return (
     <span className="row map__pill-body" data-relation-direction={direction}>

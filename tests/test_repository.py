@@ -20,11 +20,14 @@ from typing import Any
 import pytest
 
 from x2knwldg.adapters import ADAPTERS, IndexRecords, adapt_project
+from x2knwldg.constants import MAX_PAGE_LIMIT
 from x2knwldg.repository import (
     DEFAULT_LIMIT,
     INDEX_STATES,
     MAX_CURSOR_LENGTH,
     MAX_LIMIT,
+    MAX_QUERY_LENGTH,
+    MIN_LIMIT,
     EntityQuery,
     GraphQuery,
     IndexRepository,
@@ -35,6 +38,7 @@ from x2knwldg.repository import (
     MemoryRepository,
     NeighborhoodQuery,
     Page,
+    PagedQuery,
     RelationQuery,
     RepositoryError,
     SearchQuery,
@@ -335,7 +339,51 @@ def test_a_depth_outside_the_contract_is_refused(depth: Any) -> None:
 
 
 def test_the_contract_bounds_are_the_frozen_ones() -> None:
-    assert (DEFAULT_LIMIT, MAX_LIMIT, MAX_CURSOR_LENGTH) == (50, 500, 512)
+    """Read off ``openapi.json``, not typed out again.
+
+    This asserted three literals and never opened the frozen document — so
+    changing ``constants.MAX_PAGE_LIMIT`` moved the spec and the route together
+    while ``base.MAX_LIMIT`` stayed at 500, and the repository then accepted a
+    limit the route rejects with CI green. ``Cursor.maxLength``, ``q.maxLength``
+    and ``PageInfo.limit.maximum`` had no drift test at all.
+    """
+    import json
+
+    frozen = json.loads(
+        (PROJECT_ROOT / "schemas" / "api" / "v1" / "openapi.json").read_text(encoding="utf-8")
+    )
+    parameters = frozen["components"]["parameters"]
+    schemas = frozen["components"]["schemas"]
+    published_q = next(
+        parameter
+        for operations in frozen["paths"].values()
+        for operation in operations.values()
+        for parameter in operation.get("parameters", [])
+        if parameter.get("name") == "q"
+    )
+
+    assert DEFAULT_LIMIT == parameters["Limit"]["schema"]["default"]
+    assert MAX_LIMIT == parameters["Limit"]["schema"]["maximum"]
+    assert MIN_LIMIT == parameters["Limit"]["schema"]["minimum"]
+    assert MAX_CURSOR_LENGTH == parameters["Cursor"]["schema"]["maxLength"]
+    assert MAX_QUERY_LENGTH == published_q["schema"]["maxLength"]
+    # The bound the *page* republishes, which a client reads back off a response.
+    assert MAX_LIMIT == schemas["PageInfo"]["properties"]["limit"]["maximum"]
+    assert MIN_LIMIT == schemas["PageInfo"]["properties"]["limit"]["minimum"]
+    # And the one constant the MCP surface shares with the HTTP one (D-101).
+    assert MAX_LIMIT == MAX_PAGE_LIMIT
+
+
+def test_the_repository_and_the_document_refuse_the_same_limits() -> None:
+    """The bound asserted as behaviour, not only as a number."""
+    assert PagedQuery(limit=MAX_LIMIT).limit == MAX_LIMIT
+    with pytest.raises(InvalidQuery):
+        PagedQuery(limit=MAX_LIMIT + 1)
+    with pytest.raises(InvalidQuery):
+        PagedQuery(limit=MIN_LIMIT - 1)
+    assert SearchQuery(q="x" * MAX_QUERY_LENGTH).q
+    with pytest.raises(InvalidQuery):
+        SearchQuery(q="x" * (MAX_QUERY_LENGTH + 1))
 
 
 # --------------------------------------------------------------------------

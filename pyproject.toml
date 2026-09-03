@@ -32,6 +32,15 @@ mcp = ["mcp>=2,<3"]
 ui = [
   "fastapi>=0.115,<1",
   "uvicorn>=0.30,<1",
+  # D-112 again, one dependency along. `server/app.py` and `server/errors.py`
+  # import `starlette` at module scope -- `BaseHTTPMiddleware` for the loopback
+  # host check and `StarletteHTTPException` so the router's own 405 is rendered
+  # into the frozen envelope -- and it was declared nowhere, arriving only
+  # transitively through `fastapi`. Neither CI job could have caught it: the
+  # `extras` job walks the distributions this table *declares*, and the
+  # `zero-dependency` leak list is derived from the same table, so an
+  # undeclared import is invisible to both. Declared here, both jobs see it.
+  "starlette>=0.37,<1",
 ]
 legacy = [
   "networkx>=3.0",

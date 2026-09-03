@@ -319,6 +319,34 @@ def dumps_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
 
 
+def _process_umask() -> int:
+    """The process umask, read without leaving it changed.
+
+    POSIX offers no way to *read* the umask, only to set it and be told what it
+    was, so it is set back immediately. Read once, at import, because doing it
+    per write would race with any other thread doing the same.
+    """
+    try:
+        current = os.umask(0o022)
+        os.umask(current)
+    except OSError:  # pragma: no cover - platform without a umask
+        return 0o022
+    return current
+
+
+#: The mode a *new* canonical file is created with: what an ordinary
+#: ``open(path, "w")`` in this process would produce.
+#:
+#: ``NamedTemporaryFile`` creates at ``0600`` — correct for a temporary file,
+#: and ``os.replace`` carries the mode across to the destination, so every file
+#: the package wrote landed owner-only. ``output/`` is meant to be a portable
+#: canonical directory that other tools and other users read, nothing
+#: documented the narrowing, and no canonical document holds a secret. So the
+#: process umask decides, exactly as it does for every other file the operator
+#: creates.
+_NEW_FILE_MODE = 0o666 & ~_process_umask()
+
+
 def write_bytes(path: Path, data: bytes) -> None:
     """Write *data* to *path* atomically and durably, leaving no stray temp file.
 
@@ -345,6 +373,18 @@ def write_bytes(path: Path, data: bytes) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
+        # An existing file keeps the mode it has — an operator who chmod'd a
+        # canonical file meant it, and `os.replace` would otherwise silently
+        # discard that. A new one gets `_NEW_FILE_MODE`; see it for why 0600
+        # was the wrong answer. Best effort: a filesystem that refuses chmod
+        # must not fail a write whose bytes are already correct.
+        try:
+            os.chmod(temporary, path.stat().st_mode & 0o7777)
+        except OSError:
+            try:
+                os.chmod(temporary, _NEW_FILE_MODE)
+            except OSError:
+                pass
         os.replace(temporary, path)
         _sync_directory(path.parent)
     except BaseException:

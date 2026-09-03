@@ -265,7 +265,10 @@ export interface MapSearchBinding {
   /** What the index answers. */
   indexed: MapPreview[];
   status: AsyncStatus;
+  /** Why the *first* page failed: there is nothing to show. */
   error: ApiFailure | null;
+  /** Why the last `More` failed: there is a gap at the end of what is shown. */
+  moreError: ApiFailure | null;
   /** Hits the server counted; `null` is "did not count", never zero. */
   total: number | null;
   hasMore: boolean;
@@ -353,6 +356,10 @@ export function useMapSearch(options: {
     indexed,
     status: paged.status,
     error: paged.error,
+    // The two failures are separate facts (D-203): `error` means the first
+    // page failed and there is nothing to show, `moreError` means a later one
+    // did and there is a gap at the end of what is shown.
+    moreError: paged.moreError,
     total: paged.total,
     hasMore: paged.hasMore,
     loadingMore: paged.loadingMore,

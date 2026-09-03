@@ -91,7 +91,7 @@ export default defineConfig({
       // Building the fixture index is a real indexer run over three runs of
       // canonical output, so the first start is not instant.
       timeout: 180_000,
-      reuseExistingServer: true,
+      reuseExistingServer: !process.env.CI,
       stdout: "pipe",
       stderr: "pipe",
     },
@@ -101,7 +101,7 @@ export default defineConfig({
       command: `npm run build && npx vite preview --port ${PREVIEW_PORT} --strictPort`,
       url: BASE_URL,
       timeout: 180_000,
-      reuseExistingServer: true,
+      reuseExistingServer: !process.env.CI,
       env: { X2KNWLDG_API_BASE: API_BASE },
       stdout: "pipe",
       stderr: "pipe",

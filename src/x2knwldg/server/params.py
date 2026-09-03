@@ -8,8 +8,18 @@ The bounds are enforced **twice**, and that is deliberate rather than
 redundant: here, so a bad value is a ``400`` before any work happens and the
 generated OpenAPI reflects the real limits; and again in
 ``PagedQuery.__post_init__``, so an implementation reached by any other caller
-cannot skip the check. Neither can drift silently — ``tests/test_api_contract``
-compares the served document against the frozen one.
+cannot skip the check. Neither can drift silently:
+``test_api_hardening.test_every_query_parameter_bound_matches_the_frozen_document``
+compares the *generated* document, parameter by parameter and bound by bound,
+against the frozen one, and
+``test_the_page_limit_the_document_publishes_is_the_one_enforced`` walks the
+same number through this module, ``constants``, ``PageInfo`` and a live request.
+
+This paragraph used to name ``tests/test_api_contract`` for that comparison and
+no such comparison existed — the only check was on path *names*. Editing
+``"maximum": 500`` to ``1000`` in the frozen document left the whole suite green
+while the server went on refusing ``limit=501``: a published contract and an
+enforced one that disagreed, with a docstring asserting they could not.
 """
 
 from __future__ import annotations

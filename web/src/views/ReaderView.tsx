@@ -23,7 +23,8 @@
  * for one fact is how the address bar and the page come to disagree.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { artifactOfKind } from "../api/canonical";
@@ -42,6 +43,7 @@ import { KNOWLEDGE_KINDS, PROVENANCE_CLASSES, RELATION_VOCABULARIES } from "../a
 import { AdapterDiagnostics } from "../components/Diagnostics";
 import { EntityCard } from "../components/EntityCard";
 import { ErrorState } from "../components/ErrorState";
+import { PagedList } from "../components/PagedList";
 import { Markdown } from "../components/Markdown";
 import { MediaPanel, type SeekRequest } from "../components/MediaPanel";
 import { RelationRow } from "../components/RelationRow";
@@ -51,7 +53,6 @@ import { DefinitionList, ExternalLink, Missing, Mono } from "../components/primi
 import { useI18n } from "../i18n";
 import type { MessageKey } from "../i18n";
 import { formatBytes, formatSeconds, formatTimestamp } from "../lib/format";
-import { withFocusRescue } from "../lib/focusRescue";
 import {
   DEFAULT_TAB,
   parseSeconds,
@@ -212,38 +213,23 @@ function UnitsPanel({ source, onSeek }: { source: Source; onSeek: (seconds: numb
         </label>
       </div>
 
-      {state.error !== null ? (
-        <ErrorState error={state.error} onRetry={state.reload} />
-      ) : state.status === "loading" ? (
-        <p className="muted">{t("common.loading")}</p>
-      ) : state.items.length === 0 ? (
-        <p className="muted">{t("reader.units.empty")}</p>
-      ) : (
-        <>
-          <p className="faint">
-            {state.total === null
-              ? t("common.unknownTotal")
-              : t("common.total", { count: state.total })}
-          </p>
-          {state.items.map((entity) => (
+      {/* `PagedList` owns the ladder and every decision in it (D-203). */}
+      <PagedList
+        state={state}
+        label={t("reader.tab.units")}
+        empty={t("reader.units.empty")}
+      >
+        {(entities) =>
+          entities.map((entity) => (
             <EntityCard
               key={entity.global_id}
               entity={entity}
               sourceUrl={source.url}
               onSeek={onSeek}
             />
-          ))}
-          {state.hasMore && (
-            <button
-              type="button"
-              className="button"
-              onClick={withFocusRescue(state.loadMore)}
-            >
-              {t("common.more")}
-            </button>
-          )}
-        </>
-      )}
+          ))
+        }
+      </PagedList>
     </div>
   );
 }
@@ -291,33 +277,15 @@ function RelationsPanel({ source }: { source: Source }) {
         </select>
       </label>
 
-      {state.error !== null ? (
-        <ErrorState error={state.error} onRetry={state.reload} />
-      ) : state.status === "loading" ? (
-        <p className="muted">{t("common.loading")}</p>
-      ) : state.items.length === 0 ? (
-        <p className="muted">{t("reader.relations.empty")}</p>
-      ) : (
-        <>
-          <p className="faint">
-            {state.total === null
-              ? t("common.unknownTotal")
-              : t("common.total", { count: state.total })}
-          </p>
-          {state.items.map((relation) => (
-            <RelationRow key={relation.id} relation={relation} />
-          ))}
-          {state.hasMore && (
-            <button
-              type="button"
-              className="button"
-              onClick={withFocusRescue(state.loadMore)}
-            >
-              {t("common.more")}
-            </button>
-          )}
-        </>
-      )}
+      <PagedList
+        state={state}
+        label={t("reader.tab.relations")}
+        empty={t("reader.relations.empty")}
+      >
+        {(relations) =>
+          relations.map((relation) => <RelationRow key={relation.id} relation={relation} />)
+        }
+      </PagedList>
     </div>
   );
 }
@@ -405,6 +373,43 @@ export function ReaderView() {
   const requestSeek = (seconds: number) =>
     setSeek((current) => ({ seconds, nonce: (current?.nonce ?? 0) + 1 }));
 
+  /*
+   * The arrow keys the `tablist` role promises (WAI-ARIA tabs, D-203).
+   *
+   * A `role="tab"` announces itself as one of a set a reader moves through
+   * with the arrows; without them the role describes a control that does not
+   * exist. `Home`/`End` are the same promise at the ends, and the moved tab is
+   * focused as well as selected, because a roving `tabIndex` that does not
+   * follow focus leaves the keyboard on an element that is no longer the stop.
+   *
+   * The refs are how focus reaches the new tab: this is a controlled set with
+   * no DOM query to make, and `querySelector` on an id would be a second
+   * spelling of the id the markup already writes.
+   */
+  const tabs = useRef(new Map<Tab, HTMLButtonElement>());
+  const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const step =
+      event.key === "ArrowRight" || event.key === "ArrowDown"
+        ? 1
+        : event.key === "ArrowLeft" || event.key === "ArrowUp"
+          ? -1
+          : 0;
+    const index = TABS.findIndex((entry) => entry.id === tab);
+    let next: Tab | null = null;
+    if (step !== 0) {
+      // Wrapping, which the pattern specifies: the set is a ring.
+      next = (TABS[(index + step + TABS.length) % TABS.length] as (typeof TABS)[number]).id;
+    } else if (event.key === "Home") {
+      next = (TABS[0] as (typeof TABS)[number]).id;
+    } else if (event.key === "End") {
+      next = (TABS[TABS.length - 1] as (typeof TABS)[number]).id;
+    }
+    if (next === null) return;
+    event.preventDefault();
+    setTab(next);
+    tabs.current.get(next)?.focus();
+  };
+
   const state = useAsync(
     (signal) => api.call("getSource", { params: { source_id: sourceId }, signal }),
     [sourceId],
@@ -433,34 +438,75 @@ export function ReaderView() {
 
       <div className="reader">
         <div>
-          <div className="tabs" role="tablist">
+          {/*
+            The whole ARIA tabs pattern, not the one attribute of it (D-203).
+            
+            These were six `role="tab"` buttons with no `id`, no
+            `aria-controls`, no `role="tabpanel"` anywhere in `src/`, no roving
+            `tabIndex` and no arrow keys — so a screen reader announced
+            "Transcript, tab, 2 of 6" and nothing told the reader where its
+            content was, and the keyboard had to walk through all six to reach
+            the panel. A role that lies is worse than no role: it promises a
+            relationship and a set of keys that are not there.
+
+            Four things make it true, and each one is a promise the role makes:
+            `aria-controls` naming the panel, the panel's `aria-labelledby`
+            naming the tab back, a roving `tabIndex` so the tablist is one stop
+            rather than six, and the arrow keys the pattern specifies.
+          */}
+          <div className="tabs" role="tablist" aria-label={t("reader.tablist")}>
             {TABS.map((entry) => (
               <button
                 key={entry.id}
                 type="button"
                 role="tab"
+                id={`reader-tab-${entry.id}`}
                 className="tabs__tab"
                 aria-selected={tab === entry.id}
+                aria-controls={`reader-panel-${entry.id}`}
+                // One tab stop for the whole set, which is what makes the
+                // arrow keys below the way through it (WAI-ARIA tabs).
+                tabIndex={tab === entry.id ? 0 : -1}
+                ref={(element) => {
+                  if (element !== null) tabs.current.set(entry.id, element);
+                  else tabs.current.delete(entry.id);
+                }}
                 onClick={() => setTab(entry.id)}
+                onKeyDown={onTabKeyDown}
               >
                 {t(entry.label)}
               </button>
             ))}
           </div>
 
-          {tab === "overview" && <Overview source={source} />}
-          {tab === "transcript" && (
-            <TranscriptPanel
-              artifact={transcript}
-              sourceUrl={source.url ?? null}
-              onSeek={requestSeek}
-              highlightSec={linkedSeconds}
-            />
-          )}
-          {tab === "report" && <ReportPanel artifact={report} />}
-          {tab === "units" && <UnitsPanel source={source} onSeek={requestSeek} />}
-          {tab === "relations" && <RelationsPanel source={source} />}
-          {tab === "artifacts" && <ArtifactsPanel artifacts={artifacts} />}
+          {/*
+            One panel per tab, and only the selected one is rendered — which is
+            allowed: the pattern requires the *selected* panel to exist and be
+            labelled, not all six. `tabIndex={0}` makes it the keyboard's next
+            stop after the tablist, so Tab out of a tab lands in what it
+            controls.
+          */}
+          <div
+            role="tabpanel"
+            id={`reader-panel-${tab}`}
+            aria-labelledby={`reader-tab-${tab}`}
+            tabIndex={0}
+            data-reader-panel={tab}
+          >
+            {tab === "overview" && <Overview source={source} />}
+            {tab === "transcript" && (
+              <TranscriptPanel
+                artifact={transcript}
+                sourceUrl={source.url ?? null}
+                onSeek={requestSeek}
+                highlightSec={linkedSeconds}
+              />
+            )}
+            {tab === "report" && <ReportPanel artifact={report} />}
+            {tab === "units" && <UnitsPanel source={source} onSeek={requestSeek} />}
+            {tab === "relations" && <RelationsPanel source={source} />}
+            {tab === "artifacts" && <ArtifactsPanel artifacts={artifacts} />}
+          </div>
         </div>
 
         <aside className="stack">

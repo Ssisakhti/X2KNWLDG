@@ -111,6 +111,66 @@ def test_a_file_deleted_after_indexing_is_reported_not_masked(tmp_path: Path) ->
         h.assert_error(client.get(f"/api/media/{artifact['id']}"), 404, "unavailable")
 
 
+def test_a_file_that_becomes_unreadable_is_a_refusal_not_a_truncated_200(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_stream`` opened the file *inside* the generator.
+
+    The generator runs after the headers are committed, so a file that became
+    unreadable between the ``stat`` and the first read produced a ``200`` with
+    a ``Content-Length`` no body could satisfy — fault injection delivered 3
+    bytes under ``Content-Length: 508``, status ``200``. The Reader's
+    transcript panel renders that as a complete transcript: the one thing the
+    ``truncated`` flag exists to prevent on the graph side. Opened before a
+    status is chosen, the failure is still a *response*.
+    """
+    from x2knwldg.server.routes import media as media_module
+
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+
+        real_open = Path.open
+
+        def refuse(self: Path, *args: object, **kwargs: object):
+            if self.name == Path(artifact["path"]).name:
+                raise OSError("the file went away mid-request")
+            return real_open(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "open", refuse)
+        h.assert_error(client.get(f"/api/media/{artifact['id']}"), 404, "unavailable")
+        assert media_module.CHUNK > 0  # the module is the one under test
+
+
+def test_a_body_that_loses_bytes_mid_stream_does_not_claim_to_be_complete(
+    tmp_path: Path,
+) -> None:
+    """A short read used to ``break``, ending the body under its own
+    ``Content-Length`` with a ``200`` already on the wire.
+
+    Raising makes it a framing error every HTTP client detects, where a
+    silently truncated ``200`` is one no client can.
+    """
+    from x2knwldg.server.routes.media import _stream
+
+    payload = tmp_path / "short.json"
+    payload.write_bytes(b"1234")
+
+    handle = payload.open("rb")
+    with pytest.raises(OSError, match="promised"):
+        list(_stream(handle, 508))
+    assert handle.closed, "the handle is closed even when the read fails"
+
+
+def test_a_media_response_forbids_content_type_sniffing(tmp_path: Path) -> None:
+    """This route shares an origin with the UI mounted at ``/``."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+        response = client.get(f"/api/media/{artifact['id']}")
+        assert response.headers["x-content-type-options"] == "nosniff"
+
+
 def test_an_unknown_id_is_not_found_and_a_malformed_one_is_invalid(tmp_path: Path) -> None:
     """D-020: absent and malformed are different answers."""
     root = h.project(tmp_path)
@@ -356,6 +416,41 @@ def test_an_ordinary_media_type_is_sent_unchanged(stated: str) -> None:
     from x2knwldg.server.routes.media import _checked_media_type
 
     assert _checked_media_type({"media_type": stated}) == stated
+
+
+@pytest.mark.parametrize(
+    "stated",
+    [
+        "text/html",
+        "text/html; charset=utf-8",
+        "TEXT/HTML",
+        "application/xhtml+xml",
+        "image/svg+xml",
+        "application/javascript",
+    ],
+)
+def test_active_content_is_refused_even_though_it_is_well_formed(stated: str) -> None:
+    """The record was syntax-checked, never allowlisted.
+
+    The module's own premise is that the index is a rebuildable cache and so
+    *not* a trust boundary — which is why ``path`` is resolved and re-checked —
+    and ``media_type`` from the same record got only a grammar check. The UI is
+    mounted at ``/`` on this same origin, so a document served as HTML from
+    ``/api/media`` would run there.
+    """
+    from x2knwldg.server.routes.media import MediaUnavailable, _checked_media_type
+
+    with pytest.raises(MediaUnavailable):
+        _checked_media_type({"media_type": stated})
+
+
+def test_every_type_the_index_can_mint_is_sendable() -> None:
+    """The allowlist is derived from the producer, so the two cannot drift."""
+    from x2knwldg.adapters.base import MEDIA_TYPES
+    from x2knwldg.server.routes.media import _checked_media_type
+
+    for produced in MEDIA_TYPES.values():
+        assert _checked_media_type({"media_type": produced}) == produced
 
 
 def test_an_unstated_media_type_is_octet_stream_not_a_refusal() -> None:

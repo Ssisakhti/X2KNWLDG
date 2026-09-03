@@ -242,12 +242,36 @@ test.describe("the numbers the stage was given by argument", () => {
     // Still exactly one primary card: a preview is not a selection.
     await expect(page.locator('[data-map-card][data-map-card-primary="true"]')).toHaveCount(1);
 
-    // A second preview, from a row this time, replaces the first.
-    const row = page.locator('[data-map-panel="related"] [data-map-focus-action]').first();
-    await row.focus();
+    /*
+     * A second preview, from a row this time, replaces the first.
+     *
+     * The row is chosen for naming a *different* entity from the one under the
+     * pointer, rather than being `.first()`. Which mark the sweep lands on is
+     * a fact about the camera's framing, and D-203 corrected that framing to
+     * fit both axes — so the sweep began landing on the entity the first row
+     * happens to name, and "the second preview replaced the first" became
+     * untestable through no fault of the route. The property under test is
+     * that one preview replaces another; two previews of the same entity
+     * cannot demonstrate it either way.
+     */
+    const hovered = (first as NonNullable<typeof first>).globalId;
+    const rows = page.locator('[data-map-panel="related"] [data-map-focus-action]');
+    const ids = await rows.evaluateAll((elements) =>
+      elements.map(
+        (element) =>
+          (element as HTMLElement).dataset.mapFocusAction ??
+          element.closest("[data-map-related-entity]")?.getAttribute("data-map-related-entity") ??
+          "",
+      ),
+    );
+    const index = ids.findIndex((id) => id !== "" && id !== hovered);
+    expect(index, `no related row names an entity other than ${hovered}`).toBeGreaterThan(-1);
+
+    await rows.nth(index).focus();
     await expect(page.locator("[data-map-peek]")).toHaveCount(1);
     const peeked = await page.locator("[data-map-peek]").getAttribute("data-map-peek");
-    expect(peeked).not.toBe((first as NonNullable<typeof first>).globalId);
+    expect(peeked).not.toBe(hovered);
+    expect(peeked).toBe(ids[index]);
   });
 
   test("keeps every neighbour without a card drawn and listed (invariant 13)", async ({
@@ -320,6 +344,8 @@ test.describe("the numbers the stage was given by argument", () => {
             const rect = element.getBoundingClientRect();
             return {
               id: (element as HTMLElement).dataset.mapCard ?? "",
+              reservedBlock: Number((element as HTMLElement).dataset.mapCardBlock ?? 0),
+              height: rect.height,
               left: rect.left,
               top: rect.top,
               right: rect.right,
@@ -335,6 +361,25 @@ test.describe("the numbers the stage was given by argument", () => {
             a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
           expect(overlap, `${a.id} and ${b.id} overlap on the stage`).toBe(false);
         }
+      }
+      /*
+       * And *why* they do not overlap: every card fits the height
+       * `placeOrbit` reserved for it.
+       *
+       * The non-overlap above holds over the boxes the browser laid out, so
+       * it can pass while the reservation is wrong — two cards far enough
+       * apart that a card overflowing its reservation still misses its
+       * neighbour. This is the reservation itself, which is what the
+       * placement's whole no-overlap guarantee is computed over. Only the
+       * card's *width* used to be written onto the element, so its height
+       * was a number nobody had asked a browser about.
+       */
+      for (const box of boxes) {
+        expect(box.reservedBlock, `${box.id} carries no reservation`).toBeGreaterThan(0);
+        expect(
+          box.height,
+          `${box.id} is ${box.height}px tall in a ${box.reservedBlock}px reservation`,
+        ).toBeLessThanOrEqual(box.reservedBlock + 1);
       }
     }
   });

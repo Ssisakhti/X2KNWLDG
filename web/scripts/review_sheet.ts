@@ -11,9 +11,9 @@
  * build products of committed sources (D-191), so the page is regenerated
  * rather than kept:
  *
- *   npx tsx web/scripts/capture_mockups.ts                 # the approved set
+ *   npm --prefix web run mockups:capture                 # the approved set
  *   X2KNWLDG_BROWSER_PROJECT_ROOT=.. npx playwright test visual.spec.ts
- *   npx tsx web/scripts/review_sheet.ts                    # this page
+ *   npm --prefix web run mockups:review                    # this page
  *
  * The second command is pointed at the real library on purpose: the mockups
  * compose `KU-000028` out of the 86-node graph, and a capture of the committed

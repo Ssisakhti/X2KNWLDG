@@ -134,3 +134,83 @@ describe("the linked offset reaching the player (D-095)", () => {
     expect((await loadPlayer()).searchParams.get("start")).toBeNull();
   });
 });
+
+describe("the Reader's tablist", () => {
+  /*
+   * D-203: it was a tablist in name only. Six `role="tab"` buttons with no
+   * `id`, no `aria-controls`, no `role="tabpanel"` anywhere in `src/`, no
+   * roving `tabIndex` and no arrow keys — so a screen reader announced
+   * "Transcript, tab, 2 of 6" and nothing told the reader where its content
+   * was, and the keyboard had to walk all six to reach the panel. A role that
+   * lies is worse than no role.
+   */
+  it("names the panel each tab controls, and the tab that labels it", async () => {
+    vi.stubGlobal("fetch", serve());
+    open("");
+    await waitFor(() => expect(screen.getAllByRole("tab").length).toBe(6));
+
+    const selected = screen.getByRole("tab", { selected: true });
+    const controls = selected.getAttribute("aria-controls");
+    expect(controls).toBeTruthy();
+
+    const panel = screen.getByRole("tabpanel");
+    expect(panel.id).toBe(controls);
+    expect(panel.getAttribute("aria-labelledby")).toBe(selected.id);
+    expect(selected.id).toBeTruthy();
+  });
+
+  it("is one tab stop, not six", async () => {
+    vi.stubGlobal("fetch", serve());
+    open("");
+    await waitFor(() => expect(screen.getAllByRole("tab").length).toBe(6));
+
+    const tabs = screen.getAllByRole("tab");
+    const reachable = tabs.filter((tab) => tab.tabIndex === 0);
+    expect(reachable).toHaveLength(1);
+    expect(reachable[0]).toBe(screen.getByRole("tab", { selected: true }));
+    // And what it controls is the keyboard's next stop.
+    expect(screen.getByRole("tabpanel").tabIndex).toBe(0);
+  });
+
+  it("moves through the set with the arrow keys the role promises", async () => {
+    vi.stubGlobal("fetch", serve());
+    open("");
+    await waitFor(() => expect(screen.getAllByRole("tab").length).toBe(6));
+
+    const first = screen.getByRole("tab", { selected: true });
+    expect(first.textContent).toBe("Overview");
+    first.focus();
+
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { selected: true }).textContent).toBe("Transcript"),
+    );
+    // Selection and focus move together: a roving tabIndex that does not
+    // follow focus leaves the keyboard on an element that is no longer a stop.
+    expect(document.activeElement).toBe(screen.getByRole("tab", { selected: true }));
+
+    // The set is a ring, and `End`/`Home` are its two ends.
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "End" });
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { selected: true }).textContent).toBe("Artifacts"),
+    );
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "ArrowRight" });
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { selected: true }).textContent).toBe("Overview"),
+    );
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "ArrowLeft" });
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { selected: true }).textContent).toBe("Artifacts"),
+    );
+  });
+
+  it("leaves a key it does not own to the browser", async () => {
+    vi.stubGlobal("fetch", serve());
+    open("");
+    await waitFor(() => expect(screen.getAllByRole("tab").length).toBe(6));
+    const selected = screen.getByRole("tab", { selected: true });
+    const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    selected.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+});

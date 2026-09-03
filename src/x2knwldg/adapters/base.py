@@ -221,8 +221,13 @@ def project_relative(path: Path, project_root: Path) -> str:
     try:
         relative = resolved.relative_to(root)
     except ValueError as exc:
+        # "lies outside {root}", not "lies outside the project root {root}":
+        # `scanner._project_relative_reason` substitutes the root for the words
+        # "the project root", so the longer phrasing scrubbed to "…lies outside
+        # the project root the project root". The sentence has to read correctly
+        # both before and after that substitution.
         raise AdapterError(
-            f"{resolved} lies outside the project root {root}; index records carry "
+            f"{resolved} lies outside {root}; index records carry "
             "project-relative paths only (risk R15)"
         ) from exc
     text = relative.as_posix()
@@ -231,6 +236,19 @@ def project_relative(path: Path, project_root: Path) -> str:
     if "\\" in text:
         raise AdapterError(
             f"{resolved} contains a backslash, which a project-relative path may not "
+            "(schemas/v1/common.schema.json projectRelativePath)"
+        )
+    # And no control character, for the same reason and from the same rule. A
+    # newline in a path used to defeat the schema's own anti-traversal
+    # lookahead — `.` matches no newline in either Python `re` or ECMA-262 —
+    # so the pattern now excludes the whole control range and this refuses
+    # what the pattern refuses, rather than handing the schemas a value they
+    # will reject.
+    control = next((char for char in text if char < " " or char == "\x7f"), None)
+    if control is not None:
+        raise AdapterError(
+            f"{resolved} contains the control character {control!r}, which a "
+            "project-relative path may not "
             "(schemas/v1/common.schema.json projectRelativePath)"
         )
     if len(text) > MAX_PATH_LENGTH:

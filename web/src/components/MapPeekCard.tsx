@@ -57,7 +57,26 @@ export function MapPeekCard({
       // `status`, not `dialog`: it takes no focus and traps none. A Peek that
       // moved focus would fight the very keyboard walk that opened it.
       role="status"
-      aria-live="polite"
+      /*
+       * Announced only when the *keyboard* opened it (D-203).
+       *
+       * `role="status"` was the right call and carries an implicit polite
+       * live region; announcing on every `enterNode` was a separate decision
+       * that was never made. This card's whole contents — up to 160
+       * characters of statement plus badges and a timestamp — are replaced on
+       * every mark the pointer crosses and on every Tab through the search
+       * rail, and the polite queue does not cancel: a reader heard a backlog
+       * about nodes they had already left, at pointer speed.
+       *
+       * A Peek the keyboard opened is the opposite case: the reader moved to
+       * that node deliberately, one move at a time, and this card is the only
+       * thing that says what the node holds. So `polite` there, `off` for the
+       * pointer — where a card that is looked at needs no announcing — and
+       * `aria-atomic` so the announcement is the card rather than whichever
+       * badge changed.
+       */
+      aria-live={peek.origin === "keyboard" ? "polite" : "off"}
+      aria-atomic="true"
       aria-label={t("map.peek.title")}
       data-map-peek={peek.globalId}
       data-peek-origin={peek.origin}

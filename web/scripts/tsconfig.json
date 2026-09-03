@@ -1,0 +1,33 @@
+{
+  "//": [
+    "The capture and measurement scripts' own type-check program (D-203).",
+    "",
+    "Five `.ts` files under `web/scripts/` were in neither program: the",
+    "application's includes only `src` plus the generated declarations, and",
+    "the gate's includes `browser`, `playwright.config.ts` and",
+    "`vite.config.ts`. So the code that produces the acceptance captures and",
+    "the measurements `SPEC.md` quotes was type-checked by nothing — the",
+    "exact defect D-156 fixed for `vite.config.ts`, reopened by the files",
+    "added after it. `capture_mockups.ts` imports the browser gate's shared",
+    "measurement, so a signature change there broke it silently.",
+    "",
+    "`types: [\"node\"]` and `skipLibCheck: true`, and both are why this is a",
+    "third program rather than an addition to either existing one. These are",
+    "Node scripts: they read `process.argv`, write files and spawn a browser,",
+    "and none of that is expressible without ambient Node types. Risk R17 is",
+    "about *this* project's generated declarations being genuinely checked,",
+    "and `web/tsconfig.json` keeps `types: []` with `skipLibCheck: false`",
+    "over `src`, which is where that risk lives. Neither setting reaches it.",
+    "",
+    "`npm run typecheck:scripts` runs it, beside the other two in CI."
+  ],
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "skipLibCheck": true,
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler"
+  },
+  "include": ["."]
+}

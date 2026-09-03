@@ -522,6 +522,30 @@ def test_list_ingested_videos_is_empty_only_when_the_project_is(
     assert mcp_server.list_ingested_videos() == []
 
 
+def test_a_convenience_symlink_is_named_as_an_alias_not_listed_twice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``glob("*/metadata.json")`` was a fourth run discovery (D-158).
+
+    ``ln -s pass-run output/latest`` was listed as a second, identical video,
+    and ``output/library/`` would have been listed as a video at all.
+    ``io.discover_run_dirs`` is the one statement of what a run is; the alias
+    is named rather than dropped.
+    """
+    root = _make_project(tmp_path, runs=("pass-run",))
+    (root / "output" / "latest").symlink_to(
+        root / "output" / "pass-run", target_is_directory=True
+    )
+    monkeypatch.setattr(mcp_server, "PROJECT_ROOT", root.resolve())
+
+    rows = mcp_server.list_ingested_videos()
+    assert len([row for row in rows if "alias_of" not in row]) == 1
+    aliases = [row for row in rows if "alias_of" in row]
+    assert len(aliases) == 1
+    assert aliases[0]["alias"] == "latest"
+    assert aliases[0]["alias_of"] == "output/pass-run"
+
+
 def test_one_unreadable_run_does_not_hide_the_others(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -815,3 +839,9 @@ def test_a_malformed_video_id_is_invalid_id_from_every_tool() -> None:
         with pytest.raises(mcp_server.McpToolError) as segmented:
             mcp_server.get_extraction_segment(bad, "seg_000001")
         assert segmented.value.code == "invalid_id", bad
+
+        # The *creating* side too: `import_transcript` refuses a bad id with a
+        # `PipelineError`, which the boundary rendered as `invalid_request`.
+        with pytest.raises(mcp_server.McpToolError) as imported:
+            mcp_server.import_timestamped_transcript("tests/fixtures/sample.vtt", bad)
+        assert imported.value.code == "invalid_id", bad

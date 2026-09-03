@@ -165,4 +165,38 @@ describe("the library", () => {
     // validator file and stays the value it is in every locale.
     expect(screen.getAllByText("PARTIAL").length).toBeGreaterThan(0);
   });
+
+  it("reads the source-type vocabulary off the status it already fetched", async () => {
+    /*
+     * D-203: this used to be a second, unfiltered `listSources` at
+     * `limit: 500` on every mount — five hundred records fetched, parsed and
+     * thrown away to populate one `<select>`, beside the paged request that
+     * answers the page.
+     *
+     * `/api/status` carries `adapters`, and `adapters[].name` *is* the
+     * `source_type`, so the vocabulary was already on the wire.
+     */
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      jsonFetch((url) => {
+        urls.push(url);
+        if (url.includes("/api/status")) return { body: statusBody("ready", 1) };
+        return { body: listBody([source("youtube:a", "PASS", "PASS", "PASS")], 1) };
+      }),
+    );
+    renderApp(<LibraryView />);
+    await waitFor(() => expect(screen.getByText("Title of youtube:a")).toBeTruthy());
+
+    // The vocabulary is offered, from the adapters the status names.
+    const select = document.querySelector<HTMLSelectElement>("select");
+    expect(select).not.toBeNull();
+    const options = [...document.querySelectorAll("option")].map((o) => o.textContent);
+    expect(options).toContain("youtube");
+
+    // And nothing asked for five hundred records to learn it.
+    const listCalls = urls.filter((url) => url.includes("/api/sources"));
+    expect(listCalls).toHaveLength(1);
+    expect(listCalls.every((url) => !url.includes("limit=500"))).toBe(true);
+  });
 });

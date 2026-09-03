@@ -52,7 +52,7 @@ import { busiest, mapUrl, openPanel, servedGraph, settledStage, watchForTrouble 
 const REVIEW = { width: 2852, height: 1688 };
 
 /**
- * How much of the field floating chrome may cover, per tier (`T-216`, D-201).
+ * How much of the field floating chrome may cover, per tier (`T-216`, D-203).
  *
  * The clause `T-216` adds, and the one number in this file that is *read off
  * the approved captures* rather than measured on the build:
@@ -82,6 +82,21 @@ const REVIEW = { width: 2852, height: 1688 };
  * rather than the reference's own share, the difference between the two is a
  * finding for the acceptance (`SPEC.md` §17), and the trade it names is
  * explicit: the reference's 10.3 % costs the 2 / 6 this gate holds.
+ *
+ * **The instrument that derives them does not run in CI** (D-203). D-201 says
+ * these are "read off the reference by the instrument that measures the
+ * build", and that is true: `capture_mockups.ts` calls the very same
+ * `coveredShare` over the mockups' own surfaces and prints it beside every
+ * reference capture. What no job does is *re-run* it — `capture_baseline.ts`
+ * and `measure_orbit.ts` are manual — so nothing would notice these three
+ * numbers drifting away from the reference they were derived from.
+ *
+ * What CI does check is the half that protects a reader: that this build stays
+ * inside them. Re-deriving the reference's own share needs the approved
+ * captures and a browser, so it stays a manual step
+ * (`npm run mockups:baseline`, `npm run measure:orbit`, both named in
+ * `web/README.md`). The gap is stated here rather than left to be inferred
+ * from a job list.
  */
 const CHROME_SHARE_BOUND: Record<"full" | "compact" | "stack", number> = {
   full: 0.2,
@@ -106,6 +121,11 @@ const PHONE = { width: 390, height: 844 };
  * fixtures are, and where the clauses still hold even though the numbers in
  * §14 cannot.
  */
+// The one Node global this spec needs, declared where it is used exactly as
+// `playwright.config.ts` and `vite.config.ts` already do: this project installs
+// no ambient Node types (R17, `browser/tsconfig.json`).
+declare const process: { env: Record<string, string | undefined> };
+
 const MOCKUP_CENTRE = "youtube:pqlWNihgdjI:KU-000028";
 
 function centreOf(graph: Awaited<ReturnType<typeof servedGraph>>): string {
@@ -462,15 +482,51 @@ test.describe("the composition, scenario by scenario", () => {
         expect(report.placed + report.omittedTotal).toBe(report.returned);
         await expect(page.locator("[data-map-related-entity]")).toHaveCount(report.returned);
 
-        // The numbers `T-213` recorded, held: 7 placed and 1 counted at the
-        // review viewport, 2 and 6 at 1440x900, in every mode -- a light
-        // theme and a Persian one place the same cards, because the boxes the
-        // placement reserves are the tier's rather than the text's.
-        if (scenario.recorded !== undefined && centre === MOCKUP_CENTRE) {
-          expect(report.placed, "fewer cards than T-213 measured").toBe(scenario.recorded.placed);
-          expect(report.omittedTotal, "more counted than T-213 measured").toBe(
-            scenario.recorded.counted,
-          );
+        /*
+         * The numbers `T-213` recorded, held: 7 placed and 1 counted at the
+         * review viewport, 2 and 6 at 1440x900, in every mode -- a light
+         * theme and a Persian one place the same cards, because the boxes the
+         * placement reserves are the tier's rather than the text's.
+         *
+         * These assert only against the mockups' own centre, and that is a
+         * fact about the *library* rather than about the code: `KU-000028`'s
+         * asymmetric degree-8 fan-out is what the compositions were composed
+         * over, and no tracked fixture holds it because `output/` is
+         * gitignored. Six of the sixteen scenarios carry recorded numbers, so
+         * on the committed fixtures the numeric half of six scenarios cannot
+         * run.
+         *
+         * What changed is that it no longer *silently* does not run. The docs
+         * call this "the regression net", and a net whose numeric half is
+         * quietly absent on every machine but one is not one. The skip is now
+         * stated in the report — `annotations` reach the list and GitHub
+         * reporters both — and `X2KNWLDG_BROWSER_REQUIRE_RECORDED=1` turns it
+         * into a failure, which is what a run over the real library should
+         * set. The geometry invariants above and below are unconditional and
+         * always were.
+         */
+        if (scenario.recorded !== undefined) {
+          if (centre === MOCKUP_CENTRE) {
+            expect(report.placed, "fewer cards than T-213 measured").toBe(
+              scenario.recorded.placed,
+            );
+            expect(report.omittedTotal, "more counted than T-213 measured").toBe(
+              scenario.recorded.counted,
+            );
+          } else {
+            const why =
+              `the recorded acceptance numbers (${scenario.recorded.placed} placed, ` +
+              `${scenario.recorded.counted} counted) were not checked: this library ` +
+              `does not serve ${MOCKUP_CENTRE}, the centre the compositions were ` +
+              `composed over, so the walk fell back to ${centre}`;
+            test.info().annotations.push({ type: "recorded-numbers-skipped", description: why });
+            console.warn(`[${scenario.name}] ${why}`);
+            expect(
+              process.env.X2KNWLDG_BROWSER_REQUIRE_RECORDED,
+              `${why}. Set X2KNWLDG_BROWSER_REQUIRE_RECORDED=1 only where the ` +
+                "library serves that entity.",
+            ).not.toBe("1");
+          }
         }
 
         const field = report.field;

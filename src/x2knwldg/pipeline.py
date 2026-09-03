@@ -11,7 +11,12 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
-from .constants import SEGMENT_OVERLAP_SEC, SEGMENT_TARGET_SEC
+from .constants import (
+    SEGMENT_MAX_SEC,
+    SEGMENT_MIN_SEC,
+    SEGMENT_OVERLAP_SEC,
+    SEGMENT_TARGET_SEC,
+)
 from .coverage import create_pending_coverage
 from .ids import ID_PART_MAX_LENGTH, is_id_part
 from .io import (
@@ -357,6 +362,8 @@ def import_transcript(
     media_duration_sec: float | None = None,
     target_segment_sec: float = SEGMENT_TARGET_SEC,
     overlap_sec: float = SEGMENT_OVERLAP_SEC,
+    min_segment_sec: float = SEGMENT_MIN_SEC,
+    max_segment_sec: float = SEGMENT_MAX_SEC,
 ) -> Path:
     transcript_path = transcript_path.expanduser().resolve()
     if not transcript_path.is_file():
@@ -375,7 +382,11 @@ def import_transcript(
     if integrity["status"] != "PASS":
         raise PipelineError(f"Transcript integrity failed: {json.dumps(integrity['errors'])}")
     segments = create_segments(
-        captions, target_sec=target_segment_sec, overlap_sec=overlap_sec
+        captions,
+        target_sec=target_segment_sec,
+        min_sec=min_segment_sec,
+        max_sec=max_segment_sec,
+        overlap_sec=overlap_sec,
     )
     transcript_hash = sha256_file(transcript_path)
     transcript_source = source or captions[0]["source"]
@@ -390,9 +401,20 @@ def import_transcript(
     segment_document = {
         "schema_version": "1.0",
         "video_id": video_id,
+        # All four bounds, not two. `validate_run` re-derives the segments
+        # from the captions and compares, and it can only do that against the
+        # bounds this run actually used — `min_sec` and `max_sec` were supplied
+        # from whatever `constants.py` happened to hold at *validation* time.
+        # Tuning `SEGMENT_MIN_SEC` therefore made every archived run
+        # re-derive differently and report `segments_disagree_with_transcript`:
+        # tampering, for a run nobody had touched. The "future strategy"
+        # escape hatch could not help, because `strategy.type` would not have
+        # changed.
         "strategy": {
             "type": _SEGMENT_STRATEGY,
             "target_sec": target_segment_sec,
+            "min_sec": min_segment_sec,
+            "max_sec": max_segment_sec,
             "overlap_sec": overlap_sec,
         },
         "segments": segments,
@@ -440,9 +462,17 @@ def import_transcript(
     # FileExistsError with no way forward but a manual `rm -rf`. Clearing it is
     # deferred to here, after parsing and the integrity check have passed, so a
     # retry with a *bad* file destroys nothing.
-    if raw_dir.is_dir():
+    #
+    # The symlink arm comes first: `is_dir()` **follows** the link, so a
+    # symlinked `raw/` took the `rmtree` branch, and `rmtree` then refuses a
+    # symbolic link with `OSError: [Errno None] None` — a message the CLI
+    # prints verbatim and which tells the operator nothing. The arm below was
+    # unreachable for exactly the case it was written for.
+    if raw_dir.is_symlink():
+        raw_dir.unlink()
+    elif raw_dir.is_dir():
         shutil.rmtree(raw_dir)
-    elif raw_dir.exists() or raw_dir.is_symlink():
+    elif raw_dir.exists():
         raw_dir.unlink()
     raw_dir.mkdir(parents=True, exist_ok=False)
     shutil.copy2(transcript_path, raw_dir / f"source{transcript_path.suffix.lower()}")
@@ -761,10 +791,61 @@ def _segment_recomputation_errors(
         return [
             {"code": "segments_strategy_incomplete", "target_sec": target, "overlap_sec": overlap}
         ]
+    # All four bounds are a pure input to `create_segments`, so re-deriving
+    # against anything but the ones this run recorded is not a recomputation.
+    # `min_sec` and `max_sec` were supplied from `constants.py` as it stands at
+    # *validation* time, so tuning `SEGMENT_MIN_SEC` made every archived run
+    # report `segments_disagree_with_transcript` — tampering, for a run nobody
+    # had touched. A run written before the two were recorded falls back to the
+    # defaults and *says so*, because the fallback is a guess about what that
+    # run used rather than a fact about it.
+    minimum = strategy.get("min_sec")
+    maximum = strategy.get("max_sec")
+    if not is_finite_seconds(minimum) or not is_finite_seconds(maximum):
+        warnings.append(
+            {
+                "code": "segments_bounds_not_recorded",
+                "min_sec": minimum,
+                "max_sec": maximum,
+                "assumed": {"min_sec": SEGMENT_MIN_SEC, "max_sec": SEGMENT_MAX_SEC},
+                "note": (
+                    "this run predates the recorded segment bounds; the current "
+                    "defaults are assumed, so a disagreement below may be a "
+                    "changed default rather than a changed file. Re-import from "
+                    "raw/source.<ext> to record them."
+                ),
+            }
+        )
+        minimum, maximum = SEGMENT_MIN_SEC, SEGMENT_MAX_SEC
     try:
-        again = create_segments(captions, target_sec=float(target), overlap_sec=float(overlap))
+        again = create_segments(
+            captions,
+            target_sec=float(target),
+            min_sec=float(minimum),
+            max_sec=float(maximum),
+            overlap_sec=float(overlap),
+        )
     except (PipelineError, ValueError) as exc:
         return [{"code": "segments_unverifiable", "reason": str(exc)}]
+    except (TypeError, KeyError, IndexError) as exc:
+        # A damaged caption — `"end_sec": "oops"`, a missing timing key, a
+        # caption that is a string — reaches the segmenter's arithmetic and
+        # raises out of it. Neither type is in `cli.USER_FACING_ERRORS`, so
+        # `validate` died on a raw traceback and the documented
+        # `{"status": "ERROR"}` contract broke on ordinary damaged input.
+        # `transcript_integrity` already reports these captions as
+        # `invalid_timing`/`caption_not_object`; the recomputation is a second
+        # reader of the same captions and owes the same answer, so it reports
+        # the damage rather than crashing over it.
+        return [
+            {
+                "code": "segments_unverifiable",
+                "reason": (
+                    "transcript.json holds a damaged caption the segmenter cannot "
+                    f"re-derive from ({type(exc).__name__}: {exc})"
+                ),
+            }
+        ]
     if dumps_json(again) != dumps_json(segments["segments"]):
         return [
             {

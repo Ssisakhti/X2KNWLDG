@@ -20,7 +20,8 @@
  *
  * Reset is by key, not by mutation: `retry` bumps a counter that re-keys the
  * children, so a retried view is a fresh subtree rather than the failed one
- * asked to try again with whatever state it died holding.
+ * asked to try again with whatever state it died holding. A **navigation**
+ * changes the same key, for the same reason: see `resetKey` below.
  */
 
 import { Component } from "react";
@@ -30,8 +31,18 @@ import { useI18n } from "../i18n";
 
 interface Props {
   children: ReactNode;
-  /** Bumped on retry, so the children remount rather than resume. */
-  resetKey: number;
+  /**
+   * Changed on retry *and* on navigation, so the children remount rather than
+   * resume.
+   *
+   * A string rather than a counter, because two things change it: `App`'s
+   * retry attempt and the location. It used to be the attempt alone and
+   * nothing bumped it on navigation, so a reader who hit a thrown view stayed
+   * looking at the fallback on every other route until a reload — while
+   * D-179's whole argument for putting this boundary inside `Shell` is that
+   * they are "one click from somewhere that works".
+   */
+  resetKey: number | string;
   onRetry: () => void;
 }
 

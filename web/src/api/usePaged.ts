@@ -30,7 +30,26 @@ export interface PagedState<T> {
   hasMore: boolean;
   status: AsyncStatus;
   loadingMore: boolean;
+  /**
+   * Why the **first** page failed, or `null`.
+   *
+   * The first page failing means there is nothing to show, which is why every
+   * call site renders an error panel instead of a list for it. A *later* page
+   * failing is a different fact and is reported separately, in
+   * :attr:`moreError` — this used to carry both, and all four call sites
+   * branch on it before rendering items, so one transient hiccup on "More"
+   * replaced fifty loaded records with an error panel and the only way back
+   * discarded every page already fetched.
+   */
   error: ApiFailure | null;
+  /**
+   * Why the last "More" failed, or `null`.
+   *
+   * What is already loaded stays loaded and stays rendered: a page that did
+   * not arrive is a gap at the end of a list, not a reason to forget the list.
+   * Cleared when another "More" is asked for, and by a new query.
+   */
+  moreError: ApiFailure | null;
   loadMore: () => void;
   reload: () => void;
 }
@@ -53,6 +72,7 @@ export function usePaged<T>(
   const [status, setStatus] = useState<AsyncStatus>(enabled ? "loading" : "idle");
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<ApiFailure | null>(null);
+  const [moreError, setMoreError] = useState<ApiFailure | null>(null);
   const [nonce, setNonce] = useState(0);
 
   const latest = useRef(load);
@@ -83,12 +103,15 @@ export function usePaged<T>(
       setTotal(null);
       setNext(null);
       setLoadingMore(false);
+      setMoreError(null);
       return;
     }
     const controller = new AbortController();
     let live = true;
     setStatus("loading");
     setError(null);
+    // A new query has no failed "More" either.
+    setMoreError(null);
     // A new query has no "More" in flight. Without this the spinner could stay
     // on forever, because the stale `loadMore` that owned it no longer clears it.
     setLoadingMore(false);
@@ -109,14 +132,20 @@ export function usePaged<T>(
         setError(toFailure(cause));
         setStatus("failed");
       });
+    // Captured at setup rather than read in the cleanup. The set is created
+    // once and never reassigned, so the two are the same object — but a ref
+    // read in a cleanup is a thing `react-hooks/exhaustive-deps` is right to
+    // flag in general, and a lint gate that runs is only useful if what it
+    // says is acted on rather than silenced (D-203).
+    const inFlightPages = pending.current;
     return () => {
       live = false;
       controller.abort();
       // D-079: retire this generation and abort every page still in flight for
       // it, so nothing that resolves later can touch the next query's state.
       generation.current += 1;
-      for (const inFlight of pending.current) inFlight.abort();
-      pending.current.clear();
+      for (const inFlight of inFlightPages) inFlight.abort();
+      inFlightPages.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, nonce, ...deps]);
@@ -124,6 +153,7 @@ export function usePaged<T>(
   const loadMore = useCallback(() => {
     if (next === null || loadingMore) return;
     setLoadingMore(true);
+    setMoreError(null);
     const controller = new AbortController();
     const mine = generation.current;
     pending.current.add(controller);
@@ -142,7 +172,12 @@ export function usePaged<T>(
       })
       .catch((cause: unknown) => {
         if (stale() || controller.signal.aborted) return;
-        setError(toFailure(cause));
+        // `moreError`, not `error`. This set the same field the first page's
+        // failure sets, and every call site branches on that field before
+        // rendering items — so a transient hiccup on "More" replaced the
+        // fifty records already on screen with an error panel, and the only
+        // way back discarded every page already fetched.
+        setMoreError(toFailure(cause));
       })
       .finally(() => {
         pending.current.delete(controller);
@@ -153,5 +188,15 @@ export function usePaged<T>(
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
 
-  return { items, total, hasMore: next !== null, status, loadingMore, error, loadMore, reload };
+  return {
+    items,
+    total,
+    hasMore: next !== null,
+    status,
+    loadingMore,
+    error,
+    moreError,
+    loadMore,
+    reload,
+  };
 }

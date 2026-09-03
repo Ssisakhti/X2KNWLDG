@@ -119,3 +119,28 @@ export function ExternalLink({
     </a>
   );
 }
+
+/**
+ * A rightward arrow that points the way the text runs (D-203).
+ *
+ * `→` (U+2192) was written as its own flex item in three places. Under
+ * `dir="rtl"` a `row` reverses its items — so `A → supports → B` correctly
+ * renders B first — but U+2192 does not mirror, so both arrows went on
+ * pointing right, which in Persian is back at A. The edge direction was shown
+ * backwards on every relation row, every Map relation and the legend.
+ *
+ * Mirrored in CSS rather than swapped for `←`, because the glyph *is* the
+ * same glyph: an arrow along the inline axis, in whichever direction that axis
+ * runs. `aria-hidden`, as it always was — the relation is named in words
+ * beside it, and an arrow announced as "rightwards arrow" says nothing about
+ * a graph.
+ */
+export const FORWARD_GLYPH = "\u2192";
+
+export function InlineArrow() {
+  return (
+    <span aria-hidden="true" className="glyph-inline-forward">
+      {FORWARD_GLYPH}
+    </span>
+  );
+}

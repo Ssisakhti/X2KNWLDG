@@ -14,7 +14,6 @@ so the two share the scoring rule and the hit shape without sharing the cost.
 
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 from collections.abc import Iterable, Mapping
@@ -22,7 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .io import seconds_or_none, timestamp_url
+from .io import JsonReadError, read_json, seconds_or_none, timestamp_url
+from .io import run_dirs as ingested_run_dirs
 from .pipeline import PipelineError, resolve_run_dir
 
 #: A caption match is worth half a knowledge-unit match at the same score: the
@@ -120,6 +120,32 @@ class SearchDocument:
         return self.weight * (phrase_bonus + overlap / max(1, len(query_tokens)))
 
 
+def _canonical(path: Path, *, key: str | None = None) -> Any:
+    """One canonical file read through the package's one strict reader.
+
+    ``run_documents`` used three bare ``json.loads`` calls, so a
+    ``knowledge_units.json`` holding ``[]`` reached ``.get("units")`` as an
+    ``AttributeError`` — a type neither the per-run ``unreadable`` recovery in
+    :func:`search_knowledge` nor ``cli.USER_FACING_ERRORS`` catches, which is
+    the exact failure that function's docstring says it fixed. Damage is
+    reported as :class:`~x2knwldg.io.JsonReadError`, the one error every reader
+    of a canonical file already has to make a decision about, so a corrupt run
+    is skipped and named instead of taking the whole search down.
+
+    *key*, when given, must name a list in the document — the collection this
+    file exists to carry — and is returned. Otherwise the object is.
+    """
+    document = read_json(path)
+    if not isinstance(document, dict):
+        raise JsonReadError(f"Canonical JSON must be an object: {path}")
+    if key is None:
+        return document
+    value = document.get(key, [])
+    if not isinstance(value, list):
+        raise JsonReadError(f"{path}: {key!r} must be an array")
+    return value
+
+
 def run_documents(run_dir: Path, *, include_transcript: bool = True) -> list[SearchDocument]:
     """Every searchable document one canonical run holds, in canonical order.
 
@@ -143,8 +169,8 @@ def run_documents(run_dir: Path, *, include_transcript: bool = True) -> list[Sea
     metadata_path = run_dir / "metadata.json"
     if not knowledge_path.exists() or not metadata_path.exists():
         return []
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    knowledge = json.loads(knowledge_path.read_text(encoding="utf-8"))
+    metadata = _canonical(metadata_path)
+    units = _canonical(knowledge_path, key="units")
     video_id = metadata.get("video_id")
     title = metadata.get("title")
     # A deep link needs an id to point at. Read once, never indexed directly:
@@ -153,8 +179,12 @@ def run_documents(run_dir: Path, *, include_transcript: bool = True) -> list[Sea
     addressable = isinstance(video_id, str) and bool(video_id)
 
     documents: list[SearchDocument] = []
-    for unit in knowledge.get("units", []):
-        source = unit.get("source", {})
+    for unit in units:
+        if not isinstance(unit, dict):
+            raise JsonReadError(f"{knowledge_path}: 'units' holds a non-object entry")
+        source = unit.get("source")
+        if not isinstance(source, dict):
+            source = {}
         # The searchable text of a unit. Widening this list widens the SQLite
         # index too, because `index.search` builds its corpus from this
         # function rather than re-deriving the field set (D-046) — and a
@@ -209,8 +239,11 @@ def run_documents(run_dir: Path, *, include_transcript: bool = True) -> list[Sea
     if include_transcript and addressable:
         transcript_path = run_dir / "transcript.json"
         if transcript_path.exists():
-            transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
-            for caption in transcript.get("captions", []):
+            for caption in _canonical(transcript_path, key="captions"):
+                if not isinstance(caption, dict):
+                    raise JsonReadError(
+                        f"{transcript_path}: 'captions' holds a non-object entry"
+                    )
                 text = str(caption.get("text") or "")
                 start = _seconds(caption.get("start_sec"))
                 if start is None:
@@ -289,10 +322,15 @@ def search_knowledge(
         raise PipelineError(f"limit must be at least 1, got {limit}")
     output_root = output_root.expanduser().resolve()
     # A caller-supplied id is never joined raw onto a path (risk R14).
+    # `io.discover_run_dirs` is the one statement of what a run is (D-158).
+    # A plain `glob("*")` was a fourth implementation that disagreed with it
+    # three ways: `ln -s vid00000001 output/latest` was searched twice, so one
+    # run's knowledge came back as two identical hits; `output/.staging/` and
+    # `output/library/` were searched as though they were runs.
     run_dirs = (
         [resolve_run_dir(output_root, video_id)]
         if video_id
-        else sorted(output_root.glob("*"))
+        else ingested_run_dirs(output_root)
     )
     documents: list[SearchDocument] = []
     for run_dir in run_dirs:

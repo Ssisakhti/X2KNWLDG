@@ -21,15 +21,17 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from ...adapters.base import MEDIA_TYPES
 from ...repository.base import IndexRepository
 from ..deps import repository
 from ..envelope import error_body
 from ..errors import ApiError, NotFound
+from ..head import HEAD_SCOPE_KEY
 
 router = APIRouter(tags=["artifacts"])
 
@@ -136,7 +138,49 @@ def _checked_media_type(record: Mapping[str, Any]) -> str:
             "That artifact states a media type this server cannot send; "
             "the index record is damaged."
         )
+    # Allowlisted, not merely well-formed. The module's own premise is that the
+    # index is a rebuildable cache and therefore *not* a trust boundary — which
+    # is why `path` is resolved and re-checked — and `media_type` from the same
+    # record got only a grammar check, so `text/html` passed. The UI is mounted
+    # at `/` on this same origin, so a document served as HTML from `/api/media`
+    # would run there. What is allowed is the producer's own table plus the
+    # three families a byte channel exists for; see `_is_sendable`.
+    if not _is_sendable(_base_type(stated)):
+        raise MediaUnavailable(
+            "That artifact states a media type this server does not serve; "
+            "the index record is damaged."
+        )
     return stated
+
+
+def _base_type(stated: str) -> str:
+    """*stated* without its parameters, lowercased — ``text/plain`` for
+    ``text/plain; charset=utf-8``."""
+    return stated.split(";", 1)[0].strip().lower()
+
+
+#: Every media type this route will put in a ``Content-Type``, by exact name.
+#: ``MEDIA_TYPES`` is the one table that *produces* these values, imported
+#: rather than restated so widening the producer widens this; plus the honest
+#: answer to "not known".
+_SENDABLE_TYPES = frozenset({*MEDIA_TYPES.values(), "application/octet-stream"})
+
+#: Whole families a byte channel exists for. None of them is active content:
+#: a browser plays them, and no member of any of the three can script the
+#: origin it was served from. ``image/svg+xml`` is the exception that proves
+#: the rule, and it is excluded by name below.
+_SENDABLE_FAMILIES = ("audio/", "video/", "image/")
+
+#: Excluded from the families above: an SVG is a document with script in it.
+_UNSENDABLE_TYPES = frozenset({"image/svg+xml", "image/svg"})
+
+
+def _is_sendable(base: str) -> bool:
+    """Whether *base* — a media type with its parameters already stripped — is
+    one this route is willing to name in a ``Content-Type``."""
+    if base in _UNSENDABLE_TYPES:
+        return False
+    return base in _SENDABLE_TYPES or base.startswith(_SENDABLE_FAMILIES)
 
 
 def _byte_count(digits: str, size: int) -> int:
@@ -195,14 +239,50 @@ def _parse_range(header: str, size: int) -> tuple[int, int] | None:
     return (start, min(end, size - 1))
 
 
-def _stream(path: Path, start: int, length: int) -> Iterator[bytes]:
-    with path.open("rb") as handle:
+def _open_at(path: Path, start: int) -> BinaryIO:
+    """The artifact's bytes, open and positioned, **before** a status is chosen.
+
+    ``_stream`` used to open the file inside the generator — which runs after
+    the headers are committed — so a file that had become unreadable between
+    the ``stat`` above and the first read produced a ``200`` with a
+    ``Content-Length`` no body could satisfy. Fault injection delivered 3 bytes
+    under ``Content-Length: 508``, status ``200``, and the Reader's transcript
+    panel renders that as a complete transcript: the one thing the
+    ``truncated`` flag exists to prevent on the graph side.
+
+    Opened here, a failure is still a *response* — the same
+    ``MediaUnavailable`` a missing file gets — because nothing has been sent.
+    """
+    try:
+        handle = path.open("rb")
+    except OSError:
+        raise MediaUnavailable("That artifact is no longer readable on disk.") from None
+    try:
         handle.seek(start)
+    except BaseException:
+        handle.close()
+        raise
+    return handle
+
+
+def _stream(handle: BinaryIO, length: int) -> Iterator[bytes]:
+    """*length* bytes from an already-open, already-positioned handle.
+
+    A short read is raised, not ``break``-ed. The status and
+    ``Content-Length`` are already on the wire by the time this runs, so there
+    is no honest response left to send — and a body that stops early under a
+    ``Content-Length`` that promises more is a framing error every HTTP client
+    detects, where a silently truncated 200 is one no client can.
+    """
+    with handle:
         remaining = length
         while remaining > 0:
             chunk = handle.read(min(CHUNK, remaining))
             if not chunk:
-                break
+                raise OSError(
+                    f"the artifact lost {remaining} of the {length} bytes this "
+                    "response promised while it was being sent"
+                )
             remaining -= len(chunk)
             yield chunk
 
@@ -238,7 +318,10 @@ def get_artifact_media(
     # the extension, and the schema already says null means "not known". What
     # is stated is now also checked before it becomes a header (D-104).
     media_type = _checked_media_type(record)
-    headers = {"Accept-Ranges": "bytes"}
+    # `nosniff`: the type is now allowlisted, so a browser has no reason to
+    # look past it — and this route shares an origin with the UI mounted at
+    # `/`, where a sniffed type would decide what a document *runs as*.
+    headers = {"Accept-Ranges": "bytes", "X-Content-Type-Options": "nosniff"}
 
     try:
         span = _parse_range(range_header, size) if range_header else None
@@ -250,12 +333,26 @@ def get_artifact_media(
         return JSONResponse(
             status_code=exc.http_status,
             content=error_body(exc.code, str(exc)),
-            headers={"Content-Range": f"bytes */{exc.size}", "Accept-Ranges": "bytes"},
+            headers={
+                "Content-Range": f"bytes */{exc.size}",
+                "Accept-Ranges": "bytes",
+                "X-Content-Type-Options": "nosniff",
+            },
         )
+    if request.scope.get(HEAD_SCOPE_KEY):
+        # `HEAD` is `GET` without the body (RFC 9110), and this is the route
+        # where that matters most: it is how a player learns `Content-Length`
+        # and `Accept-Ranges` before asking for a range. Answered without
+        # opening the file, so discovering the length costs no read — the
+        # scope key is set by `app.HeadAsGet`, which is what routes `HEAD`
+        # here at all.
+        headers["Content-Length"] = str(size)
+        return Response(status_code=200, media_type=media_type, headers=headers)
+
     if span is None:
         headers["Content-Length"] = str(size)
         return StreamingResponse(
-            _stream(path, 0, size), media_type=media_type, headers=headers
+            _stream(_open_at(path, 0), size), media_type=media_type, headers=headers
         )
 
     start, end = span
@@ -263,5 +360,8 @@ def get_artifact_media(
     headers["Content-Range"] = f"bytes {start}-{end}/{size}"
     headers["Content-Length"] = str(length)
     return StreamingResponse(
-        _stream(path, start, length), status_code=206, media_type=media_type, headers=headers
+        _stream(_open_at(path, start), length),
+        status_code=206,
+        media_type=media_type,
+        headers=headers,
     )

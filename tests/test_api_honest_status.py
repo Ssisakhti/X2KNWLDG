@@ -451,3 +451,48 @@ def test_a_damaged_file_is_reported_without_naming_the_host(tmp_path: Path) -> N
         # sentence would pass the assertions above and destroy the channel.
         assert "Malformed JSON" in damaged[0]["reason"], label
         assert damaged[0]["path"] in damaged[0]["reason"], label
+
+
+def test_a_source_that_cannot_be_searched_is_reported_over_http(tmp_path: Path) -> None:
+    """It was reported by nothing at all.
+
+    Drop a caption's ``start_sec`` and the source still indexes — so it is
+    counted in ``runs.indexed`` and named in no ``skipped`` entry — while every
+    search over it answers ``total: null``. ``/api/status`` said nothing, so a
+    client saw a healthy index answering with an uncountable total and no
+    channel that explained why. ``index.message`` is that channel.
+    """
+    root = h.project(tmp_path, "pass-run")
+    transcript = root / "output" / "pass-run" / "transcript.json"
+    document = json.loads(transcript.read_text(encoding="utf-8"))
+    document["captions"][0].pop("start_sec")
+    transcript.write_text(json.dumps(document), encoding="utf-8")
+
+    with h.client(h.sqlite_repository(root)) as test_client:
+        status = ok(test_client, "StatusResponse", "/api/status")["data"]
+        assert status["index"]["state"] == "ready", "the records indexed fine"
+        assert status["runs"]["skipped"] == [], "the run is not skipped"
+        assert status["runs"]["indexed"] == status["runs"]["discovered"]
+        message = status["index"]["message"]
+        assert message, "a ready index that cannot count a source's hits has something to say"
+        assert "search" in message
+        # ADR 0003: not a host path, and not the id either — `/api/sources` is
+        # where a client learns which source is which.
+        assert str(root) not in message
+        assert "/Users/" not in message and "/home/" not in message
+
+        # And the claim it explains is the one a search actually makes.
+        hits = ok(test_client, "SearchResponse", "/api/search", q="evidence")
+        assert hits["page"]["total"] is None
+
+
+def test_a_healthy_index_says_nothing_extra(tmp_path: Path) -> None:
+    """The note is absent when there is nothing to report; never empty."""
+    root = h.project(tmp_path, "pass-run")
+    with h.client(h.sqlite_repository(root)) as test_client:
+        status = ok(test_client, "StatusResponse", "/api/status")["data"]
+        assert status["index"].get("message") is None, status["index"]
+        # And a search over a readable source counts its hits.
+        assert ok(test_client, "SearchResponse", "/api/search", q="evidence")["page"][
+            "total"
+        ] is not None

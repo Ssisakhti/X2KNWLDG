@@ -173,12 +173,41 @@ export function VirtualList<T>({
     }
   }, []);
 
+  /*
+   * The list contract lives here, and it did not (D-203).
+   *
+   * Two things were wrong, and both are about a windowed list telling the
+   * truth about a collection it only partly holds:
+   *
+   * 1. **Three generic elements stood between `role="list"` and each
+   *    `role="listitem"`** — the runway, the window and this per-row wrapper.
+   *    Several screen readers resolve that by dropping the items out of the
+   *    list entirely, so a transcript announced as a list with nothing in it.
+   *    `role="presentation"` on the intervening generics takes them out of the
+   *    accessibility tree instead, which makes the items the list's own
+   *    children again.
+   * 2. **Only the windowed rows existed, with no `aria-setsize`.** A
+   *    1,200-caption transcript announced as "list, 20 items" while the
+   *    paragraph above it said 1,200. `aria-setsize` is the whole collection
+   *    and `aria-posinset` is where this row sits in it, which is exactly the
+   *    pair ARIA defines for a set the DOM does not hold all of.
+   *
+   * The `listitem` role is on this wrapper rather than on whatever
+   * `renderItem` returns, because the position in the set is this component's
+   * fact and not the row's — the caller does not know it is being windowed.
+   */
   const rows: ReactNode[] = [];
   for (let index = first; index < last; index += 1) {
     const item = items[index];
     if (item === undefined) continue;
     rows.push(
-      <div key={itemKey(item, index)} ref={(element) => measure(index, element)}>
+      <div
+        key={itemKey(item, index)}
+        ref={(element) => measure(index, element)}
+        role="listitem"
+        aria-setsize={items.length}
+        aria-posinset={index + 1}
+      >
         {renderItem(item, index)}
       </div>,
     );
@@ -192,9 +221,18 @@ export function VirtualList<T>({
       onScroll={(event) => handleScroll(event.currentTarget.scrollTop)}
       role="list"
       aria-label={label}
+      data-virtual-size={items.length}
     >
-      <div className="virtual__runway" style={{ blockSize: `${total}px` }}>
-        <div className="virtual__window" style={{ transform: `translateY(${windowStart}px)` }}>
+      <div
+        className="virtual__runway"
+        style={{ blockSize: `${total}px` }}
+        role="presentation"
+      >
+        <div
+          className="virtual__window"
+          style={{ transform: `translateY(${windowStart}px)` }}
+          role="presentation"
+        >
           {rows}
         </div>
       </div>

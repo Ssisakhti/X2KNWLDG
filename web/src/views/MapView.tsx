@@ -508,28 +508,46 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     setChrome((current) => (sameRects(current, measured) ? current : measured));
   }, []);
 
-  /*
-   * Two triggers, because a surface moves for two different reasons.
-   *
-   * A layout effect after every render catches the ones a render causes: the
-   * drawer opening takes its width out of the field, which moves the counts
-   * and the camera's controls without either of them changing size. The
-   * observer catches the ones no render causes: a panel expanded by its own
-   * `<details>`, a font arriving, the window resized.
-   *
-   * The setter compares before it stores, so neither trigger can loop.
-   */
-  useLayoutEffect(measureChrome);
-
   useEffect(() => {
     const host = root.current;
     if (host === null || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measureChrome);
     observer.observe(host);
-    for (const element of host.querySelectorAll<HTMLElement>("[data-map-chrome]")) {
-      observer.observe(element);
-    }
-    return () => observer.disconnect();
+
+    /*
+     * The set of chrome surfaces is not fixed at mount, and this used to
+     * enumerate it once.
+     *
+     * The drawer mounts only when something is focused, so on the ordinary
+     * Explore -> click -> Focus path it was never registered -- and at
+     * 1440x900 it is content-sized, so expanding "Related knowledge" grows it
+     * over ~200px of field while `placeOrbit` still believes that strip is
+     * empty. Cards and pills then land under an opaque surface, which is the
+     * *Focus Not Obscured* failure the placement policy exists to prevent.
+     *
+     * Re-enumerated whenever the subtree changes, and each element observed
+     * once: `observed` is what makes the mutation callback idempotent, and a
+     * removed element left in it costs nothing but a `ResizeObserver` entry
+     * the browser drops with the node.
+     */
+    const observed = new Set<Element>();
+    const register = () => {
+      for (const element of host.querySelectorAll<HTMLElement>("[data-map-chrome]")) {
+        if (observed.has(element)) continue;
+        observed.add(element);
+        observer.observe(element);
+      }
+    };
+    register();
+
+    const mutations =
+      typeof MutationObserver === "undefined" ? null : new MutationObserver(register);
+    mutations?.observe(host, { childList: true, subtree: true });
+
+    return () => {
+      observer.disconnect();
+      mutations?.disconnect();
+    };
   }, [measureChrome]);
 
   // `MapFilters` speaks the API's parameter names and `mapLink` stores the same
@@ -632,13 +650,33 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   const placement = useMemo<OrbitPlacement | null>(() => {
     if (!drawing || focus.focus === null) return null;
     return placeOrbit({
-      centreId: drawnFocus,
+      /*
+       * `focus.focus`, not `drawnFocus`.
+       *
+       * `drawnFocus` is null unless the accumulated pages already hold the
+       * node, and `placeOrbit` returns an empty placement for a null centre --
+       * so the guard above admitted the case and the argument then threw it
+       * away. Open `#/map?focus=...` cold, or focus a search hit: Quick Read
+       * and the related list rendered the entity and its neighbours from the
+       * *entity* request, and the field drew no centre card, no neighbours, no
+       * pills and no rings. Those are the exact cases that request exists to
+       * serve.
+       *
+       * Nothing here reads the graph. The composition is laid out from the
+       * field, the neighbourhood and the chrome (see the four inputs above),
+       * and `centreId` is used only as the centre card's id -- so a focus the
+       * pages have not reached has a card for the same reason it has a row in
+       * the related list. What still keeps a *dimmed* picture honest is
+       * `drawnFocus`, which the style table below reads: a selection the
+       * graph does not hold dims nothing.
+       */
+      centreId: focus.focus,
       related: neighbourhood?.related ?? [],
       field: stageBox,
       obstacles: chrome,
       rtl: dir === "rtl",
     });
-  }, [drawing, focus.focus, drawnFocus, neighbourhood, stageBox, chrome, dir]);
+  }, [drawing, focus.focus, neighbourhood, stageBox, chrome, dir]);
 
   /**
    * Which of SPEC §5's three compositions this field can hold.
@@ -674,6 +712,37 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
    * until the field has said something.
    */
   const railHasRoom = stageBox.width === 0 || tier === "full";
+
+  /*
+   * Two triggers, because a surface moves for two different reasons.
+   *
+   * A layout effect catches the ones a render causes: the drawer opening takes
+   * its width out of the field, which moves the counts and the camera's
+   * controls without either of them changing size — and a *move* with no
+   * resize is the one thing no observer below sees. The observers catch
+   * everything else: a panel expanded by its own `<details>` or the window
+   * resized (`ResizeObserver`), a surface mounting or unmounting
+   * (`MutationObserver`).
+   *
+   * Keyed rather than unconditional. `measureChrome` calls
+   * `getBoundingClientRect` on the stage plus every chrome element, and each
+   * of those forces a synchronous layout flush — so registered on every render
+   * it charged ~6 flushes to every peek, every walk step and every
+   * neighbourhood answer, none of which moves a surface. The keys are the
+   * route's own layout-relevant state: which composition the field is in,
+   * whether the drawer is mounted at all, and whether the rail has room. A
+   * hover is not one of them.
+   *
+   * The setter compares before it stores, so no trigger can loop.
+   */
+  useLayoutEffect(measureChrome, [
+    measureChrome,
+    tier,
+    drawing,
+    focus.focus === null,
+    railHasRoom,
+    appliedFilters,
+  ]);
 
   /*
    * The style table is told *after* the orbit has decided, and that ordering
@@ -722,6 +791,23 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     if (changed || resized) session.current?.refresh();
   }, [drawnFocus, hoveredNode, relatedIds, cardedIds, stageBox.width]);
 
+  /*
+   * Leave the style table as this route found it (`T-214`).
+   *
+   * `mapStyle` is a module singleton — one renderer, so one thing that can be
+   * selected or hovered — and `clear()` was called only in test setup, by the
+   * four suites that need it *precisely because* the singleton carries state
+   * across mounts. Production never called it: focus something, leave for the
+   * Library, come back, and the session effect above runs before the write
+   * below, so the first painted frame dimmed all 86 marks around a selection
+   * that no longer exists.
+   *
+   * On unmount rather than on mount, so the reset lands while there is no
+   * renderer to draw the stale frame with, and so the next mount's own write
+   * is the only thing that ever sets a view state.
+   */
+  useEffect(() => () => void mapStyle.clear(), []);
+
   return (
     <div
       ref={root}
@@ -757,6 +843,78 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
       */}
       <h1 className="visually-hidden">{t("map.title")}</h1>
       <p className="visually-hidden">{t("map.subtitle")}</p>
+
+      {/*
+        Reading order, which here is also tab order (`T-216`, D-203).
+
+        The search rail is at the inline *start* and the counts at the inline
+        *end*, and the counts used to come first in the DOM — so focus landed
+        top-end, jumped to the start, back to the end for the drawer and the
+        camera, and back to the start for the legend: the field crossed twice,
+        in a file that argues 150 lines below that tab order must follow visual
+        order.
+        
+        The narrow composition gains from the same move. Below the orbit's
+        minimum every surface here is `position: static` in a column, so DOM
+        order *is* the page — and the two panels above the stage were the
+        first ~570px of it at 390px. Search first, counts second, and the
+        stage is two folded summary rows down.
+
+        D-129 is untouched: the counts still precede the stage, which is the
+        only ordering constraint that rule states.
+      */}
+      {/*
+        Search, and the list the drawing is a view of: the field's top start
+        (SPEC §2, §7 rows 3 and 5).
+
+        SPEC §7 numbers the outline after the stage while placing it visually
+        "in the search drawer's panel list". Those two cannot both be true of
+        one DOM, and the visual column is the binding one -- the table's own
+        subject is that tab order must follow visual order, and a panel
+        rendered inside this surface is the only way the keyboard reaches it
+        where a reader sees it. So the outline is this drawer's second panel
+        and precedes the stage, which is also what D-129 asks for.
+      */}
+      <div className="map__float map__float--search stack" data-map-chrome>
+        <MapSearchRail
+          graph={graph}
+          revision={snapshotId + pages}
+          focus={focus.focus}
+          onFocus={focus.focusEntity}
+          peek={peek}
+          sourceScope={source}
+          // Open only where the field has room for it (`T-216`, D-199).
+          // Searching is the step D-130's journey is on while nothing is
+          // selected, and at the `full` tier the rail opens itself for that
+          // reason -- but SPEC §5 gives the `compact` tier a search "closed to
+          // its trigger", and the browser priced the difference: an open rail
+          // is 429 px of an 844 px field, so a third of the overview it sits
+          // on is gone before the graph is drawn.
+          preferOpen={focus.focus === null && railHasRoom}
+        />
+
+        {/*
+          The pointer path is an enhancement over the DOM path, and this
+          sentence is where the Map says so: the marks are one view of a list
+          that is right here, and everything a mark can do a row can do. It
+          names the panel by its title rather than by its position, which is
+          why moving the panel did not make the sentence wrong.
+        */}
+        <p className="faint" data-map-stage-companion>
+          {t("map.stage.companion")}
+        </p>
+
+        <MapOutline
+          graph={graph}
+          revision={snapshotId + pages}
+          focus={focus.focus}
+          onFocus={focus.focusEntity}
+          peek={peek}
+          // The companion opens itself whenever it is the only view of the
+          // graph: no renderer, a refused container, or nothing drawn yet.
+          preferOpen={!drawing}
+        />
+      </div>
 
       {/*
         Filters and counts: the field's top end (SPEC §2, §7 row 2).
@@ -910,59 +1068,6 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
             )}
           </Disclosure>
         )}
-      </div>
-
-      {/*
-        Search, and the list the drawing is a view of: the field's top start
-        (SPEC §2, §7 rows 3 and 5).
-
-        SPEC §7 numbers the outline after the stage while placing it visually
-        "in the search drawer's panel list". Those two cannot both be true of
-        one DOM, and the visual column is the binding one -- the table's own
-        subject is that tab order must follow visual order, and a panel
-        rendered inside this surface is the only way the keyboard reaches it
-        where a reader sees it. So the outline is this drawer's second panel
-        and precedes the stage, which is also what D-129 asks for.
-      */}
-      <div className="map__float map__float--search stack" data-map-chrome>
-        <MapSearchRail
-          graph={graph}
-          revision={snapshotId + pages}
-          focus={focus.focus}
-          onFocus={focus.focusEntity}
-          peek={peek}
-          sourceScope={source}
-          // Open only where the field has room for it (`T-216`, D-199).
-          // Searching is the step D-130's journey is on while nothing is
-          // selected, and at the `full` tier the rail opens itself for that
-          // reason -- but SPEC §5 gives the `compact` tier a search "closed to
-          // its trigger", and the browser priced the difference: an open rail
-          // is 429 px of an 844 px field, so a third of the overview it sits
-          // on is gone before the graph is drawn.
-          preferOpen={focus.focus === null && railHasRoom}
-        />
-
-        {/*
-          The pointer path is an enhancement over the DOM path, and this
-          sentence is where the Map says so: the marks are one view of a list
-          that is right here, and everything a mark can do a row can do. It
-          names the panel by its title rather than by its position, which is
-          why moving the panel did not make the sentence wrong.
-        */}
-        <p className="faint" data-map-stage-companion>
-          {t("map.stage.companion")}
-        </p>
-
-        <MapOutline
-          graph={graph}
-          revision={snapshotId + pages}
-          focus={focus.focus}
-          onFocus={focus.focusEntity}
-          peek={peek}
-          // The companion opens itself whenever it is the only view of the
-          // graph: no renderer, a refused container, or nothing drawn yet.
-          preferOpen={!drawing}
-        />
       </div>
 
       {/*

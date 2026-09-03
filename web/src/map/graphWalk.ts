@@ -96,7 +96,7 @@ function toFailure(cause: unknown): GraphWalkFailure {
 
 export class GraphWalk {
   private readonly load: GraphPageLoader;
-  private readonly limit: number;
+  private limit: number;
   private readonly onChange: (() => void) | undefined;
 
   private snapshot: GraphSnapshot | null = null;
@@ -175,14 +175,38 @@ export class GraphWalk {
     this.changed();
   }
 
-  /** Release the walk: nothing in flight, nothing drawn, no snapshot. */
+  /**
+   * Change the page size the next request will ask for.
+   *
+   * Not `readonly`, because `limit` is part of the *question* and a question
+   * can change: `useGraphWalk` read it once at construction, so a caller that
+   * changed it was silently given the old page size for the life of the hook.
+   * The walk is not rebuilt for it — that would drop the drawn graph — so the
+   * new value applies from the next `open`, which is what the hook triggers.
+   */
+  setLimit(limit: number): void {
+    this.limit = limit;
+  }
+
+  /**
+   * Release the walk: nothing in flight, nothing drawn, no snapshot.
+   *
+   * The one operation that does **not** report. Every other transition ends in
+   * `changed()` because something is still watching, and this one is called
+   * from an unmount cleanup — the single path where the change callback fires
+   * with no consumer left, which in React means a `setState` on a component
+   * that has gone. The state it would report is unreachable by construction:
+   * after `dispose` there is nothing to render and nothing to render it.
+   *
+   * `cancel()` is the operation that *does* report, and it is the one a filter
+   * change and a `Load more` refusal go through.
+   */
   dispose(): void {
     this.retire();
     this.snapshot = null;
     this.status = "idle";
     this.loadingMore = false;
     this.error = null;
-    this.changed();
   }
 
   private retire(): void {

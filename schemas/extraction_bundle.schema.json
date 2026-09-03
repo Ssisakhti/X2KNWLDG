@@ -173,8 +173,39 @@
           "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$"
         },
         "kind": {
-          "type": "string",
-          "minLength": 1
+          "$comment": "constants.KNOWLEDGE_KINDS, drift-tested in tests/test_index_schemas.py. `canonical_concept` is deliberately absent: library.py mints it for a concept node and no bundle carries one. This used to be `type: string, minLength: 1`, so a model that validated its output against the published schema still got `invalid_kind` out of validators.py — the schema blessed a bundle apply-bundle then rejected.",
+          "enum": [
+            "actionable_experiment",
+            "analogy",
+            "assumption",
+            "case_study",
+            "caveat",
+            "claim",
+            "concept",
+            "counterargument",
+            "definition",
+            "diagnostic_model",
+            "evidence",
+            "example",
+            "fact",
+            "framework",
+            "generalized_rule",
+            "hypothesis",
+            "implication",
+            "instruction",
+            "limitation",
+            "mental_model",
+            "open_problem",
+            "principle",
+            "process",
+            "question",
+            "quote",
+            "recommendation",
+            "reference",
+            "relationship",
+            "statistic",
+            "synthesis"
+          ]
         },
         "source_class": {
           "enum": [
@@ -207,7 +238,76 @@
           "type": "string"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "$comment": "validators.validate_knowledge_units: `requires_provenance = source_class == \"source\" or kind in SOURCE_KINDS`, so the obligation follows the kind as well as the declaration and a unit cannot shed it by mislabelling itself. The schema required no `source` block at all, so a `source_class: \"source\"` unit without one validated here and came back `missing_source`.",
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "source_class": {
+                    "const": "source"
+                  }
+                },
+                "required": [
+                  "source_class"
+                ]
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "analogy",
+                      "assumption",
+                      "case_study",
+                      "caveat",
+                      "claim",
+                      "concept",
+                      "counterargument",
+                      "definition",
+                      "evidence",
+                      "example",
+                      "fact",
+                      "framework",
+                      "instruction",
+                      "limitation",
+                      "open_problem",
+                      "principle",
+                      "process",
+                      "question",
+                      "quote",
+                      "recommendation",
+                      "reference",
+                      "statistic"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "source"
+            ],
+            "properties": {
+              "source": {
+                "type": "object",
+                "required": [
+                  "video_id",
+                  "segment_id",
+                  "start_sec",
+                  "end_sec",
+                  "evidence_excerpt"
+                ]
+              }
+            }
+          }
+        }
+      ]
     },
     "relationship": {
       "type": "object",
@@ -226,7 +326,25 @@
           "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$"
         },
         "relation": {
-          "type": "string"
+          "$comment": "constants.RELATION_TYPES, drift-tested in tests/test_index_schemas.py. It used to be a bare `type: string` with no enum and no minLength, so `\"\"` and `folklore` both validated and both came back `invalid_relation`.",
+          "enum": [
+            "causes",
+            "contradicts",
+            "contributes_to",
+            "depends_on",
+            "enables",
+            "exemplifies",
+            "inhibits",
+            "is_evidence_for",
+            "is_example_of",
+            "is_part_of",
+            "precedes",
+            "qualifies",
+            "refines",
+            "related_to",
+            "results_in",
+            "supports"
+          ]
         },
         "to": {
           "type": "string",

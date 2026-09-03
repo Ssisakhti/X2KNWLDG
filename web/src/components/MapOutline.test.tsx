@@ -7,7 +7,7 @@
  * selection and a way into the Reader -- as real controls in the DOM.
  */
 
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createMapGraph, nodeAttributes } from "../map/graphProjection";
@@ -167,5 +167,38 @@ describe("the Map's outline", () => {
       <MapOutline graph={graphOf(2)} revision={1} focus={null} onFocus={vi.fn()} peek={binding} preferOpen />,
     );
     expect(outline().dataset.mapPanelOpen).toBe("true");
+  });
+});
+
+describe("the outline's More", () => {
+  it("keeps focus in the page when it unmounts itself", async () => {
+    /*
+     * D-180 documents the seven controls that were fixed; this was the same
+     * defect, unwrapped. Press "More" on the last page, the button unmounts
+     * because nothing is unlisted any more, and focus resets to the top of
+     * the document.
+     */
+    const { binding } = peekSpy();
+    renderApp(
+      <MapOutline
+        graph={graphOf(MAP_OUTLINE_PAGE + 1)}
+        revision={1}
+        focus={null}
+        onFocus={vi.fn()}
+        peek={binding}
+        preferOpen
+      />,
+    );
+
+    const more = document.querySelector<HTMLElement>("[data-map-outline-more]");
+    if (more === null) throw new Error("the outline listed everything in one page");
+    more.focus();
+    expect(document.activeElement).toBe(more);
+
+    fireEvent.click(more);
+    await waitFor(() => expect(document.querySelector("[data-map-outline-more]")).toBeNull());
+    // The panel, which is the anchor that survives: the row holding the button
+    // unmounts with it, and `rescue` skips an anchor that is gone.
+    await waitFor(() => expect(document.activeElement).toBe(outline()));
   });
 });

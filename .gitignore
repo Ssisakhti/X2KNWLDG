@@ -126,14 +126,20 @@ dmypy.json
 .pyre/
 
 # youtube-to-knowledge: personal vault data.
-# Ignore the contents, not the directories: `vault/content/` as a directory pattern
+# Ignore the contents, not the directory: `vault/content/` as a directory pattern
 # also ignored `vault/content/.gitkeep`, so the placeholder that exists to make the
 # directory survive a clone was itself never committed. Match the children and
-# re-include the placeholders instead.
+# re-include the placeholder instead.
+#
+# D-203: there was a second pair of lines here for `vault/graphs/`, and its
+# `.gitkeep` did not exist — nothing in the package writes that directory, and
+# nothing ever has. An exception that protects nothing reads as a directory the
+# project keeps, so it is gone rather than filled in. `vault/` itself is a
+# `youtube-to-knowledge` inheritance; `output/<video-id>/vault/` is where this
+# pipeline writes (`artifacts.build_vault`), and it is covered by the
+# `output/` rules below.
 vault/content/*
 !vault/content/.gitkeep
-vault/graphs/*
-!vault/graphs/.gitkeep
 vault/processed_videos.md
 
 # Runtime inputs, immutable evidence, and generated knowledge outputs

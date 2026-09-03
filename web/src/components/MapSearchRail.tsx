@@ -216,7 +216,13 @@ export function MapSearchRail({
             {search.error !== null ? (
               <ErrorState error={search.error} onRetry={search.reload} />
             ) : search.status === "loading" ? (
-              <p className="muted">{t("common.loading")}</p>
+              // Announced, not merely shown: every loading state on this route
+              // was a bare `<p class="muted">`, so a reader on a screen reader
+              // submitted a search and heard neither that it had started nor
+              // that hits had arrived (D-203).
+              <p className="muted" role="status">
+                {t("common.loadingNamed", { name: t("map.search.index.title") })}
+              </p>
             ) : (
               <>
                 <p className="faint">
@@ -241,6 +247,14 @@ export function MapSearchRail({
                     />
                   ))
                 )}
+                {/*
+                  A page that did not arrive is a gap at the end of a list, not
+                  a reason to forget the list: the hits already loaded stay on
+                  screen and the button stays there to try again (D-203).
+                */}
+                {search.moreError !== null && (
+                  <ErrorState error={search.moreError} onRetry={search.loadMore} />
+                )}
                 {search.hasMore && (
                   <button
                     type="button"
@@ -249,7 +263,7 @@ export function MapSearchRail({
                     disabled={search.loadingMore}
                     data-map-search-more
                   >
-                    {t("common.more")}
+                    {search.loadingMore ? t("common.loading") : t("common.more")}
                   </button>
                 )}
               </>

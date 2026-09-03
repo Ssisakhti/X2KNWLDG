@@ -55,6 +55,17 @@ a {
   display: flex;
   align-items: center;
   gap: var(--space-4);
+  /*
+   * The bar wraps, and that is a correctness rule rather than a nicety.
+   * `nowrap` made the brand, two nav entries and a 9rem language select add up
+   * to 428 px whatever the viewport was, so every route in the app -- not only
+   * the Map -- scrolled sideways on a phone: 428 against 390, and against 320
+   * on the narrowest screen the stylesheet claims to serve. Wrapping costs
+   * nothing above 48rem, where the row has room and `--bar-height` still
+   * describes it; below it the workspace grid is already gone, so a two-row
+   * bar breaks no frame.
+   */
+  flex-wrap: wrap;
   padding: var(--space-3) var(--space-4);
   border-block-end: var(--border-width) solid var(--border);
   background: var(--bg-raised);
@@ -77,6 +88,16 @@ a {
 
 .shell__spacer {
   flex: 1 1 auto;
+}
+
+/*
+ * The language switch stays at the inline end after a wrap. `.shell__spacer`
+ * only reaches the end of the row it is on, so on a phone -- where the switch
+ * is pushed to a second row -- it would otherwise sit at the inline start,
+ * under the brand.
+ */
+.shell__bar > .field:last-child {
+  margin-inline-start: auto;
 }
 
 .shell__main {
@@ -1057,8 +1078,16 @@ input {
  * text is already bounded by `MAP_STAGE_NEIGHBOUR_CHARS` /
  * `MAP_STAGE_PRIMARY_CHARS` / `MAP_STAGE_CHIP_CHARS` and the cut is *visible*
  * — a clipped card would hide that marker, which is the one kind of silent
- * truncation D-131 forbids. The reserved height is an upper bound over what
- * the browser lays out, which is what keeps the two agreeing.
+ * truncation D-131 forbids.
+ *
+ * The reserved height is written as a `min-block-size` by `MapOrbit`'s
+ * `cardStyle`, so the reservation is a box the browser has actually laid out
+ * and not a number the layout believed on its own. Only the *width* used to be
+ * written, so a statement that wrapped one line beyond what the measurement
+ * script saw overflowed its reservation and overlapped the card below, with
+ * nothing to notice. `data-map-card-block` carries the reservation onto the
+ * element and the browser gate compares it with the laid-out height, which is
+ * what now keeps the two agreeing.
  */
 
 /*
@@ -1219,6 +1248,31 @@ input {
   margin-block-start: var(--space-3);
 }
 
+/* A directional glyph, along whichever way the inline axis runs (D-203) ---- */
+
+/*
+ * `→` (U+2192) was written as a bare flex item in three places: the relation
+ * row, the Map's relation cue and the legend. Under `dir="rtl"` a `row`
+ * reverses its items — so `A → supports → B` correctly renders B first — but
+ * U+2192 does not mirror, so both arrows went on pointing right, which in
+ * Persian is back at A. The edge direction was shown backwards.
+ *
+ * `transform` rather than a second glyph: it *is* the same glyph, an arrow
+ * along the inline axis, and swapping it for `←` would put the same rule in a
+ * catalogue where a translator could get it wrong. `display: inline-block` is
+ * needed because a transform does not apply to an inline box.
+ *
+ * Not a `logical.test.ts` violation: `scaleX` here mirrors *content*, which is
+ * the one thing an already-mirrored layout still has to do itself.
+ */
+.glyph-inline-forward {
+  display: inline-block;
+}
+
+[dir="rtl"] .glyph-inline-forward {
+  transform: scaleX(-1);
+}
+
 /* Responsive disclosure (T-208) ---------------------------------------- */
 
 /*
@@ -1232,18 +1286,28 @@ input {
  */
 @media (max-width: 48rem) {
   /*
-   * Below the orbit's minimum width the workspace goes back to being a
-   * document (T-212).
+   * Below the orbit's minimum width the workspace *is* a document, and that
+   * document is SPEC §5's `stack` tier (T-212, T-213).
    *
-   * Not a compromise -- a scope boundary. SPEC §5 specifies a *third*
-   * composition below 900 px: no orbit at all, the focus card and then every
-   * relation as a row with its own direction pill and hop badge, all twelve of
-   * them, none dropped. That composition is the orbit's narrowest tier and it
-   * belongs to `T-213`, which owns the orbit and every tier of it. What T-212
-   * must not do in the meantime is stack four floating surfaces and a 560 px
-   * drawer on top of one another at 390 px and call it a workspace: the
-   * document composition here is tested, its touch journey passes, and it
-   * stays until the task that replaces it arrives.
+   * The paragraph here used to call this a scope boundary — "that composition
+   * belongs to `T-213`, which owns the orbit and every tier of it ... it stays
+   * until the task that replaces it arrives" — while the rule at the end of
+   * this block already said the opposite: that the document *is* the `stack`
+   * tier rather than an omission. Both cannot be true, `T-213` closed and
+   * `T-216` closed after it, and the contradiction is why no ticket owned the
+   * tier: each half pointed at the other.
+   *
+   * The delivered half is the true one. SPEC §5 asks below 900 px for no orbit
+   * at all, the focus card, and then every relation as a row with its own
+   * direction and its hop count, none dropped — and that is exactly what
+   * `MapQuickRead` followed by `MapRelatedList` renders here, with
+   * `placeOrbit` returning the `stack` tier so `MapOrbit` draws nothing over
+   * it. What `T-212` was told not to do — stack four floating surfaces and a
+   * 560 px drawer on top of one another at 390 px and call it a workspace —
+   * is prevented by every one of those surfaces being a `Disclosure` that
+   * folds to its summary while the map is drawn, and by search preceding the
+   * counts in the DOM so the stage is two summary rows down rather than
+   * behind the first ~570 px of the page.
    *
    * Everything below undoes the workspace for this breakpoint only. The DOM is
    * the same either way, which is the point of having composed it in CSS.
@@ -1342,6 +1406,9 @@ input {
    * draws nothing at all. What the reader gets instead is this document — the
    * focused record, then every one of its relations as a row with its
    * direction and its hop count, none of them dropped (SPEC §5).
+   *
+   * `MapView.test.tsx` asserts that content at this tier, so "none dropped"
+   * is a guarded claim rather than a sentence.
    */
 }
 
@@ -1363,13 +1430,35 @@ input {
  * layout, so every one of these elements measured zero.
  */
 @media (pointer: coarse) {
+  /*
+   * `.shell__brand` is here because of D-203, and it was a defect the *other*
+   * defect was hiding.
+   *
+   * The bar used to be `nowrap`, so at 390 px it laid itself out 428 px wide
+   * and every route scrolled sideways — and the compression that caused wrapped
+   * the brand's two words onto two lines, which happened to make it 46 px tall.
+   * Wrapping the bar put "Knowledge Canvas" back on one line at 23 px, and the
+   * browser gate's 44 px sweep found it immediately: a link to the Library that
+   * a finger cannot reliably hit. `T-209` measured three gaps in this list;
+   * this is the fourth, and it was only ever passing by accident.
+   *
+   * `align-items: center` on the bar means a `min-block-size` here grows the
+   * target without moving the text.
+   */
   .button,
   .tabs__tab,
   summary,
   select,
   input,
+  .shell__brand,
   .shell__skip {
     min-block-size: 2.75rem;
+  }
+
+  /* A target is only a target if the whole of it is pressable. */
+  .shell__brand {
+    display: inline-flex;
+    align-items: center;
   }
 
   .button,

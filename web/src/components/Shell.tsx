@@ -6,6 +6,7 @@
  * property survived is to flip the whole UI to `rtl` and look at it (D-012).
  */
 
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 
@@ -55,7 +56,47 @@ const WORKSPACE_ROUTES: readonly string[] = ["/map"];
 
 export function Shell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
-  const workspace = WORKSPACE_ROUTES.includes(useLocation().pathname);
+  const { pathname } = useLocation();
+  const workspace = WORKSPACE_ROUTES.includes(pathname);
+
+  /*
+   * Focus follows the navigation (D-203).
+   *
+   * A single-page navigation replaces the document's content and moves
+   * nothing: follow a source card's link and the Reader mounts, the link
+   * unmounts, focus falls to `<body>`, and a screen reader says nothing at
+   * all — not the new heading, not even that anything happened. The next
+   * `Tab` then restarts at the skip link, so returning to where the reader
+   * was means tabbing through the brand, both nav links, the language select
+   * and the whole search form.
+   *
+   * `#content` is the region the skip link already targets, so this is the
+   * same destination reached automatically rather than a second idea of where
+   * a route begins. No label is invented for it: focusing a container
+   * announces its accessible name or, lacking one, begins reading its
+   * content — which is the view's own `<h1>`, and that is the honest
+   * announcement of "you are somewhere new".
+   *
+   * Keyed on `pathname` alone, deliberately. A query change is not a
+   * navigation to a reader — `#/map?focus=...` is a selection made *inside*
+   * the Map — and moving focus for one would take the keyboard out of the
+   * search rail on every result the reader tried.
+   *
+   * The first render is skipped: a page that steals focus on load is a page
+   * that has taken the reader's place in it away before they had one.
+   */
+  const landed = useRef(false);
+  useEffect(() => {
+    if (!landed.current) {
+      landed.current = true;
+      return;
+    }
+    const main = document.getElementById("content");
+    if (main === null) return;
+    main.setAttribute("tabindex", "-1");
+    main.focus();
+  }, [pathname]);
+
   return (
     <div className={`shell${workspace ? " shell--workspace" : ""}`}>
       {/*

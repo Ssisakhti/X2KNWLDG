@@ -19,7 +19,7 @@ import type { IndexedRelation } from "../api/contract";
 import { useI18n } from "../i18n";
 import { formatConfidence, sourceIdOf } from "../lib/format";
 import { ProvenanceBadge, VocabularyBadge } from "./Provenance";
-import { Missing, Mono } from "./primitives";
+import { InlineArrow, Missing, Mono } from "./primitives";
 
 function Endpoint({ globalId }: { globalId: string }) {
   const owner = sourceIdOf(globalId);
@@ -45,9 +45,9 @@ export function RelationRow({ relation }: { relation: IndexedRelation }) {
       </div>
       <div className="row">
         <Endpoint globalId={relation.from_id} />
-        <span aria-hidden="true">→</span>
+        <InlineArrow />
         <strong>{relation.relation}</strong>
-        <span aria-hidden="true">→</span>
+        <InlineArrow />
         <Endpoint globalId={relation.to_id} />
       </div>
       {relation.canonical_path != null && (
