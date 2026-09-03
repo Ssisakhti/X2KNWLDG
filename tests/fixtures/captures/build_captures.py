@@ -375,6 +375,22 @@ FIXTURES = {
         corroborated("identical", "Persian prose; ZWNJ and Persian digits identical on both routes"),
         ["single_post_fa__fxtwitter"],
     ),
+    # T-227 asked for one more Persian case, and this is the one that carries a
+    # span. `pass-single-post-fa` is 418 characters of unbroken RTL prose with
+    # no entity at all, so nothing in it exercises an offset. This post ends in
+    # an LTR run — a bare `t.co` link at [262, 285] — inside RTL text, which is
+    # where a bidi-naive reading of an offset goes wrong and nowhere else. It is
+    # also the only committed case whose media carries no `alt_text`: extraction
+    # may not describe what the video shows.
+    "pass-single-post-fa-video": lambda: single_post_capture(
+        "video_post_fa__xcli_guest",
+        corroborated(
+            "identical",
+            "Persian prose ending in an LTR t.co link; identical on both routes, "
+            "and the URL span comes from the corroborating route (D-218)",
+        ),
+        ["video_post_fa__fxtwitter"],
+    ),
     "pass-quote-post": lambda: single_post_capture(
         "quote_post__xcli_guest",
         corroborated("identical_url_normalized"),
