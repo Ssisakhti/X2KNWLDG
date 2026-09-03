@@ -103,7 +103,21 @@ describe("the Map", () => {
     expect(screen.getByText("This is the whole graph these filters describe.")).toBeDefined();
     // Nothing to load, so nothing offers to.
     expect(document.querySelector("[data-map-load-more]")).toBeNull();
-    expect(events.filter((name) => name === "create")).toHaveLength(1);
+    /*
+     * `waitFor`, because `create` is not the effect `drawn()` waits for.
+     *
+     * `drawn()` resolves on `[data-map-nodes]` — the counts panel, which
+     * appears as soon as the snapshot lands — while the renderer is created by
+     * a *different* effect, once the stage has been measured and there is a
+     * picture to attach. Asserting the count immediately therefore raced, and
+     * it lost about one run in twenty: under CI's parallel load the counts
+     * panel is committed a tick before the session effect runs. The same wait
+     * is on every positive assertion about a renderer event below, for the
+     * same reason.
+     */
+    await waitFor(() =>
+      expect(events.filter((name) => name === "create")).toHaveLength(1),
+    );
   });
 
   it("asks the server the question its URL states, and ignores a filter it cannot read", async () => {
@@ -213,7 +227,9 @@ describe("the Map", () => {
     renderApp(<MapView createRenderer={factory} />, { route: "/map" });
 
     await drawn();
-    expect(events.filter((name) => name === "create")).toHaveLength(1);
+    await waitFor(() =>
+      expect(events.filter((name) => name === "create")).toHaveLength(1),
+    );
 
     const vocabulary = screen.getByLabelText("Relation vocabulary");
     fireEvent.change(vocabulary, { target: { value: "canonical" } });
@@ -275,8 +291,8 @@ describe("the Map", () => {
 
     // A second page is more of the same graph: it re-settles the layout of the
     // renderer already on screen rather than creating another one.
+    await waitFor(() => expect(events).toContain("refresh"));
     expect(events.filter((name) => name === "create")).toHaveLength(1);
-    expect(events).toContain("refresh");
     expect(document.querySelector("[data-map-load-more]")).toBeNull();
   });
 
@@ -288,7 +304,9 @@ describe("the Map", () => {
     const { factory, events } = recorder();
     const view = renderApp(<MapView createRenderer={factory} />);
     await drawn();
-    expect(events.filter((name) => name === "create")).toHaveLength(1);
+    await waitFor(() =>
+      expect(events.filter((name) => name === "create")).toHaveLength(1),
+    );
 
     view.unmount();
 
@@ -817,7 +835,9 @@ describe("the Map's canvas and its constellation", () => {
     // The new focus has its own neighbourhood, and the Map was never rebuilt
     // to show it: one renderer, one accumulated graph.
     await waitFor(() => expect(document.querySelectorAll("[data-map-related-entity]")).toHaveLength(1));
-    expect(harness.events.filter((name) => name === "create")).toHaveLength(1);
+    await waitFor(() =>
+      expect(harness.events.filter((name) => name === "create")).toHaveLength(1),
+    );
     expect(harness.events.filter((name) => name === "kill")).toHaveLength(0);
   });
 });
