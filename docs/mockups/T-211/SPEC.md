@@ -781,8 +781,9 @@ beside every reference capture it writes.
 ### The differences that remain, measured
 
 Recorded here for the acceptance rather than fixed, on the same terms §16's three were.
-Items 1–4 are `T-216`'s; items 5 and 6 are D-203's, and both are consequences of closing
-audit findings rather than new choices about the composition.
+Items 1–4 are `T-216`'s; items 5 and 6 are D-203's. Item 5 changes no picture — it records
+a guarantee that turned out to be described wrongly, and the trade that keeping §14's numbers
+costs. Item 6 is a measurement, for the acceptance to take or refuse.
 
 1. **The `compact` bound is a ratchet, not the reference's own share.** This build spends
    22.7 % of a 1440×900 field on chrome in Focus and 27.3 % of a 1280×720 one, against the
@@ -807,19 +808,20 @@ audit findings rather than new choices about the composition.
    it was before it: the framing is a zoom, and a zoom is the one thing that is still allowed
    to change a mark's size.
 
-5. **The focused card is 260 px tall at `compact`, where it drew 192 px.** D-203 enforced
-   the reservation `placeOrbit` computes — `MapOrbit` wrote only each card's *width* onto the
-   element, so the heights were upper bounds nothing occupied and the placement's whole
-   no-overlap guarantee was over boxes no browser had laid out. Enforcing them exposed that
-   the `compact` tier's own geometry contradicted §6: `primaryBox` was 300×200 = 60,000 and
-   `cardBox` 270×240 = 64,800, so the focused card became the **smaller** of the two, and
-   size is the first of the four means §6 gives for saying which card the reader asked for.
-   The primary's box was the wrong one — it carries `MAP_STAGE_PRIMARY_CHARS` (200) against a
-   neighbour's 110 in a box 11 % wider, and had 8 px of slack over its measured 192 where the
-   neighbour's had 34 — so it is 300×260 now. Measured on the real 86-node library at
-   1440×900 and 1280×720; **the recorded card counts are unchanged**, and the gate confirms
-   them with `X2KNWLDG_BROWSER_REQUIRE_RECORDED=1` over that library. What changed in the
-   picture is one card's height at two viewports.
+5. **The card reservation is a seating input, not a bound on the drawn card.** D-203 set out
+   to close a finding that said the reserved heights were never enforced, and measuring it
+   found the *claim* was the defect. `ORBIT_TIERS` said the heights were "upper bounds over
+   what the browser actually lays out"; over all 86 centres of the real library **63 lay a
+   card out taller than its reservation**, by up to 44 px at `compact`. The same sweep found
+   **zero** centres where two cards overlap — the arms and bands separate cards by far more
+   than a box, so the reservation decides whether a seat is taken and the clearance around it
+   is what keeps the picture legible. Raising the heights to true upper bounds was tried and
+   **costs a card at the review viewport**: 7 placed / 1 counted becomes 6 / 2, which §14
+   records and `T-216` requires not to change, to buy nothing a reader can see. So the numbers
+   and the composition stand, the false sentence is corrected where it was written, and the
+   gate now asserts the invariant a reader would notice — no two cards over the same pixels —
+   over a spread of ten centres rather than the two it walked. **No picture changes.**
+
 6. **At the `stack` tier the field begins 632 px down the document.** Measured at 390×844 on
    the real library: a 129 px app bar — two rows since the wrap that stopped every route
    scrolling sideways on a phone — then the search float at 275 px and the counts at 168 px,

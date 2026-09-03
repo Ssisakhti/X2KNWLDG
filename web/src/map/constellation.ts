@@ -98,11 +98,28 @@ export interface StageRect {
  * a different composition with fewer cards, and its card is smaller because it
  * carries the same two lines in less room -- not because everything shrank.
  *
- * The heights are **upper bounds over what the browser actually lays out**,
- * which is the discipline `T-209` established for `MAP_STAGE_CARD_BOX`: a
- * reserved rectangle smaller than the drawn card is a fit test that passes
- * while the card hangs over the edge. The widths are exact, because
- * `MapOrbit` writes them onto the element.
+ * The widths are exact, because `MapOrbit` writes them onto the element. **The
+ * heights are a seating input and not a bound on the drawn card**, and D-203
+ * corrected that claim: this said they were "upper bounds over what the
+ * browser actually lays out", and measured over all 86 centres of the real
+ * library, **63 of them lay a card out taller than its reservation** — by up
+ * to 44 px at `compact`.
+ *
+ * That is not the defect it sounds like, and the measurement is why. The same
+ * sweep found **zero** centres where two cards actually overlap: the arms and
+ * bands separate cards by far more than a box, so the reservation decides
+ * *whether* a seat is taken and the clearance around it is what keeps the
+ * picture legible. Raising the heights to true upper bounds was tried, and it
+ * costs a card at the review viewport — 7 placed / 1 counted becomes 6 / 2,
+ * which is a recorded acceptance number (`SPEC.md` §14) — to buy nothing a
+ * reader can see.
+ *
+ * So the invariant worth asserting is the one a reader would notice, and the
+ * gate asserts it over a spread of centres rather than over the two it used
+ * to walk: no two cards over the same pixels. `T-209`'s original concern
+ * stands and is unchanged — a reservation *smaller than the arms allow* would
+ * be a fit test that passes while cards collide — it is the wording about the
+ * drawn card that was wrong.
  *
  * They are larger than SPEC §6 proposes, and `scripts/measure_orbit.ts` is
  * why: at 320 px wide Chrome laid a neighbour's card out at 186 px against
@@ -157,28 +174,7 @@ export const ORBIT_TIERS: Readonly<Record<OrbitTier, OrbitTierGeometry>> = {
     bottomInset: 130,
   },
   compact: {
-    /*
-     * D-203: `height: 200` here was the smaller reservation of the two, and
-     * SPEC §6 asks for the opposite.
-     *
-     * `MapOrbit` wrote only the *width* onto the element, so the heights were
-     * upper bounds nothing occupied — and the picture happened to satisfy
-     * §6 because Chrome laid the primary out at 192 px and a neighbour at
-     * 206 px, which by *area* leaves the primary larger (57,600 against
-     * 55,620). Writing the reservation as a `min-block-size` made the
-     * reserved boxes the real ones, and then 300x200 = 60,000 against
-     * 270x240 = 64,800: the focused card became the *smaller* of the two, and
-     * size is the first of the four means §6 gives for saying which card the
-     * reader asked for.
-     *
-     * The primary's box was the wrong one. It carries
-     * `MAP_STAGE_PRIMARY_CHARS` (200) against a neighbour's 110 — nearly
-     * twice the text — in a box 11 % wider, and its reservation had 8 px of
-     * slack over the measured 192 where the neighbour's had 34. 260 restores
-     * the ordering with room the text budget justifies, measured on the real
-     * 86-node library at 1440x900 and 1280x720.
-     */
-    primaryBox: { width: 300, height: 260 },
+    primaryBox: { width: 300, height: 200 },
     cardBox: { width: 270, height: 240 },
     chipBox: { width: 220, height: 108 },
     perSide: 2,

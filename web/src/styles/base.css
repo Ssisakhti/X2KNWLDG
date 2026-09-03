@@ -1080,14 +1080,14 @@ input {
  * — a clipped card would hide that marker, which is the one kind of silent
  * truncation D-131 forbids.
  *
- * The reserved height is written as a `min-block-size` by `MapOrbit`'s
- * `cardStyle`, so the reservation is a box the browser has actually laid out
- * and not a number the layout believed on its own. Only the *width* used to be
- * written, so a statement that wrapped one line beyond what the measurement
- * script saw overflowed its reservation and overlapped the card below, with
- * nothing to notice. `data-map-card-block` carries the reservation onto the
- * element and the browser gate compares it with the laid-out height, which is
- * what now keeps the two agreeing.
+ * The reserved height stays an upper bound over what the browser lays out, and
+ * is deliberately not written onto the card: forcing it would make every card
+ * as tall as its worst-case statement rather than as its own. What was missing
+ * was *noticing* when the bound was wrong — a statement that wrapped one line
+ * beyond what the measurement script saw overlapped the card below in silence.
+ * `MapOrbit` now writes the reservation as `data-map-card-block` and the
+ * browser gate compares it with the laid-out height on every card of every
+ * scenario, which is what keeps the two agreeing (D-203).
  */
 
 /*

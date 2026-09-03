@@ -93,6 +93,36 @@ export function busiest(graph: GraphPayload): string {
   return (top as [string, number])[0];
 }
 
+/**
+ * A deterministic spread of centres, for a clause worth asking of more than one.
+ *
+ * `busiest` is the hardest fan-out and the right single case for most of the
+ * gate. Some invariants are not about difficulty though — D-203 measured that
+ * 63 of the real library's 86 centres lay a card out taller than the box
+ * `placeOrbit` seated it in, and *none* of them overlaps, so "no two cards
+ * over the same pixels" is a claim about the whole graph rather than about its
+ * busiest node.
+ *
+ * The extremes plus an even walk of the rest, in degree order, so the sample
+ * is the same on every run and a failure names a centre a person can open.
+ * Bounded because a gate pays about a second per centre and the whole 86 is a
+ * minute and a half on its own.
+ */
+export function spreadOfCentres(graph: GraphPayload, count = 10): string[] {
+  const ranked = [...degrees(graph).entries()]
+    .sort((left, right) => right[1] - left[1] || (left[0] < right[0] ? -1 : 1))
+    .map(([id]) => id);
+  expect(ranked.length, "the served graph has no edge to walk").toBeGreaterThan(0);
+  if (ranked.length <= count) return ranked;
+  const picked: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const at = Math.round((index * (ranked.length - 1)) / (count - 1));
+    const id = ranked[at];
+    if (id !== undefined && !picked.includes(id)) picked.push(id);
+  }
+  return picked;
+}
+
 /** An entity that records a source, so the Reader has somewhere to open. */
 export function sourceBacked(graph: GraphPayload): string {
   const found = graph.nodes.find((node) => node.source_id !== null);
