@@ -317,6 +317,15 @@ x-cli exits are deterministic and specific, which is what `T-224` needs:
 | `6` | unavailable | `Tweet not found: … (deleted, suspended, or protected)` |
 | `8` | timeout | `The request timed out: raise --timeout` |
 
+> **Later measurement, 2026-09-04 (`T-224`, D-214).** The table above is
+> incomplete rather than wrong: exit `8` is the whole **transport** class, not
+> timeout alone. A dead proxy — `HTTPS_PROXY=http://127.0.0.1:1 x tweet <id>
+> --tier guest --no-cache -o json` — also exits `8`, with `Cannot reach x.com:
+> proxyconnect tcp: dial tcp 127.0.0.1:1: connect: connection refused` (and
+> `Cannot reach cdn.syndication.twimg.com: …` at Tier 0). So the exit status
+> does not separate a dropped tunnel from a slow request; the message does. The
+> original rows stand as measured — this adds the case the run did not provoke.
+
 Two consequences worth carrying into the contract:
 
 - **Unavailability has no distinguishable reason.** Deleted, suspended and

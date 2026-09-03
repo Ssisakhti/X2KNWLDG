@@ -1437,6 +1437,13 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-211 | The **canonical capture text is the authored form** (`t.co` links intact); expanded targets live in text entities beside the span | accepted (user, 2026-09-03) | Spans are offsets into the canonical text, so the choice binds every locator. The authored form is what raw evidence holds, the default route returns it without a third party, and expansion is a provider opinion that can lengthen text and shift stored spans without the post changing (D-210) |
 | D-210 | Persian/RTL text survives every qualified route intact, and the routes agree byte-for-byte on the **authored** text; entity spans are **codepoint** offsets from the provider's facets | accepted (supersedes this row's first version) | ZWNJ, Persian ye, keheh and Persian digits identical across routes on four Persian posts; ZWNJ present in 53 of 60 sampled posts. The first version claimed the routes disagreed over `t.co` expansion — a field-selection error: FxTwitter's `tweet.text` is rendered, its `raw_text.text` is authored, and on the authored field the routes match exactly including media- and link-bearing posts. Entities come from `raw_text.facets` (`indices`/`original`/`replacement`), since x-cli's `entities.urls` holds expanded URLs absent from the text. Span basis is codepoints, proven against astral emoji; the UTF-16 reading corrupts every span after the first one |
 | D-207 | Prefer x-cli **Tier 1 (anonymous guest token)** over Tier 0 as the default capture read | accepted (user, 2026-09-03) | Tier 0 silently truncated a real 2967-character post to 280 — 9% of the content, cut mid-sentence — with no in-band signal; Tier 1 passed 13 of 13 MVP cells and agreed with FxTwitter character-for-character. A guest token is bound to no account and is not a credential, session or account, but ADR 0007 did not name it, so it is ratified rather than assumed |
+| D-213 | The provider seam **hashes the pinned binary before executing it**, never searches `PATH`, and can reach only `{tweet, version}` | accepted | The check that would catch an unexpected binary must not be the check that runs it, so the digest is computed from disk before `x version` is spawned. No `PATH` lookup, which is what makes D-208's "refuse a mismatch rather than run whatever `x` it finds" true rather than intended. The allowlist is what makes the tool's browser-cookie import unreachable by construction (ADR 0007 invariant 1). `--no-cache` on every read, the post id as its own `argv` element with no shell, output bounded and an over-limit response refused rather than truncated, and the capture's `provider` block observed and *then* compared with the pin |
+| D-214 | **Exit 8 is x-cli's whole transport class**, not "timeout"; a rate limit is transient, not provider drift; and a transient failure writes nothing | accepted | Measured 2026-09-04, correcting the spike report §6 table: a dead proxy yields exit 8 with `Cannot reach x.com`. So the status does not separate a dropped tunnel from a slow request, the message does, and neither is a fact about the provider — D-209's obligation. Nothing is written when one occurs, because a dropped tunnel part way up a thread would otherwise produce a `PARTIAL` indistinguishable from a thread that genuinely ends there. Three CLI exit codes carry it to the shell: `7` provider missing or not the pin, `8` nothing was learned (retry), `9` the provider answered unusably |
+| D-215 | `network.via_tunnel` is **stated by the operator, never inferred** | accepted | The schema requires it and offers no "unknown", and the seam cannot measure it: an interface existing does not prove traffic routes through it, and asking a third party for the egress would be a network request made to describe a network request. D-209 exists because a premise was taken rather than established, so the seam refuses without a statement — and refuses before verifying the provider, so declining to guess costs no request |
+| D-216 | An unavailable post's raw evidence is **the tool's own message**, and an unavailability with no message is drift | accepted | The contract requires evidence per capture, and a finding with no preserved bytes is an assertion. A `not_found` read has no stdout, so its stderr is what was observed and is preserved, sanitized and digested like any other evidence. The capture still names none of deleted/suspended/protected: below Tier 2 they are one message |
+| D-217 | The **root-first thread invariant is conditional on upward completeness** — a `T-223` refinement `T-224` forced | accepted | An honestly truncated chain does not begin at a root, and its first item keeps the `parent_post_id` that proves it; dropping that link to satisfy a root-first rule would hide the incompleteness the capture reports. So the root claim applies when `upward.status` is `complete`, and where the chain dangles the dangling end must equal the id `upward.unresolved_at` names — tying the item set and the completeness claim together |
+| D-218 | At the qualified local route a capture carries **mention spans and no URL spans** | accepted | Measured live: x-cli's `entities.urls` holds expanded targets absent from the authored text, and one thread post carried two `t.co` links against a single entry, so a link can be located but not paired. A guessed target is worse than no span, and the facet triple comes from the route `T-225` owns. Absent, not wrong |
+| D-219 | The record→capture normalization has **one implementation**, in the package, imported by `T-223`'s fixture builder | accepted | Two copies of "how a provider record becomes a capture" would be two answers the moment one was edited, and the codepoint-offset and absent-not-empty rules drift silently. The byte-identical regeneration check `T-223` already requires is the proof the move was faithful |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
@@ -1582,11 +1589,15 @@ An agent must not guess the answers to these if the decision would cause a notic
 - [x] Phase 2.2 / `T-223` — provider-neutral capture contract frozen in `schemas/capture/v1/` on
   the spike report's measurements, with eight fixtures covering `PASS`/`PARTIAL`/`FAIL` and 97
   tests including a twelve-entry catalogue of captures that must be refused (D-210–D-212)
-- [ ] **Phase 2.2 / `T-224`: claimed and in progress** — the qualified local provider seam over
-  the digest-verified `x-cli` pin, reading at Tier 1 by default. `T-225` (opt-in network
-  fallback) and `T-226` (passive browser capture, optional) stay claimable alongside it
+- [x] Phase 2.2 / `T-224` — the qualified local provider seam: the `x-cli` pin verified by
+  digest before it is executed, raw evidence preserved write-once, and captures written through
+  the `T-223` contract. Verified live on the target machine over the tunnel on 2026-09-04 — a
+  single post, a Persian post, a ten-post self-thread walked from its **last** post, and an
+  unavailable id (D-213–D-219)
 - [ ] Phase 2.2 / `T-227`–`T-229`: extraction and coverage, adapter/product coexistence and the
-  full phase gate
+  full phase gate. `T-225` (opt-in network fallback and corroboration) and `T-226` (passive
+  browser capture) are now genuine fallbacks rather than the way forward — `T-225` is what adds
+  URL entity spans and corroborated text (D-218)
 - [ ] Canvas — Phase 3 / `T-301`: technically unblocked by `T-210`, deliberately deferred
   until the Twitter phase gate closes (D-204)
 - [ ] Pen annotations
@@ -1596,37 +1607,40 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**`T-224` is claimed: build the qualified local provider seam.** The acquisition boundary was
-accepted as D-204, the qualification it demanded returned a `GO` (D-205), and the capture
-contract it demanded is frozen in `schemas/capture/v1/` (D-212). Provider work is no longer
-gated, and `T-224` is the default path — `T-225` and `T-226` are fallbacks to this seam.
+**Claim `T-227` — extraction, provenance and coverage over the capture — unless URL spans are
+wanted first, in which case `T-225` comes before it.** The acquisition half of Phase 2.2 is
+done: the boundary was accepted (D-204), the qualification returned a `GO` (D-205), the capture
+contract is frozen (D-212), and the qualified local provider seam now writes it and was verified
+live on the target machine over the tunnel (D-213–D-219).
 
 What the measurement changed, and why the sequencing was right: the phase MVP promised "provable
 same-author self-threads", and that is true in one direction only. Following `reply_to` upward
-terminates at a parent-less root and *is* a completeness proof, credential-free. Enumerating
-descendants is impossible at every credential-free tier, and the author archive that looks like a
-substitute held 3 of 10 posts of a real thread. A contract frozen on the candidate's
-documentation would have reported whole threads while silently dropping seven posts in ten. The
-seam therefore ingests a thread from its **last** post (D-206) and cannot express a downward
-completeness claim, because the contract has no field for one.
+terminates at a parent-less root and *is* a completeness proof, credential-free — the live
+verification walked a real ten-post thread from its last post and reproduced the recorded
+manifest exactly. Enumerating descendants is impossible at every credential-free tier, and the
+author archive that looks like a substitute held 3 of 10 posts of a real thread. So the seam
+ingests from the thread's **last** post (D-206), and `completeness.downward` has no field in
+which to claim otherwise.
 
-The three answers that shaped the contract now constrain the seam directly:
+The question that decides the order: a capture from the local route carries mention spans and no
+URL spans (D-218), because the tool's expanded-URL list cannot be paired with the `t.co` links in
+the authored text. If a source claim must cite a link's span, `T-225` first. If citing the post
+and a text span is enough — what ADR 0007's MVP asks for — `T-227` can start now, and URL spans
+arrive additively later, since `entities` is already optional in the contract.
 
-1. **Self-thread ingestion (D-206)** — ask for the thread's last post, walk upward to a root and
-   report `PASS`; a root anchor warns and yields `PARTIAL` with descendants named unresolved.
-   `T-226` passive Firefox capture stays optional as a result.
-2. **Tier 1 (anonymous guest token) is the default read (D-207)** — Tier 0 returned 280 of a real
-   post's 2967 characters with no field announcing the loss, so the seam does not default to it.
-3. **The pin (D-208)** — v0.5.0, AGPL-3.0, an external binary at `~/.local/bin/x` invoked as a
-   subprocess, with its recorded SHA-256 checked **before** it is run: a version or digest
-   mismatch is a refusal, not a fallback to whatever `x` is on `PATH`.
+What acquisition deliberately did **not** do, so the next task does not have to guess:
 
-One environment obligation rides along (D-209): the target environment is the user's always-on
-tunnel, so the seam must distinguish a transport failure from a change in the provider's output.
-A dropped tunnel that reads as provider drift would discard a good capture.
+1. **Nothing is ingested.** No `metadata.json` is written, so an acquired post is invisible to
+   run discovery, the library, the Reader and the Map until `T-227`/`T-228` give it one. A run
+   half-made by acquisition must not appear in `status` as a broken YouTube run.
+2. **Metrics are not carried.** The records hold them and the contract can represent them, but
+   only as an observation with an `observed_at`; whether extraction wants them is `T-227`'s call.
+3. **Text completeness is never claimed.** One route means `unverified` — corroboration needs
+   the second route `T-225` owns.
 
-The Phase 2.2 gate is not met: `T-222` and `T-223` produced evidence and a contract, not a
-pipeline, and `WORKFLOW.md` still correctly describes only the implemented YouTube workflow.
+The Phase 2.2 gate is **not** met: one measured no-payment path now produces canonical captures,
+which is one clause of six. Nothing reaches the product yet, and `WORKFLOW.md` still correctly
+describes only the implemented YouTube workflow — `T-229` owns updating it, and not before.
 
 
 ## 24. Research references

@@ -20,12 +20,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).parent
 RAW = HERE / "raw"
-SPIKE = Path(__file__).resolve().parents[3] / "docs" / "spikes" / "T-222" / "fixtures"
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+SPIKE = PROJECT_ROOT / "docs" / "spikes" / "T-222" / "fixtures"
+
+# T-224 moved the normalization these fixtures were written with into the
+# package, because the provider seam needs the same three functions and two
+# implementations of "how a provider record becomes a capture" is two answers to
+# that question the moment one of them is edited. Imported rather than copied,
+# and the byte-identical regeneration check is what proves the move faithful:
+# every committed capture below must still rebuild to the same bytes.
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+from x2knwldg.twitter.normalize import post_from  # noqa: E402
 
 # The pinned provider, as installed and digest-verified under D-208.
 PROVIDER = {
@@ -76,137 +88,6 @@ def evidence_for(name: str, route: str) -> dict[str, Any]:
             ["syndication request token in url"] if stripped else []
         ),
     }
-
-
-def entities_from(text: str, facets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Spans into the authored text (D-211), taken from the provider's facets.
-
-    Facets carry ``indices``/``original``/``replacement`` as a triple, so no link
-    is paired with a target by inference. x-cli's own ``entities.urls`` cannot
-    support that pairing: it holds expanded URLs that appear nowhere in the text,
-    and one measured post had two ``t.co`` links against a single entry.
-
-    Indices are codepoint offsets — proven against a post carrying astral emoji,
-    where the UTF-16 reading is shifted and mangled. Every span is re-sliced here
-    and a facet that does not slice back to its own ``original`` is dropped rather
-    than trusted, so a provider change cannot quietly write a wrong offset into a
-    committed fixture.
-    """
-    out: list[dict[str, Any]] = []
-    for facet in facets:
-        indices = facet.get("indices") or []
-        original = facet.get("original")
-        if len(indices) != 2 or not original:
-            continue
-        start, end = indices
-        if text[start:end] != original:
-            continue
-        kind = "url" if facet.get("type") in {"url", "media"} else facet.get("type")
-        if kind not in {"url", "mention", "hashtag", "cashtag"}:
-            continue
-        entity: dict[str, Any] = {
-            "kind": kind,
-            "start_char": start,
-            "end_char": end,
-            "shortened": original,
-        }
-        replacement = facet.get("replacement")
-        if replacement and replacement != original:
-            entity["expanded"] = replacement
-        out.append(entity)
-    return sorted(out, key=lambda e: e["start_char"])
-
-
-def mentions_from(text: str, record: dict[str, Any]) -> list[dict[str, Any]]:
-    """Mention spans, located in the authored text by the handle itself.
-
-    x-cli lists mentions as bare handles with no offsets, so the span is found
-    rather than read. Only an unambiguous single occurrence is recorded; a handle
-    appearing twice is left out rather than guessed at.
-    """
-    out: list[dict[str, Any]] = []
-    for handle in (record.get("entities") or {}).get("mentions") or []:
-        if not isinstance(handle, str):
-            continue
-        needle = f"@{handle}"
-        first = text.find(needle)
-        if first < 0 or text.count(needle) != 1:
-            continue
-        out.append(
-            {
-                "kind": "mention",
-                "start_char": first,
-                "end_char": first + len(needle),
-                "handle": handle,
-            }
-        )
-    return out
-
-
-def post_from(
-    record: dict[str, Any],
-    supplied_by: dict[str, Any],
-    completeness: dict[str, Any],
-    facets: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    text = record.get("text") or ""
-    author = record.get("author") or {}
-    post: dict[str, Any] = {
-        "post_id": record["id"],
-        "author": {"username": author["username"], "rest_id": author["rest_id"]},
-        "availability": {"state": "available"},
-    }
-    if author.get("name"):
-        post["author"]["display_name"] = author["name"]
-    if record.get("conversation_id"):
-        post["conversation_id"] = record["conversation_id"]
-    if record.get("reply_to"):
-        post["parent_post_id"] = record["reply_to"]
-    if record.get("created_at"):
-        post["created_at"] = record["created_at"]
-    if record.get("lang"):
-        post["lang"] = record["lang"]
-    post["text"] = {
-        "canonical": text,
-        "form": "authored",
-        "supplied_by": supplied_by,
-        "completeness": completeness,
-    }
-    entities = entities_from(text, facets or []) + mentions_from(text, record)
-    if entities:
-        post["text"]["entities"] = sorted(entities, key=lambda e: e["start_char"])
-    media = []
-    for item in record.get("media") or []:
-        entry = {"type": item["type"], "url": item["url"]}
-        for key in ("key", "width", "height", "duration_ms"):
-            if item.get(key) is not None:
-                entry[key] = item[key]
-        if item.get("alt_text"):
-            entry["alt_text"] = item["alt_text"]
-        variants = [
-            {
-                k: v
-                for k, v in (
-                    ("url", var.get("url")),
-                    ("content_type", var.get("content_type")),
-                    ("bitrate", var.get("bitrate")),
-                )
-                if v is not None
-            }
-            for var in item.get("variants") or []
-        ]
-        if variants:
-            entry["variants"] = variants
-        media.append(entry)
-    if media:
-        post["media"] = media
-    quoted = record.get("quoted") or {}
-    if quoted.get("id") and (quoted.get("author") or {}).get("username"):
-        post["quote"] = {
-            "quoted_post_id": quoted["id"],
-            "quoted_author_username": quoted["author"]["username"],
-        }
-    return post
 
 
 def corroborated(agreement: str, note: str | None = None) -> dict[str, Any]:

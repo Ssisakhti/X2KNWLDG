@@ -144,11 +144,27 @@ def test_every_entity_span_reslices_to_its_own_text(path: Path) -> None:
 
 @pytest.mark.parametrize("path", fixture_paths(), ids=lambda p: p.stem)
 def test_thread_order_is_root_first_and_parent_consistent(path: Path) -> None:
+    """The chain is contiguous, and it begins at a root exactly when it says it does.
+
+    Refined by `T-224`, which found the unconditional form too strong to be
+    true: a chain whose walk stopped at an unavailable parent, or at a parent by
+    another author, honestly does *not* begin at a root, and its first item
+    keeps the ``parent_post_id`` that proves it. Dropping that link to satisfy a
+    root-first rule would hide the incompleteness the capture is reporting. So
+    the root claim is conditional on ``completeness.upward``, and where the
+    chain dangles, the dangling end must be exactly the id ``upward`` names.
+    """
     capture = json.loads(path.read_text("utf-8"))
     items = capture["items"]
     if capture["order"]["basis"] != "parent_links" or len(items) < 2:
         return
-    assert "parent_post_id" not in items[0], f"{path.name}: first item is not a root"
+    upward = capture["completeness"]["upward"]
+    if upward["status"] == "complete":
+        assert "parent_post_id" not in items[0], f"{path.name}: first item is not a root"
+    else:
+        assert items[0].get("parent_post_id") == upward.get("unresolved_at"), (
+            f"{path.name}: the chain dangles at an id upward completeness does not name"
+        )
     for earlier, later in zip(items[:-1], items[1:], strict=True):
         assert later.get("parent_post_id") == earlier["post_id"], (
             f"{path.name}: {later['post_id']} does not follow {earlier['post_id']}"

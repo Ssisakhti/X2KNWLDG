@@ -99,11 +99,19 @@ they are the contract: **completion may be claimed only on `0`.**
 | `4` | `FAIL` | The run validated as failing |
 | `5` | `TRANSCRIPT_REQUIRED` | No native captions. `inbox/<video-id>/` now holds instructions; supply a timestamped transcript. Whisper is never a fallback |
 | `6` | `UI_NOT_BUILT` | `x2knwldg ui` accepted its arguments and the server is ready, but `web/dist` holds no built frontend. Run `cd web && npm ci && npm run build` |
+| `7` | `PROVIDER_UNAVAILABLE` | An acquisition provider is not installed, or the binary at its pinned path is not the pinned build. Nothing was run and nothing was written |
+| `8` | `PROVIDER_UNREACHABLE` | The read could not be completed and **nothing was learned** — the network failed, the request timed out, or it was rate limited. The stderr envelope names which; retry later |
+| `9` | `PROVIDER_DRIFT` | A provider answered and the answer was unusable. Deliberately not `8`: a network failure must never read as a provider having changed |
 
 `PARTIAL` used to exit `0`, so no check could tell an honestly incomplete run from a passing
 one, and the `ui` command's refusal shared `1` with every real error. Splitting them
 out is what makes `if x2knwldg finalize ...` a meaningful check: `0` is a pass, `3` and `4`
 are verdicts to act on, `1` is something broken, and `5` and `6` are "do this next".
+
+`7`, `8` and `9` are the same argument one layer out, for a command that depends on an external
+tool and a network: install-or-re-pin, wait-and-retry, and the provider's output moved. `8` and
+`9` are separate codes because a caller that cannot tell them apart will either retry a real
+drift forever or blame the provider for the network.
 
 `x2knwldg --help` prints the same table, and `cli.VERDICT_EXIT_CODES` is the single mapping
 from a verdict to its code, so `validate`, `apply-bundle`, and `finalize` cannot disagree.
