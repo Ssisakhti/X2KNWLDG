@@ -253,9 +253,23 @@ def test_every_timestamp_in_the_frozen_documents_carries_the_pattern() -> None:
 
 
 def test_a_status_timestamp_that_is_not_a_timestamp_is_refused() -> None:
-    """The rule asserted over the value, not only over the document."""
-    from jsonschema import Draft202012Validator
-    from referencing import Registry, Resource
+    """The rule asserted over the value, not only over the document.
+
+    ``importorskip``, not a bare import: ``jsonschema`` is the ``dev`` extra
+    and the core package installs nothing (ADR 0001 invariant 5), so CI's
+    bare-venv job runs this suite with only ``x2knwldg`` and ``pytest``. A
+    plain import there is a *failure* where every other schema test in the
+    tree skips — which is the whole point of that job, and it caught this on
+    the first push.
+    """
+    jsonschema = pytest.importorskip(
+        "jsonschema", reason="jsonschema is the dev extra; the core install has none"
+    )
+    referencing = pytest.importorskip(
+        "referencing", reason="jsonschema's resolver, and likewise optional"
+    )
+    Draft202012Validator = jsonschema.Draft202012Validator
+    Registry, Resource = referencing.Registry, referencing.Resource
 
     common = json.loads((SCHEMAS / "common.schema.json").read_text(encoding="utf-8"))
     registry = Registry().with_resource(
