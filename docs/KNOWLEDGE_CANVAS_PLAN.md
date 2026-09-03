@@ -1582,10 +1582,11 @@ An agent must not guess the answers to these if the decision would cause a notic
 - [x] Phase 2.2 / `T-223` — provider-neutral capture contract frozen in `schemas/capture/v1/` on
   the spike report's measurements, with eight fixtures covering `PASS`/`PARTIAL`/`FAIL` and 97
   tests including a twelve-entry catalogue of captures that must be refused (D-210–D-212)
-- [ ] **Phase 2.2 / `T-224`–`T-226`: claimable now** — the qualified local provider seam, the
-  opt-in network fallback, and passive browser capture. `T-224` first: it is the default path
-- [ ] Phase 2.2 / `T-223`–`T-229`: canonical capture, qualified providers, extraction,
-  coverage, adapter/product coexistence and the full phase gate
+- [ ] **Phase 2.2 / `T-224`: claimed and in progress** — the qualified local provider seam over
+  the digest-verified `x-cli` pin, reading at Tier 1 by default. `T-225` (opt-in network
+  fallback) and `T-226` (passive browser capture, optional) stay claimable alongside it
+- [ ] Phase 2.2 / `T-227`–`T-229`: extraction and coverage, adapter/product coexistence and the
+  full phase gate
 - [ ] Canvas — Phase 3 / `T-301`: technically unblocked by `T-210`, deliberately deferred
   until the Twitter phase gate closes (D-204)
 - [ ] Pen annotations
@@ -1595,38 +1596,38 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**Answer the three questions in [the `T-222` spike report](spikes/T-222/REPORT.md) §11, then
-claim `T-223`.** The acquisition boundary was accepted as D-204; the qualification that boundary
-demanded is now done and returned a `GO` (D-205).
+**`T-224` is claimed: build the qualified local provider seam.** The acquisition boundary was
+accepted as D-204, the qualification it demanded returned a `GO` (D-205), and the capture
+contract it demanded is frozen in `schemas/capture/v1/` (D-212). Provider work is no longer
+gated, and `T-224` is the default path — `T-225` and `T-226` are fallbacks to this seam.
 
 What the measurement changed, and why the sequencing was right: the phase MVP promised "provable
 same-author self-threads", and that is true in one direction only. Following `reply_to` upward
 terminates at a parent-less root and *is* a completeness proof, credential-free. Enumerating
 descendants is impossible at every credential-free tier, and the author archive that looks like a
 substitute held 3 of 10 posts of a real thread. A contract frozen on the candidate's
-documentation would have reported whole threads while silently dropping seven posts in ten.
+documentation would have reported whole threads while silently dropping seven posts in ten. The
+seam therefore ingests a thread from its **last** post (D-206) and cannot express a downward
+completeness claim, because the contract has no field for one.
 
-The three answers needed first, because each changes what the schema must be able to say:
+The three answers that shaped the contract now constrain the seam directly:
 
-1. **Self-thread ingestion contract (D-206)** — ask for the thread's last post and report `PASS`;
-   accept a root anchor and report `PARTIAL` with descendants named unresolved; or promote
-   `T-226` passive Firefox capture from optional to required. The first two change the MVP
-   sentence in §17.
-2. **Tier 1 (anonymous guest token) as the default read (D-207)** — Tier 0 returned 280 of a real
-   post's 2967 characters with no field announcing the loss; Tier 1 passed every MVP cell.
-3. **The pin (D-208 in `PROJECT_MANAGEMENT.md` §6)** — v0.5.0, AGPL-3.0, external binary, two
-   recorded digests, one contributor and five weeks stale at measurement.
+1. **Self-thread ingestion (D-206)** — ask for the thread's last post, walk upward to a root and
+   report `PASS`; a root anchor warns and yields `PARTIAL` with descendants named unresolved.
+   `T-226` passive Firefox capture stays optional as a result.
+2. **Tier 1 (anonymous guest token) is the default read (D-207)** — Tier 0 returned 280 of a real
+   post's 2967 characters with no field announcing the loss, so the seam does not default to it.
+3. **The pin (D-208)** — v0.5.0, AGPL-3.0, an external binary at `~/.local/bin/x` invoked as a
+   subprocess, with its recorded SHA-256 checked **before** it is run: a version or digest
+   mismatch is a refusal, not a fallback to whatever `x` is on `PATH`.
 
-`T-223` then owns the one provider-neutral capture contract, built on the spike report §12 list:
-string ids; the tier and surface that filled each field; completeness as a field separate from
-request success and carrying a direction; order from parent links rather than arrival order;
-`conversation_id` optional because Tier 0 omits it; unavailability recorded as "reason not
-determinable at this tier"; and poll, edits and Article absent rather than empty.
+One environment obligation rides along (D-209): the target environment is the user's always-on
+tunnel, so the seam must distinguish a transport failure from a change in the provider's output.
+A dropped tunnel that reads as provider drift would discard a good capture.
 
-Do not claim `T-224`–`T-226` before that contract is accepted — and note that which of them is
-*required* rather than optional depends on answer 1. The Phase 2.2 gate is not met: `T-222`
-produced evidence, not a pipeline, and `WORKFLOW.md` still correctly describes only the
-implemented YouTube workflow.
+The Phase 2.2 gate is not met: `T-222` and `T-223` produced evidence and a contract, not a
+pipeline, and `WORKFLOW.md` still correctly describes only the implemented YouTube workflow.
+
 
 ## 24. Research references
 
