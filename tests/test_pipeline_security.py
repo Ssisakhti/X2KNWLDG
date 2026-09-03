@@ -516,6 +516,30 @@ def test_a_retry_leaves_no_debris_from_the_interrupted_attempt(tmp_path: Path) -
     }
 
 
+def test_a_symlinked_raw_directory_is_replaced_rather_than_refused(tmp_path: Path) -> None:
+    """``is_dir()`` follows the link, so the symlink arm was unreachable.
+
+    A symlinked ``raw/`` took the ``rmtree`` branch, and ``rmtree`` refuses a
+    symbolic link with ``OSError: [Errno None] None`` — which the CLI prints
+    verbatim, telling the operator nothing about what is wrong or what to do.
+    The link is removed and the run gets a real directory; what the link
+    pointed at is left alone, because it is not this run's evidence.
+    """
+    output = tmp_path / "output"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "keep.txt").write_text("not this run's evidence", encoding="utf-8")
+    run_dir = output / "abc123def45"
+    run_dir.mkdir(parents=True)
+    (run_dir / "raw").symlink_to(elsewhere, target_is_directory=True)
+
+    imported = import_transcript(SAMPLE, output, video_id="abc123def45", language="en")
+
+    assert not (imported / "raw").is_symlink()
+    assert (imported / "raw" / "source.vtt").exists()
+    assert (elsewhere / "keep.txt").exists(), "the link's target was not walked"
+
+
 def test_a_completed_run_is_still_never_overwritten(tmp_path: Path) -> None:
     """Re-runnability may not become "clobbers finished evidence".
 
@@ -1091,6 +1115,109 @@ def test_editing_only_the_segments_is_detected(tmp_path: Path) -> None:
     codes = {error["code"] for error in result["evidence"]["errors"]}
     assert "canonical_hash_mismatch" in codes
     assert "segments_disagree_with_transcript" in codes
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        pytest.param(lambda caption: caption.update(end_sec="oops"), id="end_sec-is-a-string"),
+        pytest.param(lambda caption: caption.pop("end_sec"), id="end_sec-is-missing"),
+    ],
+)
+def test_a_damaged_caption_is_reported_rather_than_raised(
+    tmp_path: Path, damage: Callable[[dict], object]
+) -> None:
+    """The recomputation owes damaged captions the answer integrity already gives.
+
+    ``create_segments`` subtracts ``start_sec`` from ``end_sec``, so a caption
+    carrying a string there raises ``TypeError`` and one missing the key raises
+    ``KeyError``. ``_segment_recomputation_errors`` caught only
+    ``PipelineError`` and ``ValueError``, and neither escaping type is in
+    ``cli.USER_FACING_ERRORS`` — so ``validate`` died on a raw traceback and
+    the documented ``{"status": "ERROR"}`` stderr contract broke on input the
+    transcript section reports correctly as ``invalid_timing``.
+    """
+    run_dir = _pass_run(tmp_path)
+    _rewrite(run_dir / "transcript.json", lambda doc: damage(doc["captions"][0]))
+
+    result = validate_run(run_dir)
+    assert result["status"] == "FAIL"
+    assert "segments_unverifiable" in {
+        error["code"] for error in result["evidence"]["errors"]
+    }
+    # The transcript section names the same caption, so the two readers of
+    # these captions agree that the damage is a finding.
+    assert "invalid_timing" in {error["code"] for error in result["transcript"]["errors"]}
+
+
+def test_a_run_is_re_derived_against_the_bounds_it_recorded(tmp_path: Path) -> None:
+    """``segments.json`` recorded two of the four bounds it was built with.
+
+    ``min_sec`` and ``max_sec`` were supplied to the recomputation from
+    ``constants.py`` rather than read off the run, so a run segmented with any
+    other pair — which is what tuning ``SEGMENT_MIN_SEC`` makes every archived
+    run — re-derived differently and reported
+    ``segments_disagree_with_transcript``: tampering, for a run nobody had
+    touched. The "future strategy" escape hatch keys on ``strategy.type``,
+    which would not have changed.
+    """
+    from x2knwldg import constants
+
+    run_dir = import_transcript(
+        SAMPLE,
+        tmp_path / "output",
+        video_id="vid00000001",
+        min_segment_sec=30,
+        max_segment_sec=90,
+        target_segment_sec=60,
+    )
+    strategy = json.loads((run_dir / "segments.json").read_text(encoding="utf-8"))["strategy"]
+    assert (strategy["min_sec"], strategy["max_sec"]) == (30, 90)
+    assert strategy["min_sec"] != constants.SEGMENT_MIN_SEC, "not the default"
+
+    result = validate_run(run_dir)
+    codes = {error["code"] for error in result["evidence"]["errors"]}
+    assert "segments_disagree_with_transcript" not in codes
+    assert result["evidence"]["status"] == "PASS"
+
+
+def test_a_run_without_the_recorded_bounds_says_the_defaults_were_assumed(
+    tmp_path: Path,
+) -> None:
+    """Every run written before the two fields existed. Named, not excused.
+
+    Built by removing the two fields from a fresh run, which is the shape a
+    run imported before D-203 has on disk. The digests are re-recorded over
+    the edited files, because a run that predates the *bounds* does not also
+    predate the digests — and leaving them stale would make this a test about
+    ``canonical_hash_mismatch`` instead.
+    """
+    from x2knwldg.io import sha256_text
+
+    run_dir = _pass_run(tmp_path)
+    _rewrite(
+        run_dir / "segments.json",
+        lambda doc: [doc["strategy"].pop(key) for key in ("min_sec", "max_sec")],
+    )
+    _rewrite(
+        run_dir / "metadata.json",
+        lambda doc: doc.__setitem__(
+            "canonical_hashes",
+            {
+                name: sha256_text((run_dir / name).read_text(encoding="utf-8"))
+                for name in ("transcript.json", "segments.json")
+            },
+        ),
+    )
+    strategy = json.loads((run_dir / "segments.json").read_text(encoding="utf-8"))["strategy"]
+    assert "min_sec" not in strategy and "max_sec" not in strategy
+
+    result = validate_run(run_dir)
+    # The run still validates: the defaults are *assumed*, and the warning
+    # below is what says so rather than a failure that blames the run.
+    assert result["evidence"]["status"] == "PASS"
+    warnings = {warning["code"] for warning in result["evidence"]["warnings"]}
+    assert "segments_bounds_not_recorded" in warnings
 
 
 def test_a_forged_digest_does_not_launder_a_forged_transcript(tmp_path: Path) -> None:

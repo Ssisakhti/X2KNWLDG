@@ -312,6 +312,15 @@ def import_timestamped_transcript(
     language: str = "unknown",
 ) -> dict[str, Any]:
     """Import an SRT, VTT, or JSON transcript without invoking Whisper."""
+    # D-184's rule, at the third tool that takes an id. `import_transcript`
+    # refuses a bad id with a `PipelineError`, which `_boundary` renders as
+    # `invalid_request` — so the *same* bad id was `invalid_id` from
+    # `search_video_knowledge` and `invalid_request` from here, contradicting
+    # the rule `_run_dir` states in as many words: a rejected id is
+    # `invalid_id`, because collapsing it into anything else hides a traversal
+    # attempt behind an ordinary refusal.
+    if not is_id_part(video_id):
+        raise McpToolError("invalid_id", f"Not a usable video id: {video_id!r}")
     run_dir = import_transcript(
         _checked_input_path(transcript_path, what="transcript_path"),
         _output_root(),
@@ -328,16 +337,28 @@ def import_timestamped_transcript(
 def list_ingested_videos() -> list[dict[str, Any]]:
     """List locally ingested videos and their current coverage status."""
     from .cli import _status_row
+    from .io import discover_run_dirs
 
     rows: list[dict[str, Any]] = []
-    for metadata_path in sorted(_output_root().glob("*/metadata.json")):
+    # `io.discover_run_dirs`, not a fourth `glob` (D-158): a convenience
+    # symlink under `output/` was listed as a second, identical video, and
+    # `library/` and dotted staging directories were listed as videos.
+    run_directories, aliases = discover_run_dirs(_output_root())
+    for run_dir in run_directories:
         # One damaged run must not make every other video invisible, and must
         # not be reported as covered either. `_status_row` is the CLI's answer
         # to exactly that; one implementation, so `status` and this tool cannot
         # disagree about what a run's state is.
-        row = _status_row(metadata_path)
-        row["path"] = _relative(metadata_path.parent)
+        row = _status_row(run_dir / "metadata.json")
+        row["path"] = _relative(run_dir)
         rows.append(row)
+    for link, held in aliases:
+        # Named rather than dropped: the same run under another name. The link
+        # is reported by its own directory name — `_relative` resolves, so
+        # passing it the link would print the run it points at and say nothing.
+        rows.append(
+            {"video_id": held.name, "alias": link.name, "alias_of": _relative(held)}
+        )
     return rows
 
 

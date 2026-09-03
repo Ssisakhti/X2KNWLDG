@@ -68,9 +68,21 @@ export function useGraphWalk(
     snapshot: null,
   }));
 
+  /*
+   * The walk is built once and `limit` was read once with it, so a later
+   * change to `options.limit` was silently ignored — a page size the caller
+   * asked for and never got, with nothing to say so. It is part of the
+   * *question*, like the filters, so a change to it re-opens the walk: added
+   * to the effect's keys below, where a filter change already is.
+   *
+   * Rebuilding the walk instead would drop the drawn graph on every change,
+   * which is the failure the `cancel`-not-`dispose` comment below is about.
+   */
+  const limit = options.limit;
+
   if (walkRef.current === null) {
     walkRef.current = new GraphWalk((request, signal) => latestLoad.current(request, signal), {
-      ...(options.limit === undefined ? {} : { limit: options.limit }),
+      ...(limit === undefined ? {} : { limit }),
       onChange: () => {
         const current = walkRef.current;
         if (current !== null) setState(current.state());
@@ -80,13 +92,14 @@ export function useGraphWalk(
   const walk = walkRef.current;
 
   useEffect(() => {
+    if (limit !== undefined) walk.setLimit(limit);
     void walk.open(latestFilters.current);
     // Not `dispose`: a filter change replaces the snapshot through the next
     // `open`, and disposing here would drop the graph between the two.
     // `cancel` retires the request in flight and keeps what was drawn.
     return () => walk.cancel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [walk, nonce, ...deps]);
+  }, [walk, nonce, limit, ...deps]);
 
   // Unmount is the only place the walk is released for good. Separate from the
   // effect above so a filter change cannot take the graph with it.

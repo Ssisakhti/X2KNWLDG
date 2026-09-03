@@ -8,7 +8,7 @@
  * unmounts leaves nothing to observe that the cleanup ran.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -67,5 +67,56 @@ describe("a view that throws", () => {
     render(<Harness throwNow={false} />);
     expect(screen.getByText("the view")).not.toBeNull();
     expect(document.querySelector("[data-error-boundary]")).toBeNull();
+  });
+});
+
+describe("navigating away from a view that threw", () => {
+  it("clears the boundary, so every other route works again", async () => {
+    /*
+     * D-179 put the boundary inside `Shell` so a reader who hits a thrown view
+     * is "one click from somewhere that works". The click did not work: the
+     * boundary cleared its error only when `resetKey` changed, and nothing
+     * bumped it on navigation — so opening a bad source id and then clicking
+     * Library changed the URL and moved `aria-current` while the fallback went
+     * on rendering. Every route was broken until a reload.
+     */
+    const { App } = await import("../App");
+    // A route that throws: the Reader over an id the stub answers with a shape
+    // it cannot render.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/sources/")) {
+          // `data: null` is not a `SourceDetail`; the view throws reading it.
+          return new Response(JSON.stringify({ api_version: "v1", schema_version: "1.0" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            api_version: "v1",
+            schema_version: "1.0",
+            data: [],
+            page: { limit: 50, next_cursor: null, total: 0 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+
+    window.location.hash = "#/sources/youtube:nope";
+    render(<App />);
+    await waitFor(() =>
+      expect(document.querySelector("[data-error-boundary='caught']")).not.toBeNull(),
+    );
+
+    // The click D-179 promised: the navigation the shell keeps reachable.
+    fireEvent.click(screen.getByRole("link", { name: /library/i }));
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-error-boundary='caught']")).toBeNull(),
+    );
   });
 });

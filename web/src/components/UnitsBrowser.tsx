@@ -15,7 +15,7 @@
  * Widening this is `openapi.json`'s business, not the frontend's.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api/client";
 import type { EntityRef, KnowledgeKind, ProvenanceClass, Source } from "../api/contract";
@@ -85,6 +85,64 @@ async function loadGroup(
   }
 }
 
+/**
+ * How long a filter has to hold still before the fan-out below runs.
+ *
+ * Long enough that typing "0.85" is one pass rather than four, short enough
+ * that it reads as immediate.
+ */
+const FILTER_SETTLE_MS = 250;
+
+/** How many of the fan-out's requests are allowed to be in flight at once. */
+const UNITS_CONCURRENCY = 6;
+
+/** *filters*, but only once they have held still for {@link FILTER_SETTLE_MS}. */
+function useSettledFilters(filters: UnitFilters): UnitFilters {
+  const [settled, setSettled] = useState(filters);
+  const { kind, provenance, minConfidence } = filters;
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setSettled({ kind, provenance, minConfidence }),
+      FILTER_SETTLE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [kind, provenance, minConfidence]);
+  return settled;
+}
+
+/**
+ * Every source's units, in the sources' own order, a few requests at a time.
+ *
+ * This was `for (const source of sources) groups.push(await loadGroup(...))`:
+ * fifty strictly serial round trips with nothing rendered until the last
+ * landed. Bounded rather than unbounded parallelism — fifty at once is a
+ * thundering herd at a single-threaded local server, and the point is to stop
+ * waiting for each answer before asking the next question, not to ask them all
+ * at once. The results keep the sources' order whatever order they arrive in,
+ * because that order is the Library's.
+ */
+async function loadGroups(
+  sources: readonly Source[],
+  filters: UnitFilters,
+  signal: AbortSignal,
+): Promise<Group[]> {
+  const groups: Group[] = new Array<Group>(sources.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = next;
+      next += 1;
+      const source = sources[index];
+      if (source === undefined) return;
+      groups[index] = await loadGroup(source, filters, signal);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(UNITS_CONCURRENCY, sources.length) }, worker),
+  );
+  return groups;
+}
+
 export function UnitsBrowser({
   sources,
   filters,
@@ -95,18 +153,31 @@ export function UnitsBrowser({
   const { t } = useI18n();
   const key = useMemo(() => sources.map((source) => source.id).join("|"), [sources]);
 
+  /*
+   * The filters, one beat behind the keyboard (D-203).
+   *
+   * `minConfidence` is an unthrottled `onChange` on a number input, so every
+   * keypress used to restart the whole fan-out below — fifty round trips per
+   * character typed, each one aborted by the next. Settled here rather than at
+   * the control, because it is *this* fan-out that makes a keystroke
+   * expensive: the same filters drive nothing else that costs a request.
+   */
+  const settled = useSettledFilters(filters);
+
   const state = useAsync<Group[]>(
-    async (signal) => {
-      const groups: Group[] = [];
-      for (const source of sources) {
-        groups.push(await loadGroup(source, filters, signal));
-      }
-      return groups;
-    },
-    [key, filters.kind, filters.provenance, filters.minConfidence],
+    (signal) => loadGroups(sources, settled, signal),
+    [key, settled.kind, settled.provenance, settled.minConfidence],
   );
 
-  if (state.status === "loading") return <p className="muted">{t("common.loading")}</p>;
+  if (state.status === "loading") {
+    // Announced, not merely shown (D-203): a bare `<p class="muted">` says
+    // nothing to a reader who cannot see it.
+    return (
+      <p className="muted" role="status">
+        {t("common.loadingNamed", { name: t("library.mode.units") })}
+      </p>
+    );
+  }
   if (state.error !== null) return <ErrorState error={state.error} onRetry={state.reload} />;
 
   const groups = state.data ?? [];

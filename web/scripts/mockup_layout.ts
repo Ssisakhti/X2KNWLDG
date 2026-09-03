@@ -10,7 +10,7 @@
  *
  * Writes positions keyed by `global_id`; gen_data.py folds them into data.js.
  *
- *   npx tsx web/scripts/mockup_layout.ts
+ *   npm --prefix web run mockups:layout
  */
 import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";

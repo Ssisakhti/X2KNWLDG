@@ -85,7 +85,7 @@ ids = list(nodes)
 missing = [i for i in ids if nodes[i]["global_id"] not in layout]
 if missing:
     raise SystemExit(f"layout.json is stale, {len(missing)} node(s) absent; "
-                     "re-run npx tsx web/scripts/mockup_layout.ts")
+                     "re-run npm --prefix web run mockups:layout")
 
 # Fit to the stage's aspect rather than to a square, so a wide viewport is
 # filled rather than letterboxed. Clip to the 2nd/98th percentile first: a

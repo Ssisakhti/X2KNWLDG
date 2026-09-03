@@ -454,16 +454,42 @@ class CueTimingLineTests(unittest.TestCase):
                 parse_transcript_file(path, language="en")
 
     def test_the_timing_detector_and_the_parser_accept_the_same_timestamps(self):
-        """Two patterns for one grammar, so they are asserted equal here."""
-        from x2knwldg.transcripts import _CUE_TIMING, _TIMESTAMP
+        """Three patterns for one grammar, so they are asserted equal here.
+
+        ``_TIMED_TEXT`` used to carry a fourth spelling allowing four leading
+        digits where the parser allows two, so ``[1234:56 - 1300:00]`` was
+        detected as a header and then refused by ``parse_timestamp``, rejecting
+        the whole file.
+        """
+        from x2knwldg.transcripts import _CUE_TIMING, _TIMED_TEXT, _TIMESTAMP
 
         accepted = ["0:00", "00:00", "00:00:00", "00:00:00,000", "1:02:03.45", "9999:00:00.000"]
-        rejected = ["The", "A --> B", "", "00", "x:00:00", "00:000:00"]
+        rejected = ["The", "A --> B", "", "00", "x:00:00", "00:000:00", "1234:56"]
         for value in accepted:
             self.assertIsNotNone(_TIMESTAMP.match(value), value)
             self.assertIsNotNone(_CUE_TIMING.match(f"{value} --> {value}"), value)
+            self.assertIsNotNone(_TIMED_TEXT.match(f"[{value} - {value}] text"), value)
         for value in rejected:
             self.assertIsNone(_CUE_TIMING.match(f"{value} --> 00:00:01,000"), value)
+            self.assertIsNone(_TIMED_TEXT.match(f"[{value} - 00:00:01,000] text"), value)
+
+    def test_a_bracket_that_is_not_a_timestamp_reads_as_text(self):
+        """The stated intent of the header grammar's restriction.
+
+        ``[1234:56 - 1300:00]`` matched the header shape and then failed the
+        parser, and the *whole file* was rejected — for a line the comment says
+        should read as ordinary bracketed caption text.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write(
+                directory,
+                "brackets.md",
+                "[00:00:00 - 00:00:05] A real header.\n"
+                "[1234:56 - 1300:00] Not a timestamp, so this is text.\n",
+            )
+            captions = parse_transcript_file(path, language="en")
+            self.assertEqual(len(captions), 1)
+            self.assertIn("Not a timestamp", captions[0]["text"])
 
 
 class CorruptCanonicalTests(unittest.TestCase):

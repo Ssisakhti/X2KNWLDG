@@ -139,8 +139,8 @@ absolute paths and is never committed, so only the `.example.json` exists in a f
 
 ## Local web UI
 
-A local-first Knowledge Canvas over the canonical outputs. Phase 1 — the **Library** and the
-**Reader** — is built and served; the knowledge map and the board are later phases. The design
+A local-first Knowledge Canvas over the canonical outputs. Phase 2 — the **Library**, the
+**Reader** and the **Knowledge Map** — is built and served; the board is a later phase. The design
 is in [`docs/KNOWLEDGE_CANVAS_PLAN.md`](docs/KNOWLEDGE_CANVAS_PLAN.md) and
 [ADR 0001](docs/adr/0001-local-web-ui.md); status and task breakdown are in
 [`docs/PROJECT_MANAGEMENT.md`](docs/PROJECT_MANAGEMENT.md).

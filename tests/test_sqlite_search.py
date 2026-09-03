@@ -708,21 +708,54 @@ def test_dropping_the_transcript_drops_only_the_caption_hits(
     )
 
 
-def test_unreadable_sources_reads_both_tiers_of_damage(tmp_path: Path) -> None:
-    """A skipped run, and a run indexed with a search-shaped gap."""
+def test_unreadable_sources_reads_the_one_tier_it_can(tmp_path: Path) -> None:
+    """A run indexed with a search-shaped gap, and nothing else.
+
+    D-043's other tier — a run that could not be indexed at all — was read
+    here from ``skipped_reason IS NOT NULL``, and that branch was unreachable:
+    every skipped run is constructed with ``source_id=None``, so there was no
+    id for the ``WHERE source_id IS NOT NULL`` clause to return, and its
+    records are evicted so it is not in the search scope either. The test that
+    covered it inserted the row below marked ``impossible``.
+    """
     connection = _fresh_index(tmp_path)
     connection.executemany(
         "INSERT INTO runs (canonical_dir, source_id, digest, scanned_at, problems, "
         "skipped_reason) VALUES (?, ?, 'd', 'now', ?, ?)",
         [
-            ("output/a", "youtube:a", "[]", "could not be adapted"),
+            # The production shape of a skipped run: no source id at all.
+            ("output/a", None, "[]", "could not be adapted"),
             ("output/b", "youtube:b", json.dumps(["search: unparseable"]), None),
             ("output/c", "youtube:c", json.dumps(["hash: unreadable file"]), None),
             ("output/d", None, "[]", None),
+            # impossible: a skipped run with an id. Kept so the query is
+            # exercised over it and the answer is still the honest one.
+            ("output/e", "youtube:e", "[]", "could not be adapted"),
         ],
     )
     connection.commit()
-    assert unreadable_sources(connection) == frozenset({"youtube:a", "youtube:b"})
+    assert unreadable_sources(connection) == frozenset({"youtube:b"})
+
+
+def test_a_skipped_run_carries_no_source_id(fixture_project: Path) -> None:
+    """The premise the decision above rests on, asserted against a real scan.
+
+    If a skipped run ever gains a ``source_id``, ``unreadable_sources`` has a
+    tier to reconsider rather than a branch that quietly comes back to life —
+    and ``/api/status`` is where a skipped run is reported to a reader today.
+    """
+    damaged = fixture_project / "output" / "fail-run" / "metadata.json"
+    damaged.write_text("{not json", encoding="utf-8")
+
+    report = build_index(fixture_project, index_documents=document_indexer(fixture_project))
+    assert report.runs_skipped == 1, report.payload()["skipped_runs"]
+
+    connection = connect(database_path(fixture_project), create=False)
+    rows = connection.execute(
+        "SELECT canonical_dir, source_id FROM runs WHERE skipped_reason IS NOT NULL"
+    ).fetchall()
+    assert rows, "the scan recorded no skipped run"
+    assert [row["source_id"] for row in rows] == [None] * len(rows)
 
 
 def test_recording_a_search_gap_keeps_the_problems_the_scan_recorded(
@@ -851,6 +884,36 @@ def test_one_unreadable_run_costs_only_itself(fixture_project: Path) -> None:
     assert found.documents
     assert found.complete is False
     assert found.unreadable == ("youtube:fixture-fail",)
+
+
+def test_the_scan_that_loses_a_sources_search_text_reports_it(
+    fixture_project: Path,
+) -> None:
+    """It surfaced on the *next* scan, and over HTTP never.
+
+    ``ScanReport.incomplete_runs`` was built from the run objects, and those
+    were frozen before ``index_documents`` ran — so the pass that wrote the
+    marker reported ``discovered=3 indexed=3 skipped=0`` and nothing else,
+    about an index that had just lost a source's searchable text. The module's
+    own thesis is that the cheap path may skip work, never reporting.
+    """
+    caption = fixture_project / "output" / "fail-run" / "transcript.json"
+    document = json.loads(caption.read_text(encoding="utf-8"))
+    document["captions"][0].pop("start_sec")
+    caption.write_text(json.dumps(document), encoding="utf-8")
+
+    report = build_index(fixture_project, index_documents=document_indexer(fixture_project))
+
+    assert report.runs_skipped == 0, "the run is indexed; only its search text is gone"
+    incomplete = {
+        entry["source_id"]: entry["problems"] for entry in report.payload()["incomplete_runs"]
+    }
+    assert "youtube:fixture-fail" in incomplete, (
+        "the scan that produced the marker reported nothing about it"
+    )
+    assert any(
+        problem.startswith("search: ") for problem in incomplete["youtube:fixture-fail"]
+    )
 
 
 def test_a_source_that_becomes_readable_again_stops_being_unknown(

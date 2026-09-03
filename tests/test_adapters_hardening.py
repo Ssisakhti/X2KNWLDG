@@ -30,6 +30,7 @@ say what ``schemas/v1/`` says.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -102,6 +103,186 @@ def test_the_mirrored_vocabularies_match_the_frozen_schemas() -> None:
     assert base.CANONICAL_PROVENANCE_CLASSES < PROVENANCE_CLASSES, (
         "'user' is workspace content and never appears in a canonical file"
     )
+    # ``runStatus`` was the one mirrored vocabulary with no drift test, while
+    # its four values are the whole of ADR 0001 invariant 2: UNKNOWN is what an
+    # absent or unreadable validator file becomes, and it must never be
+    # substituted with PASS.
+    assert base.RUN_STATUSES | {base.UNKNOWN_STATUS} == set(defs["runStatus"]["enum"])
+    assert base.UNKNOWN_STATUS not in base.RUN_STATUSES, (
+        "UNKNOWN is the absence of a stated status, not one of them"
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "output/../../etc/passwd",
+        "output\n../../etc/passwd",
+        "output/x\n",
+        "output/\t../..",
+        "/etc/passwd",
+        "C:/Windows",
+        "..",
+        "output/..",
+    ],
+    ids=[
+        "plain-traversal",
+        "traversal-after-a-newline",
+        "trailing-newline",
+        "traversal-after-a-tab",
+        "absolute-posix",
+        "absolute-windows",
+        "bare-dotdot",
+        "trailing-dotdot",
+    ],
+)
+def test_the_published_path_pattern_refuses_every_traversal(value: str) -> None:
+    """A newline used to defeat the pattern the contract publishes.
+
+    ``.`` matches no newline in either Python ``re`` or ECMA-262 and the
+    anchors are not multiline, so ``output/../../etc/passwd`` was rejected
+    while ``output\n../../etc/passwd`` was **accepted**. Python's ``$`` also
+    matches before a trailing newline, so ``output/x\n`` slipped through there
+    and not in a JavaScript consumer — the same hazard ``ISO_TIMESTAMP_PATTERN``
+    is anchored with ``\\Z`` for.
+
+    Not exploitable in this repo — ``project_relative`` builds paths
+    structurally from ``Path.relative_to`` — but the published contract
+    asserted a check it did not perform for any other consumer.
+    """
+    pattern = _defs()["projectRelativePath"]["pattern"]
+    assert re.search(pattern, value) is None, value
+
+
+@pytest.mark.parametrize(
+    "value", ["output/vid1/metadata.json", "output/./x", "a", "ok/ünïcode.json"]
+)
+def test_the_published_path_pattern_still_accepts_a_real_path(value: str) -> None:
+    pattern = _defs()["projectRelativePath"]["pattern"]
+    assert re.search(pattern, value) is not None, value
+
+
+def test_a_corrupt_symlinked_canonical_file_still_leaves_the_run_indexed(
+    tmp_path: Path,
+) -> None:
+    """D-100's wrap, which ``_file_artifact`` got and ``_read`` did not.
+
+    ``self.relative`` resolves symlinks, so a canonical file that is a symlink
+    to somewhere outside the project raised ``AdapterError`` out of ``_read``
+    and took the **whole run** down — downgrading it from "damaged, and here is
+    the file" to "absent". A run whose ``validation.json`` is both symlinked
+    outside the root *and* unparseable is damaged in a way the record can
+    state, and stating it is what this channel is for.
+    """
+    project = tmp_path / "project"
+    (project / "output").mkdir(parents=True)
+    run_dir = project / "output" / "pass-run"
+    shutil.copytree(FIXTURE_RUNS / "pass-run", run_dir)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    broken = outside / "validation.json"
+    broken.write_text("{ not json", encoding="utf-8")
+    target = run_dir / "validation.json"
+    target.unlink()
+    target.symlink_to(broken)
+
+    records = adapt_run(run_dir, project)
+
+    source = records.sources[0]
+    assert source["id"] == "youtube:fixture-pass", "the run is indexed, not refused"
+    damaged = source["adapter_metadata"]["unreadable_files"]
+    assert [entry["path"] for entry in damaged] == ["validation.json"]
+    reason = damaged[0]["reason"]
+    assert "Malformed JSON" in reason, "the damage must still be stated"
+    assert "outside the project root" in reason
+    # ADR 0003: not the host layout, and not the doubled phrasing either.
+    assert str(tmp_path) not in reason
+    assert "the project root the project root" not in reason
+    # ADR 0001 invariant 2: an unreadable validator file is UNKNOWN, never PASS.
+    assert source["status"]["validation"] == "UNKNOWN"
+    assert source["status"]["overall"] == "UNKNOWN"
+
+
+def test_the_producer_refuses_what_the_pattern_refuses(tmp_path: Path) -> None:
+    """``project_relative`` may not hand the schemas a value they reject."""
+    root = tmp_path / "project"
+    (root / "output").mkdir(parents=True)
+    named = root / "output" / "we\nird.json"
+    named.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(base.AdapterError) as caught:
+        base.project_relative(named, root)
+    assert "projectRelativePath" in str(caught.value)
+
+    ordinary = root / "output" / "fine.json"
+    ordinary.write_text("{}", encoding="utf-8")
+    assert base.project_relative(ordinary, root) == "output/fine.json"
+
+
+def test_every_timestamp_in_the_frozen_documents_carries_the_pattern() -> None:
+    """``built_at: "yesterday"`` validated against every check in the tree.
+
+    ``isoTimestamp``'s own ``$comment`` says why: ``format`` is annotation-only
+    in 2020-12 unless a validator opts into the format-assertion vocabulary,
+    and none of this repo's validators do. ``StatusPayload.index.built_at``
+    carried ``format: date-time`` and no pattern, while the identical value on
+    ``Source.imported_at`` was correctly rejected.
+    """
+    api = json.loads(
+        (PROJECT_ROOT / "schemas" / "api" / "v1" / "openapi.json").read_text(encoding="utf-8")
+    )
+    unchecked: list[str] = []
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            if node.get("format") == "date-time" and "pattern" not in node:
+                unchecked.append(path)
+            for key, value in node.items():
+                walk(value, f"{path}/{key}")
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                walk(value, f"{path}/{index}")
+
+    for document in (api, _defs(), json.loads((SCHEMAS / "source.schema.json").read_text(encoding="utf-8"))):
+        walk(document, "")
+    assert unchecked == [], (
+        "these fields assert a timestamp shape no validator in this repo checks; "
+        f"refer to common.schema.json#/$defs/isoTimestamp instead: {unchecked}"
+    )
+
+
+def test_a_status_timestamp_that_is_not_a_timestamp_is_refused() -> None:
+    """The rule asserted over the value, not only over the document.
+
+    ``importorskip``, not a bare import: ``jsonschema`` is the ``dev`` extra
+    and the core package installs nothing (ADR 0001 invariant 5), so CI's
+    bare-venv job runs this suite with only ``x2knwldg`` and ``pytest``. A
+    plain import there is a *failure* where every other schema test in the
+    tree skips — which is the whole point of that job, and it caught this on
+    the first push.
+    """
+    jsonschema = pytest.importorskip(
+        "jsonschema", reason="jsonschema is the dev extra; the core install has none"
+    )
+    referencing = pytest.importorskip(
+        "referencing", reason="jsonschema's resolver, and likewise optional"
+    )
+    Draft202012Validator = jsonschema.Draft202012Validator
+    Registry, Resource = referencing.Registry, referencing.Resource
+
+    common = json.loads((SCHEMAS / "common.schema.json").read_text(encoding="utf-8"))
+    registry = Registry().with_resource(
+        "https://x2knwldg.local/schemas/v1/common.schema.json",
+        Resource.from_contents(common),
+    )
+    validator = Draft202012Validator(
+        {"$ref": "https://x2knwldg.local/schemas/v1/common.schema.json#/$defs/isoTimestamp"},
+        registry=registry,
+    )
+    assert list(validator.iter_errors("yesterday"))
+    assert list(validator.iter_errors("2026-09-03T00:00:00")), "an offset is required"
+    assert not list(validator.iter_errors("2026-09-03T00:00:00+00:00"))
 
 
 def test_the_mirrored_length_bounds_match_the_frozen_schemas() -> None:

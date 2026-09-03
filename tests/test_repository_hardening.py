@@ -594,14 +594,24 @@ def test_paging_a_search_does_not_re_read_the_library_for_every_page(
     """
     repo = _repo_over(tmp_path, ("one", "one-id"), ("two", "two-id"))
 
+    # Both openers: `run_documents` reads its canonical files through
+    # `io.read_json`, which opens a handle rather than calling `read_text`, so
+    # an instrument watching only one of the two would count zero reads for a
+    # search that read every file it ranked.
     reads: list[str] = []
-    original = Path.read_text
+    original_read_text = Path.read_text
+    original_open = Path.open
 
-    def counted(self: Path, *args: Any, **kwargs: Any) -> str:
+    def counted_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
         reads.append(str(self))
-        return original(self, *args, **kwargs)
+        return original_read_text(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", counted)
+    def counted_open(self: Path, *args: Any, **kwargs: Any) -> Any:
+        reads.append(str(self))
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counted_read_text)
+    monkeypatch.setattr(Path, "open", counted_open)
 
     first = repo.search(SearchQuery(q="gravity", limit=1))
     assert reads, "the first search reads the canonical files it ranks"

@@ -315,6 +315,48 @@ describe("GraphWalk", () => {
     void walk.open({});
     expect(pages.requests[0]?.limit).toBe(2);
   });
+
+  it("asks for a page size that changed after it was built", async () => {
+    // `useGraphWalk` read `options.limit` once, at construction, so a caller
+    // that changed it was silently given the old page size for the life of the
+    // hook. Applied from the next `open`, because rebuilding the walk for it
+    // would drop the drawn graph.
+    const pages = deferredLoader();
+    const walk = new GraphWalk(pages.load, { limit: 2 });
+    void walk.open({});
+    expect(pages.requests[0]?.limit).toBe(2);
+
+    walk.setLimit(7);
+    void walk.open({});
+    expect(pages.requests[1]?.limit).toBe(7);
+  });
+
+  it("reports nothing on dispose, because nothing is left to report to", async () => {
+    /*
+     * Every other transition ends in the change callback because something is
+     * still watching. `dispose` is called from `useGraphWalk`'s unmount
+     * cleanup — the single path where the callback fires with no consumer, and
+     * in React that is a `setState` on a component that has gone.
+     */
+    const pages = deferredLoader();
+    const onChange = vi.fn();
+    const walk = new GraphWalk(pages.load, { onChange });
+    void walk.open({});
+    onChange.mockClear();
+
+    walk.dispose();
+    expect(onChange).not.toHaveBeenCalled();
+    // And it still released everything.
+    expect(pages.signals[0]?.aborted).toBe(true);
+    expect(walk.state().snapshot).toBeNull();
+
+    // `cancel` is the one that *does* report: a filter change goes through it.
+    const other = new GraphWalk(pages.load, { onChange });
+    void other.open({});
+    onChange.mockClear();
+    other.cancel();
+    expect(onChange).toHaveBeenCalled();
+  });
 });
 
 describe("apiGraphPages", () => {

@@ -1211,6 +1211,9 @@ def _apply(
             ),
         )
 
+        # `source_id -> reason` for every source whose canonical files would
+        # not yield documents on this pass. Filled by the hook below.
+        unsearchable: dict[str, str] = {}
         # `documents` and the two external-content FTS5 tables belong to
         # `T-103`: keeping an external-content index in step with its content
         # table is that module's contract, and half-populating them here would
@@ -1218,7 +1221,18 @@ def _apply(
         # records this scan committed, inside the same transaction, so wiring it
         # up is `index_documents=search.index_documents` and nothing else.
         if index_documents is not None:
-            index_documents(connection, combined)
+            # The hook's own report, **read** rather than discarded. It records
+            # `source_id -> reason` for every source whose canonical files
+            # would not yield documents, and writes the same marker into
+            # `runs.problems`. `incomplete_runs` below was built from the run
+            # objects, which were frozen before this line — so a source that
+            # became unsearchable *on this scan* was reported by nothing until
+            # the next one, and this scan said `discovered=3 indexed=3
+            # skipped=0` about an index that had just lost a source's search
+            # text. The module's own thesis is that the cheap path may skip
+            # work, never reporting.
+            report = index_documents(connection, combined)
+            unsearchable.update(getattr(report, "unsearchable", None) or {})
 
         _write_state(connection, "ready", built_at=built_at)
 
@@ -1227,6 +1241,24 @@ def _apply(
         for run in runs
         if run.state == _SKIPPED
     ]
+    # A run's stored problems, plus the searchability marker this pass just
+    # wrote. `run.problems` was frozen before `index_documents` ran, so a
+    # source that lost its search text on *this* scan appeared in no report
+    # until the next one.
+    incomplete_runs = []
+    for run in runs:
+        problems = list(run.problems)
+        reason = unsearchable.get(run.source_id) if run.source_id else None
+        if reason is not None:
+            problems.append(f"{schema.SEARCH_PROBLEM_PREFIX}{reason}")
+        if problems:
+            incomplete_runs.append(
+                {
+                    "relative_path": run.canonical_dir,
+                    "source_id": run.source_id,
+                    "problems": problems,
+                }
+            )
     if library_reason is not None:
         skipped_runs.append({"relative_path": library_key, "reason": library_reason})
     return ScanReport(
@@ -1239,15 +1271,7 @@ def _apply(
         runs_unchanged=sum(1 for run in runs if run.state == _UNCHANGED),
         runs_evicted=len(evicted),
         skipped_runs=tuple(skipped_runs),
-        incomplete_runs=tuple(
-            {
-                "relative_path": run.canonical_dir,
-                "source_id": run.source_id,
-                "problems": list(run.problems),
-            }
-            for run in runs
-            if run.problems
-        ),
+        incomplete_runs=tuple(incomplete_runs),
         counts=MappingProxyType(
             {
                 "sources": _count(connection, "sources"),

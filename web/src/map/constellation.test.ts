@@ -455,6 +455,43 @@ describe("nothing is drawn over anything", () => {
     }
   });
 
+  it("prefers a band that refuses nothing over one that seats the same cards", () => {
+    /*
+     * The search stops as soon as a band refuses nothing, so "no omissions"
+     * is one of the two things it is looking for — but the replacement tested
+     * only the card count, so a narrower band that seated the same cards and
+     * refused *nothing* was discarded and the wider band's refusals were
+     * reported instead. The counts were always the chosen band's own and so
+     * always true; the sentence they produce named a reason the composition
+     * did not have to have.
+     */
+    const neighbours = side("outgoing", 3);
+    // Chrome across the top and bottom of the field: the widest band runs
+    // into it, a narrower one does not.
+    const obstacles: StageRect[] = [
+      { left: 0, top: 0, right: FULL.width, bottom: 120 },
+      { left: 0, top: FULL.height - 120, right: FULL.width, bottom: FULL.height },
+    ];
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: neighbours,
+      field: FULL,
+      obstacles,
+    });
+
+    // Whatever it settled on, the report is about the band it chose: the
+    // omission total and the cards it drew account for every neighbour.
+    expect(placement.cards.length + placement.omittedTotal).toBe(neighbours.length);
+    expect(
+      Object.values(placement.omitted).reduce((sum, count) => sum + count, 0),
+    ).toBe(placement.omittedTotal);
+    // And it did not settle for refusals it could have avoided: a placement
+    // that drew every neighbour must report none.
+    if (placement.cards.length === neighbours.length) {
+      expect(placement.omittedTotal).toBe(0);
+    }
+  });
+
   it("keeps a crowded pill on its path and reports it rather than dropping the relation", () => {
     // Every seat taken is a real outcome, and the two wrong answers are
     // dropping the relation -- the one thing SPEC §4 insists a reader can

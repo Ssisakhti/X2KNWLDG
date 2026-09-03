@@ -243,6 +243,90 @@ def test_the_map_label_budget_in_the_docs_is_the_one_in_the_source() -> None:
             assert quoted == value, f"{relative} quotes {quoted}; it is {value}"
 
 
+def test_the_map_label_settings_in_the_docs_are_the_ones_in_the_source() -> None:
+    """``web/src/map/README.md`` stated three retired numbers.
+
+    It said one label per 180x180 px cell for nodes at least 14 px across, and
+    eight labels over 86 marks. The settings are 560 and 6, and ``T-216``
+    re-measured ten — three numbers a reader would have taken from the spec.
+    ``labelPolicy.ts`` states them once; this is what keeps the prose quoting
+    it rather than remembering it.
+    """
+    import re as _re
+
+    source = _read("web/src/map/labelPolicy.ts")
+    readme = _read("web/src/map/README.md")
+    # The settings *object*, not a prose mention of a retired value: the
+    # docstring above it discusses `labelGridCellSize: 180` as history, which
+    # is exactly the number this guard exists to keep out of the README.
+    settings = _re.search(
+        r"MAP_LABEL_SETTINGS = \{(.*?)\} as const;", source, _re.DOTALL
+    )
+    assert settings is not None, "MAP_LABEL_SETTINGS was renamed; update this guard"
+
+    for setting in ("labelGridCellSize", "labelRenderedSizeThreshold"):
+        found = _re.search(rf"{setting}: (\d+)", settings.group(1))
+        assert found is not None, f"{setting} was renamed; update this guard"
+        value = found.group(1)
+        # Whatever number the prose puts beside the rule has to be this one.
+        quoted = {
+            match
+            for match in _re.findall(
+                r"one label per \*\*(\d+)x\d+ px\*\*"
+                if setting == "labelGridCellSize"
+                else r"least \*\*(\d+) px\*\*",
+                readme.replace("×", "x"),
+            )
+        }
+        assert quoted == {value}, (
+            f"web/src/map/README.md quotes {sorted(quoted)} for {setting}; it is {value}"
+        )
+
+    # And the measured label count, which the source states twice and the
+    # README once.
+    measured = set(_re.findall(r"\*\*(\w+) labels over 86\s+marks\*\*", source))
+    assert len(measured) == 1, f"labelPolicy.ts states {sorted(measured)}"
+    assert measured == set(
+        _re.findall(r"\*\*(\w+) labels over 86\s+marks\*\*", readme)
+    ), "the README's measured label count is not labelPolicy.ts's"
+
+
+def test_the_measured_differences_the_docs_count_are_the_ones_in_the_spec() -> None:
+    """D-203: five documents said "four measured differences in `SPEC.md` §17".
+
+    §17 is where a difference from the approved compositions stands instead of
+    being fixed, so its length is a number a reader takes from the docs and
+    acts on — exactly the class of claim that made three of the map README's
+    numbers wrong. D-203 added two items to it, and every pointer said four.
+    """
+    import re as _re
+
+    spec = _read("docs/mockups/T-211/SPEC.md")
+    section = spec.split("### The differences that remain, measured", 1)
+    assert len(section) == 2, "§17's differences heading changed; update this guard"
+    body = section[1].split("### Regenerating", 1)[0]
+    items = _re.findall(r"^(\d+)\. \*\*", body, _re.MULTILINE)
+    assert items, "§17 lists no numbered differences"
+    counted = len(items)
+    assert [int(number) for number in items] == list(range(1, counted + 1)), items
+
+    words = {4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight"}
+    for path in ("docs/PROJECT_MANAGEMENT.md", "docs/KNOWLEDGE_CANVAS_PLAN.md"):
+        text = _read(path)
+        for quoted in _re.findall(r"(\w+) measured differences", text):
+            # A sentence may say what `T-216` left *and* name the current
+            # total; what it may not do is name a total that is not one.
+            assert quoted in words.values(), f"{path}: {quoted!r} is not a count"
+            if words.get(counted) == quoted:
+                continue
+            # Any other number has to be scoped to the task that left it, and
+            # to say where the rest are.
+            assert words[counted] in text, (
+                f"{path} says {quoted!r} measured differences and never mentions the "
+                f"current {words[counted]}; §17 now lists {counted}"
+            )
+
+
 def test_the_endpoint_caller_claim_is_the_census_on_disk() -> None:
     """"Every frozen endpoint has a caller" was true of ten of eleven."""
     import json as _json

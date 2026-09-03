@@ -584,10 +584,24 @@ def _global_id(value: Any, label: str) -> str:
 
 
 def _unit_global_id(source_id: str | None, local_id: Any) -> str | None:
+    """The unit's three-part global id, or ``None`` when one cannot be built.
+
+    ``parse_source_id`` is **inside** the ``try``. It sat outside it here and
+    inside it in ``index.search._unit_global_id``, so an unparseable stored
+    ``source_id`` raised ``IdError`` out of one twin and returned ``None`` from
+    the other — and these are the two functions T-104's equivalence claim rests
+    on. Unreachable today, because every stored id was built by ``ids.py``, but
+    a coincidence is not an invariant.
+
+    ``None`` is the right half of that disagreement: this function's whole
+    contract is "a plausible string that resolves to nothing is worse than an
+    absence", and a stored id that will not parse is index damage that must
+    cost its own hit's ``global_id`` and not the search.
+    """
     if source_id is None:
         return None
-    parsed = ids.parse_source_id(source_id)
     try:
+        parsed = ids.parse_source_id(source_id)
         return ids.make_global_id(parsed.source_type, parsed.external_id, local_id).value
     except ids.IdError:
         return None

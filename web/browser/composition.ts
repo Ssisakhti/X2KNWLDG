@@ -159,6 +159,9 @@ export async function measureComposition(page: Page): Promise<CompositionReport>
         primary: node.getAttribute("data-map-card-primary") === "true",
         side: node.getAttribute("data-map-card-side") ?? "centre",
         hops: Number(node.getAttribute("data-map-card-hops") ?? 0),
+        // What `placeOrbit` reserved for this card's height, so the gate can
+        // compare it with what the browser actually laid out.
+        reservedBlock: Number(node.getAttribute("data-map-card-block") ?? 0),
         rect: {
           left: rect.left,
           top: rect.top,

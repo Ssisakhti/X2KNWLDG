@@ -49,7 +49,13 @@ function CaptionRow({
   return (
     <div
       className={`caption-row${linked ? " caption-row--linked" : ""}`}
-      role="listitem"
+      // No `role="listitem"` here. `VirtualList` owns it, on the wrapper it
+      // puts around each row, together with the `aria-setsize` and
+      // `aria-posinset` that say where the row sits in a collection the DOM
+      // holds twenty of — facts this component cannot know, because it does
+      // not know it is being windowed (D-203). Two nested listitems would be
+      // the same defect wearing the right attribute.
+      //
       // `aria-current` rather than colour alone: the marked caption has to be
       // announced, not merely tinted (ADR 0001 invariant 10 in the same
       // spirit -- one signal is never enough).

@@ -74,6 +74,16 @@ export interface MapCamera {
   animate(target: MapCameraTarget, animation?: MapCameraAnimation): unknown;
 }
 
+/** What a camera can see right now, and the ratio it sees it at. */
+export interface MapVisibleExtent {
+  /** Framed units visible across the container's width. */
+  width: number;
+  /** Framed units visible down the container's height. */
+  height: number;
+  /** The camera ratio these two were measured at. */
+  ratio: number;
+}
+
 /** Where a camera is asked to go: a centre, and how much to show around it. */
 export interface MapCameraTarget {
   x: number;
@@ -99,10 +109,20 @@ export interface MapPoint {
   y: number;
 }
 
+/** What a redraw may skip, because nothing it depends on has changed. */
+export interface MapRefreshOptions {
+  /**
+   * The graph's structure and every node's position are unchanged, so the
+   * renderer's spatial and edge-group indices do not have to be rebuilt --
+   * only the reducers re-run and the picture repainted.
+   */
+  restyleOnly?: boolean;
+}
+
 /** The part of the renderer the Map uses, and nothing wider. */
 export interface MapRenderer {
   resize(force?: boolean): unknown;
-  refresh(): unknown;
+  refresh(options?: MapRefreshOptions): unknown;
   kill(): unknown;
   getCamera(): MapCamera;
   /**
@@ -114,6 +134,21 @@ export interface MapRenderer {
   onRender(handler: () => void): void;
   /** Graph coordinates to pixels inside the container. */
   graphToViewport(point: MapPoint): MapPoint;
+  /**
+   * What the camera can currently see, in the framed space `nodeDisplay`
+   * answers in, and the ratio it is seeing it at (`T-209`).
+   *
+   * `frame()` needs this because a camera ratio is **not** a framed distance:
+   * the renderer scales the two axes by the container's own aspect and by a
+   * correction ratio derived from the graph's bounding box, so the framed
+   * extent one ratio shows is different along x and along y and different on
+   * every stage. Reading one measured (extent, ratio) pair and scaling from it
+   * needs none of those terms and cannot go stale when they change.
+   *
+   * `null` for a renderer that cannot say — which is any renderer with no
+   * viewport yet, and the fake ones in the unit suites.
+   */
+  visibleExtent?(): MapVisibleExtent | null;
   /**
    * A node's position in the renderer's framed space, or `null` (`T-209`).
    *
@@ -153,44 +188,124 @@ export interface MapSessionHandlers {
 }
 
 /**
- * ForceAtlas2 iterations per pass.
+ * ForceAtlas2 iterations per pass, for a graph small enough to afford them.
  *
  * The number the `T-202` gate measured on the real 86-node/118-edge graph:
  * 2.7-3.4 ms steady and 8.5-9.0 ms cold, against a 16.7 ms frame. That
  * measurement is why the layout is synchronous and there is no worker (D-121),
  * so changing the iteration count here invalidates the measurement the
  * decision rests on.
+ *
+ * It is a *ceiling* rather than the count, because 86 nodes is not the bound.
+ * "Load more" is unbounded and the page limit is 500, so the accumulated graph
+ * grows without any limit while this runs on the main thread inside a React
+ * effect — where `useGraphWalk`'s own `cancel()` cannot reach it. See
+ * :data:`MAP_LAYOUT_NODE_ITERATIONS`.
  */
 export const MAP_LAYOUT_ITERATIONS = 200;
+
+/**
+ * Where Barnes-Hut approximation starts paying for itself, measured.
+ *
+ * `forceAtlas2.inferSettings` turns it on above **2,000** nodes, and below
+ * that every iteration is all-pairs repulsion: O(n²) on the main thread.
+ * Measured here at 200 iterations over a graph with the real one's edge ratio
+ * (1.37 edges per node), plain against Barnes-Hut:
+ *
+ * | nodes | all-pairs | Barnes-Hut |
+ * |---|---|---|
+ * | 86 | 7.6 ms | 23.7 ms |
+ * | 250 | 30.9 ms | 53.0 ms |
+ * | 500 | 113 ms | 133 ms |
+ * | **1,000** | **387 ms** | **345 ms** |
+ * | 2,000 | 1,434 ms | 835 ms |
+ * | 4,000 | 5,880 ms | 1,893 ms |
+ *
+ * So the crossover is near 1,000, not 2,000: at the library's threshold the
+ * approximation would already have saved 600 ms. Below the crossover the tree
+ * costs more than it saves *and* approximates, which is why this is a
+ * threshold rather than always-on.
+ */
+export const MAP_LAYOUT_BARNES_HUT_ORDER = 1000;
+
+/**
+ * The work one layout pass is allowed: node-iterations, not iterations.
+ *
+ * 200 iterations at 500 nodes — the largest graph one page can deliver — is
+ * the unit, and above that the iteration count comes down so the pass stays
+ * roughly flat instead of growing with the accumulated graph. Measured, with
+ * Barnes-Hut where the threshold above enables it:
+ *
+ * | nodes | iterations | pass |
+ * |---|---|---|
+ * | ≤ 500 | 200 | 8–121 ms |
+ * | 1,000 | 100 | ~172 ms |
+ * | 2,000 | 50 | ~271 ms |
+ * | 4,000 | 25 | ~240 ms |
+ * | 8,000 | 20 (the floor) | ~448 ms |
+ *
+ * A rougher layout of a very large graph, rather than a settled layout nobody
+ * can interact with while it settles. The floor is what keeps it a layout at
+ * all, and it is also the honest limit of this design: past it the pass grows
+ * again, and what a graph that size needs is the worker D-121 decided against
+ * on an 86-node measurement. `MapLayoutMeasurement` reports the real numbers
+ * on every pass, so that decision can be revisited from data rather than
+ * from this comment.
+ */
+export const MAP_LAYOUT_NODE_ITERATIONS = MAP_LAYOUT_ITERATIONS * 500;
+
+/** The fewest iterations a pass will run, however large the graph. */
+export const MAP_LAYOUT_MIN_ITERATIONS = 20;
+
+/**
+ * How many iterations a graph of *order* nodes gets, and *ceiling* is the most.
+ *
+ * Pure, and exported, so the schedule can be asserted over a range of orders
+ * without laying out a 40,000-node graph to read one number off it.
+ */
+export function mapLayoutIterations(
+  order: number,
+  ceiling: number = MAP_LAYOUT_ITERATIONS,
+): number {
+  if (order <= 0) return 0;
+  const budgeted = Math.round(MAP_LAYOUT_NODE_ITERATIONS / order);
+  return Math.max(MAP_LAYOUT_MIN_ITERATIONS, Math.min(ceiling, budgeted));
+}
 
 /**
  * How much room a framed focus leaves around itself, as a multiplier on the
  * extent it has to show (`T-209`, D-146).
  *
- * **Calibrated, not derived.** The camera ratio and the pixels a reader sees
- * are related by Sigma's own normalisation and correction ratios, so the only
- * honest way to choose this was to walk 23 focuses of the real graph -- the
- * busiest, the median, the sparsest and twenty more -- at each candidate
- * value and count what the stage could actually carry:
+ * It now means exactly that. `frame()` measures the framed extent the camera
+ * can currently see and scales the ratio to fit the neighbourhood on the worse
+ * axis, so this multiplies a *fit*: 1.2 shows the neighbourhood with a fifth
+ * of it again as clearance. It used to multiply `max(spanX, spanY)` as though
+ * a camera ratio were a framed distance, and Sigma's aspect and correction
+ * terms — ≈1.69 for a wide graph in a landscape stage — were whatever this
+ * number happened to absorb on the one graph and the one viewport it was
+ * calibrated at.
  *
- * | margin | neighbour cards placed | crowded out | marks off the stage |
- * |---|---|---|---|
- * | 0.4 | 26 | 18 | 25 |
- * | 0.9 | 28 | 22 | 19 |
- * | **1.2** | **36** | 33 | **0** |
- * | 1.6 | 33 | 36 | 0 |
- * | 2.0 | 29 | 40 | 0 |
+ * **What the calibration table said, and why it is not reproduced here.** The
+ * original was a walk of 23 focuses of the real graph at five candidate values,
+ * scored on "neighbour cards placed / crowded out / marks off the stage", and
+ * it read 1.2 as the tightest framing at which no neighbour's mark fell outside
+ * `MAP_STAGE_CARD_INSET`. Two of its three columns have since stopped being
+ * measurable: `T-213` replaced the pinned overlay with the Directional Orbit,
+ * whose cards are laid out from the field, the neighbourhood and the chrome and
+ * read **no camera at all** — so "cards placed at margin *m*" and "crowded out
+ * at margin *m*" are no longer functions of this constant. The one live column
+ * is marks off the stage, and that is now the whole justification: a gesture
+ * whose purpose is to show a neighbourhood must not push part of it off the
+ * field.
  *
- * 1.2 is where the two failures stop competing: it is the tightest framing at
- * which *no* neighbour's mark falls outside `MAP_STAGE_CARD_INSET` -- a
- * gesture whose whole purpose is to show a neighbourhood must not push part
- * of it off the stage -- and it is also where the most cards are placeable,
- * because zooming out further only pulls the marks back together. On the
- * busiest entity it yields exactly `MAP_STAGE_CARD_BUDGET` cards.
+ * Zero off-stage marks is also what the ratio arithmetic above now *computes*
+ * rather than what this number was tuned to reach, which is why the value is
+ * unchanged and the reasoning is not. Re-measuring it belongs to the browser
+ * gate, over the geometry clauses that already assert the invariant.
  *
  * A focus with a single neighbour still gets no second card at any value: two
- * 320 px cards need more clearance than a pair 175 px apart can give, and
- * that omission is counted and the neighbour is in the related list (R20).
+ * 320 px cards need more clearance than a pair 175 px apart can give, and that
+ * omission is counted and the neighbour is in the related list (R20).
  */
 export const MAP_FOCUS_MARGIN = 1.2;
 
@@ -390,8 +505,34 @@ export class MapSession {
       minY = Math.min(minY, point.y);
       maxY = Math.max(maxY, point.y);
     }
-    const extent = Math.max(maxX - minX, maxY - minY);
-    const ratio = Math.max(extent * MAP_FOCUS_MARGIN, MAP_FOCUS_MIN_RATIO);
+    /*
+     * The ratio that actually *fits* the neighbourhood, on both axes.
+     *
+     * This used to be `max(spanX, spanY) * MAP_FOCUS_MARGIN`, which treats a
+     * camera ratio as a framed distance. It is not one: the renderer scales
+     * the two axes by the container's aspect and by a correction ratio derived
+     * from the graph's bounding box, so the framed extent one ratio shows
+     * differs along x and along y and differs on every stage. On a wide graph
+     * in a landscape stage the correction is ≈1.69, and the topmost and
+     * bottommost neighbours landed off-stage: the failure the margin exists to
+     * eliminate.
+     *
+     * Measured rather than derived. One (visible extent, ratio) pair from the
+     * renderer is enough, because the visible extent is linear in the ratio —
+     * so the ratio needed to show a span is the current one scaled by how many
+     * times that span exceeds what is visible now, taken over the worse axis.
+     * No aspect term, no correction ratio, and nothing to go stale when either
+     * changes. A renderer that cannot answer keeps the old estimate, which is
+     * what the fake renderers in the unit suites do.
+     */
+    const spanX = maxX - minX;
+    const spanY = maxY - minY;
+    const view = renderer.visibleExtent?.() ?? null;
+    const needed =
+      view !== null && view.width > 0 && view.height > 0 && view.ratio > 0
+        ? view.ratio * Math.max(spanX / view.width, spanY / view.height)
+        : Math.max(spanX, spanY);
+    const ratio = Math.max(needed * MAP_FOCUS_MARGIN, MAP_FOCUS_MIN_RATIO);
     // The middle of what has to be visible, not the focus itself: a focus at
     // the edge of its own neighbourhood would otherwise leave half of it off
     // the stage, which is the state this method exists to end.
@@ -435,10 +576,21 @@ export class MapSession {
    * table becomes a new drawing without a new renderer and without a second
    * lifecycle to kill.
    *
+   * `restyleOnly`, because this path changes no structure and moves no node.
+   * A bare `refresh()` is a *full* one: Sigma clears both indices, re-adds
+   * every node and every edge, and rebuilds its edge groups before running the
+   * reducers. This method is called on every `enterNode` and every
+   * `leaveNode`, so sweeping the pointer across 86 marks cost two full
+   * re-indexations per mark crossed, and at a few thousand nodes that is a
+   * visible stall per pointer move. What actually changes is `size`, `color`,
+   * `label` and opacity -- and `size` is not one of Sigma's own
+   * layout-impacting fields either (`x`, `y`, `zIndex`, `type`), which is the
+   * same judgement its internal graph handlers make.
+   *
    * A no-op with no live renderer, like every other operation here.
    */
   refresh(): void {
-    this.renderer?.refresh();
+    this.renderer?.refresh({ restyleOnly: true });
   }
 
   /**
@@ -538,17 +690,27 @@ export class MapSession {
     // An empty graph has nothing to relax, and `inferSettings` divides by its
     // order. An honest empty Map is a state the Map has to render (D-123's
     // `total: null` is *unknown*, never zero), so it must not be a crash.
-    if (graph.order > 0) {
+    const iterations = mapLayoutIterations(graph.order, this.iterations);
+    if (iterations > 0) {
       forceAtlas2.assign(graph, {
-        iterations: this.iterations,
-        settings: forceAtlas2.inferSettings(graph),
+        iterations,
+        settings: {
+          ...forceAtlas2.inferSettings(graph),
+          // Not the library's own threshold. `inferSettings` turns this on
+          // above 2,000 nodes, and the measurement in
+          // `MAP_LAYOUT_BARNES_HUT_ORDER` puts the crossover near 1,000 —
+          // below which the tree costs more than it saves, and above which
+          // all-pairs repulsion is what the main thread pays for.
+          barnesHutOptimize: graph.order >= MAP_LAYOUT_BARNES_HUT_ORDER,
+        },
       });
     }
     return {
       nodes: graph.order,
       edges: graph.size,
-      iterations: graph.order > 0 ? this.iterations : 0,
+      iterations,
       milliseconds: this.now() - started,
     };
   }
+
 }

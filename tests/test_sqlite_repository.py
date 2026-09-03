@@ -1231,6 +1231,97 @@ def test_the_memo_is_dropped_when_the_index_changes_under_the_reader(tmp_path):
         repo.close()
 
 
+def test_a_graph_walk_builds_the_collection_once(tmp_path):
+    """The one public method that was not wrapped in the per-walk memo.
+
+    The whole entity and relation set is the same on every page of one walk —
+    the cursor only says where in ``nodes`` to resume — and it was re-selected
+    and re-parsed each time. Measured on 4,000 entities: 63,992 JSON rows
+    across 8 pages, 7,999 per page, all identical. This is the Map's primary
+    walk, where pages accumulate until the graph is whole.
+    """
+    write_index(tmp_path, _many_entities(4000))
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        built = 0
+        real_collection = repo._graph_collection
+
+        def counting(*args, **kwargs):
+            nonlocal built
+            built += 1
+            return real_collection(*args, **kwargs)
+
+        repo._graph_collection = counting  # type: ignore[method-assign]
+
+        cursor, pages, seen = None, 0, []
+        while True:
+            page = repo.graph(GraphQuery(limit=500, cursor=cursor))
+            pages += 1
+            seen.extend(node["global_id"] for node in page.nodes)
+            assert page.total == 4000
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+        assert pages == 8
+        assert len(seen) == len(set(seen)) == 4000, "a full walk shows every node once"
+        assert built == 1, f"the collection was built {built} times for one walk"
+    finally:
+        repo.close()
+
+
+def test_a_graph_page_hands_out_no_record_the_memo_holds(tmp_path):
+    """ADR 0002 invariant 6, which the memo could have quietly broken.
+
+    Before the memo every page parsed its records fresh, so there was nothing
+    for a caller to alias; now the collection is held between pages and the
+    edges have to be copied on the way out, as ``MemoryRepository`` already
+    does.
+    """
+    write_index(
+        tmp_path,
+        IndexRecords(
+            entities=[
+                {
+                    "schema_version": "1.0",
+                    "global_id": f"youtube:s:KU-{index:06d}",
+                    "source_id": "youtube:s",
+                    "source_type": "youtube",
+                    "local_id": f"KU-{index:06d}",
+                    "kind": "principle",
+                    "provenance_class": "source",
+                    "label": f"Node {index}",
+                }
+                for index in range(2)
+            ],
+            relations=[
+                {
+                    "schema_version": "1.0",
+                    "id": "youtube:s:REL-000001",
+                    "source_id": "youtube:s",
+                    "from_id": "youtube:s:KU-000000",
+                    "to_id": "youtube:s:KU-000001",
+                    "relation": "supports",
+                    "relation_vocabulary": "canonical",
+                    "provenance_class": "source",
+                    "confidence": None,
+                }
+            ],
+        ),
+    )
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        first = repo.graph(GraphQuery(limit=500))
+        assert first.edges
+        first.edges[0]["relation"] = "MUTATED"
+        first.nodes[0]["label"] = "MUTATED"
+
+        again = repo.graph(GraphQuery(limit=500))
+        assert again.edges[0]["relation"] == "supports"
+        assert again.nodes[0]["label"] != "MUTATED"
+    finally:
+        repo.close()
+
+
 @requires_fts5
 def test_a_search_walk_ranks_the_corpus_once(tmp_path):
     """Every page re-ran the whole FTS retrieval and re-ranked every hit.

@@ -584,17 +584,21 @@ export type StatusPayload = {
     /**
      * When the index last finished a build, or null if it never has.
      */
-    built_at: string | null;
+    built_at: IsoTimestamp | null;
     /**
      * Migration version of the SQLite schema (T-101), or null when no index exists.
      */
     index_version?: number | null;
     /**
-     * Why the index is in this state, when it has something to say. Present on `error`, and also
-     * on `ready` after a scan that failed and was rolled back — the stored records are intact and
-     * still answerable, and this is the only place that says the last scan did not finish. Absent
-     * when there is nothing to report; never an empty string. Carries no host filesystem path (ADR
-     * 0003).
+     * Why the index is in this state, when it has something to say. Present on `error`; on `ready`
+     * after a scan that failed and was rolled back — the stored records are intact and still
+     * answerable, and this is the only place that says the last scan did not finish; and on
+     * `ready` when the index holds sources whose searchable text could not be read, which is why a
+     * search over them reports `total: null`. Such a source is *indexed*, so it is counted in
+     * `runs.indexed` and named in no `skipped` entry, and this sentence is the only channel that
+     * explains the uncountable total. The count, not the ids: `/api/sources` is where a client
+     * learns which source is which. Absent when there is nothing to report; never an empty string.
+     * Carries no host filesystem path (ADR 0003).
      */
     message?: string | null;
   };

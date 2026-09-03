@@ -131,17 +131,24 @@ _TABLES: Mapping[str, str] = {
     "indexed_relation": "relations",
 }
 
+#: How many per-walk answers one repository keeps at once (D-188). A walk needs
+#: one; a server answering several readers from one repository needs a few. It
+#: is a bound on the *number* of entries and not on their size, and an entry is
+#: not small: a ``search`` entry is a whole ranked hit list — D-188's own note
+#: cites 4,003 hits — and a ``graph`` entry is every entity and relation the
+#: query matches. Eight of those is the ceiling because the memo must not
+#: become a second index; if it ever needs to hold more, the thing to bound is
+#: the bytes rather than the count.
+_WALK_CACHE_ENTRIES = 8
+
 #: Rows per continuation seek, once a page has already been asked for. The first
 #: seek of a page is exactly ``limit + 1`` rows (``limit + 2`` when resuming,
 #: because ``identity >= bound`` returns the boundary row that ``Cursor.tail``
 #: drops); a Python predicate that thins the result then costs one round trip per
 #: this many rows rather than one per row.
-#: How many per-walk answers one repository keeps at once (D-188). A walk needs
-#: one; a server answering several readers from one repository needs a few. It
-#: is a bound rather than a size: the entries are small, and the point is that
-#: the memo cannot become a second index.
-_WALK_CACHE_ENTRIES = 8
-
+#:
+#: This paragraph sat on ``_WALK_CACHE_ENTRIES`` above, which is not what it
+#: describes.
 _SCAN_BATCH = 256
 
 #: How many ids go into one ``IN (…)`` list. Well under ``SQLITE_MAX_VARIABLE_
@@ -374,7 +381,57 @@ class SqliteRepository:
                 f"the index reports state {state!r}, which is not one of "
                 f"{', '.join(INDEX_STATES)}",
             )
-        return state, row["built_at"], row["message"]
+        return state, row["built_at"], self._message_with_unsearchable(row["message"])
+
+    def _message_with_unsearchable(self, stored: str | None) -> str | None:
+        """*stored*, plus the sources whose search text could not be read.
+
+        A source can index perfectly and still lose its searchable documents —
+        one caption missing a ``start_sec`` is enough — and ``search`` records
+        that in ``runs.problems`` so ``PageInfo.total`` comes back ``null``
+        rather than ``0``. Over HTTP that was reported by nothing at all: the
+        ``runs`` block carries ``discovered``, ``indexed`` and ``skipped``, and
+        such a source is *indexed*, so a client saw a healthy index answering
+        every search with an uncountable total and no channel that explained
+        why.
+
+        ``index.message`` is that channel: the frozen document defines it as
+        "why the index is in this state, when it has something to say", and a
+        ready index that cannot count a source's hits has something to say. The
+        count, not the ids: the sentence must stay short and must never carry a
+        host path (ADR 0003), and ``/api/sources`` is where a client learns
+        which source is which.
+        """
+        try:
+            unsearchable = self._unsearchable_source_count()
+        except StoreError:
+            # Reporting the state is more important than annotating it.
+            return stored
+        if not unsearchable:
+            return stored
+        note = (
+            f"{unsearchable} indexed "
+            f"{'source' if unsearchable == 1 else 'sources'} could not be read for "
+            "search, so a search total over them is unknown rather than zero"
+        )
+        return f"{stored} ({note})" if stored else note
+
+    def _unsearchable_source_count(self) -> int:
+        """How many indexed sources carry the searchability marker.
+
+        Counted in SQL over the same column ``search.unreadable_sources``
+        reads, rather than by calling it: this runs on every ``status()`` and
+        must not deserialise every run's problems to answer a count.
+        """
+        if self._connection is None:
+            return 0
+        row = self._query(
+            "SELECT COUNT(*) AS n FROM runs "
+            "WHERE source_id IS NOT NULL AND skipped_reason IS NULL "
+            "AND problems LIKE ?",
+            (f'%"{schema.SEARCH_PROBLEM_PREFIX}%',),
+        ).fetchone()
+        return int(row["n"]) if row is not None else 0
 
     def _has_state_table(self) -> bool:
         """Whether a build could ever have recorded a state here."""
@@ -739,6 +796,67 @@ class SqliteRepository:
         with no ``next_cursor`` is still a slice of a larger graph.
         """
         self._require_ready()
+        # D-188's argument, applied to the one public method that was not
+        # wrapped in it. The whole entity and relation set is the same on every
+        # page of one walk — the cursor only says where in `nodes` to resume —
+        # and it was re-selected and re-parsed each time. Measured on 4,000
+        # entities: 63,992 JSON rows across 8 pages, 7,999 per page, all
+        # identical. This is the Map's primary walk, where pages accumulate
+        # until the graph is whole, so it is the hot path rather than an edge.
+        #
+        # The key is the query without its cursor, which is exactly "the same
+        # walk", and the generation check inside `_walk_cached` is what makes a
+        # rebuild landing mid-walk empty the memo rather than serve a stale
+        # graph.
+        relations, nodes = self._walk_cached(
+            ("graph", query.fingerprint), lambda: self._graph_collection(query)
+        )
+
+        start = query.start()
+        window = (
+            list(nodes)
+            if start is None
+            else start.tail(nodes, _keyed("entity_ref"))
+        )
+        page = page_from_window(
+            window[: query.limit + 1], query, "entity_ref", total=len(nodes)
+        )
+
+        visible = {node.get("global_id") for node in nodes}
+        on_page = {node.get("global_id") for node in page.items}
+        edges = [
+            # Copied, like `MemoryRepository.graph` does and for the same
+            # reason: the relations now come from the per-walk memo, so handing
+            # them out uncopied would let a caller edit this repository's own
+            # cache (ADR 0002 invariant 6). Before the memo they were parsed
+            # fresh on every page and there was nothing to alias.
+            record_copy(relation)
+            for relation in relations
+            if matches_relation(relation, query)
+            and relation.get("from_id") in visible
+            and relation.get("to_id") in visible
+            and (relation.get("from_id") in on_page or relation.get("to_id") in on_page)
+        ]
+        edges, edges_cut = bounded_edges(edges)
+        return GraphPage(
+            nodes=page.items,
+            edges=edges,
+            truncated=len(page.items) < len(nodes) or edges_cut,
+            limit=page.limit,
+            next_cursor=page.next_cursor,
+            total=page.total,
+        )
+
+    def _graph_collection(
+        self, query: GraphQuery
+    ) -> tuple[list[dict[str, Any]], list[Mapping[str, Any]]]:
+        """``(relations, nodes)`` for *query*, over the whole record set.
+
+        Materialised rather than sought, and not by oversight:
+        ``graph_nodes`` is defined over the whole entity and relation set — a
+        node belongs when *some* relation names it — so no seek can decide
+        membership one page at a time. What :meth:`graph` memoises is this.
+        """
         node_narrow, node_params = _narrow(
             ("provenance_class", query.provenance_class)
         )
@@ -763,37 +881,7 @@ class SqliteRepository:
                 page=_SCAN_BATCH,
             )
         )
-        nodes = graph_nodes(entities, relations, query)
-
-        start = query.start()
-        window = (
-            list(nodes)
-            if start is None
-            else start.tail(nodes, _keyed("entity_ref"))
-        )
-        page = page_from_window(
-            window[: query.limit + 1], query, "entity_ref", total=len(nodes)
-        )
-
-        visible = {node.get("global_id") for node in nodes}
-        on_page = {node.get("global_id") for node in page.items}
-        edges = [
-            relation
-            for relation in relations
-            if matches_relation(relation, query)
-            and relation.get("from_id") in visible
-            and relation.get("to_id") in visible
-            and (relation.get("from_id") in on_page or relation.get("to_id") in on_page)
-        ]
-        edges, edges_cut = bounded_edges(edges)
-        return GraphPage(
-            nodes=page.items,
-            edges=edges,
-            truncated=len(page.items) < len(nodes) or edges_cut,
-            limit=page.limit,
-            next_cursor=page.next_cursor,
-            total=page.total,
-        )
+        return relations, list(graph_nodes(entities, relations, query))
 
     @_serialized
     def neighborhood(self, query: NeighborhoodQuery) -> Neighborhood | None:

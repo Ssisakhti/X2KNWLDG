@@ -735,6 +735,18 @@ export function mapNodeStyle(
       : interaction === "hovered"
         ? MAP_HALO.hovered
         : null;
+  /*
+   * Asked **before** the label is cut, which is the order the edge reducer
+   * below already uses.
+   *
+   * `truncateForDisplay` is a regex plus a per-code-point walk over a
+   * statement that may be 4,096 characters by schema, and it was run
+   * unconditionally and only then handed to a policy that throws the result
+   * away. With anything focused, 85 of 86 marks are hidden and paid that cost
+   * anyway — on every hover, for every mark, twice per mark a pointer sweep
+   * crosses.
+   */
+  const labelVisibility = nodeLabelVisibility(record.global_id, interaction, view);
 
   return {
     shape: mark.shape,
@@ -748,8 +760,11 @@ export function mapNodeStyle(
     zIndex: state.zIndex,
     depth: state.top ? "topNodes" : "nodes",
     visibility: "visible",
-    label: truncateForDisplay(record.label, MAP_LABEL_CHARS[interaction]),
-    labelVisibility: nodeLabelVisibility(record.global_id, interaction, view),
+    label:
+      labelVisibility === "hidden"
+        ? null
+        : truncateForDisplay(record.label, MAP_LABEL_CHARS[interaction]),
+    labelVisibility,
     // The label wears the mark's own hue rather than a fixed ink colour: the
     // stage follows the user's light/dark preference and WebGL cannot read a
     // CSS custom property, so a mid-tone that is legible on both is the only

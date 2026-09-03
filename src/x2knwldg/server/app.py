@@ -14,19 +14,21 @@ served ``/api/openapi.json`` reads the frozen file from disk instead.
 
 from __future__ import annotations
 
-import json
+import hashlib
 from collections.abc import Sequence
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..repository.base import IndexRepository
 from . import errors
 from .deps import build_repository
 from .envelope import error_body
+from .head import HeadAsGet
 from .routes import ROUTERS
 
 #: The frozen contract, shipped **inside** the package.
@@ -46,6 +48,18 @@ from .routes import ROUTERS
 #: arrangement as the generated ``types.d.ts``, and guarded the same way, by a
 #: test that fails when the two differ by a byte.
 _FROZEN_SPEC = Path(__file__).resolve().parent / "openapi.json"
+
+
+@lru_cache(maxsize=1)
+def _frozen_spec_bytes() -> tuple[bytes, str]:
+    """The frozen document's bytes and its ``ETag``, read once per process.
+
+    Served as the bytes on disk rather than as a re-serialisation, for the same
+    reason ``routes/media.py`` serves a canonical file byte for byte: the
+    document a client reads is then the document the tests validate.
+    """
+    body = _FROZEN_SPEC.read_bytes()
+    return body, f'"{hashlib.sha256(body).hexdigest()[:32]}"'
 
 
 #: Host header values this server answers to.
@@ -184,19 +198,52 @@ def create_app(
         allowed_hosts=list(allowed_hosts if allowed_hosts is not None else LOOPBACK_HOST_NAMES),
     )
 
+    # After the host check (added above, so it stays the outermost of the two)
+    # and before routing: a `HEAD` has to become a `GET` for the router to
+    # match it at all. See `head.py` for why this is a middleware rather than
+    # eleven `methods=["GET", "HEAD"]` decorators.
+    app.add_middleware(HeadAsGet)
+
     errors.install(app)
     for router in ROUTERS:
         app.include_router(router, prefix="/api")
 
     @app.get("/api/openapi.json", include_in_schema=False)
-    def frozen_spec() -> Any:
+    def frozen_spec(request: Request) -> Any:
         """Serve the frozen contract, not a generated one.
 
         A client that wants to know what this server promises should read the
         same document the tests validate against.
+
+        Read once and cached, with an ``ETag``. The document is immutable — it
+        ships inside the package and the tests fail if the two copies differ by
+        a byte — and this used to re-read 51,883 bytes and run a ``json.loads``
+        on every request, with no cache and no validator, so a client polling
+        the contract paid for it every time and could never be told "unchanged".
         """
         if not _FROZEN_SPEC.is_file():
-            return JSONResponse(status_code=404, content={"detail": "spec not packaged"})
-        return json.loads(_FROZEN_SPEC.read_text(encoding="utf-8"))
+            # The frozen envelope, not FastAPI's `{"detail": ...}` — the shape
+            # `errors.handle_http_exception`'s own docstring says "would teach
+            # a client that the envelope is optional". This was the one
+            # response in the package that was not the envelope, and D-084
+            # records that this branch was live in every installed wheel, so
+            # it was not a theoretical one.
+            return JSONResponse(
+                status_code=404,
+                content=error_body(
+                    "not_found",
+                    "This installation does not carry the frozen contract document.",
+                ),
+            )
+        body, etag = _frozen_spec_bytes()
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers={"ETag": etag})
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={"ETag": etag},
+        )
 
     return app
+
+

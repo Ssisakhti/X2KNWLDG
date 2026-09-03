@@ -22,6 +22,7 @@ that the code does not make.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import Request
@@ -51,8 +52,18 @@ class NotFound(ApiError):
     http_status = 404
 
 
-def _response(code: str, message: str, status: int, detail: Any = None) -> JSONResponse:
-    return JSONResponse(status_code=status, content=error_body(code, message, detail))
+def _response(
+    code: str,
+    message: str,
+    status: int,
+    detail: Any = None,
+    headers: Mapping[str, str] | None = None,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status,
+        content=error_body(code, message, detail),
+        headers=dict(headers) if headers else None,
+    )
 
 
 async def handle_repository_error(request: Request, exc: RepositoryError) -> JSONResponse:
@@ -107,7 +118,40 @@ async def handle_http_exception(request: Request, exc: StarletteHTTPException) -
     code = "not_found" if exc.status_code == 404 else "invalid_request"
     if exc.status_code >= 500:
         code = "internal"
-    return _response(code, str(exc.detail), exc.status_code)
+    # `exc.headers` travels with the body. Starlette builds an `Allow` for a
+    # method mismatch and this handler discarded it, so the 405 carried only
+    # content-length and content-type — RFC 9110 requires `Allow` on a 405,
+    # and a client is left guessing what the path does accept. Any future
+    # `HTTPException` with headers — a `Retry-After`, a `WWW-Authenticate` —
+    # lost them the same way, so this is read from the exception rather than
+    # special-cased for 405.
+    return _response(
+        code, str(exc.detail), exc.status_code, headers=_with_head(exc.headers)
+    )
+
+
+def _with_head(headers: Mapping[str, str] | None) -> Mapping[str, str] | None:
+    """*headers*, with ``HEAD`` named in ``Allow`` wherever ``GET`` is.
+
+    Starlette builds ``Allow`` from the router, and the router only knows about
+    ``GET``: :class:`~x2knwldg.server.head.HeadAsGet` rewrites a ``HEAD`` into
+    one *before* routing, so ``HEAD`` is answered on every path the header would
+    otherwise list as ``GET``-only. ``Allow`` names the methods the **target
+    resource** supports (RFC 9110), so a header that omitted it would be
+    telling a client that the method it just used successfully is not allowed.
+    """
+    if headers is None:
+        return None
+    allow = headers.get("Allow") or headers.get("allow")
+    if allow is None:
+        return headers
+    methods = [method.strip() for method in allow.split(",") if method.strip()]
+    if "GET" not in methods or "HEAD" in methods:
+        return headers
+    updated = dict(headers)
+    updated.pop("allow", None)
+    updated["Allow"] = ", ".join([*methods, "HEAD"])
+    return updated
 
 
 async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:

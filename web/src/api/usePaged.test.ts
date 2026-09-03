@@ -174,7 +174,38 @@ describe("usePaged", () => {
     await act(async () => inFlight.deferred.resolve(page(["A2"], "cur-a2")));
   });
 
-  it("still reports a live failure", async () => {
+  it("reports a failed later page without destroying the pages already loaded", async () => {
+    /*
+     * `loadMore`'s catch set the same `error` the *first* page's failure sets,
+     * and all four call sites branch on that field before rendering items — so
+     * one transient hiccup on "More" replaced fifty loaded records with an
+     * error panel, and the only way back discarded every page already
+     * fetched. The two facts are separate fields now: `error` means "there is
+     * nothing to show", `moreError` means "there is a gap at the end".
+     */
+    const loader = recordingLoader();
+    const { result } = renderHook(
+      ({ query }: { query: string }) => usePaged(loader.load(query), [query]),
+      { initialProps: { query: "a" } },
+    );
+    await act(async () => loader.of("a", undefined)[0]!.deferred.resolve(page(["A1"], "cur-a1")));
+    expect(result.current.items).toEqual(["A1"]);
+
+    act(() => result.current.loadMore());
+    await act(async () => {
+      loader.of("a", "cur-a1")[0]!.deferred.reject(new Error("the server said no"));
+      await Promise.resolve();
+    });
+
+    expect(result.current.moreError?.message).toContain("the server said no");
+    expect(result.current.error).toBeNull();
+    expect(result.current.items).toEqual(["A1"]);
+    // And the cursor is still there, so the reader can try the same page again.
+    expect(result.current.hasMore).toBe(true);
+    expect(result.current.loadingMore).toBe(false);
+  });
+
+  it("clears a failed page when another is asked for", async () => {
     const loader = recordingLoader();
     const { result } = renderHook(
       ({ query }: { query: string }) => usePaged(loader.load(query), [query]),
@@ -186,7 +217,29 @@ describe("usePaged", () => {
       loader.of("a", "cur-a1")[0]!.deferred.reject(new Error("the server said no"));
       await Promise.resolve();
     });
+    expect(result.current.moreError).not.toBeNull();
+
+    act(() => result.current.loadMore());
+    expect(result.current.moreError).toBeNull();
+    await act(async () =>
+      loader.of("a", "cur-a1")[1]!.deferred.resolve(page(["A2"], null)),
+    );
+    expect(result.current.items).toEqual(["A1", "A2"]);
+    expect(result.current.moreError).toBeNull();
+  });
+
+  it("still reports a failed first page as the reason there is nothing to show", async () => {
+    const loader = recordingLoader();
+    const { result } = renderHook(
+      ({ query }: { query: string }) => usePaged(loader.load(query), [query]),
+      { initialProps: { query: "a" } },
+    );
+    await act(async () => {
+      loader.of("a", undefined)[0]!.deferred.reject(new Error("the server said no"));
+      await Promise.resolve();
+    });
     expect(result.current.error?.message).toContain("the server said no");
-    expect(result.current.loadingMore).toBe(false);
+    expect(result.current.moreError).toBeNull();
+    expect(result.current.items).toEqual([]);
   });
 });

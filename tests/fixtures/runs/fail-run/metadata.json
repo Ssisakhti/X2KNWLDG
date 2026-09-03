@@ -13,7 +13,7 @@
   "captions_end_sec": 90.0,
   "canonical_hashes": {
     "transcript.json": "021789b095ab307c60ed4f60e419f7e25d50f54956eaf5579d4887a306937814",
-    "segments.json": "77e77dc67d8a394bbbb7ae01bd010ddde4a5018d352e7a1320ef2b1b951d99b0"
+    "segments.json": "44e49b49cda81cb9b104e4cb08f94f8884d49b55bda813543757618f67abed86"
   },
   "extraction": {
     "model": "none — handwritten fixture",

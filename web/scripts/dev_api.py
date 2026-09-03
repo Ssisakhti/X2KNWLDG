@@ -30,6 +30,8 @@ shipped command is ``x2knwldg ui`` (`T-116`).
 from __future__ import annotations
 
 import argparse
+import getpass
+import os
 import shutil
 import sys
 import tempfile
@@ -41,6 +43,22 @@ FIXTURES = PROJECT / "tests" / "fixtures" / "runs"
 FIXTURE_RUNS = ("pass-run", "partial-run", "fail-run")
 
 sys.path.insert(0, str(PROJECT / "src"))
+
+
+def _scratch_root() -> Path:
+    """A scratch project directory this user owns.
+
+    ``Path(tempfile.gettempdir()) / "x2knwldg-web-dev"`` is a predictable path
+    in a world-writable directory, and the caller ``rmtree``s it before use.
+    ``mkdtemp`` inside a per-user parent gives the same convenience — one
+    place to look, reused across runs by the newest-first search below —
+    without a name another user can occupy first.
+    """
+    parent = Path(tempfile.gettempdir()) / f"x2knwldg-web-dev-{os.getuid()}"
+    parent.mkdir(mode=0o700, exist_ok=True)
+    if parent.owner() != getpass.getuser():  # pragma: no cover - hostile host
+        raise SystemExit(f"{parent} is not owned by this user; refusing to use it")
+    return parent / "project"
 
 
 def build_fixture_project(destination: Path) -> Path:
@@ -77,7 +95,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("this development server binds loopback only")
 
     if args.project_root is None:
-        root = build_fixture_project(Path(tempfile.gettempdir()) / "x2knwldg-web-dev")
+        # A per-user scratch root, not a fixed `/tmp/x2knwldg-web-dev`. The
+        # fixed name is predictable and `build_fixture_project` starts by
+        # `rmtree`-ing it, so on a shared machine another user could
+        # pre-create it — or be handed it. `mkdtemp` under a per-user parent
+        # keeps the path stable enough to find and owned by whoever ran this.
+        root = build_fixture_project(_scratch_root())
         print(f"serving the committed run fixtures from {root}")
     else:
         root = args.project_root.expanduser().resolve()
@@ -95,7 +118,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print("no index built: every endpoint but /api/status will answer 503 index_unavailable")
 
-    print(f"http://{args.host}:{args.port}/api/status")
+    # `serve.Listening.url` is the project's one statement of this rule; a
+    # second copy printed `http://::1:8931/api/status`, which no browser can
+    # parse. Reused rather than restated.
+    from x2knwldg.server.serve import Listening
+
+    listening = Listening(host=args.host, port=args.port)
+    print(f"{listening.url.rstrip('/')}/api/status")
     uvicorn.run(create_app(project_root=root), host=args.host, port=args.port, log_level="info")
     return 0
 

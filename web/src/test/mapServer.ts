@@ -122,13 +122,13 @@ export function graphBody(
 export const STAGE = { width: 900, height: 600 };
 
 /** A stage with a real size, which jsdom does not otherwise provide. */
-export function sizeTheStage(): void {
+export function sizeTheStage(stage: { width: number; height: number } = STAGE): void {
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
     this: Element,
   ) {
     const sized = this.hasAttribute("data-map-stage");
-    const width = sized ? STAGE.width : 0;
-    const height = sized ? STAGE.height : 0;
+    const width = sized ? stage.width : 0;
+    const height = sized ? stage.height : 0;
     return {
       x: 0,
       y: 0,

@@ -84,9 +84,19 @@
   --bg-hover: #ebe8e3;
   --fg: #1c1a17;
   --fg-muted: #5e5851;
-  --fg-faint: #8b847b;
+  /* The quietest of the three greys, and still readable: `.faint` carries a
+     count, a hop label and the note under a Quick Read heading, which are
+     text and not decoration. 5.07:1 on `--bg` against `--fg-muted`'s 6.73
+     keeps the three levels a hierarchy while all three clear 4.5:1. */
+  --fg-faint: #706b63;
   --border: #ded9d2;
-  --border-strong: #bdb6ac;
+  /* A control's edge, and the reason it is not quieter: an empty search
+     field has nothing but its border to say it is a field, so this token
+     carries SC 1.4.11's 3:1 (`contrast.test.ts`). `--border` above draws a
+     panel's edge and a rule between rows, where the content beside it is
+     already legible, and holding a hairline divider to the same number
+     would turn the quiet field of ADR 0006 into a wireframe. */
+  --border-strong: #908a82;
   --accent: #2f5d8a;
   --accent-contrast: #ffffff;
   --focus: #2f5d8a;
@@ -116,8 +126,11 @@
   --status-unknown-fg: #5e5851;
   --status-unknown-bg: #eeebe6;
 
-  /* A value the canonical data does not state. Rendered, never filled. */
-  --missing-fg: #8b847b;
+  /* A value the canonical data does not state. Rendered, never filled -- and
+     held to the same 4.5:1 as any other text, because ADR 0001 invariant 2
+     says an honest incomplete result must not read as a weaker version of a
+     good one, and a greyed-out "not stated" is that invariant failing. */
+  --missing-fg: #706b63;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -128,9 +141,9 @@
     --bg-hover: #2b2930;
     --fg: #ece9e4;
     --fg-muted: #a9a49c;
-    --fg-faint: #7d7871;
+    --fg-faint: #8d8881;
     --border: #35333a;
-    --border-strong: #4d4a52;
+    --border-strong: #706d72;
     --accent: #82b1e0;
     --accent-contrast: #10151b;
     --focus: #82b1e0;
@@ -151,7 +164,7 @@
     --status-unknown-fg: #a9a49c;
     --status-unknown-bg: #26252a;
 
-    --missing-fg: #7d7871;
+    --missing-fg: #8d8881;
 
     /* A dark field needs a deeper shadow to separate a surface from it at
        all: the light-mode values are invisible over `#17161a`. */

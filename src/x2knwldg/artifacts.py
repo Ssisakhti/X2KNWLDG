@@ -130,6 +130,18 @@ def _carry_coverage_scaffold_forward(run_dir: Path, coverage: dict[str, Any]) ->
     is derived from the windows the bundle just supplied: carrying the
     scaffold's would restate ``covered_windows: 0`` over a document in which
     every window is covered.
+
+    ``window_size_sec`` is carried **unconditionally**, and that word is the
+    whole guard. `validators.validate_coverage` measures every window against
+    the value the audited document itself carries, so while the scaffold's was
+    restored only when the bundle omitted it, a bundle that *stated* a wider
+    one set its own bound and the check measured it against itself. That is
+    D-164's bypass reopened one field along: an identical single ``[0, 1795]``
+    window over a 1795-second run is ``FAIL`` with the scaffold's 300 and
+    ``PASS`` with a declared 1795 — a claim of completion over 29 of 30
+    minutes that were never audited, which is the one thing `WORKFLOW.md` §4
+    and `AGENTS.md` forbid outright. An audit may subdivide a scaffolded
+    window; nothing it can write may widen one.
     """
     scaffold = run_dir / "coverage.json"
     previous: Any = None
@@ -139,7 +151,7 @@ def _carry_coverage_scaffold_forward(run_dir: Path, coverage: dict[str, Any]) ->
         except (JsonReadError, OSError):
             previous = None
     if isinstance(previous, dict):
-        if "window_size_sec" not in coverage and "window_size_sec" in previous:
+        if "window_size_sec" in previous:
             coverage["window_size_sec"] = previous["window_size_sec"]
         captions_by_window = {
             window.get("window_id"): window.get("caption_ids")
@@ -152,6 +164,16 @@ def _carry_coverage_scaffold_forward(run_dir: Path, coverage: dict[str, Any]) ->
             carried = captions_by_window.get(window.get("window_id"))
             if carried is not None:
                 window["caption_ids"] = list(carried)
+    else:
+        # No readable scaffold -- a damaged run, or one whose `coverage.json`
+        # was removed. The bundle must still not name its own bound: the widest
+        # window the format allows is `COVERAGE_WINDOW_SEC`, which is what
+        # `create_pending_coverage` would have minted.
+        stated = coverage.get("window_size_sec")
+        if not isinstance(stated, (int, float)) or isinstance(stated, bool):
+            coverage["window_size_sec"] = constants.COVERAGE_WINDOW_SEC
+        elif stated > constants.COVERAGE_WINDOW_SEC:
+            coverage["window_size_sec"] = constants.COVERAGE_WINDOW_SEC
 
     windows = coverage.get("windows")
     if not isinstance(windows, list):

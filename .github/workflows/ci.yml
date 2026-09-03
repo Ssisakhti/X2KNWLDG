@@ -1,5 +1,16 @@
 name: CI
 
+#
+# Every `uses:` is pinned to a commit SHA with the version it is, in a comment
+# beside it (D-203). A mutable major tag — `actions/checkout@v4` — is a
+# *reference the upstream owner can move*, and a workflow that trusts one runs
+# whatever that owner points it at next, with this repository's checkout and its
+# token in scope. The tags themselves are still recorded, because a SHA nobody
+# can read is a pin nobody will ever update; the comment is what makes a bump
+# reviewable. This is the same reasoning D-117 gives for pinning the renderer
+# to an exact version rather than a range, applied to the supply chain that
+# builds the thing.
+#
 on:
   push:
     branches: [main]
@@ -32,8 +43,8 @@ jobs:
           - { os: ubuntu-latest, python-version: "3.14" }
           - { os: macos-latest, python-version: "3.12" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install with dev, legacy and ui extras
@@ -56,8 +67,8 @@ jobs:
     name: core package without extras
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - name: Install the core package and pytest only
@@ -132,8 +143,8 @@ jobs:
           - extra: dev
             imports: "pytest, jsonschema, openapi_spec_validator"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - name: Install the extra
@@ -186,8 +197,8 @@ jobs:
     name: run fixtures are reproducible
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - name: Install with dev extras
@@ -215,11 +226,18 @@ jobs:
     # web/tsconfig.json sets skipLibCheck: false and lists the declarations as a
     # root file on purpose. With the default skipLibCheck, tsc would skip the one
     # file this job exists to check and pass without looking.
+    # The name is a *contract with branch protection*, not a description: the
+    # `main is gated by CI` ruleset requires a check called exactly
+    # `web (typecheck, test, build)`, so renaming this job silently removes a
+    # required gate — the check it names stops reporting and the pull request
+    # blocks for ever with every job green. D-203 did precisely that when it
+    # added the lint step, and the ruleset caught it. Add steps here freely;
+    # change this line only together with the ruleset.
     name: web (typecheck, test, build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -227,6 +245,18 @@ jobs:
       - name: Install the frontend toolchain
         working-directory: web
         run: npm ci
+      - name: Lint the frontend
+        # D-203: there was no ESLint anywhere — no config, no dependency, no
+        # script, no CI step — and nine
+        # `// eslint-disable-next-line react-hooks/exhaustive-deps` comments
+        # across `web/src`. Every one of those suppressed nothing, and the rule
+        # they name is the one rule this code repeatedly needed to silence,
+        # which makes it the last one that should have been unchecked. The
+        # asymmetry the `lint` job below fixed for Python (D-114), fixed on the
+        # other half of the repository. Narrow on purpose: `web/eslint.config.js`
+        # says what it does and does not check, and why.
+        working-directory: web
+        run: npm run lint
       - name: Type-check the frozen contract and the frontend
         working-directory: web
         run: npm run typecheck
@@ -239,6 +269,17 @@ jobs:
         # `integration` and `browser` jobs both depend on.
         working-directory: web
         run: npm run typecheck:browser
+      - name: Type-check the capture and measurement scripts
+        # D-203: five `.ts` files under `web/scripts/` were in neither program,
+        # so the code that produces the acceptance captures and the
+        # measurements `SPEC.md` quotes was type-checked by nothing — the exact
+        # defect D-156 fixed for `vite.config.ts`, reopened by the files added
+        # after it. `capture_mockups.ts` imports the browser gate's shared
+        # measurement, so a signature change there broke it silently. Its own
+        # program because these are Node scripts and need ambient Node types;
+        # `src` keeps `types: []` with `skipLibCheck: false` (R17).
+        working-directory: web
+        run: npm run typecheck:scripts
       - name: Test the frontend
         # Hermetic: the integration files under web/src skip unless
         # X2KNWLDG_API_BASE names a running server, so this job needs no
@@ -265,8 +306,8 @@ jobs:
     name: lint and types
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - name: Install with dev extras
@@ -290,11 +331,11 @@ jobs:
     name: frontend against the real API
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -372,11 +413,11 @@ jobs:
     name: the Map in a browser
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -403,7 +444,7 @@ jobs:
         run: npm run browser
       - name: Keep what a failure left behind
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: browser-gate-trace
           path: |
@@ -418,8 +459,8 @@ jobs:
     name: requirements.txt installs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - name: Install through requirements.txt

@@ -24,6 +24,47 @@ License unless an individual file explicitly states otherwise.
 References to the upstream project or its author are for attribution and
 provenance only. They do not imply affiliation, sponsorship, or endorsement.
 
+## The frontend's application framework (`web/`, Track C)
+
+The Library, the Reader and the Map are a React application routed by React
+Router. These are runtime dependencies of the browser bundle, not of the Python
+package: the core distribution still installs nothing (ADR 0001 invariant 5),
+and a checkout that never runs `npm ci` never fetches them.
+
+Recorded here as D-203: this file claims to record what reaches the bundle, and
+every package below reached it while none was listed. All MIT, so there was no
+licence exposure — but a notices file that omits most of what it ships is a
+record nobody can rely on, and "it happens to be MIT" is a fact that has to be
+checked rather than assumed. `tests/test_ui_scaffold.py` now walks
+`package-lock.json` for the production closure and fails on the next package
+that reaches the bundle without a row here.
+
+Verified 2026-09-03:
+
+| Package | Licence | Upstream |
+|---|---|---|
+| `react@19.2.8` | MIT | [facebook/react](https://github.com/facebook/react) |
+| `react-dom@19.2.8` | MIT | [facebook/react](https://github.com/facebook/react) |
+| `react-router@7.18.3` | MIT | [remix-run/react-router](https://github.com/remix-run/react-router) |
+| `react-router-dom@7.18.3` | MIT | [remix-run/react-router](https://github.com/remix-run/react-router) |
+
+Pulled in transitively by those packages and therefore also present in the
+bundle:
+
+| Package | Licence | Upstream |
+|---|---|---|
+| `scheduler@0.27.0` | MIT | [facebook/react](https://github.com/facebook/react) |
+| `cookie@1.1.1` | MIT | [jshttp/cookie](https://github.com/jshttp/cookie) |
+| `set-cookie-parser@2.7.2` | MIT | [nfriedly/set-cookie-parser](https://github.com/nfriedly/set-cookie-parser) |
+
+These four are ranges rather than exact pins in `package.json`, unlike the
+renderer's. That is deliberate and is the distinction D-117 draws: the
+renderer is pinned because it is a **prerelease** whose behaviour the Map
+depends on in detail, and a range there would silently change the drawing.
+These are stable majors, and the versions above are the ones
+`package-lock.json` resolves — which is what a reproducible `npm ci` installs
+and therefore what this record is about.
+
 ## Knowledge Map graph rendering (`web/`, Phase 2)
 
 The frontend's Knowledge Map renders through Sigma over Graphology. These are

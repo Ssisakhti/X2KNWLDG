@@ -4,6 +4,8 @@
   "strategy": {
     "type": "time_aware_with_boundary_preference",
     "target_sec": 240,
+    "min_sec": 120,
+    "max_sec": 360,
     "overlap_sec": 15
   },
   "segments": [

@@ -43,11 +43,12 @@ goes into them; this module owns only their declaration.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .errors import Fts5Unavailable, SchemaTooNew
+from .errors import Fts5Unavailable, IndexCorrupt, SchemaTooNew
 
 __all__ = [
     "DATABASE_DIRNAME",
@@ -65,6 +66,15 @@ __all__ = [
 #: The rebuildable cache directory, fixed by canvas plan §9.3 and already
 #: gitignored. Deleting it must lose nothing (ADR 0001 invariant 3).
 DATABASE_DIRNAME = ".x2knwldg"
+
+#: Prefix of the ``runs.problems`` entry that records a source whose searchable
+#: text could not be read. Declared here, beside the table whose column holds
+#: it, because three modules write or read it: ``search`` sets and clears it,
+#: ``search.unreadable_sources`` matches on it so ``PageInfo.total`` can be
+#: ``null`` rather than ``0``, and ``scanner`` folds it into the scan report of
+#: the pass that produced it. A prefix spelled out in three files is three
+#: prefixes.
+SEARCH_PROBLEM_PREFIX = "search: "
 DATABASE_FILENAME = "index.sqlite"
 
 
@@ -160,6 +170,18 @@ _MIGRATION_1 = (
     """,
     # Membership and filter indexes. Every one of these narrows candidates for
     # a predicate in repository/base.py; none of them *is* that predicate.
+    #
+    # What `repository._narrow` actually issues is
+    # `(source_id = ? OR source_id IS NULL)` — the `OR` admits the rows whose
+    # column was never extracted, which is the only way the narrowing stays a
+    # superset of its filter (ADR 0002 invariant 5). So these three are read by
+    # SQLite as a two-branch `MULTI-INDEX OR`, one index search per disjunct,
+    # not as the single search a plain equality gets. That is still an index
+    # seek and still cheap; what it costs is the index's *ordering*, so the
+    # keyset walk's `ORDER BY identity, digest` becomes a temporary B-tree
+    # where plain equality would sort on the index. `tests/test_sqlite_schema.py`
+    # pins the plan, because "this index narrows the seek" is a claim a query
+    # planner can quietly stop honouring.
     "CREATE INDEX artifacts_by_source ON artifacts (source_id, identity)",
     "CREATE INDEX entities_by_source ON entities (source_id, identity)",
     "CREATE INDEX relations_by_source ON relations (source_id, identity)",
@@ -363,6 +385,62 @@ def schema_version(connection: sqlite3.Connection) -> int:
     return int(version) if version is not None else 0
 
 
+def _refuse_half_migrated(connection: sqlite3.Connection, current: int) -> None:
+    """Refuse a database whose tables exist and whose migrations do not.
+
+    A version of this code that committed its DDL in autocommit could be
+    killed after a ``CREATE TABLE`` and before the ``schema_migrations``
+    insert. ``schema_version`` then reads ``0``, so every later run replays the
+    migration and dies on ``table ... already exists`` — a raw
+    ``OperationalError`` out of the middle of a scan — while ``status()``
+    answers ``absent``, so the UI says "build the index" and building crashes.
+    Deleting the cache directory was the only escape and nothing said so.
+
+    The transaction in :func:`migrate` is what stops this arising; this is for
+    the databases already on disk. The index is a rebuildable cache (ADR 0001
+    invariant 3), so naming the escape is the whole fix.
+    """
+    existing = {
+        row["name"]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+        )
+    }
+    unrecorded = sorted(
+        name
+        for version, statements in MIGRATIONS
+        if version > current
+        for statement in statements
+        if (name := _created_name(statement)) is not None and name in existing
+    )
+    if unrecorded:
+        raise IndexCorrupt(
+            "the index is half-migrated: it already holds "
+            f"{', '.join(unrecorded)} while recording no applied migration, so it "
+            f"cannot be built or read. Delete the {DATABASE_DIRNAME}/ cache "
+            "directory and rebuild — it holds nothing that is not derivable from "
+            "the canonical files."
+        )
+
+
+_CREATE_NAME = re.compile(
+    r"^\s*CREATE\s+(?:VIRTUAL\s+)?(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"[\"'`\[]?(?P<name>\w+)",
+    re.IGNORECASE,
+)
+
+
+def _created_name(statement: str) -> str | None:
+    """The table or view a ``CREATE`` statement names, or ``None``.
+
+    Indexes and triggers are deliberately not matched: a migration creates them
+    with ``IF NOT EXISTS`` or after the table, so their presence is not the
+    signal that a migration was interrupted.
+    """
+    match = _CREATE_NAME.match(statement)
+    return match.group("name") if match else None
+
+
 def migrate(connection: sqlite3.Connection) -> int:
     """Apply every migration this code knows and *path* has not had.
 
@@ -386,17 +464,36 @@ def migrate(connection: sqlite3.Connection) -> int:
         return current
 
     require_fts5(connection)
+    _refuse_half_migrated(connection, current)
     applied_at = datetime.now(timezone.utc).isoformat()
     for version, statements in MIGRATIONS:
         if version <= current:
             continue
         # One transaction per migration, so a failure half way through leaves
         # the previous version intact rather than a partially-migrated schema.
-        with connection:
+        #
+        # `BEGIN IMMEDIATE` explicitly, **not** `with connection:`. Python's
+        # `sqlite3` at the classic `isolation_level` only auto-begins before
+        # DML, and a migration is almost entirely DDL — so every `CREATE TABLE`
+        # committed in autocommit and the context manager had no transaction to
+        # roll back. Killing a scan mid-migration therefore left the tables in
+        # place while `schema_migrations` stayed empty: `schema_version` reads
+        # `0`, every later run replays migration 1, and the first `CREATE TABLE`
+        # dies on `table ... already exists` — an index that reports itself
+        # `absent`, so the UI says "build the index", and building crashes.
+        # SQLite's DDL *is* transactional, so an explicit transaction makes the
+        # comment above true.
+        connection.execute("BEGIN IMMEDIATE")
+        try:
             for statement in statements:
                 connection.execute(statement)
             connection.execute(
                 "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                 (version, applied_at),
             )
+        except BaseException:
+            connection.rollback()
+            raise
+        else:
+            connection.commit()
     return schema_version(connection)

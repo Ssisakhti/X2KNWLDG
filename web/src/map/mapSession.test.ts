@@ -22,6 +22,8 @@ import {
   MAP_FOCUS_MARGIN,
   MAP_FOCUS_MIN_RATIO,
   MAP_LAYOUT_ITERATIONS,
+  MAP_LAYOUT_MIN_ITERATIONS,
+  mapLayoutIterations,
   MapSession,
   type MapCamera,
   type MapCameraTarget,
@@ -65,7 +67,8 @@ function fakeRenderer(): FakeRenderer {
     display,
     nodeDisplay: (globalId: string) => display.get(globalId) ?? null,
     resize: (force?: boolean) => calls.push(`resize:${String(force)}`),
-    refresh: () => calls.push("refresh"),
+    refresh: (options?: { restyleOnly?: boolean }) =>
+      calls.push(options?.restyleOnly === true ? "refresh:restyle" : "refresh"),
     kill: () => calls.push("kill"),
     getCamera: () => camera,
     // `T-207`'s adapters. The node handlers are recorded *and kept*, so a test
@@ -364,6 +367,44 @@ describe("MapSession", () => {
       expect(target.ratio).toBeCloseTo(0.4 * MAP_FOCUS_MARGIN);
     });
 
+    it("frames from the extent the camera can see, not from a bare span", () => {
+      /*
+       * A camera ratio is not a framed distance. The renderer scales the two
+       * axes by the container's aspect and by a correction ratio derived from
+       * the graph's bounding box, so the framed extent one ratio shows differs
+       * along x and along y — and this used `max(spanX, spanY) * margin`,
+       * leaving those terms to whatever `MAP_FOCUS_MARGIN` happened to absorb
+       * on the one graph and the one viewport it was calibrated at. On a wide
+       * graph in a landscape stage the correction is ~1.69 and the topmost and
+       * bottommost neighbours landed off-stage: the failure the margin exists
+       * to eliminate.
+       */
+      const ratioWith = (view: { width: number; height: number; ratio: number } | null) => {
+        const renderer = fakeRenderer();
+        renderer.display.set(KU1, { x: 0, y: 0 });
+        renderer.display.set(KU2, { x: 0, y: 0.4 });
+        const live = session(() => ({ ...renderer, visibleExtent: () => view }));
+        live.attach(sample());
+        expect(live.frame(KU1, [KU2])).toBe(true);
+        return (renderer.framings[0] as MapCameraTarget).ratio;
+      };
+
+      // A landscape stage: 2.0 framed units across, 0.5 down. The 0.4 span is
+      // 80% of the visible height and 20% of the visible width, so the height
+      // is the axis that decides.
+      const landscape = ratioWith({ width: 2, height: 0.5, ratio: 1 });
+      expect(landscape).toBeCloseTo(0.8 * MAP_FOCUS_MARGIN, 5);
+
+      // The same neighbourhood on a taller stage needs less zooming out.
+      const portrait = ratioWith({ width: 0.5, height: 2, ratio: 1 });
+      expect(portrait).toBeLessThan(landscape);
+      expect(portrait).toBeCloseTo(0.2 * MAP_FOCUS_MARGIN, 5);
+
+      // A renderer that cannot answer keeps the old estimate rather than
+      // guessing an aspect it has not measured.
+      expect(ratioWith(null)).toBeCloseTo(0.4 * MAP_FOCUS_MARGIN, 5);
+    });
+
     it("does not zoom in on a lone mark until the rest of the graph is a rumour", () => {
       const { live, renderer } = framed({ [KU1]: { x: 0.5, y: 0.5 } });
       expect(live.frame(KU1)).toBe(true);
@@ -430,7 +471,10 @@ describe("MapSession", () => {
 
     expect(layout?.nodes).toBe(3);
     expect(layout?.edges).toBe(1);
+    // A *full* refresh here, and that is the distinction: a merged page moved
+    // every node, so the renderer's indices really do have to be rebuilt.
     expect(renderer.calls).toContain("refresh");
+    expect(renderer.calls).not.toContain("refresh:restyle");
     expect(live.creates).toBe(1);
     snapshot.graph.forEachNode((_node, attributes) => {
       expect(Number.isFinite(attributes.x)).toBe(true);
@@ -455,7 +499,12 @@ describe("MapSession", () => {
 
     live.refresh();
 
-    expect(renderer.calls.filter((call) => call === "refresh")).toHaveLength(1);
+    // `restyleOnly`, because a hover changes no structure and moves no node.
+    // A bare `refresh()` is a *full* Sigma refresh: both indices cleared,
+    // every node and edge re-added, edge groups rebuilt — twice per mark
+    // crossed by a pointer sweep.
+    expect(renderer.calls.filter((call) => call === "refresh:restyle")).toHaveLength(1);
+    expect(renderer.calls.filter((call) => call === "refresh")).toHaveLength(0);
     expect(
       graph
         .nodes()
@@ -485,6 +534,36 @@ describe("MapSession", () => {
     expect(layout.nodes).toBe(0);
     expect(layout.iterations).toBe(0);
     expect(live.live).toBe(true);
+  });
+
+  it("bounds the layout pass instead of letting it grow with the graph", () => {
+    /*
+     * D-121's no-worker decision rests on an 86-node measurement, and nothing
+     * bounds the accumulated graph: "Load more" is unbounded and the page
+     * limit is 500. This ran 200 iterations whatever the order, on the main
+     * thread inside a React effect, where `useGraphWalk`'s own `cancel()`
+     * cannot reach it.
+     *
+     * A graph one page can deliver still gets every iteration; past that the
+     * count comes down, and never below the floor that keeps it a layout.
+     */
+    // The schedule, over orders no unit test should actually lay out.
+    expect(mapLayoutIterations(0)).toBe(0);
+    expect(mapLayoutIterations(3)).toBe(MAP_LAYOUT_ITERATIONS);
+    expect(mapLayoutIterations(500)).toBe(MAP_LAYOUT_ITERATIONS);
+    // Above the budget the count falls, monotonically.
+    const thousand = mapLayoutIterations(1000);
+    const twoThousand = mapLayoutIterations(2000);
+    expect(thousand).toBeLessThan(MAP_LAYOUT_ITERATIONS);
+    expect(twoThousand).toBeLessThan(thousand);
+    expect(twoThousand).toBeGreaterThanOrEqual(MAP_LAYOUT_MIN_ITERATIONS);
+    // And never below the floor, however large.
+    expect(mapLayoutIterations(40000)).toBe(MAP_LAYOUT_MIN_ITERATIONS);
+
+    // And the session reports the schedule's answer, not the ceiling.
+    const live = session(() => fakeRenderer());
+    const graph = sample();
+    expect(live.attach(graph).iterations).toBe(mapLayoutIterations(graph.order));
   });
 
   it("forces the resize, because the shrink direction is the one that shows", () => {

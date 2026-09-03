@@ -39,6 +39,7 @@ import {
 } from "../map/mapStyle";
 import { Disclosure } from "./Disclosure";
 import { ProvenanceBadge } from "./Provenance";
+import { FORWARD_GLYPH } from "./primitives";
 
 /**
  * A drawable stand-in for each canvas shape.
@@ -53,15 +54,33 @@ const SHAPE_GLYPH: Record<MapNodeShape, string> = {
   triangle: "▲",
 };
 
-/** The same, for the marks at the ends of an edge. `none` is a bare line. */
+/**
+ * The same, for the marks at the ends of an edge. `none` is a bare line.
+ *
+ * `arrow` is the one directional glyph here, and it is wrapped in
+ * `.glyph-inline-forward` where it is rendered so it mirrors under
+ * `dir="rtl"` (D-203): the legend's rows reverse with the writing direction
+ * and U+2192 does not, so an unmirrored arrow described the opposite end of
+ * an edge from the one it labels.
+ */
 const EXTREMITY_GLYPH: Record<MapEdgeExtremity, string> = {
   none: "─",
-  arrow: "→",
+  arrow: FORWARD_GLYPH,
   diamond: "◆",
   circle: "●",
   bar: "┤",
   square: "■",
 };
+
+/** An extremity glyph, mirrored when it is the directional one. */
+function Extremity({ head }: { head: MapEdgeExtremity }) {
+  const glyph = EXTREMITY_GLYPH[head];
+  return head === "arrow" ? (
+    <span className="glyph-inline-forward">{glyph}</span>
+  ) : (
+    <>{glyph}</>
+  );
+}
 
 
 
@@ -122,7 +141,11 @@ function Row({
   return (
     <li className="row" {...marks}>
       <span
-        className="badge__glyph"
+        // `glyph-inline-forward` on the one directional glyph: the row
+        // reverses with the writing direction and U+2192 does not, so an
+        // unmirrored arrow described the opposite end of an edge from the one
+        // it labels (D-203).
+        className={`badge__glyph${glyph === EXTREMITY_GLYPH.arrow ? " glyph-inline-forward" : ""}`}
         aria-hidden="true"
         style={colour === undefined ? undefined : { color: colour }}
       >
@@ -189,7 +212,7 @@ export function MapLegend() {
                 "data-head": mark.head,
               }}
             >
-              {t(`vocabulary.${vocabulary}`)} — {t("map.legend.head")}: {EXTREMITY_GLYPH[mark.head]}
+              {t(`vocabulary.${vocabulary}`)} — {t("map.legend.head")}: <Extremity head={mark.head} />
             </Row>
           );
         })}
@@ -200,7 +223,7 @@ export function MapLegend() {
             "data-head": UNRECOGNISED_VOCABULARY_MARK.head,
           }}
         >
-          {t("map.legend.unrecognised")} — {t("map.legend.head")}: {EXTREMITY_GLYPH[UNRECOGNISED_VOCABULARY_MARK.head]}
+          {t("map.legend.unrecognised")} — {t("map.legend.head")}: <Extremity head={UNRECOGNISED_VOCABULARY_MARK.head} />
         </Row>
         {PROVENANCE_CLASSES.map((provenance: ProvenanceClass) => {
           const mark = EDGE_PROVENANCE_MARK[provenance];
@@ -215,7 +238,7 @@ export function MapLegend() {
                 "data-colour": mark.colour,
               }}
             >
-              {t(`provenance.${provenance}`)} — {t("map.legend.tail")}: {EXTREMITY_GLYPH[mark.tail]}
+              {t(`provenance.${provenance}`)} — {t("map.legend.tail")}: <Extremity head={mark.tail} />
             </Row>
           );
         })}
@@ -229,7 +252,7 @@ export function MapLegend() {
           }}
         >
           {t("map.legend.unrecognised")} — {t("map.legend.tail")}:{" "}
-          {EXTREMITY_GLYPH[UNRECOGNISED_EDGE_PROVENANCE_MARK.tail]}
+          <Extremity head={UNRECOGNISED_EDGE_PROVENANCE_MARK.tail} />
         </Row>
       </ul>
 

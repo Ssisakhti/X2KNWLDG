@@ -305,9 +305,9 @@ rendered in a bidi isolate, which is what the production `Bidi` component exists
 ## 12. Regenerating
 
 ```bash
-npx tsx web/scripts/mockup_layout.ts     # real forceAtlas2 -> layout.json
+npm --prefix web run mockups:layout     # real forceAtlas2 -> layout.json
 python3 docs/mockups/T-211/gen_data.py   # canonical records -> data.js
-npx tsx web/scripts/capture_mockups.ts   # all ten captures
+npm --prefix web run mockups:capture   # all ten captures
 ```
 
 That writes `captures/` — the two compositions in dark, light and Persian, the honest-states
@@ -328,7 +328,7 @@ whoever ingested the source. A clone with a different library, or none, cannot r
 ../.venv/bin/python scripts/dev_api.py --project-root .. --port 8955
 X2KNWLDG_API_BASE=http://127.0.0.1:8955 npm run build
 X2KNWLDG_API_BASE=http://127.0.0.1:8955 npx vite preview --port 4199
-npx tsx scripts/capture_baseline.ts
+npm run mockups:baseline
 ```
 
 That is why the baseline is recorded as **numbers in §1** rather than only as pictures. The
@@ -594,9 +594,9 @@ what is left over.**
 ### Regenerating the comparison
 
 ```bash
-npx tsx web/scripts/capture_mockups.ts                     # the approved set
+npm --prefix web run mockups:capture                     # the approved set
 cd web && X2KNWLDG_BROWSER_PROJECT_ROOT=.. npx playwright test visual.spec.ts
-npx tsx web/scripts/review_sheet.ts                        # the page they are compared on
+npm --prefix web run mockups:review                        # the page they are compared on
 ```
 
 The gate is pointed at the real library on purpose: the mockups compose `KU-000028` out of
@@ -778,9 +778,11 @@ beside every reference capture it writes.
 | `compact` (1440×900) | 10.3 % | 6.4 % | 27.3 % | **30 %** |
 | `stack` (390×844) | — | 8.8 % | 0 % | **10 %** |
 
-### The four differences that remain, measured
+### The differences that remain, measured
 
 Recorded here for the acceptance rather than fixed, on the same terms §16's three were.
+Items 1–4 are `T-216`'s; items 5 and 6 are D-203's, and both are consequences of closing
+audit findings rather than new choices about the composition.
 
 1. **The `compact` bound is a ratchet, not the reference's own share.** This build spends
    22.7 % of a 1440×900 field on chrome in Focus and 27.3 % of a 1280×720 one, against the
@@ -805,8 +807,40 @@ Recorded here for the acceptance rather than fixed, on the same terms §16's thr
    it was before it: the framing is a zoom, and a zoom is the one thing that is still allowed
    to change a mark's size.
 
+5. **The focused card is 260 px tall at `compact`, where it drew 192 px.** D-203 enforced
+   the reservation `placeOrbit` computes — `MapOrbit` wrote only each card's *width* onto the
+   element, so the heights were upper bounds nothing occupied and the placement's whole
+   no-overlap guarantee was over boxes no browser had laid out. Enforcing them exposed that
+   the `compact` tier's own geometry contradicted §6: `primaryBox` was 300×200 = 60,000 and
+   `cardBox` 270×240 = 64,800, so the focused card became the **smaller** of the two, and
+   size is the first of the four means §6 gives for saying which card the reader asked for.
+   The primary's box was the wrong one — it carries `MAP_STAGE_PRIMARY_CHARS` (200) against a
+   neighbour's 110 in a box 11 % wider, and had 8 px of slack over its measured 192 where the
+   neighbour's had 34 — so it is 300×260 now. Measured on the real 86-node library at
+   1440×900 and 1280×720; **the recorded card counts are unchanged**, and the gate confirms
+   them with `X2KNWLDG_BROWSER_REQUIRE_RECORDED=1` over that library. What changed in the
+   picture is one card's height at two viewports.
+6. **At the `stack` tier the field begins 632 px down the document.** Measured at 390×844 on
+   the real library: a 129 px app bar — two rows since the wrap that stopped every route
+   scrolling sideways on a phone — then the search float at 275 px and the counts at 168 px,
+   above a 360 px stage. SPEC §5's content clause **is** met and is now asserted: no orbit,
+   the focus card, and every relation as a row with its direction and hop count, none dropped
+   (`MapView.test.tsx`). What §5 does not specify is the *order* of the surrounding surfaces,
+   and D-203 improved it only as far as one unambiguous move allowed — search now precedes the
+   counts, which is both the reading order and the tab order, and D-129 still holds because
+   the counts still precede the stage. Putting the field first would either break D-129 or put
+   visual order and tab order back into conflict, which is the defect that move fixed. So the
+   number is recorded for a person to accept or refuse rather than traded silently.
+
 ### Regenerating
 
 Unchanged from §16's three commands. `capture_mockups.ts` now prints the field and the
 chrome share beside each reference capture, which is where the bounds in the table above
 come from.
+
+**The captures in `docs/mockups/T-215/captures/` are regenerable output and are gitignored**
+(the `.gitignore` note beside them says why: the sources are committed and one run's render
+is not). They are therefore *not* the pictures accepted on 2026-09-03 under D-202 any more —
+D-203 re-ran the gate over them, so they now show the contrast repair, item 5's card height
+and the corrected camera framing. Re-accepting them is the acceptance step D-202 was, and it
+is a person's.

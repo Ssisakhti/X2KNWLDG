@@ -61,12 +61,29 @@ import { RelationPill } from "./MapRelation";
 import { KindBadge, ProvenanceBadge } from "./Provenance";
 import { Mono } from "./primitives";
 
-/** A card's own rectangle, written onto the element exactly as reserved. */
+/**
+ * A card's own rectangle, written onto the element exactly as reserved.
+ *
+ * `minBlockSize` as well as the inline size, and both halves matter.
+ * `placeOrbit` reserves a box per card and guarantees no two reservations
+ * overlap, and only the *width* of that box was ever written — so the height
+ * was a number the layout believed and the browser had never been asked
+ * about. A statement that wraps one line beyond what the measurement script
+ * saw overflowed its reservation and overlapped the card below, with nothing
+ * at runtime or in the suite to notice.
+ *
+ * A minimum, not a fixed `blockSize` and not a `maxBlockSize`: clipping would
+ * hide the truncation marker, which is the one kind of silent cut D-131
+ * forbids. What this buys is that the reservation is a real box a browser has
+ * laid out, so `data-map-card-block` below is a claim the gate can measure
+ * against `getBoundingClientRect().height` rather than a comment.
+ */
 function cardStyle(card: OrbitCard): CSSProperties {
   return {
     left: `${card.rect.left}px`,
     top: `${card.rect.top}px`,
     inlineSize: `${card.rect.right - card.rect.left}px`,
+    minBlockSize: `${card.rect.bottom - card.rect.top}px`,
   };
 }
 
@@ -98,6 +115,9 @@ function OrbitCardView({
       data-map-card-primary={String(primary)}
       data-map-card-hops={card.hops}
       data-map-card-side={card.side ?? "centre"}
+      // The height `placeOrbit` reserved, so "the reservation is an upper
+      // bound over what the browser lays out" is a measurable claim.
+      data-map-card-block={card.rect.bottom - card.rect.top}
     >
       <div className="row">
         <span className="badge">

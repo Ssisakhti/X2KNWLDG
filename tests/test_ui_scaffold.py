@@ -996,8 +996,59 @@ def _frontend_imports() -> list[tuple[Path, str, Path | None]]:
             continue
         for match in _RELATIVE_SPECIFIER.finditer(module.read_text(encoding="utf-8")):
             specifier = match.group(1) or match.group(2)
+            if any(character in specifier for character in "*{"):
+                # A bundler glob, not a module specifier: `logical.test.ts` and
+                # `primitives.test.tsx` read *every* component's source through
+                # `import.meta.glob`, and the whole point of those two guards
+                # is that a component nobody listed is still checked — so a
+                # pattern is the mechanism and an explicit list would be the
+                # defect. There is nothing on disk for a pattern to resolve to,
+                # and `test_the_globbed_module_patterns_match_something` below
+                # is what keeps them from matching nothing.
+                continue
             found.append((module, specifier, _resolve_specifier(module, specifier)))
     return found
+
+
+#: The bundler globs `web/src` reads its own sources through, and the directory
+#: each one must find modules in.
+_MODULE_GLOBS: dict[str, tuple[str, ...]] = {
+    "../{components,views,map}/**/*.tsx": ("components", "views", "map"),
+    "../{components,views}/**/*.tsx": ("components", "views"),
+}
+
+
+def test_the_globbed_module_patterns_match_something() -> None:
+    """A glob that matched nothing would make its guard vacuous.
+
+    `logical.test.ts` checks D-012 over every component's inline styles and
+    `primitives.test.tsx` sweeps for a bare directional glyph; both read the
+    sources through `import.meta.glob`, and a pattern that stopped matching
+    would turn each into a test that asserts nothing about anything.
+    """
+    import re as _re
+
+    used: set[str] = set()
+    for module in sorted((WEB / "src").rglob("*")):
+        if not module.is_file() or module.suffix not in {".ts", ".tsx"}:
+            continue
+        text = module.read_text(encoding="utf-8")
+        for pattern in _re.findall(r'import\.meta\.glob\(\s*"([^"]+)"', text):
+            used.add(pattern)
+            assert pattern in _MODULE_GLOBS, (
+                f"{module.relative_to(PROJECT_ROOT)} globs {pattern!r}, which this "
+                "guard does not know how to check; add it to _MODULE_GLOBS"
+            )
+    assert used, "no module glob found in web/src — the scan is broken"
+
+    for pattern in sorted(used):
+        matched = [
+            path
+            for directory in _MODULE_GLOBS[pattern]
+            for path in (WEB / "src" / directory).rglob("*.tsx")
+            if ".test." not in path.name
+        ]
+        assert len(matched) > 10, f"{pattern!r} matches only {len(matched)} modules"
 
 
 def test_the_import_scanner_actually_finds_the_frontends_imports() -> None:
@@ -1216,6 +1267,140 @@ def test_ci_lints_and_type_checks_the_package() -> None:
     assert "[tool.mypy]" in config, "mypy is unconfigured, so its strictness is the default"
     # Declared, so a contributor's `pip install -e '.[dev]'` runs what CI runs.
     assert '"ruff' in config and '"mypy' in config
+
+
+def test_ci_lints_and_type_checks_the_frontend() -> None:
+    """D-203: the same asymmetry as D-114, on the other half of the repository.
+
+    There was no ESLint anywhere — no config, no dependency, no script, no CI
+    step — while nine ``// eslint-disable-next-line
+    react-hooks/exhaustive-deps`` comments sat in ``web/src`` suppressing
+    nothing, and the rule they name is the one rule this code repeatedly needed
+    to silence. And five ``.ts`` files under ``web/scripts/`` were in neither
+    type-check program, so the code that produces the acceptance captures was
+    checked by nothing.
+    """
+    workflow = _workflow()
+    package = _package_json()
+
+    assert "npm run lint" in workflow, "no frontend lint step in ci.yml"
+    assert "npm run typecheck:scripts" in workflow, "no scripts type-check step in ci.yml"
+    assert package["scripts"].get("lint") == "eslint ."
+    assert (PROJECT_ROOT / "web" / "eslint.config.js").is_file()
+    # Declared, so a contributor's `npm ci` runs what CI runs.
+    for tool in ("eslint", "eslint-plugin-react-hooks", "typescript-eslint"):
+        assert tool in package["devDependencies"], f"{tool} is not declared"
+
+    # The rule the suppressions name has to be *on*. A config that turned it
+    # off would pass every assertion above and check nothing.
+    config = (PROJECT_ROOT / "web" / "eslint.config.js").read_text(encoding="utf-8")
+    assert '"react-hooks/exhaustive-deps"' in config
+    assert '"react-hooks/rules-of-hooks": "error"' in config
+    # And a suppression that stops being needed has to show up as one.
+    assert 'reportUnusedDisableDirectives: "error"' in config
+
+    # Every script the docs tell a reader to run is an npm script over a
+    # *declared* `tsx`, not an `npx tsx` that fetches an unpinned copy from
+    # the registry at run time.
+    assert "tsx" in package["devDependencies"], "tsx is still an undeclared execution dependency"
+    for script in ("mockups:layout", "mockups:capture", "mockups:review", "measure:orbit"):
+        assert script in package["scripts"], f"{script} is not an npm script"
+    for path in sorted((PROJECT_ROOT / "web" / "scripts").glob("*.ts")):
+        assert path.name in " ".join(package["scripts"].values()) or path.name in {
+            "mockup_layout.ts"
+        }, f"{path.name} is reachable by no npm script"
+
+
+def test_no_gated_job_name_has_drifted_from_the_ruleset() -> None:
+    """D-203: renaming a gated job silently removes a required gate.
+
+    ``main`` is protected by a ruleset that requires status checks *by name*,
+    so a job whose ``name:`` changes stops reporting the check the rule waits
+    for — and a pull request then blocks for ever with every job green. This
+    happened: adding the lint step renamed
+    ``web (typecheck, test, build)`` to ``web (lint, typecheck, test, build)``
+    and the ruleset was the only thing that noticed.
+
+    The names are listed here rather than fetched, because a test that asked
+    GitHub would skip on every machine without a token — including the one
+    that matters, a contributor's. What it protects against is the rename, and
+    a rename is visible in the diff of *this* file beside the workflow's.
+    """
+    gated = {
+        "tests (python ${{ matrix.python-version }}, ${{ matrix.os }})",
+        "core package without extras",
+        "extra installs (${{ matrix.extra }})",
+        "run fixtures are reproducible",
+        "web (typecheck, test, build)",
+        "lint and types",
+        "frontend against the real API",
+        "the Map in a browser",
+        "requirements.txt installs",
+    }
+    declared = set(re.findall(r"^\s+name: (.+)$", _workflow(), re.MULTILINE))
+    missing = sorted(name for name in gated if name not in declared)
+    assert not missing, (
+        "these job names are required by the `main is gated by CI` ruleset and no "
+        f"longer exist in ci.yml, so the checks they name will never report: {missing}. "
+        "Rename them back, or change the ruleset in the same breath."
+    )
+
+
+def test_every_ci_action_is_pinned_to_a_commit() -> None:
+    """D-203: every ``uses:`` was a mutable major tag.
+
+    ``actions/checkout@v4`` is a *reference the upstream owner can move*, and a
+    workflow that trusts one runs whatever that owner points it at next — with
+    this repository's checkout and its token in scope. The version stays in a
+    comment beside the SHA, because a pin nobody can read is a pin nobody will
+    ever update.
+    """
+    unpinned: list[str] = []
+    for number, line in enumerate(_workflow().splitlines(), 1):
+        # An actual step, not a comment that talks about one: the note at the
+        # top of the workflow explains the pinning and quotes `uses:`.
+        match = re.match(r"\s*-?\s*uses:\s*(\S+)\s*(?:#.*)?$", line)
+        if match is None:
+            continue
+        reference = match.group(1)
+        if "@" not in reference:
+            unpinned.append(f"{number}: {reference}")
+            continue
+        pin = reference.split("@", 1)[1]
+        if not re.fullmatch(r"[0-9a-f]{40}", pin):
+            unpinned.append(f"{number}: {reference}")
+            continue
+        # The SHA alone is unreviewable; the version it is has to be beside it.
+        assert re.search(r"#\s*v\d", line), (
+            f"{number}: {reference} is pinned but does not say which version it is"
+        )
+    assert not unpinned, f"these `uses:` are not pinned to a commit: {unpinned}"
+
+
+def test_the_gitignore_keeps_no_exception_for_a_file_that_is_not_there() -> None:
+    """D-203: ``!vault/graphs/.gitkeep`` protected nothing.
+
+    The directory does not exist, nothing in the package writes it, and nothing
+    ever has — so the exception read as a directory the project keeps.
+    """
+    ignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
+    dead: list[str] = []
+    for line in ignore.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("!") or any(glob in stripped for glob in "*?["):
+            continue
+        target = PROJECT_ROOT / stripped[1:]
+        # The *directory* is the test, not the file. `!.env.example` names a
+        # template a contributor may add to a directory that plainly exists,
+        # which is a convention rather than a claim; `!vault/graphs/.gitkeep`
+        # named a placeholder in a directory nothing creates, which reads as a
+        # directory the project keeps and is the defect.
+        if not target.parent.is_dir():
+            dead.append(stripped)
+    assert not dead, (
+        "these .gitignore exceptions name files in directories that do not "
+        f"exist, so they protect nothing: {dead}"
+    )
 
 
 def test_ci_runs_the_frontend_against_a_real_server() -> None:
@@ -1528,6 +1713,58 @@ def test_the_third_party_notices_record_every_map_dependency() -> None:
     for name in MAP_RUNTIME_PINS + MAP_DEV_PINS:
         version = package["dependencies"].get(name) or package["devDependencies"][name]
         assert f"{name}@{version}" in notices, f"{name}@{version} is not recorded"
+
+
+def test_the_notices_record_every_package_that_reaches_the_bundle() -> None:
+    """D-203: the file omitted most of what it ships.
+
+    React, react-dom, react-router, react-router-dom, scheduler, cookie and
+    set-cookie-parser are all in the production bundle and none was recorded,
+    against this file's own claim to record what reaches it. All MIT, so there
+    was no licence exposure — but a notices file that omits most of what it
+    ships is a record nobody can rely on, and "it happens to be MIT" is a fact
+    that has to be checked rather than assumed.
+
+    Walked from ``package-lock.json`` rather than from a list, because a list
+    is the thing that went stale: the next transitive package to reach the
+    bundle fails here.
+    """
+    import json as _json
+
+    notices = (PROJECT_ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    lock = _json.loads((WEB / "package-lock.json").read_text(encoding="utf-8"))
+    packages = lock["packages"]
+
+    # The production closure: the declared runtime dependencies and everything
+    # they depend on. `devDependencies` are excluded by construction — nothing
+    # under `web/src` imports them and `npm run build` never sees them — and
+    # the two that *are* recorded (the gate's) have their own section.
+    closure: set[str] = set()
+
+    def walk(name: str) -> None:
+        if name in closure:
+            return
+        node = packages.get(f"node_modules/{name}")
+        if node is None:
+            return
+        closure.add(name)
+        for dependency in (node.get("dependencies") or {}):
+            walk(dependency)
+
+    for declared in _package_json()["dependencies"]:
+        walk(declared)
+
+    assert len(closure) > 8, f"the closure walk found only {sorted(closure)}"
+
+    missing: list[str] = []
+    for name in sorted(closure):
+        version = packages[f"node_modules/{name}"]["version"]
+        if f"{name}@{version}" not in notices:
+            missing.append(f"{name}@{version}")
+    assert not missing, (
+        "these packages reach the browser bundle and THIRD_PARTY_NOTICES.md "
+        f"does not record them at the version the lockfile resolves: {missing}"
+    )
 
 
 # ---------------------------------------------------------------------------

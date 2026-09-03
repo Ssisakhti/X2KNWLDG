@@ -346,11 +346,14 @@ holding the door until this policy existed, and it has two halves:
 - **Density is a rule.** A label is forced only for the focus, the node under
   the pointer or the keyboard, and up to `MAP_LABEL_NEIGHBOUR_BUDGET` (4)
   neighbours of the focus. Everything else is `"auto"`, and Sigma's own grid
-  decides it: one label per 180×180 px cell, and only for a node drawn at least
-  14 px across, which is the zoom rule — the overview is quiet and zooming in
-  is what makes it speak. Once something *is* focused, unrelated nodes lose
-  their labels and dim to 0.35; they are never hidden, because de-emphasis is
-  not absence.
+  decides it: one label per **560×560 px** cell, and only for a node drawn at
+  least **6 px** across, which is the zoom rule — the overview is quiet and
+  zooming in is what makes it speak. Both numbers moved under `T-216` when a
+  mark's size stopped being a function of the framing; `labelPolicy.ts` states
+  them once and explains why 6 rather than 14, and this paragraph quotes it
+  rather than keeping a second copy of the reasoning. Once something *is*
+  focused, unrelated nodes lose their labels and dim to 0.35; they are never
+  hidden, because de-emphasis is not absence.
 - Edge labels are stricter: an edge names its real relation only while it is on
   an active path. An overview labelling 118 edges would be the gate's pile with
   smaller words.
@@ -375,12 +378,13 @@ table needs. Three consequences worth knowing:
   nobody can see.
 - All of it is drawn now (`T-209`). The declared shapes, the extremities, the
   curved parallel path and the selected mark's halo all render on the real
-  86-node graph, in Chrome over the GPU and on a software rasteriser. Three of
-  the four label numbers are kept: the overview draws **8 labels over 86
-  marks**, which is the quiet overview D-122 asked for, and two zoom presses
-  make about twelve speak. The fourth was wrong — see the neighbour budget
-  below. The build cost is measured: the renderer chunk goes from 362 kB to
-  377 kB (98 kB gzipped), still loaded by no route but the Map.
+  86-node graph, in Chrome over the GPU and on a software rasteriser. The
+  overview draws **ten labels over 86 marks** at 2852×1688 and five at
+  1440×900 — `T-209` measured eight, and `T-216` re-measured it after the
+  sizing model changed under it — which is the quiet overview D-122 asked for
+  at both ends rather than at one. The build cost is measured: the renderer
+  chunk goes from 362 kB to 377 kB (98 kB gzipped), still loaded by no route
+  but the Map.
 
 ### Hover must not move the graph
 

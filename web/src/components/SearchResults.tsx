@@ -25,7 +25,7 @@ import type { SearchHit } from "../api/contract";
 import { usePaged } from "../api/usePaged";
 import { useI18n } from "../i18n";
 import { formatConfidence, formatSeconds } from "../lib/format";
-import { ErrorState } from "./ErrorState";
+import { PagedList } from "./PagedList";
 import { ProvenanceBadge } from "./Provenance";
 import { readerPath, type ReaderTab } from "../lib/readerLink";
 import { Bidi, ExternalLink, Missing, Mono } from "./primitives";
@@ -146,27 +146,20 @@ export function SearchResults({
   );
 
   if (query === "") return null;
-  if (state.status === "loading") return <p className="muted">{t("common.loading")}</p>;
-  if (state.error !== null) return <ErrorState error={state.error} onRetry={state.reload} />;
 
   return (
-    <section className="stack" aria-label={t("search.results", { query })}>
+    <section className="stack" aria-label={t("search.results", { query })} data-focus-anchor>
       <h2>{t("search.results", { query })}</h2>
-      <p className="faint">
-        {state.total === null
-          ? t("common.unknownTotal")
-          : t("common.total", { count: state.total })}
-      </p>
-      {state.items.length === 0 ? (
-        <p className="muted">{t("search.empty")}</p>
-      ) : (
-        state.items.map((hit, index) => <Hit key={hitKey(hit, index)} hit={hit} />)
-      )}
-      {state.hasMore && (
-        <button type="button" className="button" onClick={state.loadMore}>
-          {t("common.more")}
-        </button>
-      )}
+      {/*
+        `PagedList` owns the ladder (D-203). Two of this surface's three
+        defects were in the copy it replaces: "More" was one of the two
+        buttons `withFocusRescue` never reached, so pressing it on the last
+        page reset focus to the top of the document; and a failed later page
+        rendered the error panel *instead of* the hits already loaded.
+      */}
+      <PagedList state={state} label={t("search.results", { query })} empty={t("search.empty")}>
+        {(hits) => hits.map((hit, index) => <Hit key={hitKey(hit, index)} hit={hit} />)}
+      </PagedList>
     </section>
   );
 }

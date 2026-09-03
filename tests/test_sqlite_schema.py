@@ -136,6 +136,59 @@ def test_a_database_from_the_future_is_refused_not_misread(db: sqlite3.Connectio
     assert "rebuild" in str(caught.value)
 
 
+def test_a_failed_migration_leaves_no_tables_behind(tmp_path: Path) -> None:
+    """The comment said "one transaction per migration". There was none.
+
+    Python's ``sqlite3`` at the classic ``isolation_level`` only auto-begins
+    before DML, and a migration is almost all DDL — so every ``CREATE TABLE``
+    committed in autocommit and ``with connection:`` had no transaction to roll
+    back.
+    """
+    from x2knwldg.index import schema as schema_module
+
+    connection = connect(tmp_path / "index.sqlite3")
+    statements = MIGRATIONS[0][1]
+    broken = ((1, statements[:4] + ("THIS IS NOT SQL",) + statements[4:]),)
+    original = schema_module.MIGRATIONS
+    schema_module.MIGRATIONS = broken
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            migrate(connection)
+    finally:
+        schema_module.MIGRATIONS = original
+
+    tables = [
+        row["name"]
+        for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    ]
+    assert tables == [], f"a failed migration left {tables} behind"
+    # And the next run gets a clean database rather than a permanent brick.
+    assert migrate(connection) == SCHEMA_VERSION
+
+
+def test_a_half_migrated_database_says_what_to_do_about_it(tmp_path: Path) -> None:
+    """The state the old autocommit path could leave on disk.
+
+    The tables exist and ``schema_migrations`` is empty, so ``schema_version``
+    reads ``0``: every later run replays migration 1 and dies on ``table ...
+    already exists`` — a raw ``OperationalError`` out of the middle of a scan —
+    while ``status()`` answers ``absent``, so the UI says "build the index" and
+    building crashes. Deleting the cache directory was the only escape and
+    nothing said so.
+    """
+    connection = connect(tmp_path / "index.sqlite3")
+    for statement in MIGRATIONS[0][1][:3]:
+        connection.execute(statement)
+    connection.commit()
+    assert schema_version(connection) == 0, "the premise: it reports itself unmigrated"
+
+    with pytest.raises(IndexCorrupt) as caught:
+        migrate(connection)
+    message = str(caught.value)
+    assert "rebuild" in message
+    assert DATABASE_DIRNAME in message, "the message has to name the directory to delete"
+
+
 # --------------------------------------------------------------------------
 # 3. Opening
 # --------------------------------------------------------------------------
@@ -316,6 +369,42 @@ def test_records_are_stored_verbatim_rather_than_normalised(db: sqlite3.Connecti
     )
     stored = db.execute("SELECT doc FROM sources WHERE identity = 'youtube:x'").fetchone()["doc"]
     assert json.loads(stored) == sparse
+
+
+@pytest.mark.parametrize(
+    ("table", "index_name"),
+    [
+        ("artifacts", "artifacts_by_source"),
+        ("entities", "entities_by_source"),
+        ("relations", "relations_by_source"),
+    ],
+)
+def test_the_by_source_index_is_used_by_the_query_the_repository_issues(
+    db: sqlite3.Connection, table: str, index_name: str
+) -> None:
+    """"This index narrows the seek" is a claim a planner can stop honouring.
+
+    ``repository._narrow`` issues ``(source_id = ? OR source_id IS NULL)`` —
+    the ``OR`` admits rows whose column was never extracted, which is what
+    keeps the narrowing a superset of its filter — so this is a two-branch
+    ``MULTI-INDEX OR`` rather than the single search a plain equality gets.
+    The schema comment used to describe it as though it were the latter; the
+    plan is pinned here instead of described.
+    """
+    plan = [
+        row[-1]
+        for row in db.execute(
+            "EXPLAIN QUERY PLAN "
+            f"SELECT identity, digest, doc FROM {table} "
+            "WHERE (source_id = ? OR source_id IS NULL) AND identity > ? "
+            "ORDER BY identity, digest LIMIT 500",
+            ("youtube:x", "youtube:x:KU-000001"),
+        )
+    ]
+    rendered = " | ".join(plan)
+    assert index_name in rendered, rendered
+    assert "SEARCH" in rendered, f"the narrowed seek became a scan: {rendered}"
+    assert not any(step.startswith("SCAN ") for step in plan), rendered
 
 
 def test_the_state_table_holds_exactly_one_row(db: sqlite3.Connection) -> None:

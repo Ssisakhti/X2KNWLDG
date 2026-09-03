@@ -157,7 +157,28 @@ export const ORBIT_TIERS: Readonly<Record<OrbitTier, OrbitTierGeometry>> = {
     bottomInset: 130,
   },
   compact: {
-    primaryBox: { width: 300, height: 200 },
+    /*
+     * D-203: `height: 200` here was the smaller reservation of the two, and
+     * SPEC §6 asks for the opposite.
+     *
+     * `MapOrbit` wrote only the *width* onto the element, so the heights were
+     * upper bounds nothing occupied — and the picture happened to satisfy
+     * §6 because Chrome laid the primary out at 192 px and a neighbour at
+     * 206 px, which by *area* leaves the primary larger (57,600 against
+     * 55,620). Writing the reservation as a `min-block-size` made the
+     * reserved boxes the real ones, and then 300x200 = 60,000 against
+     * 270x240 = 64,800: the focused card became the *smaller* of the two, and
+     * size is the first of the four means §6 gives for saying which card the
+     * reader asked for.
+     *
+     * The primary's box was the wrong one. It carries
+     * `MAP_STAGE_PRIMARY_CHARS` (200) against a neighbour's 110 — nearly
+     * twice the text — in a box 11 % wider, and its reservation had 8 px of
+     * slack over the measured 192 where the neighbour's had 34. 260 restores
+     * the ordering with room the text budget justifies, measured on the real
+     * 86-node library at 1440x900 and 1280x720.
+     */
+    primaryBox: { width: 300, height: 260 },
     cardBox: { width: 270, height: 240 },
     chipBox: { width: 220, height: 108 },
     perSide: 2,
@@ -922,14 +943,41 @@ export function placeOrbit(input: OrbitInput): OrbitPlacement {
      *
      * A narrower band moves the whole side inwards instead, which is the
      * adjustment SPEC §4 actually names, and it keeps every card in its own
-     * row and on its own side. The widest band that seats the most cards
-     * wins; the steps are stated so the answer is reproducible.
+     * row and on its own side. The widest band that seats the most cards wins,
+     * and among bands that seat the *same* number, the one that refuses the
+     * fewest; the steps are stated so the answer is reproducible.
+     *
+     * The second clause is not a refinement. The search stops as soon as a
+     * band refuses nothing — so "no omissions" is one of the two things it is
+     * looking for — while the replacement tested only the card count, so a
+     * narrower band that seated the same cards and refused *nothing* was
+     * discarded and the search then ran on and reported the wider band's
+     * refusals. The counts it reported were always its own band's and so
+     * always true; what was wrong is that the sentence they produce named a
+     * reason the composition did not have to have.
+     *
+     * "Refuses the fewest" counts **every** refusal, `budget` included. A
+     * narrower band admits fewer candidates to the pass at all, so a refusal
+     * moves out of `no_room` and into `budget` rather than going away — and a
+     * comparison over the two placement reasons alone would read that as an
+     * improvement and choose a band that seated the same cards and named a
+     * different excuse.
+     *
+     * Strictly fewer, and strictly more, so a genuine tie keeps the widest
+     * band: `ORBIT_BAND_STEPS` descends, and the first candidate examined is
+     * the widest.
      */
+    const refused = (attempted: ReturnType<typeof attempt>): number =>
+      attempted.crowded + attempted.noRoom + attempted.budget;
+
     let best = attempt(widest);
     if (best.crowded + best.noRoom > 0) {
       for (const factor of ORBIT_BAND_STEPS) {
         const candidate = attempt(widest * factor);
-        if (candidate.cards.length > best.cards.length) best = candidate;
+        const seatsMore = candidate.cards.length > best.cards.length;
+        const refusesFewer =
+          candidate.cards.length === best.cards.length && refused(candidate) < refused(best);
+        if (seatsMore || refusesFewer) best = candidate;
         if (best.crowded + best.noRoom === 0) break;
       }
     }

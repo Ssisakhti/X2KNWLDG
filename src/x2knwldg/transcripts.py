@@ -42,10 +42,18 @@ _CUE_TIMING = re.compile(rf"^\s*{_TIMESTAMP_TOKEN}\s*-->")
 # timestamp shapes so that ordinary bracketed caption text — ``[Applause - laughter]``
 # — is read as text instead of being mistaken for a header, which used to reject
 # the whole file.
-_TIMESTAMP_SHAPE = r"\d{1,4}:\d{1,2}(?::\d{1,2})?(?:[.,]\d{1,3})?"
+#
+# ``_TIMESTAMP_TOKEN``, not a fourth spelling of the same grammar. This used to
+# be its own pattern allowing **four** leading digits where the parser allows
+# two, so ``[1234:56 - 1300:00]`` was *detected* as a header and then refused by
+# ``parse_timestamp``, rejecting the whole file — where the comment's stated
+# intent is that a bracket which is not a timestamp reads as text. The detector
+# and the parser have to accept the same thing here for the same reason
+# ``_CUE_TIMING`` does; their agreement is asserted in
+# tests/test_transcripts_hardening.py.
 _TIMED_TEXT = re.compile(
-    rf"^\[\s*(?P<start>{_TIMESTAMP_SHAPE})\s*(?:-->|[-–—])\s*"
-    rf"(?P<end>{_TIMESTAMP_SHAPE})\s*\]\s*(?P<text>.*)$"
+    rf"^\[\s*(?P<start>{_TIMESTAMP_TOKEN})\s*(?:-->|[-–—])\s*"
+    rf"(?P<end>{_TIMESTAMP_TOKEN})\s*\]\s*(?P<text>.*)$"
 )
 # Caption markup only. A blanket ``<[^>]+>`` also ate every inequality, threshold
 # and generic in the transcript (``if x < 5 and y > 3`` -> ``if x 3``), and this

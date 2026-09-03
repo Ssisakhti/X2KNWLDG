@@ -32,6 +32,35 @@ export type Block =
 /** Schemes a link may be rendered as clickable with. Everything else stays text. */
 const SAFE_SCHEMES = ["http:", "https:", "mailto:"];
 
+/**
+ * A thematic break: three or more dashes, asterisks or underscores alone.
+ *
+ * One pattern, because two readers ask about it — the block loop, which turns
+ * it into a rule, and the paragraph loop, which has to stop at it. The
+ * paragraph loop did not test it at all, so `---` directly after a paragraph
+ * was swallowed into that paragraph and rendered as literal text.
+ */
+const THEMATIC_BREAK = /^(?:-{3,}|\*{3,}|_{3,})\s*$/;
+
+/**
+ * A fenced code block's opening line, and its info string.
+ *
+ * One pattern, for the same reason as {@link THEMATIC_BREAK}: the block loop
+ * opens a fence with it and the paragraph loop has to stop at the same lines
+ * the block loop will consume. They disagreed, and the disagreement was worse
+ * than a rendering fault — a line that *starts* with three backticks and is
+ * not a fence broke the paragraph loop on its first iteration while the block
+ * loop declined to consume it, so `parseMarkdown` looped for ever pushing
+ * empty paragraphs until the process ran out of memory. ```` ```c++ ```` was
+ * such a line, because the info string was `\w*`.
+ *
+ * `[\w.+#-]*` is the conservative reading of CommonMark's info string: the
+ * characters a language name actually uses. The progress guard at the end of
+ * the loop is what makes a *future* disagreement a rendering fault again
+ * rather than a hang.
+ */
+const FENCE = /^```([\w.+#-]*)\s*$/;
+
 export function isSafeHref(href: string): boolean {
   try {
     return SAFE_SCHEMES.includes(new URL(href).protocol);
@@ -99,7 +128,14 @@ export function parseMarkdown(source: string): Block[] {
       continue;
     }
 
-    const fence = /^```(\w*)\s*$/.exec(line);
+    // D-203: `\w*` matched no hyphen and no plus, so ```objective-c``` and
+    // ```c++``` were not a fence at all — the opening line, the whole code
+    // body and the closing line all fell through to prose, and the code was
+    // rendered as paragraphs with its own backticks in them. The info string
+    // of a CommonMark fence is any text with no backtick; this is the
+    // conservative version of that: the characters a language name actually
+    // uses.
+    const fence = FENCE.exec(line);
     if (fence !== null) {
       const body: string[] = [];
       index += 1;
@@ -123,7 +159,7 @@ export function parseMarkdown(source: string): Block[] {
       continue;
     }
 
-    if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+    if (THEMATIC_BREAK.test(line)) {
       blocks.push({ type: "rule" });
       index += 1;
       continue;
@@ -163,7 +199,12 @@ export function parseMarkdown(source: string): Block[] {
       if (
         current.trim() === "" ||
         /^(#{1,6})\s+/.test(current) ||
-        /^```/.test(current) ||
+        FENCE.test(current) ||
+        // D-203: a thematic break was not in this list, so `---` directly
+        // after a paragraph was swallowed into it and rendered as literal
+        // text. It is the *same* predicate the block loop above tests, named
+        // once so the two cannot disagree about what a rule is.
+        THEMATIC_BREAK.test(current) ||
         /^\s*[-*+]\s+/.test(current) ||
         /^\s*\d+[.)]\s+/.test(current) ||
         /^>\s?/.test(current)
@@ -171,6 +212,25 @@ export function parseMarkdown(source: string): Block[] {
         break;
       }
       paragraph.push(current);
+      index += 1;
+    }
+    if (paragraph.length === 0) {
+      /*
+       * The progress guard.
+       *
+       * Every branch above either consumes the line or leaves it to this
+       * loop, and this loop stops at the lines those branches claim — so a
+       * line that no branch consumes *and* this loop refuses is an infinite
+       * loop, pushing empty paragraphs until the process runs out of memory.
+       * A fence whose info string the block loop did not recognise was
+       * exactly that.
+       *
+       * The predicates are shared now, so the two cannot disagree. This is
+       * the belt: whatever a future divergence is, it costs one line rendered
+       * as prose rather than a hung tab, which is what a *renderer* should do
+       * with something it cannot classify.
+       */
+      paragraph.push(line);
       index += 1;
     }
     blocks.push({ type: "paragraph", children: parseParagraph(paragraph) });

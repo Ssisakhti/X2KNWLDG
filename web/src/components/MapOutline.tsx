@@ -25,6 +25,7 @@
 import { useMemo, useState } from "react";
 
 import { useI18n } from "../i18n";
+import { withFocusRescue } from "../lib/focusRescue";
 import type { MapGraph } from "../map/graphProjection";
 import { MAP_OUTLINE_PAGE, outlineOfGraph } from "../map/outline";
 import type { MapPeekBinding } from "../map/useMapPeek";
@@ -67,6 +68,11 @@ export function MapOutline({
         "data-map-outline": String(outline.listed),
         "data-map-outline-loaded": String(outline.loaded),
         "data-map-outline-unlisted": String(outline.unlisted),
+        // The anchor `withFocusRescue` lands on when "More" unmounts itself.
+        // It has to be a surface that *survives* that: the row holding the
+        // button goes with it, and an anchor that is gone is one `rescue`
+        // skips (`focusRescue.ts` checks `isConnected`).
+        "data-focus-anchor": "",
       }}
     >
       <p className="faint">{t("map.outline.hint")}</p>
@@ -89,13 +95,19 @@ export function MapOutline({
             </MapResultCard>
           ))}
           {outline.unlisted > 0 && (
+            // The click is wrapped: D-180 documents the seven controls that
+            // were fixed and this was the same defect unwrapped. Press "More"
+            // on the last page, the button unmounts because nothing is
+            // unlisted any more, and focus resets to the top of the document.
+            // The anchor is the panel above, not this row — this row unmounts
+            // with the button.
             <div className="stack">
               <p className="faint">{t("map.outline.unlisted", { count: outline.unlisted })}</p>
               <button
                 type="button"
                 className="button"
                 data-map-outline-more
-                onClick={() => setLimit((value) => value + MAP_OUTLINE_PAGE)}
+                onClick={withFocusRescue(() => setLimit((value) => value + MAP_OUTLINE_PAGE))}
               >
                 {t("map.outline.more")}
               </button>

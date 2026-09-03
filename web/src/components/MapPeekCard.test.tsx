@@ -77,4 +77,30 @@ describe("MapPeekCard", () => {
     fireEvent.click(screen.getByText("Close the peek"));
     expect(closed).toHaveBeenCalledTimes(1);
   });
+
+  it("announces the keyboard's peek and not the pointer's", () => {
+    /*
+     * D-203: `role="status"` was the right call and carries an implicit polite
+     * live region, but this card's whole contents — up to 160 characters of
+     * statement plus badges and a timestamp — are replaced on every
+     * `enterNode` and every Tab through the search rail, and the polite queue
+     * does not cancel. A reader heard a backlog about nodes they had already
+     * left, at pointer speed.
+     */
+    const { unmount } = renderApp(
+      <MapPeekCard peek={{ globalId: KU.global_id, record: KU, origin: "pointer" }} />,
+    );
+    const pointer = document.querySelector("[data-map-peek]");
+    expect(pointer?.getAttribute("role")).toBe("status");
+    expect(pointer?.getAttribute("aria-live")).toBe("off");
+    unmount();
+
+    renderApp(<MapPeekCard peek={{ globalId: KU.global_id, record: KU, origin: "keyboard" }} />);
+    const keyboard = document.querySelector("[data-map-peek]");
+    // The keyboard path is the one where this card is the only thing that says
+    // what the node holds, and it is one deliberate move at a time.
+    expect(keyboard?.getAttribute("aria-live")).toBe("polite");
+    // The card, not whichever badge changed.
+    expect(keyboard?.getAttribute("aria-atomic")).toBe("true");
+  });
 });

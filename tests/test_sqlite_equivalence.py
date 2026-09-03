@@ -1399,3 +1399,36 @@ def test_no_build_no_refresh_and_no_query_touched_a_canonical_file(tmp_path: Pat
     }
     changed = [str(path) for path in _CANONICAL_BEFORE if _CANONICAL_BEFORE[path] != after[path]]
     assert not changed, f"the canonical files moved: {changed[:5]}"
+
+
+def test_the_twin_global_id_helpers_answer_identically(tmp_path: Path) -> None:
+    """The two functions T-104's equivalence claim rests on.
+
+    ``parse_source_id`` sat **outside** the ``try`` in
+    ``repository.memory._unit_global_id`` and **inside** it in
+    ``index.search._unit_global_id``, so an unparseable stored ``source_id``
+    raised ``IdError`` out of one twin and returned ``None`` from the other.
+    Unreachable today — every stored id was built by ``ids.py`` — but a
+    coincidence is not an invariant, and this is the pair the whole equivalence
+    proof is built on.
+    """
+    from x2knwldg.index.search import _unit_global_id as indexed
+    from x2knwldg.repository.memory import _unit_global_id as oracle
+
+    cases = [
+        (None, "KU-000001"),
+        ("youtube:vid1", "KU-000001"),
+        ("youtube:vid1", None),
+        ("youtube:vid1", ""),
+        ("youtube:vid1", "not a local id"),
+        # The divergence: a stored id no parser accepts.
+        ("not-a-source-id", "KU-000001"),
+        ("", "KU-000001"),
+        ("a:b:c", "KU-000001"),
+        (":", "KU-000001"),
+    ]
+    for source_id, local_id in cases:
+        assert oracle(source_id, local_id) == indexed(source_id, local_id), (
+            source_id,
+            local_id,
+        )

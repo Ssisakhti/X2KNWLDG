@@ -46,7 +46,7 @@ from pathlib import Path
 
 from . import __version__
 from .ids import IdError
-from .io import CanonicalValueError
+from .io import CanonicalValueError, JsonReadError, discover_run_dirs
 from .pipeline import (
     PipelineError,
     RunAlreadyExists,
@@ -68,7 +68,12 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 # The `ui` extra (pyproject.toml). Probed by name, never imported at module
 # scope: invariant 5 is that `import x2knwldg.cli` needs nothing optional.
-UI_DEPENDENCIES = ("fastapi", "uvicorn")
+# `starlette` is here because `server/app.py` and `server/errors.py` import it
+# at module scope, not because `fastapi` happens to bring it: a probe that
+# names only two of the three tells a user with a broken install to fix the
+# wrong thing, and `pyproject.toml`'s `ui` extra is asserted to be exactly this
+# tuple, so the declaration and the probe cannot drift apart.
+UI_DEPENDENCIES = ("fastapi", "starlette", "uvicorn")
 
 # The `youtube` extra. `fetch_native_transcript` needs at least one of them;
 # with neither, no URL can be processed and that is a broken install, not a
@@ -101,6 +106,13 @@ USER_FACING_ERRORS = (
     # took `finalize` down with a raw traceback, outside this tuple and so
     # outside the documented `{"status": "ERROR"}` stderr contract.
     CanonicalValueError,
+    # `io.JsonReadError` is the package's one strict-read error: absent,
+    # unreadable, malformed, or a document whose shape is not the one the
+    # caller has to be able to rely on. `query.run_documents` raises it for a
+    # damaged canonical file — a `knowledge_units.json` holding `[]` used to
+    # escape as `AttributeError` — and it is a `ValueError`, so the tuple's
+    # `json.JSONDecodeError` entry did not cover it.
+    JsonReadError,
     OSError,
     json.JSONDecodeError,
 )
@@ -373,13 +385,29 @@ def _status_row(metadata_file: Path) -> dict[str, object]:
 def _run_status(output: Path) -> int:
     output = output.expanduser().resolve()
     rows = []
+    aliases: list[tuple[Path, Path]] = []
     if output.exists():
-        for metadata_file in sorted(output.glob("*/metadata.json")):
-            rows.append(_status_row(metadata_file))
+        # `io.discover_run_dirs`, not a fourth `glob` (D-158): a convenience
+        # symlink was listed as a second, identical video, and `library/` and
+        # dotted staging directories were listed as videos at all. The aliases
+        # are named rather than dropped, because "the same run under another
+        # name" is a true and useful thing to say.
+        run_directories, aliases = discover_run_dirs(output)
+        for run_dir in run_directories:
+            rows.append(_status_row(run_dir / "metadata.json"))
     unreadable = sum(1 for row in rows if "error" in row)
     print(
         json.dumps(
-            {"videos": rows, "unreadable": unreadable}, ensure_ascii=False, indent=2
+            {
+                "videos": rows,
+                "unreadable": unreadable,
+                "aliases": [
+                    {"path": link.name, "same_run_as": held.name}
+                    for link, held in aliases
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
         )
     )
     return EXIT_OK

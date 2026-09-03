@@ -107,7 +107,14 @@ import {
 
 import { MAP_LABEL_SETTINGS } from "./labelPolicy";
 import type { MapGraph } from "./graphProjection";
-import type { MapNodeEvent, MapPoint, MapRenderer, MapRendererFactory } from "./mapSession";
+import type {
+  MapNodeEvent,
+  MapPoint,
+  MapRefreshOptions,
+  MapRenderer,
+  MapRendererFactory,
+  MapVisibleExtent,
+} from "./mapSession";
 import { MAP_SIZE_SETTINGS, MapStyle, mapStyle } from "./mapStyle";
 
 /**
@@ -154,7 +161,25 @@ export function sigmaRendererFor(style: MapStyle): MapRendererFactory {
     });
     return {
       resize: (force?: boolean) => sigma.resize(force),
-      refresh: () => sigma.refresh(),
+      /*
+       * `restyleOnly` becomes a *partial* refresh over the whole graph with
+       * indexation skipped, and both halves of that are needed: Sigma treats
+       * `refresh()` with no `partialGraph` as a full refresh and re-indexes
+       * whatever `skipIndexation` says, so naming the nodes and edges is what
+       * makes the flag reachable at all. Every node and every edge is named
+       * because a change of hover or selection restyles the neighbours and
+       * dims everything else -- the reducers do have to run over all of them.
+       * What is skipped is `clearNodeIndices`, re-adding every node and edge,
+       * and `edgeGroups.rebuild()`, none of which can have changed while no
+       * node moved.
+       */
+      refresh: (options?: MapRefreshOptions) =>
+        options?.restyleOnly === true
+          ? sigma.refresh({
+              partialGraph: { nodes: graph.nodes(), edges: graph.edges() },
+              skipIndexation: true,
+            })
+          : sigma.refresh(),
       kill: () => sigma.kill(),
       getCamera: () => sigma.getCamera(),
       // The node key *is* the `global_id` (D-124), so no lookup is needed and
@@ -167,6 +192,24 @@ export function sigmaRendererFor(style: MapStyle): MapRendererFactory {
         sigma.on("afterRender", handler);
       },
       graphToViewport: (point: MapPoint) => sigma.graphToViewport(point),
+      // `viewRectangle` answers in the framed space `nodeDisplay` does, so
+      // this is one measured (extent, ratio) pair and no arithmetic of our
+      // own about aspect or correction ratios. `height` is already the framed
+      // span down the container; the width is the two horizontal corners.
+      visibleExtent: (): MapVisibleExtent | null => {
+        const rectangle = sigma.viewRectangle();
+        const ratio = sigma.getCamera().getState().ratio;
+        const width = Math.abs(rectangle.x2 - rectangle.x1);
+        const height = Math.abs(rectangle.height);
+        return Number.isFinite(width) &&
+          Number.isFinite(height) &&
+          Number.isFinite(ratio) &&
+          width > 0 &&
+          height > 0 &&
+          ratio > 0
+          ? { width, height, ratio }
+          : null;
+      },
       // The camera's own coordinates (`T-209`): `getNodeDisplayData` answers
       // in the framed space `Camera.animate` is addressed in, which is why
       // framing a focus is asked of the renderer rather than computed from

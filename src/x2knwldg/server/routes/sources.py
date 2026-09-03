@@ -68,12 +68,26 @@ _SOURCE_ID = Path(
 )
 
 
-def _require_source(repo: IndexRepository, source_id: str) -> None:
-    """Refuse with ``404`` unless *source_id* names a source this index holds.
+def _empty_page_or_404(repo: IndexRepository, source_id: str) -> None:
+    """Decide, **after** the page was read, whether an empty page is a ``404``.
 
-    Raises ``InvalidId`` (``400``) for an id that is not a source id, and
-    ``IndexUnavailable`` (``503``) when the index cannot answer at all — both
-    from the repository, both rendered by the shared handler.
+    This used to run *before* the real query, as ``_require_source``: a
+    ``get_source`` whose only job was to turn an empty page into a ``404``,
+    followed by the query that actually answers. Two round trips for the
+    common, non-empty case — and a window between them. If the source vanished
+    in that window the route answered ``200`` with an empty page, which
+    *asserts* that the source exists and holds nothing: exactly the claim the
+    helper was written to prevent.
+
+    Asked only when the page came back empty, so a source with entities costs
+    one read, and the existence question is decided after the data rather than
+    before it. The remaining window runs the other way — a source that
+    disappears between the query and this check answers ``404`` for something
+    that was there a moment ago — which is a true statement about now.
+
+    ``InvalidId`` (``400``) for an id that is not a source id, and
+    ``IndexUnavailable`` (``503``) when the index cannot answer at all, both
+    still come from the repository and are rendered by the shared handler.
     """
     if repo.get_source(source_id) is None:
         raise NotFound(f"no source has the id {source_id!r}")
@@ -125,7 +139,6 @@ def list_source_entities(
     ),
 ) -> dict[str, Any]:
     """``EntityListResponse``: one page of the source's ``EntityRef`` records."""
-    _require_source(repo, source_id)
     page = repo.list_entities(
         EntityQuery(
             limit=limit,
@@ -136,6 +149,8 @@ def list_source_entities(
             min_confidence=min_confidence,
         )
     )
+    if not page.items:
+        _empty_page_or_404(repo, source_id)
     return paged(page.items, page.page_info())
 
 
@@ -150,7 +165,6 @@ def list_source_relations(
     ),
 ) -> dict[str, Any]:
     """``RelationListResponse``: one page of the source's ``IndexedRelation`` records."""
-    _require_source(repo, source_id)
     page = repo.list_relations(
         RelationQuery(
             limit=limit,
@@ -159,4 +173,6 @@ def list_source_relations(
             relation_vocabulary=relation_vocabulary,
         )
     )
+    if not page.items:
+        _empty_page_or_404(repo, source_id)
     return paged(page.items, page.page_info())

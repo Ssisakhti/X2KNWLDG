@@ -70,6 +70,9 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           },
@@ -115,6 +118,9 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           },
@@ -153,6 +159,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
@@ -209,6 +218,9 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           },
@@ -258,6 +270,9 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           },
@@ -297,6 +312,9 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           },
@@ -335,6 +353,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
@@ -416,6 +437,9 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
           "416": {
             "description": "The requested range is not satisfiable.",
             "content": {
@@ -489,6 +513,9 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           },
@@ -536,6 +563,9 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
@@ -593,6 +623,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
@@ -903,11 +936,15 @@
               },
               "built_at": {
                 "description": "When the index last finished a build, or null if it never has.",
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "date-time"
+                "$comment": "The `oneOf` mirrors `Source.imported_at`, which refers to `common.schema.json#/$defs/isoTimestamp` and is correctly rejected for `\"yesterday\"`. This field carried `format: date-time` and no pattern, and `isoTimestamp`'s own `$comment` explains why that is not a check: `format` is annotation-only in 2020-12 unless a validator opts into the format-assertion vocabulary, and none of this repo's validators do. So `built_at: \"yesterday\"` validated against every check in the tree while the identical value on `imported_at` did not.",
+                "oneOf": [
+                  {
+                    "$ref": "../../v1/common.schema.json#/$defs/isoTimestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "index_version": {
                 "description": "Migration version of the SQLite schema (T-101), or null when no index exists.",
@@ -918,7 +955,7 @@
                 "minimum": 0
               },
               "message": {
-                "description": "Why the index is in this state, when it has something to say. Present on `error`, and also on `ready` after a scan that failed and was rolled back — the stored records are intact and still answerable, and this is the only place that says the last scan did not finish. Absent when there is nothing to report; never an empty string. Carries no host filesystem path (ADR 0003).",
+                "description": "Why the index is in this state, when it has something to say. Present on `error`; on `ready` after a scan that failed and was rolled back — the stored records are intact and still answerable, and this is the only place that says the last scan did not finish; and on `ready` when the index holds sources whose searchable text could not be read, which is why a search over them reports `total: null`. Such a source is *indexed*, so it is counted in `runs.indexed` and named in no `skipped` entry, and this sentence is the only channel that explains the uncountable total. The count, not the ids: `/api/sources` is where a client learns which source is which. Absent when there is nothing to report; never an empty string. Carries no host filesystem path (ADR 0003).",
                 "type": [
                   "string",
                   "null"
@@ -1545,6 +1582,25 @@
       },
       "InternalError": {
         "description": "The server could not complete the request (`internal`). Declared because the handler that produces it exists: any unforeseen failure is rendered in this envelope rather than as a framework traceback, and a contract that does not say so is a contract a client cannot hold the server to.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "MethodNotAllowed": {
+        "description": "The path exists and does not answer this method (`invalid_request`). v1 is read-only, so every method but `GET` and `HEAD` is refused here; the response carries `Allow` naming what the path does accept, as RFC 9110 requires. Declared for the same reason `500` is: the router produces it, and a contract that does not say so is a contract a client cannot hold the server to.",
+        "headers": {
+          "Allow": {
+            "description": "The methods this path answers.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "GET, HEAD"
+          }
+        },
         "content": {
           "application/json": {
             "schema": {

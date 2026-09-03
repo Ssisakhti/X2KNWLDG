@@ -78,33 +78,6 @@ from ..errors import NotFound
 router = APIRouter()
 
 
-def _entity(entity_id: str, repo: IndexRepository) -> dict[str, Any]:
-    """The one implementation, shared by the contract path and its catch-all.
-
-    ``repo.get_entity`` raises ``InvalidId`` for a malformed id and returns
-    ``None`` for a well-formed one that names nothing. Neither is caught here:
-    the first is rendered by the global handler with the repository's own status
-    (D-030), and the second is the route's ``404`` to make.
-    """
-    record = repo.get_entity(entity_id)
-    if record is None:
-        raise NotFound("No entity has that id.")
-    return envelope(record)
-
-
-def _artifact(artifact_id: str, repo: IndexRepository) -> dict[str, Any]:
-    """As :func:`_entity`, for the ``Artifact`` record.
-
-    ``available: false`` is **not** a ``404`` here. The record exists and states
-    that the file did not at index time; ``/api/media`` is where that becomes a
-    refusal, because that is the endpoint that promised bytes.
-    """
-    record = repo.get_artifact(artifact_id)
-    if record is None:
-        raise NotFound("No artifact has that id.")
-    return envelope(record)
-
-
 @router.get(
     "/entities/{entity_id}",
     tags=["entities"],
@@ -122,8 +95,16 @@ def get_entity(
     is addressed as ``library:concepts:<hash>``; a lookup that required a source
     would make the 17 concepts in the library unaddressable by the id the index
     itself gives them.
+
+    ``repo.get_entity`` raises ``InvalidId`` for a malformed id and returns
+    ``None`` for a well-formed one that names nothing. Neither is caught here:
+    the first is rendered by the global handler with the repository's own status
+    (D-030), and the second is this route's ``404`` to make.
     """
-    return _entity(entity_id, repo)
+    record = repo.get_entity(entity_id)
+    if record is None:
+        raise NotFound("No entity has that id.")
+    return envelope(record)
 
 
 @router.get(
@@ -136,5 +117,13 @@ def get_artifact(
     artifact_id: str,
     repo: IndexRepository = Depends(repository),
 ) -> dict[str, Any]:
-    """``ArtifactResponse`` — metadata about the file, never the file."""
-    return _artifact(artifact_id, repo)
+    """``ArtifactResponse`` — metadata about the file, never the file.
+
+    ``available: false`` is **not** a ``404`` here. The record exists and
+    states that the file did not at index time; ``/api/media`` is where that
+    becomes a refusal, because that is the endpoint that promised bytes.
+    """
+    record = repo.get_artifact(artifact_id)
+    if record is None:
+        raise NotFound("No artifact has that id.")
+    return envelope(record)

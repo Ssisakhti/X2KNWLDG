@@ -30,6 +30,7 @@ import { useAsync } from "../api/useAsync";
 import { usePaged } from "../api/usePaged";
 import { KNOWLEDGE_KINDS, PROVENANCE_CLASSES, RUN_STATUSES } from "../api/vocabulary";
 import { ErrorState } from "../components/ErrorState";
+import { PagedList } from "../components/PagedList";
 import { IndexStatusPanel } from "../components/IndexStatus";
 import { SearchResults } from "../components/SearchResults";
 import { SourceCard } from "../components/SourceCard";
@@ -88,22 +89,34 @@ export function LibraryView() {
 
   const indexStatus = useAsync((signal) => api.call("getStatus", { signal }), []);
 
-  // Unfiltered, once: the `source_type` vocabulary is open by design, so its
-  // options are read from the indexed sources rather than from a hard-coded
-  // list that a new adapter would silently fall out of.
-  const allSources = useAsync(
-    async (signal) => {
-      const response = await api.call("listSources", { query: { limit: 500 }, signal });
-      return response.data;
-    },
-    [],
-  );
-
+  /*
+   * The `source_type` vocabulary, from the status payload already on the wire
+   * (D-203).
+   *
+   * This used to be a second, unfiltered `listSources` at `limit: 500` on
+   * every mount — five hundred records fetched, parsed and thrown away to
+   * populate one `<select>`, beside the paged request that answers the page.
+   *
+   * `/api/status` carries `adapters`, and `adapters[].name` **is** the
+   * `source_type`: `adapt_project` builds that list from each adapter's own
+   * `source_type`, and `sourceType`'s schema is the same
+   * `common.schema.json#/$defs/sourceType`. So the vocabulary was already
+   * being fetched, twice a mount, and only one of the two requests had to
+   * exist.
+   *
+   * It keeps the original reason for not hard-coding a list — the set is open
+   * by design and a new adapter must not silently fall out of it. What changes
+   * is that the answer now comes from the *registered* adapters rather than
+   * from whichever types the first five hundred records happened to include:
+   * strictly more honest, because a filter offered for a type with no indexed
+   * sources says "0 total" while a type missing from a truncated page said
+   * nothing at all.
+   */
   const sourceTypes = useMemo(() => {
     const seen = new Set<string>();
-    for (const source of allSources.data ?? []) seen.add(source.source_type);
+    for (const adapter of indexStatus.data?.data.adapters ?? []) seen.add(adapter.name);
     return [...seen].sort();
-  }, [allSources.data]);
+  }, [indexStatus.data]);
 
   const sources = usePaged<Source>(
     async (cursor, signal) => {
@@ -298,36 +311,36 @@ export function LibraryView() {
             )}
           </div>
 
-          {sources.error !== null ? (
-            <ErrorState error={sources.error} onRetry={sources.reload} />
-          ) : sources.status === "loading" ? (
-            <p className="muted">{t("common.loading")}</p>
-          ) : mode === "units" ? (
-            <UnitsBrowser sources={sources.items} filters={unitFilters} />
-          ) : sources.items.length === 0 ? (
-            <p className="muted">{t("library.empty")}</p>
-          ) : (
-            <>
-              <p className="faint">
-                {sources.total === null
-                  ? t("common.unknownTotal")
-                  : t("common.total", { count: sources.total })}
+          {/*
+            Units mode is a different view of the same walk rather than a
+            different ladder: `UnitsBrowser` takes the loaded sources and does
+            its own fetching, so it replaces the item area and keeps its own
+            statuses. Everything else goes through the one ladder (D-203).
+          */}
+          {mode === "units" ? (
+            sources.error !== null ? (
+              <ErrorState error={sources.error} onRetry={sources.reload} />
+            ) : sources.status === "loading" ? (
+              <p className="muted" role="status">
+                {t("common.loadingNamed", { name: t("library.title") })}
               </p>
-              <div className={layout === "grid" ? "library__grid" : "library__list"}>
-                {sources.items.map((source) => (
-                  <SourceCard key={source.id} source={source} compact={layout === "grid"} />
-                ))}
-              </div>
-              {sources.hasMore && (
-                <button
-                  type="button"
-                  className="button"
-                  onClick={withFocusRescue(sources.loadMore)}
-                >
-                  {t("common.more")}
-                </button>
+            ) : (
+              <UnitsBrowser sources={sources.items} filters={unitFilters} />
+            )
+          ) : (
+            <PagedList
+              state={sources}
+              label={t("library.title")}
+              empty={t("library.empty")}
+            >
+              {(loaded) => (
+                <div className={layout === "grid" ? "library__grid" : "library__list"}>
+                  {loaded.map((source) => (
+                    <SourceCard key={source.id} source={source} compact={layout === "grid"} />
+                  ))}
+                </div>
               )}
-            </>
+            </PagedList>
           )}
         </>
       )}
