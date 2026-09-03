@@ -4,9 +4,16 @@ Every record here is copied from output/, never invented. The only computed
 values are x/y layout positions, which are presentation, exactly as
 graphProjection.MapNodeAttributes treats them.
 """
-import json, collections, pathlib
+import collections
+import json
+import pathlib
 
-ROOT = pathlib.Path("/Users/saeid/Documents/X2KNWLDG")
+# The repository root, derived from this file's own location rather than typed.
+# It used to be an absolute path under one developer's home directory, which is
+# R15's shape exactly: a committed generator that only runs on the machine it
+# was written on. `docs/mockups/T-211/gen_data.py` is three directories down,
+# and `capture_mockups.ts` beside it resolves its own paths the same way.
+ROOT = pathlib.Path(__file__).resolve().parents[3]
 g = json.loads((ROOT / "output/library/graph.json").read_text())
 units = {u["id"]: u for u in json.loads((ROOT / "output/pqlWNihgdjI/knowledge_units.json").read_text())["units"]}
 meta = json.loads((ROOT / "output/pqlWNihgdjI/metadata.json").read_text())
