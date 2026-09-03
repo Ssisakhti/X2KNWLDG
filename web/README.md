@@ -13,7 +13,7 @@ npm run dev:api    # the real API over the committed run fixtures, on :8931
 npm run dev        # Vite on 127.0.0.1:5173, proxying /api to that server
 npm run build      # production bundle into dist/
 
-npm run browser           # T-209's gate: the built bundle in a real browser
+npm run browser           # the gate: the built bundle in a real browser (T-209, T-215)
 npm run typecheck:browser # and the gate's own types
 ```
 
@@ -45,8 +45,9 @@ X2KNWLDG_BROWSER_CHANNEL= npm run browser
 | `src/views/` | Library (`T-111`), Reader (`T-112`) and Map (`T-204`) |
 | [`src/map/`](src/map/README.md) | The Knowledge Map's machinery: deterministic seed positions (`T-202`), the graph projection, progressive snapshot and page walk (`T-203`), the renderer lifecycle and the one Sigma constructor (`T-204`), the style table and label policy (`T-205`), the URL grammar, search and focus/Peek state (`T-206`), the bounded neighbourhood and the on-stage density policy (`T-207`), the honest-state reducers, the outline projection and the motion policy (`T-208`), and the `T-202` renderer gate |
 | `scripts/dev_api.py` | Stands up the real server over the committed fixtures |
+| `scripts/` (the `.ts` ones) | Tooling for the visual work, none of it a spec: `mockup_layout.ts` and `capture_mockups.ts` render the approved `T-211` compositions, `capture_baseline.ts` photographs the Map they replaced, `measure_orbit.ts` prints the Directional Orbit's numbers off a running build, and `review_sheet.ts` builds the page the two capture sets are compared on (`T-215`) |
 | `gate.html` | The `T-202` gate harness, development-only and outside the production build ([why](src/map/README.md)) |
-| `browser/` | `T-209`'s browser gate: 30 specs over the built bundle and the real API. Development-only, outside `src/`, and it imports nothing from the application — a spec that imported the number it is checking would agree with whatever the module says |
+| `browser/` | The browser gate: **47 specs** over the built bundle and the real API — `T-209`'s 31 behavioural ones and `T-215`'s 16 visual-quality scenarios, which also write the captures the compositions are accepted on. Development-only, outside `src/`, and it imports nothing from the application — a spec that imported the number it is checking would agree with whatever the module says. `browser/composition.ts` is the one measurement of a drawn composition, shared with `scripts/measure_orbit.ts` |
 | `playwright.config.ts` | What the gate is pointed at: `npm run build` then `vite preview`, with `/api` proxied to `scripts/dev_api.py`. One worker, no retries |
 
 ## The API types

@@ -184,3 +184,8 @@ web/blob-report/
 # render that can drift from its own source with nothing to notice. The approved
 # compositions also live, permanently, in the published review artifact.
 docs/mockups/*/captures/
+
+# The T-215 review page, for the same reason one line up: `review_sheet.ts`
+# builds it out of the two capture sets, and a committed copy would point at
+# pictures a clone does not have.
+docs/mockups/*/review.html

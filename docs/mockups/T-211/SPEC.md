@@ -491,3 +491,106 @@ The two deliberate departures. Each is also in D-194.
    Reader row would be a colour with no key on that screen. `EntityCard`, `SearchResults` and
    `ReaderView` keep the plain badge; they name the same kind in the same words.
 
+
+---
+
+## 16. What `T-215` built, and what the comparison shows
+
+`T-215` is the gate, not a change to the composition: `git diff` over `web/src/` is empty and
+no `output/` file was touched. It adds `browser/composition.ts` — the probe
+`measure_orbit.ts` used to carry, moved so the script and the gate read one implementation —
+`browser/visual.spec.ts`, sixteen scenarios that assert on it and photograph what they
+asserted, and `scripts/review_sheet.ts`, which builds the page the two capture sets are
+compared on.
+
+### What each scenario is held to
+
+Per scenario, from the seams `T-212`–`T-214` published rather than from a card count: the
+tier the route says it drew; the direction the document is in; zero marks outside the field;
+zero mark-over-mark; zero marks under a floating control; zero pills without a clear seat;
+every pill horizontal; and the document exactly the viewport (the `stack` tier excepted — it
+*is* a document, which is `T-213`'s fifth departure). With something focused it adds: the
+centre is the selected entity; placed plus counted equals the neighbours the server returned,
+which is also the number of rows in the list; every card's `hops` equals a breadth-first walk
+of the served edges; every hop-1 card's side is the direction of its own relation *seen from
+the focus*; that side is a place, mirrored under `rtl`; and the focused card is both the
+largest card and the nearest to the middle of the field.
+
+The entity walked is the mockups' own — `KU-000028` — whenever the served library holds it,
+because two pictures of two different neighbourhoods cannot answer whether this build
+reproduces *these* compositions. Over the committed seven-node fixtures the gate falls back to
+the busiest entity the graph has: the clauses still hold, the recorded numbers cannot, and are
+not asserted.
+
+### The numbers, re-measured on the running build
+
+| Focus `KU-000028`, 8 neighbours returned | `T-213`/`T-214` | `T-215` |
+|---|---|---|
+| Cards placed / counted at 2852×1688 | 7 / 1 | **7 / 1** |
+| Cards placed / counted at 1440×900 | 2 / 6 | **2 / 6** |
+| Cards placed / counted at 1280×720 | 1 / 7 | **1 / 7** |
+| Clipped, overlapping, chrome-covered, unseated | 0 | **0** |
+| Relation pills not horizontal | — | **0** |
+| Document height at 2852×1688 / 1440×900 | 1688 / 900 | **1688 / 900** |
+
+Held in dark, light and Persian: the placement reserves the tier's boxes rather than the
+text's, so a mirrored composition places the same seven cards.
+
+**Searching costs one card, and says so.** With results listed, the search rail grows from
+237 px to 424 px, the orbit keeps its cards clear of the chrome, and the card that fitted
+beside the collapsed rail is refused and counted — 6 placed and 2 counted at the review
+viewport, with `no_room` going from 1 to 2. Nothing is dropped silently, which is the clause
+that binds; what a reviewer should know is that reading and searching are two compositions.
+The `focus-search` scenario holds that pair rather than the reading one.
+
+### The one clause this gate cannot see
+
+ADR 0006 clause 5 forbids a graph label under a card. In production that label is drawn by
+WebGL into the single stage canvas: there is no DOM node for it, no per-label geometry to
+read, and Sigma exposes no instance to ask. So the clause is asserted where it *is* readable
+— `labelPolicy` hides a carded node's label and an edge's label when both endpoints are
+carded, held by `labelPolicy.test.ts` and `visualSystem.test.ts` — and what the browser gate
+asserts is the half with a rectangle: a relation pill is a label too, and a pill over a card
+is the same defect with a DOM node to name it. Stated here rather than left as an implied
+"all four clauses are in the browser".
+
+### What the comparison shows
+
+The geometry is green and the **Focus** composition reproduces the approved one closely:
+the same sides, the same hop rings, the same ports, horizontal pills naming both ends, the
+focused card unmistakably the centre. Three differences are visible in the pictures and are
+recorded here for the acceptance decision rather than fixed, because `T-215` adds no
+application surface.
+
+1. **Explore's field is not quiet at the review viewport.** A node's size is stated in graph
+   units and Sigma's default `itemSizesReference: "positions"` scales it with the camera
+   (`zoomToSizeRatioFunction: Math.sqrt`), so framing the same 86-node graph into a 2852 px
+   field draws every mark several times the diameter the approved composition shows. Marks
+   touch and overlap, the label grid then has room for roughly forty labels where the
+   reference has eight, and the topology the overview exists to show is harder to read at the
+   review viewport than at 1440. The reference's quiet field is, in the shipped renderer, a
+   function of viewport width.
+2. **At the `compact` tier the floating surfaces are panels, not chips.** At 1440×900 the
+   search rail is 420×219 and the counts/filters float 352×219, and the second stands at
+   x=704 — the middle of an 1440 px field — with the graph behind it. SPEC §5 gives that tier
+   a search "closed to its trigger", and the approved capture has a one-line search chip and a
+   two-line counts chip in the corners. No card is placed under either (the placement refuses
+   that), so this is a composition finding rather than a geometry one.
+3. **Quick Read and the related list are present with nothing focused.** In Explore both
+   panels are mounted and say "nothing focused", where the approved overview has an
+   unobstructed field. That is a deliberate choice — a panel that disappears cannot say that
+   nothing is selected — and is noted because it is a difference from the reference, not
+   because it is wrong.
+
+### Regenerating the comparison
+
+```bash
+npx tsx web/scripts/capture_mockups.ts                     # the approved set
+cd web && X2KNWLDG_BROWSER_PROJECT_ROOT=.. npx playwright test visual.spec.ts
+npx tsx web/scripts/review_sheet.ts                        # the page they are compared on
+```
+
+The gate is pointed at the real library on purpose: the mockups compose `KU-000028` out of
+the 86-node graph, and a capture of the committed fixtures would be a picture of a different
+graph — green, and useless as a comparison. Both capture directories and the review page are
+gitignored, for the reason §12 already gives.
