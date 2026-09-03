@@ -405,12 +405,25 @@ same claim:
 | Edited post | `NOT_SUPPORTED` | Same scan, no instance. `fields` declares `edits` with no surface at any tier |
 | X Article | `NOT_SUPPORTED` | The tool models only `tweet` and `user` record kinds. No Article representation exists to test |
 | Protected / suspended, as distinct from deleted | `NOT_SUPPORTED` | Proven: Tier 0 collapses all three into one message (§6) |
-| Reply by another author | not measured | No cross-author reply appeared in the archives read; every reply observed was a self-reply. Out of MVP scope anyway |
+| Reply by another author | not measured **— superseded, see below** | No cross-author reply appeared in the archives read; every reply observed was a self-reply. Out of MVP scope anyway |
 | Provider outage | `PASS` | An unresolvable host yields a transport error and no record; x-cli exits `8` on timeout |
 
 Search is Tier 2, which is why polls and edits could not be hunted directly.
 `T-227` must treat all four as absent-unless-represented, never as fields to
 guess.
+
+**Amended 2026-09-04 (T-227, D-221).** The "reply by another author" row is no
+longer accurate about what has been observed. One was measured live over the
+tunnel — `ylecun` replying to `elonmusk`, walked from a two-post self-thread
+below it — and is committed as `tests/fixtures/captures/`'s
+`partial-thread-dangling-chain`. Two things about *this* spike's method survive
+the correction and explain why it saw none: the archives read were the ranked
+selection §4 describes, which favours originals and complete self-threads, and
+`x replies <user>` returns records with no `reply_to` at all. Finding the one
+instance took 17 accounts and roughly 680 records. The row's second sentence
+still holds — such a reply is outside the MVP as an *ingested item*, and the
+walk stops at it — but it is now the named boundary of a capture rather than
+something unobserved.
 
 ## 10. Recommendation
 

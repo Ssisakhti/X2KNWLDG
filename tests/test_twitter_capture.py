@@ -17,6 +17,13 @@ Four things are checked, and the last is the one that matters:
    accepts an honest document proves little; the contract's job is to make a
    *dishonest* one unrepresentable, so each entry below is a specific lie that
    T-222 measured someone could otherwise tell.
+
+One shape is built in the test process rather than committed:
+``tests/capture_shapes.py`` constructs a post with an edit history, because no
+measured route produces one and a fixture in this directory is a claim about
+what a provider returned (D-222). Its own honesty invariant lives here beside
+the others, and ``test_no_committed_capture_carries_an_edit_history`` keeps that
+shape from drifting back onto disk as though it had been measured.
 """
 
 from __future__ import annotations
@@ -29,6 +36,8 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from capture_shapes import EDIT_PRIOR_IDS, edited_post_capture
 
 jsonschema = pytest.importorskip(
     "jsonschema",
@@ -282,6 +291,113 @@ def test_an_unavailable_post_invents_nothing(path: Path) -> None:
                 f"{path.name}: unavailable post carries {invented!r}"
             )
         assert post["availability"].get("reason") == "not_determinable_at_this_tier"
+
+
+def edit_history_errors(capture: dict) -> list[str]:
+    """What an ``edits`` list may not do. One sentence, checked three ways.
+
+    The sentence is *nothing named in ``edits`` was observed* (D-224). JSON
+    Schema can require the list to be non-empty and its members to be post ids —
+    it already does — but it compares no two fields, so it cannot see an id that
+    appears both as a prior version and as something the capture claims to have
+    read. Each check below is that one sentence failing in a different place.
+    """
+    errors: list[str] = []
+    item_ids = {post["post_id"] for post in capture["items"]}
+    included = set(capture["coverage"]["included_post_ids"])
+    for post in capture["items"]:
+        prior = post.get("edits")
+        if prior is None:
+            continue
+        if post["post_id"] in prior:
+            errors.append(
+                f"{post['post_id']}: its own id is in its edit history, so 'nothing in "
+                "edits was observed' needs a carve-out for the one id that was"
+            )
+        observed_as_item = sorted(set(prior) & item_ids)
+        if observed_as_item:
+            errors.append(
+                f"{post['post_id']}: {observed_as_item} are prior versions and also items, "
+                "so the capture claims to have read a state it says no longer exists"
+            )
+        claimed_covered = sorted(set(prior) & included)
+        if claimed_covered:
+            errors.append(
+                f"{post['post_id']}: {claimed_covered} are prior versions and also in "
+                "coverage.included_post_ids, which counts them as posts accounted for"
+            )
+    return errors
+
+
+@pytest.mark.parametrize("path", fixture_paths(), ids=lambda p: p.stem)
+def test_no_committed_capture_carries_an_edit_history(path: Path) -> None:
+    """The route produces none, so none may appear as though measured.
+
+    T-222 scanned 610 credential-free posts and found no edited post, and
+    ``x fields tweet`` declares ``edits`` with no surface at any tier. A fixture
+    in this directory is a claim about what a provider returned (D-222), so an
+    ``edits`` key appearing here would be that claim made falsely — most likely
+    by someone building the shape in the obvious wrong place.
+    """
+    capture = json.loads(path.read_text("utf-8"))
+    carrying = [p["post_id"] for p in capture["items"] if "edits" in p]
+    assert not carrying, (
+        f"{path.name}: {carrying} carry an edit history, which no measured route "
+        "produces — construct that shape in tests/capture_shapes.py instead"
+    )
+
+
+def test_the_constructed_edit_history_validates(validator: Draft202012Validator) -> None:
+    assert not list(validator.iter_errors(edited_post_capture()))
+
+
+def test_the_constructed_edit_history_is_honest() -> None:
+    """The shape T-227 will extract from must itself pass the invariant."""
+    assert edit_history_errors(edited_post_capture()) == []
+
+
+def test_the_constructed_edit_history_states_only_the_prior_ids() -> None:
+    """It names the versions and says nothing about what they contained."""
+    capture = edited_post_capture()
+    post = capture["items"][0]
+    assert post["edits"] == list(EDIT_PRIOR_IDS)
+    # Coverage is untouched: a prior version is the same post in a state that no
+    # longer exists, not another post in the conversation, so it is not an
+    # expected item and cannot turn a PASS into a PARTIAL (D-224).
+    original = load("pass-single-post-en")
+    assert capture["coverage"] == original["coverage"]
+    assert capture["coverage"]["status"] == "PASS"
+
+
+def dishonest_edit_histories() -> list[tuple[str, dict]]:
+    """Edit histories that are schema-legal and must fail the invariant."""
+    cases: list[tuple[str, dict]] = []
+
+    doc = edited_post_capture()
+    doc["items"][0]["edits"].append(doc["items"][0]["post_id"])
+    cases.append(("the post lists itself as one of its own prior versions", doc))
+
+    doc = edited_post_capture()
+    doc["items"][0]["edits"] = [doc["items"][0]["post_id"]]
+    cases.append(("the whole edit history is the post's own id", doc))
+
+    doc = edited_post_capture()
+    doc["coverage"]["included_post_ids"].append(doc["items"][0]["edits"][0])
+    cases.append(("a prior version is counted as a post accounted for", doc))
+
+    return cases
+
+
+@pytest.mark.parametrize("why,document", dishonest_edit_histories(), ids=lambda v: v if isinstance(v, str) else "")
+def test_dishonest_edit_histories_are_refused(
+    validator: Draft202012Validator, why: str, document: dict
+) -> None:
+    # Schema-legal on purpose: `edits` members are post ids and the schema
+    # compares no two fields, so the catalogue cannot reach these.
+    assert not list(validator.iter_errors(document)), (
+        f"expected the schema to accept this one: {why}"
+    )
+    assert edit_history_errors(document), f"the invariant accepted a capture where {why}"
 
 
 def dishonest_documents() -> list[tuple[str, dict, str]]:
