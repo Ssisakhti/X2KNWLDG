@@ -1,0 +1,69 @@
+[
+  {
+    "kind": "tweet",
+    "id": "2027781710667010262",
+    "uri": "x://tweet/2027781710667010262",
+    "url": "https://x.com/bbcpersian/status/2027781710667010262",
+    "tier": 0,
+    "surfaces": [
+      "s1",
+      "s8"
+    ],
+    "sources": [
+      "https://cdn.syndication.twimg.com/tweet-result?id=2027781710667010262\u0026token=<STRIPPED>\u0026lang=en",
+      "https://x.com/i/status/2027781710667010262"
+    ],
+    "via": {
+      "bookmarks": "s8",
+      "impressions": "s8",
+      "quotes": "s8",
+      "retweets": "s8"
+    },
+    "text": "برنامه‌های بی‌بی‌سی فارسی را از رادیو بشنوید:\n\nاز ساعت ۷ تا ۸ صبح به‌وقت تهران روی موج کوتاه ۱۲۰۶۵ کیلوهرتز\n\nاز ساعت ۸ تا ۸:۳۰ شب به‌وقت تهران روی موج متوسط ۷۰۲ کیلوهرتز و موج کوتاه ۹۷۷۰ کیلوهرتز\n\nاز ساعت ۱۰ تا ۱۱ شب به‌وقت تهران روی موج متوسط ۷۰۲ کیلوهرتز و موج کوتاه ۶۱۳۰",
+    "created_at": "2026-02-28T16:23:28Z",
+    "lang": "fa",
+    "author": {
+      "kind": "user",
+      "id": "bbcpersian",
+      "uri": "x://user/bbcpersian",
+      "url": "https://x.com/bbcpersian",
+      "tier": 0,
+      "surfaces": [
+        "s1",
+        "s8"
+      ],
+      "sources": [
+        "https://cdn.syndication.twimg.com/tweet-result?id=2027781710667010262\u0026token=<STRIPPED>\u0026lang=en",
+        "https://x.com/i/status/2027781710667010262"
+      ],
+      "via": {
+        "description": "s8",
+        "followers": "s8",
+        "following": "s8",
+        "tweets": "s8"
+      },
+      "username": "bbcpersian",
+      "rest_id": "790728",
+      "name": "BBC NEWS فارسی",
+      "description": "Latest local and global news in Persian\nحساب رسمی بخش فارسی بی‌بی‌سی\n#BBCPersian",
+      "verified": true,
+      "verified_type": "blue",
+      "metrics": {
+        "followers": 2414955,
+        "following": 14,
+        "tweets": 269995
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1624045000009871361/GjpClh1Z_normal.jpg",
+      "entities": {}
+    },
+    "metrics": {
+      "replies": 288,
+      "retweets": 12,
+      "likes": 138,
+      "quotes": 7,
+      "bookmarks": 24,
+      "impressions": 466181
+    },
+    "entities": {}
+  }
+]

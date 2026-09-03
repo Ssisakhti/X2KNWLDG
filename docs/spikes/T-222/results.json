@@ -1,0 +1,2156 @@
+{
+  "task": "T-222",
+  "generated_by": "docs/spikes/T-222/qualify.py",
+  "provider": {
+    "tool": "tamnd/x-cli",
+    "pinned_release": "v0.5.0",
+    "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+    "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+    "licence": "AGPL-3.0"
+  },
+  "routes": {
+    "xcli_t0": {
+      "label": "x-cli Tier 0 (X public surfaces, no token at all)",
+      "third_party": false
+    },
+    "xcli_guest": {
+      "label": "x-cli Tier 1 (anonymous guest token, no account)",
+      "third_party": false
+    },
+    "fxtwitter": {
+      "label": "FxTwitter (third party; discloses the post id)",
+      "third_party": true
+    },
+    "oembed": {
+      "label": "Official X oEmbed (corroboration only)",
+      "third_party": false
+    }
+  },
+  "cells": [
+    {
+      "case": "single_post_en",
+      "ref": "20",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "20",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 3261,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "created_at",
+        "author",
+        "lang"
+      ],
+      "evidence": {
+        "fixture": "single_post_en__xcli_t0.txt",
+        "bytes": 1594,
+        "sha256_sanitized": "cec351959e743dd3a9ed13225296f97ed7e0ac8aa23b13e2dd2a79bff61b58ea",
+        "sha256_raw_before_sanitization": "71badaa84db2b62cfec8613cf606bebc4e54691faf03f5883dc811eab175e6f7",
+        "sanitization_removed": [
+          "syndication request token in url x2"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "single_post_en",
+      "ref": "20",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "20",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 1982,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "created_at",
+        "author",
+        "lang"
+      ],
+      "evidence": {
+        "fixture": "single_post_en__xcli_guest.txt",
+        "bytes": 1932,
+        "sha256_sanitized": "96771edd906b25ac8e7b8045b859e346c623bb9f090988cf534db690220cace3",
+        "sha256_raw_before_sanitization": "96771edd906b25ac8e7b8045b859e346c623bb9f090988cf534db690220cace3",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "single_post_en",
+      "ref": "20",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/20",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/20",
+        "cross_origin_redirect": false,
+        "latency_ms": 949,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "created_at",
+        "author",
+        "lang"
+      ],
+      "evidence": {
+        "fixture": "single_post_en__fxtwitter.txt",
+        "bytes": 1246,
+        "sha256_sanitized": "97318cd22e2a788e6730b7507c66ba3c6ed2dc8ba6b3a838dc8a5d9cfdd14342",
+        "sha256_raw_before_sanitization": "97318cd22e2a788e6730b7507c66ba3c6ed2dc8ba6b3a838dc8a5d9cfdd14342",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "single_post_en",
+      "ref": "20",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry created_at",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/20",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/20",
+        "cross_origin_redirect": false,
+        "latency_ms": 1266,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "created_at",
+        "author",
+        "lang"
+      ],
+      "evidence": {
+        "fixture": "single_post_en__oembed.txt",
+        "bytes": 630,
+        "sha256_sanitized": "bea362391add746bef0440cacb92a058adbe3ee8db0700640a83634e37fcd1fa",
+        "sha256_raw_before_sanitization": "bea362391add746bef0440cacb92a058adbe3ee8db0700640a83634e37fcd1fa",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "single_post_fa",
+      "ref": "2027781710667010262",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "answered and carried all 5 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2027781710667010262",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 2892,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "lang_is_fa",
+        "rtl_text",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "created_at",
+        "author",
+        "lang_is_fa",
+        "rtl_text"
+      ],
+      "evidence": {
+        "fixture": "single_post_fa__xcli_t0.txt",
+        "bytes": 2361,
+        "sha256_sanitized": "76d141e241603bcef72489868d03faabec99782d1ed1261b05e025ee1efa8e16",
+        "sha256_raw_before_sanitization": "56a1c78e2e62c502880e9be435dabc3f56b2318c621ca4c45338c9db299344aa",
+        "sanitization_removed": [
+          "syndication request token in url x2"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "single_post_fa",
+      "ref": "2027781710667010262",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 5 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2027781710667010262",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 1875,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "lang_is_fa",
+        "rtl_text",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "created_at",
+        "author",
+        "lang_is_fa",
+        "rtl_text"
+      ],
+      "evidence": {
+        "fixture": "single_post_fa__xcli_guest.txt",
+        "bytes": 2947,
+        "sha256_sanitized": "cf2cc5a47ed897c2e3aa93061eeb0dca21149e23f98fde66fdb67b7865ff9afd",
+        "sha256_raw_before_sanitization": "cf2cc5a47ed897c2e3aa93061eeb0dca21149e23f98fde66fdb67b7865ff9afd",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "single_post_fa",
+      "ref": "2027781710667010262",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 5 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/2027781710667010262",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/2027781710667010262",
+        "cross_origin_redirect": false,
+        "latency_ms": 980,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "lang_is_fa",
+        "rtl_text",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "created_at",
+        "author",
+        "lang_is_fa",
+        "rtl_text"
+      ],
+      "evidence": {
+        "fixture": "single_post_fa__fxtwitter.txt",
+        "bytes": 2954,
+        "sha256_sanitized": "9e8f0e87fd9281fe5f42e43129278787a9c76d5ba1efda9453ca280c4c5f5d7c",
+        "sha256_raw_before_sanitization": "9e8f0e87fd9281fe5f42e43129278787a9c76d5ba1efda9453ca280c4c5f5d7c",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "single_post_fa",
+      "ref": "2027781710667010262",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry created_at",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/2027781710667010262",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2027781710667010262",
+        "cross_origin_redirect": false,
+        "latency_ms": 696,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "lang_is_fa",
+        "rtl_text",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "created_at",
+        "author",
+        "lang_is_fa",
+        "rtl_text"
+      ],
+      "evidence": {
+        "fixture": "single_post_fa__oembed.txt",
+        "bytes": 1271,
+        "sha256_sanitized": "58c32dfec9f51f482bbe20ace93b87faca0d18f1140592c8c41c55f4a3dbb139",
+        "sha256_raw_before_sanitization": "58c32dfec9f51f482bbe20ace93b87faca0d18f1140592c8c41c55f4a3dbb139",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_root_anchor",
+      "ref": "2094007256576565379",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2094007256576565379",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 3309,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "is_root"
+      ],
+      "evidence": {
+        "fixture": "thread_root_anchor__xcli_t0.txt",
+        "bytes": 2128,
+        "sha256_sanitized": "e2be989acdd4012f5846886472b98a38e06e2b5e78947a6eccbe963bdde4fa49",
+        "sha256_raw_before_sanitization": "8dfe24244252f18b46b0e04b8ab17e3a13e406460cf3e640699cb7a0525cafec",
+        "sanitization_removed": [
+          "syndication request token in url x2"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_root_anchor",
+      "ref": "2094007256576565379",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2094007256576565379",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 1840,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "is_root"
+      ],
+      "evidence": {
+        "fixture": "thread_root_anchor__xcli_guest.txt",
+        "bytes": 2423,
+        "sha256_sanitized": "5edbcb01631fabb10cf78ac557c54dc90463b282a6bbeb34a912ab02dc38c7ee",
+        "sha256_raw_before_sanitization": "5edbcb01631fabb10cf78ac557c54dc90463b282a6bbeb34a912ab02dc38c7ee",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_root_anchor",
+      "ref": "2094007256576565379",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/2094007256576565379",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/2094007256576565379",
+        "cross_origin_redirect": false,
+        "latency_ms": 914,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "is_root"
+      ],
+      "evidence": {
+        "fixture": "thread_root_anchor__fxtwitter.txt",
+        "bytes": 2043,
+        "sha256_sanitized": "b8737971ee55232ae60ff6dc4be95aa0235b84badf7a42c0c6f0fa3079ea3b87",
+        "sha256_raw_before_sanitization": "b8737971ee55232ae60ff6dc4be95aa0235b84badf7a42c0c6f0fa3079ea3b87",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_root_anchor",
+      "ref": "2094007256576565379",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry is_root",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/2094007256576565379",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2094007256576565379",
+        "cross_origin_redirect": false,
+        "latency_ms": 700,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "is_root"
+      ],
+      "evidence": {
+        "fixture": "thread_root_anchor__oembed.txt",
+        "bytes": 1023,
+        "sha256_sanitized": "2e14b4e9f6196df9329d16e91629b8b16d3922d74c112cccf45af0c2b9166778",
+        "sha256_raw_before_sanitization": "2e14b4e9f6196df9329d16e91629b8b16d3922d74c112cccf45af0c2b9166778",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_middle_anchor",
+      "ref": "2094033367767339277",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2094033367767339277",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 3499,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "lang",
+        "media_variants",
+        "media_video",
+        "parent_ref",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "parent_ref"
+      ],
+      "evidence": {
+        "fixture": "thread_middle_anchor__xcli_t0.txt",
+        "bytes": 3438,
+        "sha256_sanitized": "78b1375716b534f6c82395b297a02a04cfafff604edbf0c4e4f76bac7f6f145c",
+        "sha256_raw_before_sanitization": "39215c7cd41eb8119c02da6e013569d0719ba9877bf6857c04e02808b8bf8b92",
+        "sanitization_removed": [
+          "syndication request token in url x2"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_middle_anchor",
+      "ref": "2094033367767339277",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2094033367767339277",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 1882,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "lang",
+        "media_variants",
+        "media_video",
+        "parent_ref",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "parent_ref"
+      ],
+      "evidence": {
+        "fixture": "thread_middle_anchor__xcli_guest.txt",
+        "bytes": 4105,
+        "sha256_sanitized": "4cf5f801e38116a664c8899e5c74efb6a259fdb7c9516333042803c12b98145e",
+        "sha256_raw_before_sanitization": "4cf5f801e38116a664c8899e5c74efb6a259fdb7c9516333042803c12b98145e",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_middle_anchor",
+      "ref": "2094033367767339277",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/2094033367767339277",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/2094033367767339277",
+        "cross_origin_redirect": false,
+        "latency_ms": 825,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "lang",
+        "media_variants",
+        "media_video",
+        "parent_ref",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "parent_ref"
+      ],
+      "evidence": {
+        "fixture": "thread_middle_anchor__fxtwitter.txt",
+        "bytes": 6685,
+        "sha256_sanitized": "b8163f3706136d24aa0793ddec8c8b0d3cd0ff3de2d5982011356cff3091b0ab",
+        "sha256_raw_before_sanitization": "b8163f3706136d24aa0793ddec8c8b0d3cd0ff3de2d5982011356cff3091b0ab",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_middle_anchor",
+      "ref": "2094033367767339277",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry parent_ref",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/2094033367767339277",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2094033367767339277",
+        "cross_origin_redirect": false,
+        "latency_ms": 687,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "parent_ref"
+      ],
+      "evidence": {
+        "fixture": "thread_middle_anchor__oembed.txt",
+        "bytes": 1049,
+        "sha256_sanitized": "bb6749335253ba9c43e62a3cbc642a53db93d90741cc2ffb253e74d677039f43",
+        "sha256_raw_before_sanitization": "bb6749335253ba9c43e62a3cbc642a53db93d90741cc2ffb253e74d677039f43",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_last_anchor",
+      "ref": "2094037638856454625",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2094037638856454625",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 2915,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "lang",
+        "parent_ref",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "parent_ref"
+      ],
+      "evidence": {
+        "fixture": "thread_last_anchor__xcli_t0.txt",
+        "bytes": 1833,
+        "sha256_sanitized": "f6199412fed662020a9d5f108c41d6d92f7f499c2b32d5625e4e6eac864cbada",
+        "sha256_raw_before_sanitization": "bfa75c21a4b968e423827947dd4c6aea57f77423018814829e650d43403ddf1a",
+        "sanitization_removed": [
+          "syndication request token in url x2"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_last_anchor",
+      "ref": "2094037638856454625",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2094037638856454625",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 1816,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "lang",
+        "parent_ref",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "parent_ref"
+      ],
+      "evidence": {
+        "fixture": "thread_last_anchor__xcli_guest.txt",
+        "bytes": 2412,
+        "sha256_sanitized": "cf5a960e92867682031c2e82f6add5d883eb02fed18f54d7b27f23ea8d8290d5",
+        "sha256_raw_before_sanitization": "cf5a960e92867682031c2e82f6add5d883eb02fed18f54d7b27f23ea8d8290d5",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_last_anchor",
+      "ref": "2094037638856454625",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/2094037638856454625",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/2094037638856454625",
+        "cross_origin_redirect": false,
+        "latency_ms": 913,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "lang",
+        "parent_ref",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "parent_ref"
+      ],
+      "evidence": {
+        "fixture": "thread_last_anchor__fxtwitter.txt",
+        "bytes": 2329,
+        "sha256_sanitized": "51eedc94316365421c78306542d90f9f9a28318962bc52898eed843e0c07765d",
+        "sha256_raw_before_sanitization": "51eedc94316365421c78306542d90f9f9a28318962bc52898eed843e0c07765d",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "thread_last_anchor",
+      "ref": "2094037638856454625",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry parent_ref",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/2094037638856454625",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2094037638856454625",
+        "cross_origin_redirect": false,
+        "latency_ms": 817,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "parent_ref"
+      ],
+      "evidence": {
+        "fixture": "thread_last_anchor__oembed.txt",
+        "bytes": 908,
+        "sha256_sanitized": "0cd804e2630cd15809d3eccae7d25808c0809e32f1c2168dac16418213f57814",
+        "sha256_raw_before_sanitization": "0cd804e2630cd15809d3eccae7d25808c0809e32f1c2168dac16418213f57814",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "quote_post",
+      "ref": "2094039408081068233",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2094039408081068233",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 3088,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "quoted_author",
+        "quoted_ref",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "quoted_ref",
+        "quoted_author"
+      ],
+      "evidence": {
+        "fixture": "quote_post__xcli_t0.txt",
+        "bytes": 3560,
+        "sha256_sanitized": "0028f5b869128c082af82c6a90509f4050f15e6d2794c8cd63f5656b707cf6fd",
+        "sha256_raw_before_sanitization": "3549f99d1f110e1533846f20f2a3123e75b5e0135758b90ab435b46e6b60f7c6",
+        "sanitization_removed": [
+          "syndication request token in url x4"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "quote_post",
+      "ref": "2094039408081068233",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2094039408081068233",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 2069,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "quoted_author",
+        "quoted_ref",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "quoted_ref",
+        "quoted_author"
+      ],
+      "evidence": {
+        "fixture": "quote_post__xcli_guest.txt",
+        "bytes": 4923,
+        "sha256_sanitized": "3944dee82ba9b62181769d1cce1f06492bc7fde15d9f1c997d455cada035e49d",
+        "sha256_raw_before_sanitization": "3944dee82ba9b62181769d1cce1f06492bc7fde15d9f1c997d455cada035e49d",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "quote_post",
+      "ref": "2094039408081068233",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/2094039408081068233",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/2094039408081068233",
+        "cross_origin_redirect": false,
+        "latency_ms": 778,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "quoted_author",
+        "quoted_ref",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "quoted_ref",
+        "quoted_author"
+      ],
+      "evidence": {
+        "fixture": "quote_post__fxtwitter.txt",
+        "bytes": 3787,
+        "sha256_sanitized": "4015a871ef041fafd34167e045157d1929eaab1dd24737e1cf31e6e443c80516",
+        "sha256_raw_before_sanitization": "4015a871ef041fafd34167e045157d1929eaab1dd24737e1cf31e6e443c80516",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "quote_post",
+      "ref": "2094039408081068233",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry quoted_author, quoted_ref",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/2094039408081068233",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2094039408081068233",
+        "cross_origin_redirect": false,
+        "latency_ms": 915,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "quoted_ref",
+        "quoted_author"
+      ],
+      "evidence": {
+        "fixture": "quote_post__oembed.txt",
+        "bytes": 1034,
+        "sha256_sanitized": "22ff705870448c4910faaa4c773f24b90c20576816b69d1a62036361eb0da944",
+        "sha256_raw_before_sanitization": "22ff705870448c4910faaa4c773f24b90c20576816b69d1a62036361eb0da944",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "long_note_post",
+      "ref": "2072326243085582573",
+      "route": "xcli_t0",
+      "verdict": "PARTIAL",
+      "reason": "answered but missing full_text_521",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2072326243085582573",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 3621,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "media_variants",
+        "media_video",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "full_text_521"
+      ],
+      "evidence": {
+        "fixture": "long_note_post__xcli_t0.txt",
+        "bytes": 3197,
+        "sha256_sanitized": "538a8a38d3f20a8760992bd10d613e3a778cf701d56de11fe7a708d79656ae05",
+        "sha256_raw_before_sanitization": "249eba36b8a0e82a52c04dbd80ce269919bca2c2dbf1e82ee174b7cd889156ed",
+        "sanitization_removed": [
+          "syndication request token in url x2"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "long_note_post",
+      "ref": "2072326243085582573",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2072326243085582573",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 1872,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "full_text_521",
+        "is_root",
+        "lang",
+        "media_variants",
+        "media_video",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "full_text_521"
+      ],
+      "evidence": {
+        "fixture": "long_note_post__xcli_guest.txt",
+        "bytes": 3745,
+        "sha256_sanitized": "abf735ce6960a7e9ce8433de6a27510704ef96a6080e097a7dc20939a0ab1d48",
+        "sha256_raw_before_sanitization": "abf735ce6960a7e9ce8433de6a27510704ef96a6080e097a7dc20939a0ab1d48",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "long_note_post",
+      "ref": "2072326243085582573",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/2072326243085582573",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/2072326243085582573",
+        "cross_origin_redirect": false,
+        "latency_ms": 792,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "full_text_521",
+        "is_root",
+        "lang",
+        "media_variants",
+        "media_video",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "full_text_521"
+      ],
+      "evidence": {
+        "fixture": "long_note_post__fxtwitter.txt",
+        "bytes": 5836,
+        "sha256_sanitized": "ca9e0c8aaab9f1bc5f38e6169da4356fab3da21350e5f61cf6ec44d6a0a656e9",
+        "sha256_raw_before_sanitization": "ca9e0c8aaab9f1bc5f38e6169da4356fab3da21350e5f61cf6ec44d6a0a656e9",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "long_note_post",
+      "ref": "2072326243085582573",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry full_text_521",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/2072326243085582573",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2072326243085582573",
+        "cross_origin_redirect": false,
+        "latency_ms": 703,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "full_text_521"
+      ],
+      "evidence": {
+        "fixture": "long_note_post__oembed.txt",
+        "bytes": 1045,
+        "sha256_sanitized": "689f04221c6b2812c1b9cb1dade270a7f5d0a63d07fae6095515105614a171a6",
+        "sha256_raw_before_sanitization": "689f04221c6b2812c1b9cb1dade270a7f5d0a63d07fae6095515105614a171a6",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "photo_with_alt",
+      "ref": "2095206153277862026",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2095206153277862026",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 2685,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "media_alt_text",
+        "media_photo",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_photo",
+        "media_alt_text"
+      ],
+      "evidence": {
+        "fixture": "photo_with_alt__xcli_t0.txt",
+        "bytes": 2637,
+        "sha256_sanitized": "c5b0cbe967a254645a28bd1da78c1470ab65bba538f6967ce49ee22e704b989d",
+        "sha256_raw_before_sanitization": "ab3fba94f66b45d23f0c8a9f958a3e3fcba4158cfbc82bc1a010194f1047dda1",
+        "sanitization_removed": [
+          "syndication request token in url x2"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "photo_with_alt",
+      "ref": "2095206153277862026",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2095206153277862026",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 1807,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "media_alt_text",
+        "media_photo",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_photo",
+        "media_alt_text"
+      ],
+      "evidence": {
+        "fixture": "photo_with_alt__xcli_guest.txt",
+        "bytes": 2960,
+        "sha256_sanitized": "9486bef891b3b7e42a523adcba6dc794dd7a820d7468dfa223eabc4d192d5a37",
+        "sha256_raw_before_sanitization": "9486bef891b3b7e42a523adcba6dc794dd7a820d7468dfa223eabc4d192d5a37",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "photo_with_alt",
+      "ref": "2095206153277862026",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/2095206153277862026",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/2095206153277862026",
+        "cross_origin_redirect": false,
+        "latency_ms": 729,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "media_alt_text",
+        "media_photo",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_photo",
+        "media_alt_text"
+      ],
+      "evidence": {
+        "fixture": "photo_with_alt__fxtwitter.txt",
+        "bytes": 3195,
+        "sha256_sanitized": "445f2cf487baa6bc4dc122f1dbf5167f8a7aed79269d1a3d814a67a6e2825fb3",
+        "sha256_raw_before_sanitization": "445f2cf487baa6bc4dc122f1dbf5167f8a7aed79269d1a3d814a67a6e2825fb3",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "photo_with_alt",
+      "ref": "2095206153277862026",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry media_alt_text, media_photo",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/2095206153277862026",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2095206153277862026",
+        "cross_origin_redirect": false,
+        "latency_ms": 733,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_photo",
+        "media_alt_text"
+      ],
+      "evidence": {
+        "fixture": "photo_with_alt__oembed.txt",
+        "bytes": 1093,
+        "sha256_sanitized": "41c19d1d34798a932b40eb02ba9c8607f1fd4d2acca2efaec16df8f369870b77",
+        "sha256_raw_before_sanitization": "41c19d1d34798a932b40eb02ba9c8607f1fd4d2acca2efaec16df8f369870b77",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "video_post_fa",
+      "ref": "1580541310636883972",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "1580541310636883972",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 3010,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "lang_is_fa",
+        "media_variants",
+        "media_video",
+        "rtl_text",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_video",
+        "media_variants"
+      ],
+      "evidence": {
+        "fixture": "video_post_fa__xcli_t0.txt",
+        "bytes": 3462,
+        "sha256_sanitized": "839ab43c00aa6a91294aac0f4a00f36e0f4645d7a65d5d12e52bfcf0479c5c47",
+        "sha256_raw_before_sanitization": "f1876ddab5f6523135ccd17d1ae36aad29a09a63f477d9efb9f01e71fc90b8f5",
+        "sanitization_removed": [
+          "syndication request token in url x2"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "video_post_fa",
+      "ref": "1580541310636883972",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "1580541310636883972",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 1827,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "lang_is_fa",
+        "media_variants",
+        "media_video",
+        "rtl_text",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_video",
+        "media_variants"
+      ],
+      "evidence": {
+        "fixture": "video_post_fa__xcli_guest.txt",
+        "bytes": 3856,
+        "sha256_sanitized": "51e9e7007615995c5ecdeaa2805ca38aff099aefc83a356336af6b292ccc6f3b",
+        "sha256_raw_before_sanitization": "51e9e7007615995c5ecdeaa2805ca38aff099aefc83a356336af6b292ccc6f3b",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "video_post_fa",
+      "ref": "1580541310636883972",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 4 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/1580541310636883972",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/1580541310636883972",
+        "cross_origin_redirect": false,
+        "latency_ms": 786,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "lang_is_fa",
+        "media_variants",
+        "media_video",
+        "rtl_text",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_video",
+        "media_variants"
+      ],
+      "evidence": {
+        "fixture": "video_post_fa__fxtwitter.txt",
+        "bytes": 5832,
+        "sha256_sanitized": "633555b526e35f91d0ac09a80f475800be483b52295909d85ea1dd015e721f91",
+        "sha256_raw_before_sanitization": "633555b526e35f91d0ac09a80f475800be483b52295909d85ea1dd015e721f91",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "video_post_fa",
+      "ref": "1580541310636883972",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry media_variants, media_video",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/1580541310636883972",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/1580541310636883972",
+        "cross_origin_redirect": false,
+        "latency_ms": 731,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "lang_is_fa",
+        "rtl_text",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_video",
+        "media_variants"
+      ],
+      "evidence": {
+        "fixture": "video_post_fa__oembed.txt",
+        "bytes": 1286,
+        "sha256_sanitized": "d5a70f4bfc06be42b6f2013cf99248f910192326455be0f5391948c632943447",
+        "sha256_raw_before_sanitization": "d5a70f4bfc06be42b6f2013cf99248f910192326455be0f5391948c632943447",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "animated_gif",
+      "ref": "1117281960387334147",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "1117281960387334147",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 2896,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "media_gif",
+        "media_variants",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_gif"
+      ],
+      "evidence": {
+        "fixture": "animated_gif__xcli_t0.txt",
+        "bytes": 2283,
+        "sha256_sanitized": "0e86cf3caf516d208e3d8a7e8c2f6d0ce64e63f184ea55afc44d33962e3f53ea",
+        "sha256_raw_before_sanitization": "0c8d3f23e5e74011d8e926f05c8aad950cdf7293fb425506987d15fbd7e7a3c0",
+        "sanitization_removed": [
+          "syndication request token in url x2"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "animated_gif",
+      "ref": "1117281960387334147",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "1117281960387334147",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 1941,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "media_gif",
+        "media_variants",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_gif"
+      ],
+      "evidence": {
+        "fixture": "animated_gif__xcli_guest.txt",
+        "bytes": 2632,
+        "sha256_sanitized": "cf3b24d1cce42d11ae2e7cd2575c816075ba9f384046fa37c3de15b9b54ce815",
+        "sha256_raw_before_sanitization": "cf3b24d1cce42d11ae2e7cd2575c816075ba9f384046fa37c3de15b9b54ce815",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "animated_gif",
+      "ref": "1117281960387334147",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/1117281960387334147",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/1117281960387334147",
+        "cross_origin_redirect": false,
+        "latency_ms": 950,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "media_gif",
+        "media_variants",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_gif"
+      ],
+      "evidence": {
+        "fixture": "animated_gif__fxtwitter.txt",
+        "bytes": 2845,
+        "sha256_sanitized": "829155247d28037d50edf4dda7871004b51c3de0e0e1ca200ce324156531dd8e",
+        "sha256_raw_before_sanitization": "829155247d28037d50edf4dda7871004b51c3de0e0e1ca200ce324156531dd8e",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "animated_gif",
+      "ref": "1117281960387334147",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry media_gif",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/1117281960387334147",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/1117281960387334147",
+        "cross_origin_redirect": false,
+        "latency_ms": 756,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "media_gif"
+      ],
+      "evidence": {
+        "fixture": "animated_gif__oembed.txt",
+        "bytes": 1116,
+        "sha256_sanitized": "b4ded126854603c4d6a6b745cd1c0e88bf105ac35ea05f17ec6b5ee393849ac7",
+        "sha256_raw_before_sanitization": "b4ded126854603c4d6a6b745cd1c0e88bf105ac35ea05f17ec6b5ee393849ac7",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "unavailable_post",
+      "ref": "999999999999999999",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "refused with exit 6: ERROR  \n          \n  Tweet not found: 999999999999999999 (deleted, sus",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "999999999999999999",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 6,
+        "latency_ms": 2308,
+        "stderr": "ERROR  \n          \n  Tweet not found: 999999999999999999 (deleted, suspended, or protected)."
+      },
+      "observed": [],
+      "expected": [],
+      "evidence": {
+        "fixture": "unavailable_post__xcli_t0.txt",
+        "bytes": 0,
+        "sha256_sanitized": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sha256_raw_before_sanitization": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "unavailable_post",
+      "ref": "999999999999999999",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "refused with exit 6: ERROR  \n          \n  Tweet not found: 999999999999999999 (deleted, sus",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "999999999999999999",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 6,
+        "latency_ms": 1759,
+        "stderr": "ERROR  \n          \n  Tweet not found: 999999999999999999 (deleted, suspended, or protected)."
+      },
+      "observed": [],
+      "expected": [],
+      "evidence": {
+        "fixture": "unavailable_post__xcli_guest.txt",
+        "bytes": 0,
+        "sha256_sanitized": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sha256_raw_before_sanitization": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "unavailable_post",
+      "ref": "999999999999999999",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "refused with http 404, no record fabricated",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/999999999999999999",
+        "http_status": 404,
+        "final_url": "https://api.fxtwitter.com/i/status/999999999999999999",
+        "cross_origin_redirect": false,
+        "latency_ms": 1961,
+        "stderr": "",
+        "exit": 1
+      },
+      "observed": [],
+      "expected": [],
+      "evidence": {
+        "fixture": "unavailable_post__fxtwitter.txt",
+        "bytes": 47,
+        "sha256_sanitized": "c0e7508f40fe3a2df1232979c3c496d431e80a8a8f3aa9ac9a99f87fddd5abdc",
+        "sha256_raw_before_sanitization": "c0e7508f40fe3a2df1232979c3c496d431e80a8a8f3aa9ac9a99f87fddd5abdc",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "unavailable_post",
+      "ref": "999999999999999999",
+      "route": "oembed",
+      "verdict": "PASS",
+      "reason": "refused with http 404, no record fabricated",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/999999999999999999",
+        "http_status": 404,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/999999999999999999",
+        "cross_origin_redirect": false,
+        "latency_ms": 742,
+        "stderr": "",
+        "exit": 1
+      },
+      "observed": [],
+      "expected": [],
+      "evidence": {
+        "fixture": "unavailable_post__oembed.txt",
+        "bytes": 3656,
+        "sha256_sanitized": "b4056ca07cbe8a3c71d16206c45c9d5515c74912647eb67100390f95a8a88600",
+        "sha256_raw_before_sanitization": "b4056ca07cbe8a3c71d16206c45c9d5515c74912647eb67100390f95a8a88600",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "malformed_ref",
+      "ref": "not-a-ref",
+      "route": "xcli_t0",
+      "verdict": "PASS",
+      "reason": "refused with exit 1: ERROR  \n          \n  Not a tweet id or status URL: \"not-a-ref\".",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "not-a-ref",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 1,
+        "latency_ms": 27,
+        "stderr": "ERROR  \n          \n  Not a tweet id or status URL: \"not-a-ref\"."
+      },
+      "observed": [],
+      "expected": [],
+      "evidence": {
+        "fixture": "malformed_ref__xcli_t0.txt",
+        "bytes": 0,
+        "sha256_sanitized": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sha256_raw_before_sanitization": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "malformed_ref",
+      "ref": "not-a-ref",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "refused with exit 1: ERROR  \n          \n  Not a tweet id or status URL: \"not-a-ref\".",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "not-a-ref",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 1,
+        "latency_ms": 27,
+        "stderr": "ERROR  \n          \n  Not a tweet id or status URL: \"not-a-ref\"."
+      },
+      "observed": [],
+      "expected": [],
+      "evidence": {
+        "fixture": "malformed_ref__xcli_guest.txt",
+        "bytes": 0,
+        "sha256_sanitized": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sha256_raw_before_sanitization": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "malformed_ref",
+      "ref": "not-a-ref",
+      "route": "fxtwitter",
+      "verdict": "PARTIAL",
+      "reason": "http 200 with an HTML body, not JSON: a consumer that trusts the status code sees success where there is no record",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/not-a-ref",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/not-a-ref",
+        "cross_origin_redirect": false,
+        "latency_ms": 667,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [],
+      "expected": [],
+      "evidence": {
+        "fixture": "malformed_ref__fxtwitter.txt",
+        "bytes": 1510,
+        "sha256_sanitized": "81633d455b109ff99a76e047080174ef5371a668292b4a2f5333754d21193882",
+        "sha256_raw_before_sanitization": "81633d455b109ff99a76e047080174ef5371a668292b4a2f5333754d21193882",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "malformed_ref",
+      "ref": "not-a-ref",
+      "route": "oembed",
+      "verdict": "PASS",
+      "reason": "refused with http 404, no record fabricated",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/not-a-ref",
+        "http_status": 404,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/not-a-ref",
+        "cross_origin_redirect": false,
+        "latency_ms": 741,
+        "stderr": "",
+        "exit": 1
+      },
+      "observed": [],
+      "expected": [],
+      "evidence": {
+        "fixture": "malformed_ref__oembed.txt",
+        "bytes": 3656,
+        "sha256_sanitized": "b4056ca07cbe8a3c71d16206c45c9d5515c74912647eb67100390f95a8a88600",
+        "sha256_raw_before_sanitization": "b4056ca07cbe8a3c71d16206c45c9d5515c74912647eb67100390f95a8a88600",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    }
+  ],
+  "threads": [
+    {
+      "case": "thread_root_anchor",
+      "anchor_role": "root",
+      "measured_against_whole_thread": 10,
+      "upward": {
+        "verdict": "PASS",
+        "reason": "walked 1 post(s) from this anchor to a root with no parent, all by one author",
+        "anchor": "2094007256576565379",
+        "tier": "0",
+        "chain_root_last": [
+          "2094007256576565379"
+        ],
+        "length": 1,
+        "reached_root": true,
+        "unresolved_at": null,
+        "single_author": true,
+        "authors": [
+          "NASA"
+        ],
+        "ordering": "derived from parent links, not from arrival order"
+      },
+      "downward": {
+        "verdict": "PARTIAL",
+        "reason": "archive held 3 of 10 members of the whole thread, so 7 would be silently absent",
+        "author": "NASA",
+        "archive_requested": 250,
+        "archive_returned": 250,
+        "chain_members_found": 3,
+        "chain_members_total": 10,
+        "found": [
+          "2094037638856454625",
+          "2094036569640317348",
+          "2094007256576565379"
+        ],
+        "exit": 0,
+        "measured": true,
+        "transport_note": ""
+      }
+    },
+    {
+      "case": "thread_middle_anchor",
+      "anchor_role": "middle",
+      "measured_against_whole_thread": 10,
+      "upward": {
+        "verdict": "PASS",
+        "reason": "walked 8 post(s) from this anchor to a root with no parent, all by one author",
+        "anchor": "2094033367767339277",
+        "tier": "0",
+        "chain_root_last": [
+          "2094033367767339277",
+          "2094028067924504596",
+          "2094025920579354632",
+          "2094025441984098677",
+          "2094024294988701975",
+          "2094023339434012989",
+          "2094017464216563968",
+          "2094007256576565379"
+        ],
+        "length": 8,
+        "reached_root": true,
+        "unresolved_at": null,
+        "single_author": true,
+        "authors": [
+          "NASA"
+        ],
+        "ordering": "derived from parent links, not from arrival order"
+      },
+      "downward": {
+        "verdict": "PARTIAL",
+        "reason": "archive held 3 of 10 members of the whole thread, so 7 would be silently absent",
+        "author": "NASA",
+        "archive_requested": 250,
+        "archive_returned": 250,
+        "chain_members_found": 3,
+        "chain_members_total": 10,
+        "found": [
+          "2094037638856454625",
+          "2094036569640317348",
+          "2094007256576565379"
+        ],
+        "exit": 0,
+        "measured": true,
+        "transport_note": ""
+      }
+    },
+    {
+      "case": "thread_last_anchor",
+      "anchor_role": "last",
+      "measured_against_whole_thread": 10,
+      "upward": {
+        "verdict": "PASS",
+        "reason": "walked 10 post(s) from this anchor to a root with no parent, all by one author",
+        "anchor": "2094037638856454625",
+        "tier": "0",
+        "chain_root_last": [
+          "2094037638856454625",
+          "2094036569640317348",
+          "2094033367767339277",
+          "2094028067924504596",
+          "2094025920579354632",
+          "2094025441984098677",
+          "2094024294988701975",
+          "2094023339434012989",
+          "2094017464216563968",
+          "2094007256576565379"
+        ],
+        "length": 10,
+        "reached_root": true,
+        "unresolved_at": null,
+        "single_author": true,
+        "authors": [
+          "NASA"
+        ],
+        "ordering": "derived from parent links, not from arrival order"
+      },
+      "downward": {
+        "verdict": "PARTIAL",
+        "reason": "archive held 3 of 10 members of the whole thread, so 7 would be silently absent",
+        "author": "NASA",
+        "archive_requested": 250,
+        "archive_returned": 250,
+        "chain_members_found": 3,
+        "chain_members_total": 10,
+        "found": [
+          "2094037638856454625",
+          "2094036569640317348",
+          "2094007256576565379"
+        ],
+        "exit": 0,
+        "measured": true,
+        "transport_note": ""
+      }
+    }
+  ],
+  "credential_scan": "clean",
+  "canonical_threads": {
+    "nasa_roman_live": {
+      "established_from": "thread_last_anchor",
+      "anchor_ref": "2094037638856454625",
+      "members_root_last": [
+        "2094007256576565379",
+        "2094017464216563968",
+        "2094023339434012989",
+        "2094024294988701975",
+        "2094025441984098677",
+        "2094025920579354632",
+        "2094028067924504596",
+        "2094033367767339277",
+        "2094036569640317348",
+        "2094037638856454625"
+      ],
+      "length": 10,
+      "reached_root": true,
+      "single_author": true
+    }
+  },
+  "not_located": [
+    {
+      "id": "poll_post",
+      "why": "No public poll located in 610 credential-free posts; search is Tier 2.",
+      "structural_evidence": "`x fields tweet` declares `poll` with no surface at any tier."
+    },
+    {
+      "id": "edited_post",
+      "why": "No public edited post located in 610 credential-free posts.",
+      "structural_evidence": "`x fields tweet` declares `edits` with no surface at any tier."
+    },
+    {
+      "id": "x_article",
+      "why": "No public X Article located; the tool models no Article record.",
+      "structural_evidence": "`x fields <kind>` offers only `tweet` and `user`."
+    },
+    {
+      "id": "protected_or_suspended",
+      "why": "Not separable from a deleted post at any credential-free tier.",
+      "structural_evidence": "Tier 0 collapses all three into one message; `x routes` puts distinguishable errors at Tier 2."
+    }
+  ]
+}

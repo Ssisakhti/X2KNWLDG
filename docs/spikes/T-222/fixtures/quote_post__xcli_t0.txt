@@ -1,0 +1,126 @@
+[
+  {
+    "kind": "tweet",
+    "id": "2094039408081068233",
+    "uri": "x://tweet/2094039408081068233",
+    "url": "https://x.com/NASA/status/2094039408081068233",
+    "tier": 0,
+    "surfaces": [
+      "s1",
+      "s8"
+    ],
+    "sources": [
+      "https://cdn.syndication.twimg.com/tweet-result?id=2094039408081068233\u0026token=<STRIPPED>\u0026lang=en",
+      "https://x.com/i/status/2094039408081068233"
+    ],
+    "via": {
+      "bookmarks": "s8",
+      "impressions": "s8",
+      "quotes": "s8",
+      "retweets": "s8"
+    },
+    "text": "It's a great day to be a space fan! @NASARoman lifted off on its journey of discovery at 7:26am ET (1126 UTC) from @NASAKennedy.",
+    "created_at": "2026-08-30T12:27:54Z",
+    "lang": "en",
+    "author": {
+      "kind": "user",
+      "id": "nasa",
+      "uri": "x://user/nasa",
+      "url": "https://x.com/nasa",
+      "tier": 0,
+      "surfaces": [
+        "s1",
+        "s8"
+      ],
+      "sources": [
+        "https://cdn.syndication.twimg.com/tweet-result?id=2094039408081068233\u0026token=<STRIPPED>\u0026lang=en",
+        "https://x.com/i/status/2094039408081068233"
+      ],
+      "via": {
+        "description": "s8",
+        "followers": "s8",
+        "following": "s8",
+        "tweets": "s8"
+      },
+      "username": "NASA",
+      "rest_id": "11348282",
+      "name": "NASA",
+      "description": "Making the seemingly impossible, possible. ✨",
+      "verified": true,
+      "verified_type": "blue",
+      "metrics": {
+        "followers": 92383314,
+        "following": 117,
+        "tweets": 74269
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1321163587679784960/0ZxKlEKB_normal.jpg",
+      "entities": {}
+    },
+    "quoted": {
+      "kind": "tweet",
+      "id": "2094032273658057093",
+      "uri": "x://tweet/2094032273658057093",
+      "url": "https://x.com/NASAAdmin/status/2094032273658057093",
+      "tier": 0,
+      "surfaces": [
+        "s1"
+      ],
+      "sources": [
+        "https://cdn.syndication.twimg.com/tweet-result?id=2094039408081068233\u0026token=<STRIPPED>\u0026lang=en"
+      ],
+      "text": "The Golden Age of Discovery Has Begun 🇺🇸 https://t.co/Sxx1uTU2r4",
+      "created_at": "2026-08-30T11:59:33Z",
+      "lang": "en",
+      "author": {
+        "kind": "user",
+        "id": "nasaadmin",
+        "uri": "x://user/nasaadmin",
+        "url": "https://x.com/nasaadmin",
+        "tier": 0,
+        "surfaces": [
+          "s1"
+        ],
+        "sources": [
+          "https://cdn.syndication.twimg.com/tweet-result?id=2094039408081068233\u0026token=<STRIPPED>\u0026lang=en"
+        ],
+        "username": "NASAAdmin",
+        "rest_id": "2000593641480605696",
+        "name": "NASA Administrator Jared Isaacman",
+        "verified": true,
+        "verified_type": "blue",
+        "metrics": {},
+        "profile_image": "https://pbs.twimg.com/profile_images/2001755387486232576/mf5hRS_U_normal.jpg",
+        "entities": {}
+      },
+      "metrics": {
+        "replies": 399,
+        "retweets": 1781,
+        "likes": 15955
+      },
+      "entities": {},
+      "media": [
+        {
+          "type": "photo",
+          "url": "https://pbs.twimg.com/media/HQ9_QOiWIAAj3Jg.jpg",
+          "width": 2048,
+          "height": 1366
+        }
+      ]
+    },
+    "metrics": {
+      "replies": 97,
+      "retweets": 576,
+      "likes": 5341,
+      "quotes": 39,
+      "bookmarks": 133,
+      "impressions": 1138539
+    },
+    "entities": {
+      "mentions": [
+        "NASARoman",
+        "NASAKennedy"
+      ]
+    },
+    "is_quote": true
+  }
+]
