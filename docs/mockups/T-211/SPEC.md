@@ -582,6 +582,12 @@ application surface.
    nothing is selected — and is noted because it is a difference from the reference, not
    because it is wrong.
 
+**These three are `T-216`.** The captures were not accepted as they stand (D-196): the three
+differences above became a fifth child of `T-210`, with the sizing model behind the first of
+them — Sigma's `itemSizesReference`, and the zoom rule that depends on it — decided there
+rather than assumed here. `T-215`'s acceptance is taken up again against `T-216`'s captures,
+and this gate is the instrument that judges them, unchanged.
+
 ### Regenerating the comparison
 
 ```bash
