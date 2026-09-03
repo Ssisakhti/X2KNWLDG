@@ -96,9 +96,12 @@ export const MAP_EDGE_LABEL_CHARS = 32;
  * list, and their labels go back to `"auto"` so the grid decides which ones
  * fit. A budget that is exceeded therefore costs legibility, never data.
  *
- * It is deliberately the same number as `MAP_STAGE_CARD_BUDGET` and for the
- * same measured reason, but it stays a separate constant: they bound
- * different things, and one of them will move without the other.
+ * It used to be deliberately the same number as `MAP_STAGE_CARD_BUDGET`, for
+ * the same measured reason, while remaining a separate constant. `T-213`
+ * retired that one: the Directional Orbit places cards by direction and hop
+ * rather than by what fits around a mark, so the number of *cards* is now a
+ * property of the field's tier and this stays the only label budget. The two
+ * bounded different things, which is why one could go without the other.
  */
 export const MAP_LABEL_NEIGHBOUR_BUDGET = 4;
 

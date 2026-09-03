@@ -265,15 +265,22 @@ export const en = {
   "map.stage.neighbour": "Related",
   "map.stage.omitted":
     "{count} related {count|entity has|entities have} no card on the stage. Every one of them is listed below.",
-  "map.stage.omitted.notLoaded":
-    "{count} {count|is|are} not drawn on this Map yet, so there is no mark to anchor a card to.",
-  "map.stage.omitted.offStage": "{count} {count|is|are} outside the visible stage at this camera position.",
   "map.stage.omitted.noRoom":
-    "{count} {count|has|have} a mark on the stage but no room for a card beside it, in any direction.",
+    "{count} {count|has|have} no room on the field at this size, in any position the orbit allows.",
   "map.stage.omitted.crowded":
     "{count} would have covered a card already placed, so {count|its card|their cards} {count|was|were} not drawn.",
   "map.stage.omitted.budget":
-    "{count} {count|is|are} beyond the on-stage card budget, which exists so the graph stays visible.",
+    "{count} {count|is|are} beyond the cards this field's composition places a side.",
+  "map.stage.omitted.unanchored":
+    "{count} {count|is|are} further out than one hop with no card for the neighbour {count|it hangs|they hang} off, so no relation could be drawn without inventing one.",
+
+  "map.orbit.focus": "focus",
+  "map.orbit.incoming": "incoming",
+  "map.orbit.incomingGloss": "into the focus",
+  "map.orbit.outgoing": "outgoing",
+  "map.orbit.outgoingGloss": "out of the focus",
+  "map.orbit.ring": "hop {hops}",
+  "map.orbit.hopBadge": "hop {hops}",
 
   "map.quickRead.title": "Quick Read",
   "map.quickRead.hint":
@@ -313,6 +320,8 @@ export const en = {
   "map.related.viaPath":
     "Reached through another entity {hops} {hops|hop|hops} out; it states no relation to the focus itself.",
   "map.related.onStage": "its card is on the stage",
+  "map.related.viaParent":
+    "It has no relation to the focus. What the response does record is how it joins the neighbour one hop closer:",
   "map.related.unjoinable":
     "{count} returned {count|relation names|relations name} an endpoint the response did not return, so {count|it is|they are} counted rather than drawn.",
   "map.related.unreachable":
@@ -650,15 +659,22 @@ export const fa: Messages = {
   "map.stage.neighbour": "مرتبط",
   "map.stage.omitted":
     "{count} هستار مرتبط کارتی بر صحنه ندارند. هر یک از آن‌ها در فهرست زیر آمده است.",
-  "map.stage.omitted.notLoaded":
-    "{count} مورد هنوز بر این نقشه ترسیم نشده‌اند، پس نشانی برای لنگر انداختن کارت وجود ندارد.",
-  "map.stage.omitted.offStage": "{count} مورد در این موقعیت دوربین بیرون از صحنهٔ دیدنی‌اند.",
   "map.stage.omitted.noRoom":
-    "{count} مورد نشانه‌ای بر صحنه دارند، اما در هیچ جهتی جا برای کارتی در کنارشان نیست.",
+    "{count} مورد در این اندازه، در هیچ جایگاهی که مدار اجازه می‌دهد، جا ندارند.",
   "map.stage.omitted.crowded":
     "{count} مورد بر کارتی که پیش‌تر جای گرفته هم‌پوشانی می‌کردند، پس کارتشان ترسیم نشد.",
   "map.stage.omitted.budget":
-    "{count} مورد بیش از سهمیهٔ کارت‌های صحنه‌اند؛ این سهمیه هست تا گراف دیدنی بماند.",
+    "{count} مورد بیش از شمار کارت‌هایی‌اند که ترکیب این میدان در هر سو می‌نشاند.",
+  "map.stage.omitted.unanchored":
+    "{count} مورد بیش از یک گام دورترند و همسایهٔ نزدیک‌ترشان کارتی ندارد، پس بدون ساختن رابطه‌ای که در رکوردها نیست نمی‌شد پیوندی کشید.",
+
+  "map.orbit.focus": "کانون",
+  "map.orbit.incoming": "ورودی",
+  "map.orbit.incomingGloss": "به کانون",
+  "map.orbit.outgoing": "خروجی",
+  "map.orbit.outgoingGloss": "از کانون",
+  "map.orbit.ring": "گام {hops}",
+  "map.orbit.hopBadge": "گام {hops}",
 
   "map.quickRead.title": "خوانش سریع",
   "map.quickRead.hint":
@@ -698,6 +714,8 @@ export const fa: Messages = {
   "map.related.viaPath":
     "از راه هستار دیگری در {hops} گام رسیده است؛ خودش هیچ رابطه‌ای با کانون بیان نمی‌کند.",
   "map.related.onStage": "کارتش بر صحنه است",
+  "map.related.viaParent":
+    "رابطه‌ای با کانون ندارد. آنچه پاسخ ثبت کرده این است که چگونه به همسایهٔ یک گام نزدیک‌تر می‌پیوندد:",
   "map.related.unjoinable":
     "{count} رابطهٔ بازگردانده‌شده سرِ یالی را نام می‌برند که پاسخ بازنگرداند، پس شمرده شده‌اند و ترسیم نشده‌اند.",
   "map.related.unreachable":

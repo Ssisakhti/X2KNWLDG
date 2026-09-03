@@ -61,6 +61,22 @@
     0 1px 2px rgb(0 0 0 / 8%),
     0 8px 24px rgb(0 0 0 / 10%);
 
+  /* Directional Orbit (T-213, SPEC §6) -------------------------------- */
+  /* A hop ring, below every mark and every card. Stated as a share of the
+     foreground rather than as its own colour so it holds its relationship
+     to the field in both themes. */
+  --orbit-ring: color-mix(in srgb, var(--fg) 10%, transparent);
+  /* How far the graph recedes under the orbit. Unrelated topology stays
+     present and faint (ADR 0006) -- this is a scrim over the whole
+     canvas, never a rule that removes a mark, so nothing on the picture
+     becomes unreachable. */
+  --orbit-scrim: color-mix(in srgb, var(--bg) 86%, transparent);
+  /* Separates a card from the field it covers. Two layers, for the same
+     reason `--float-shadow` has two. */
+  --card-shadow:
+    0 1px 2px rgb(0 0 0 / 10%),
+    0 6px 18px rgb(0 0 0 / 12%);
+
   /* Colour ----------------------------------------------------------- */
   --bg: #fbfaf8;
   --bg-raised: #ffffff;
@@ -142,5 +158,14 @@
     --float-shadow:
       0 1px 2px rgb(0 0 0 / 40%),
       0 10px 30px rgb(0 0 0 / 45%);
+
+    /* The same three, re-stated for a dark field: a 10 % ring vanishes on
+       `#17161a`, a scrim mixed from a dark ground has to be denser to
+       read as a recession, and a shadow needs more of both. */
+    --orbit-ring: color-mix(in srgb, var(--fg) 12%, transparent);
+    --orbit-scrim: color-mix(in srgb, var(--bg) 90%, transparent);
+    --card-shadow:
+      0 1px 2px rgb(0 0 0 / 45%),
+      0 8px 22px rgb(0 0 0 / 50%);
   }
 }

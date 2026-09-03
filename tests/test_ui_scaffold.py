@@ -1875,7 +1875,7 @@ def test_the_card_overlay_owns_no_control_the_dom_does_not() -> None:
     tree; selecting a neighbour is a click on its mark (the same `focusEntity`
     the rail calls) or a real control in the related list.
     """
-    overlay = (WEB / "src" / "components" / "MapConstellation.tsx").read_text(encoding="utf-8")
+    overlay = (WEB / "src" / "components" / "MapOrbit.tsx").read_text(encoding="utf-8")
     for element in ("<button", "<a ", "<input", "<select", "onClick"):
         assert element not in overlay, (
             f"the card overlay renders {element!r}; D-132's overlay is presentation, "
@@ -1907,7 +1907,7 @@ def test_the_stage_overlay_is_not_inside_the_container_the_renderer_owns() -> No
     )
     view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
     stage = view.index('className="map__stage"')
-    overlay = view.index("<MapConstellation")
+    overlay = view.index("<MapOrbit")
     closing = view.index("/>", stage)
     assert closing < overlay, (
         "the card overlay is rendered inside the container the renderer owns; "

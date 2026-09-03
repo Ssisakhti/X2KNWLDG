@@ -755,6 +755,62 @@ input {
   flex: 1 1 auto;
 }
 
+/*
+ * The `compact` tier's floating panels give the field back (SPEC §2, `T-213`).
+ *
+ * SPEC §2 gives Explore and Focus *different* chrome: Explore has the search
+ * rail, the counts and the legend; Focus has a focus bar, the camera's
+ * controls, an omission note and the one drawer. `T-212` kept all of it in
+ * both states, and at the `compact` tier `measure_orbit.ts` priced that: at
+ * 1440x900 the counts surface is 352x483 -- 57 % of the field's height --
+ * standing exactly where the outgoing side of the orbit is drawn. The centre
+ * card slid 192 px down the field to get out from under it, which collapsed
+ * the band it is the middle of, and one card was placed out of eight.
+ *
+ * Bounded rather than removed, which is the difference that matters: the
+ * panel keeps its heading, its counts and its own scroll, so every number
+ * D-129 requires before the picture is still there and still reachable
+ * without a pointer. It is a quarter of the field instead of well over half.
+ * The search rail already collapses to its summary when something is focused
+ * (`preferOpen={focus === null}`), so this bounds the surface it shares with
+ * the outline rather than the rail itself.
+ *
+ * Only while focused: with nothing selected there is no composition to make
+ * room for, and Explore's own chrome is the surface SPEC §2 gives it. At the
+ * `full` tier the same rule earns its place for the same reason one boundary
+ * up -- the counts surface sits at the field's own inline end, which is where
+ * the outgoing side of the orbit is drawn, and at 2852x1688 it reached 1012 px
+ * down a 1632 px field.
+ */
+.map--focused .map__float--status,
+.map--focused .map__float--search {
+  max-block-size: 26%;
+}
+
+/*
+ * The `compact` tier's drawer is closed to its trigger (SPEC §5, `T-213`).
+ *
+ * Not a style preference: a measurement. Below the `full` tier the drawer
+ * floats *over* the field instead of taking a slice out of it, so a drawer
+ * that fills the rail is a 352 px column of the field, its whole height,
+ * standing exactly where the outgoing side of the orbit is drawn -- and
+ * `placeOrbit` correctly refused every card there and counted it. At 1440x900
+ * that left one card placed and seven counted, which is the number `T-212`
+ * left to beat rather than a number to match.
+ *
+ * Bounded rather than collapsed, because the panel is still the reading
+ * surface: it keeps its heading, its content and its own scroll, and gives
+ * the upper two thirds of the rail back to the field. Above the `full`
+ * boundary the rule above stands and the drawer fills the rail, because there
+ * the field does not include it at all.
+ */
+@media (max-width: 124.99rem) {
+  .map--focused .map__drawer {
+    flex: 0 1 auto;
+    max-block-size: 38%;
+  }
+}
+
 /* The camera's controls, at the field's bottom end and never under anything. */
 .map__zoom {
   display: flex;
@@ -850,10 +906,12 @@ input {
 }
 
 /*
- * D-132's bounded overlay. It is presentation over the marks: it takes no
- * pointer events, so a click reaches the node underneath and selection stays
- * one identity, and it holds no focusable element, because every card here is
- * a second view of a row in the related list.
+ * D-132's bounded overlay, now carrying the Directional Orbit (T-213).
+ *
+ * It is presentation over the marks: it takes no pointer events, so a click
+ * reaches the node underneath and selection stays one identity, and it holds
+ * no focusable element, because every card here is a second view of a row in
+ * the related list.
  */
 .map__overlay {
   position: absolute;
@@ -863,33 +921,191 @@ input {
 }
 
 /*
- * A card is placed in *physical* pixels, which is the one place in this
- * stylesheet that is deliberate rather than a lapse from the logical
- * properties D-012 requires: `left`/`top` come out of the renderer's viewport,
- * and a logical inset would mirror a card away from its own mark as soon as
- * the interface language became Persian. The card's contents are still laid
- * out logically.
+ * The scrim (ADR 0006: "fade unrelated topology without representing it as
+ * absent").
+ *
+ * One translucent layer over the whole canvas rather than a style rule that
+ * decides per node what the reader may still see: the graph keeps every mark
+ * it had, every one of them stays clickable through the overlay, and what
+ * changes is only how far the picture recedes behind the diagram drawn on it.
+ */
+.map__orbit-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--orbit-scrim);
+}
+
+/*
+ * The orbit's lines.
+ *
+ * The coordinates *inside* this element are physical, and deliberately so:
+ * `placeOrbit` has already mirrored the composition -- it takes `rtl` and
+ * swaps the sides itself -- so a logical coordinate here would mirror an
+ * already-mirrored one, which is the defect D-191 carries forward from the
+ * mockups. The element's own corner is a zero inset, where physical and
+ * logical are the same number, so it is written logically like everything
+ * else and the `viewBox` inside it does the rest. Cards and pills carry their
+ * physical `left`/`top` in the style attribute `MapOrbit` writes, which is
+ * where the exception actually lives.
+ */
+.map__orbit-lines {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  overflow: visible;
+}
+
+.map__orbit-ring {
+  stroke: var(--orbit-ring);
+  stroke-width: 1;
+  stroke-dasharray: 2 10;
+}
+
+.map__orbit-edge path {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  opacity: 0.85;
+}
+
+/* A mark further out carries a lighter line, by design (SPEC §4). */
+.map__orbit-edge--far path {
+  stroke-width: 1.2;
+  opacity: 0.5;
+}
+
+/* Visible ports: an edge lands *on* a card rather than near it. */
+.map__orbit-port {
+  r: 4;
+  fill: var(--bg);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.map__orbit-edge--far .map__orbit-port {
+  r: 3;
+  opacity: 0.6;
+}
+
+/* A lifted pill keeps a dashed leader back to its own edge. */
+.map__orbit-leader {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+/*
+ * The ring's label, at its foot on the vertical axis. At the top it shared a
+ * line with the side labels and the two ran through each other.
+ */
+.map__orbit-ringlabel {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  white-space: nowrap;
+}
+
+/* Which side is which, in words: a bare arrow states position, not direction. */
+.map__orbit-side {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+/*
+ * A card is placed at the rectangle `placeOrbit` reserved for it, written onto
+ * the element so the drawn card and the reserved box are the same rectangle.
+ * Physical `left`/`top` for the reason the lines above give.
  */
 .map__card {
   position: absolute;
-  inline-size: min(20rem, 60%);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+  box-shadow: var(--card-shadow);
   font-size: var(--text-sm);
 }
 
 /*
  * Deliberately no `max-block-size` and no `overflow` on the card itself. Its
  * text is already bounded by `MAP_STAGE_NEIGHBOUR_CHARS` /
- * `MAP_STAGE_PRIMARY_CHARS` and the cut is *visible* — a clipped card would
- * hide that marker, which is the one kind of silent truncation D-131 forbids.
- * The overlay clips at the stage edge, and `MAP_STAGE_CARD_INSET` plus the
- * align/above flip are what keep a card pointing back into the stage.
+ * `MAP_STAGE_PRIMARY_CHARS` / `MAP_STAGE_CHIP_CHARS` and the cut is *visible*
+ * — a clipped card would hide that marker, which is the one kind of silent
+ * truncation D-131 forbids. The reserved height is an upper bound over what
+ * the browser lays out, which is what keeps the two agreeing.
  */
 
+/*
+ * The focused card is the centre by four means at once (SPEC §6): size, a
+ * doubled border, an accent ring, and — in light mode, where a glow reads as
+ * weaker — a tint in its own ground. Four, because any one of them alone is a
+ * cue a reader can miss.
+ */
 .map__card--primary {
-  inline-size: min(26rem, 70%);
   border-width: calc(var(--border-width) * 2);
   border-inline-start-width: var(--rail-width);
+  outline: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg-raised));
+}
+
+/* A mark further out carries less, by design. */
+.map__card--chip {
+  font-size: var(--text-xs);
+  padding: var(--space-2);
+}
+
+/*
+ * A relation's pill: horizontal, always, and never rotated onto a path.
+ *
+ * Its box is `ORBIT_PILL_BOX` and it is written on as an exact size rather
+ * than a maximum, because the seat `placeOrbit` found for it is that
+ * rectangle: a pill that outgrew its reservation would be a label over a card,
+ * which is the clause the visual gate checks. The relation name inside is cut
+ * by `MAP_EDGE_LABEL_CHARS` with the cut visible, so it can neither overflow
+ * nor shorten a name in silence.
+ */
+.map__pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: var(--space-2);
+  background: var(--bg-raised);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--float-shadow);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.map__pill--far {
+  opacity: 0.85;
+  border-color: var(--border);
+}
+
+.map__pill-body {
+  gap: var(--space-1);
+  align-items: baseline;
+  min-inline-size: 0;
+}
+
+.map__pill-name {
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.map__pill-near {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+}
+
+.map__pill-vocab {
+  color: var(--fg-faint);
 }
 
 .map__list {
@@ -1061,14 +1277,14 @@ input {
     background: var(--bg-sunken);
   }
 
-  /* A card anchored to a mark cannot be wider than the stage it points into. */
-  .map__card {
-    inline-size: min(16rem, 80%);
-  }
-
-  .map__card--primary {
-    inline-size: min(18rem, 90%);
-  }
+  /*
+   * No orbit rule here, and that is the `stack` tier rather than an omission:
+   * below `ORBIT_COMPACT_MIN_WIDTH` the field cannot hold a centre card with a
+   * card on each side, `placeOrbit` returns the `stack` tier, and `MapOrbit`
+   * draws nothing at all. What the reader gets instead is this document — the
+   * focused record, then every one of its relations as a row with its
+   * direction and its hop count, none of them dropped (SPEC §5).
+   */
 }
 
 /*

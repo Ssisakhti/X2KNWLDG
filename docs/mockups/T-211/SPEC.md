@@ -396,3 +396,65 @@ Two clauses of §5 and all of §6's constants are deliberately **not** implement
 own the orbit and the visual system. Below 48rem the route keeps the document composition it
 already had and its tested touch journey, rather than shipping four floating surfaces stacked
 on one another at 390 px.
+
+---
+
+## 14. What `T-213` built, and the five places it departed
+
+`T-213` implemented §4's Directional Orbit and §5's three compositions. The numbers below
+were read off the running build by `web/scripts/measure_orbit.ts`, at the same viewport and
+by the same method as §13's, and they are what `T-215` has to hold or beat:
+
+| Measured, focus `KU-000028` (8 neighbours returned) | `T-212` | `T-213` |
+|---|---|---|
+| Cards placed / counted at 2852×1688 | 4 / 4 | **7 / 1** |
+| Cards placed / counted at 1440×900 | 1 / 8 | **2 / 6** |
+| Cards clipped by the field | 0 | **0** |
+| Card over card, or card under a floating control | 0 | **0** |
+| Relation pills with no clear seat on their path | — | **0** |
+| Document height at 2852×1688 | 1688 px | **1688 px** |
+
+The five deliberate departures, recorded here rather than left to be discovered. Each is also
+in D-193.
+
+1. **The card boxes are larger than §6 proposes, because the browser laid them out larger.**
+   §6 gives a neighbour 320 × 148; at 320 px wide Chrome laid the shipped card out at 186 px,
+   and the reservation being smaller than the card is a fit test that passes while a relation
+   pill is seated in space the policy believes is empty. The reserved heights are now upper
+   bounds over what `measure_orbit.ts` reads back — 320 × 208 at `full`, 270 × 240 at
+   `compact` — which is the discipline `T-209` established for `MAP_STAGE_CARD_BOX`. The
+   mockup's own cards carried no `global_id` line and its measurement was of itself.
+
+2. **The `compact` tier's boxes are smaller than the mockup drew at 1440.** §5 puts that
+   tier's floor at 900 px, and half the centre card plus a gap plus a neighbour's card plus
+   the field's inset has to fit in half of it. The mockup's 420 × 200 and 264 × 132 need
+   1004 px, so at the tier's own minimum every card would have been refused and counted —
+   honest and useless. 300 × 200 and 270 × 240 fit 900, and `orbitMinimumWidth` asserts it.
+
+3. **The relation pill is as wide as its own words, not one fixed width.** §4 gives a hop-1
+   edge `arm − primaryBox.width / 2` of clear run between the two cards it joins. One uniform
+   260 px pill is wider than that run, and four of seven pills found no seat at all. The box
+   is computed from the label's own code points and written onto the element, so the
+   rectangle a seat was found for is the rectangle drawn.
+
+4. **The vertical band is clamped by a search, not by an inset.** §4 says the band is
+   "clamped so no card runs under floating chrome" and this is that clamp. An inset cannot
+   do it: the search rail at the `full` tier is 424 px tall against the composition's 150 px
+   inset, and the only adjustment a card has — pushing outward along its arm — moves it
+   *towards* the field's inline edge, which on the incoming side is where that rail is. Three
+   of six cards walked further under the surface they were escaping and were refused for
+   leaving the field. Narrowing the band moves the whole side inwards instead.
+
+5. **`stack` is the route's own document, and the floating chrome is bounded while focused.**
+   §5's third tier asks for the focus card and then every relation as a row, all of them,
+   none dropped — which is what the document composition below 900 px already is, in that
+   order, with the direction and the hop count on each row. Moving the WebGL container in the
+   DOM on a resize to put the strip elsewhere would risk the context loss D-147 exists to
+   handle, and reordering it in CSS would break §7's binding rule that tab order follows
+   visual order. Separately, §2 gives Focus different chrome from Explore — a focus bar
+   rather than the search rail, the counts and the legend. Rather than build a second set of
+   surfaces, the ones that exist are **bounded to a quarter of the field while focused**:
+   they keep their headings, their numbers and their own scroll, so everything D-129 requires
+   before the picture is still there and still reachable without a pointer. At 1440×900 the
+   counts surface was 57 % of the field's height, standing where the outgoing side of the
+   orbit is drawn.

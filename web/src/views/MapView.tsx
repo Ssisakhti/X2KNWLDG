@@ -82,7 +82,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { api } from "../api/client";
 import { ApiFailure } from "../api/errors";
 import { ErrorState } from "../components/ErrorState";
-import { MapConstellation } from "../components/MapConstellation";
+import { MapOrbit } from "../components/MapOrbit";
 import { MapFilters } from "../components/MapFilters";
 import { MapLegend } from "../components/MapLegend";
 import { MapOutline } from "../components/MapOutline";
@@ -93,10 +93,10 @@ import { MapSearchRail } from "../components/MapSearchRail";
 import { Bidi } from "../components/primitives";
 import { useI18n } from "../i18n";
 import {
-  MAP_STAGE_SETTLE_MS,
-  placeConstellation,
+  type OrbitPlacement,
+  orbitTier,
+  placeOrbit,
   type StageBox,
-  type StagePlacement,
   type StageRect,
 } from "../map/constellation";
 import { GraphConflictError } from "../map/graphProjection";
@@ -138,7 +138,7 @@ function sameRects(a: readonly StageRect[], b: readonly StageRect[]): boolean {
 }
 
 export function MapView({ createRenderer }: { createRenderer?: MapRendererFactory } = {}) {
-  const { t } = useI18n();
+  const { t, dir } = useI18n();
 
   // The URL is the question. `filters` is the three parameters `GET /api/graph`
   // accepts and nothing else -- `mapLink` refuses a value it cannot read rather
@@ -234,47 +234,24 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
    * edge is the exact defect D-191 carries forward from the mockup.
    */
   const [chrome, setChrome] = useState<readonly StageRect[]>([]);
-  /** Bumped when the camera settles, which is when cards are placed again. */
-  const [placedAt, setPlacedAt] = useState(0);
   //: Bumped to ask the draw effect to try again after a refusal (D-176).
   const [retryAt, setRetryAt] = useState(0);
   //: The stage size the last refusal was measured at, so one unusable
   //: container is refused once rather than retried on every render.
   const refusedBox = useRef("");
-  /** Whether the camera is mid-gesture, in which case no card is drawn. */
-  const [moving, setMoving] = useState(false);
-  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** The same fact, readable without a render, so a frame can check it. */
-  const isMoving = useRef(false);
-
-  /**
-   * The renderer drew a frame.
+  /*
+   * What `T-213` deleted here, and why it is a deletion rather than a move.
    *
-   * Called once per frame while the camera moves, so it must not re-render per
-   * frame: the state change is guarded by a ref, and the trailing timer is one
-   * too. Two renders per gesture -- one to hide the cards, one to place them
-   * again -- rather than sixty (`MAP_STAGE_SETTLE_MS`).
+   * A per-frame `onRender` subscription used to drive a trailing timer, so the
+   * cards were hidden while the camera moved and placed again once it stopped
+   * (`MAP_STAGE_SETTLE_MS`). Every line of it existed because a card was
+   * pinned to a mark, and the Directional Orbit is not: it is laid out from
+   * the field, the neighbourhood and the chrome's rectangles, none of which a
+   * pan or a zoom changes. So the orbit stays still and legible through a
+   * gesture that used to erase it, and the route subscribes to no frame at
+   * all. `MapSession.onRender` remains on the renderer boundary, where D-146
+   * put it, with no caller in the route.
    */
-  const onRendered = useCallback(() => {
-    if (!isMoving.current) {
-      isMoving.current = true;
-      setMoving(true);
-    }
-    if (settle.current !== null) clearTimeout(settle.current);
-    settle.current = setTimeout(() => {
-      settle.current = null;
-      isMoving.current = false;
-      setMoving(false);
-      setPlacedAt((value) => value + 1);
-    }, MAP_STAGE_SETTLE_MS);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (settle.current !== null) clearTimeout(settle.current);
-    },
-    [],
-  );
 
   // Only a selection the graph *holds* is drawn as one. `hasFocus` dims
   // everything unrelated, so a focus naming an entity these pages have not
@@ -302,13 +279,11 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     select: focus.focusEntity as (globalId: string) => void,
     enter: peek.open,
     leave: peek.close,
-    rendered: onRendered,
   });
   canvas.current = {
     select: focus.focusEntity,
     enter: peek.open,
     leave: peek.close,
-    rendered: onRendered,
   };
 
   // Always this focus's own, never a previous selection's: `useNeighbourhood`
@@ -395,7 +370,6 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         onSelectNode: (globalId) => canvas.current.select(globalId),
         onEnterNode: (globalId) => canvas.current.enter(globalId, "pointer"),
         onLeaveNode: (globalId) => canvas.current.leave(globalId),
-        onRender: () => canvas.current.rendered(),
       },
     });
     session.current = live;
@@ -435,14 +409,13 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         attached.current = snapshotId;
       }
       setFault(null);
+      // `T-207` bumped a placement counter here, because the overlay's cards
+      // were anchored to marks and the renderer had only just been given the
+      // graph that gives them positions. `T-213` does not: the orbit is laid
+      // out from the field and the neighbourhood, so `setHoldingId` alone --
+      // which is what turns the picture into a `drawing` -- is the whole of
+      // the first placement.
       setHoldingId(snapshotId);
-      // The renderer now holds this graph, so its marks have positions to
-      // anchor cards to (`T-207`). This is the *first* placement: without it
-      // the overlay would wait for a frame event, and the placement computed
-      // during the render that preceded this effect asked a renderer that had
-      // not been given the graph yet -- which reads as "no neighbour is
-      // drawn", which would be a report about the wrong thing.
-      setPlacedAt((value) => value + 1);
     } catch (cause) {
       // A renderer that cannot be created -- no WebGL2, or a container with no
       // size -- is a state to state, not an exception to take the route down
@@ -640,41 +613,50 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   const conflict = error instanceof GraphConflictError ? error : null;
 
   /**
-   * Which cards the stage may carry, and why the rest have none (`T-207`).
+   * The Directional Orbit over this selection (`T-213`, ADR 0006 clause 3).
    *
-   * `null` -- not "an empty placement" -- whenever there is no stage to place
-   * anything on: nothing selected, or no live renderer over a measured
+   * `null` -- not "an empty placement" -- whenever there is no field to lay
+   * anything out on: nothing selected, or no live renderer over a measured
    * container. The distinction matters because the omission report is a
-   * statement *about the stage*, and reporting every neighbour as "not drawn"
-   * when the whole canvas is missing would explain the wrong thing. The
-   * renderer's own refusal is already stated above, and the related list is
-   * complete either way.
+   * statement *about the composition*, and reporting every neighbour as "not
+   * placed" when the whole canvas is missing would explain the wrong thing.
+   * The renderer's own refusal is already stated above, and the related list
+   * is complete either way.
    *
-   * Recomputed when the selection, the neighbourhood, the graph or the stage's
-   * size changes -- and when the camera settles (`placedAt`), which is what
-   * makes a card follow its mark.
+   * Four inputs and no camera. It is recomputed when the selection, the
+   * neighbourhood, the field's size or the chrome's rectangles change --
+   * because those are the only four things the layout reads. A pan is not one
+   * of them, which is why the orbit no longer flickers through a gesture, and
+   * `snapshotId`/`pages` are no longer inputs either: a neighbour whose page
+   * the walk has not reached still has a direction and a hop count, so it
+   * still has a card.
+   *
+   * `dir` is here because incoming-first is a *reading* order (D-012): in
+   * Persian the incoming side is the right, where reading starts. The records
+   * are untouched; only which side draws them changes.
    */
-  const placement = useMemo<StagePlacement | null>(() => {
+  const placement = useMemo<OrbitPlacement | null>(() => {
     if (!drawing || focus.focus === null) return null;
-    return placeConstellation({
+    return placeOrbit({
       centreId: drawnFocus,
       related: neighbourhood?.related ?? [],
-      position: (globalId) => session.current?.nodePosition(globalId) ?? null,
-      stage: stageBox,
+      field: stageBox,
       obstacles: chrome,
+      rtl: dir === "rtl",
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    drawing,
-    focus.focus,
-    drawnFocus,
-    neighbourhood,
-    stageBox,
-    chrome,
-    placedAt,
-    snapshotId,
-    pages,
-  ]);
+  }, [drawing, focus.focus, drawnFocus, neighbourhood, stageBox, chrome, dir]);
+
+  /**
+   * Which of SPEC §5's three compositions this field can hold.
+   *
+   * Read from the same measured box the orbit is laid out in, so the CSS that
+   * dresses the field and the TypeScript that fills it can never disagree
+   * about which composition is on screen. Below the `compact` minimum there is
+   * no orbit at all: the route keeps its document composition, where the
+   * focused record and *every* one of its relations is a row and none is
+   * dropped (SPEC §5's `stack` tier).
+   */
+  const tier = orbitTier(stageBox.width);
 
   return (
     <div
@@ -695,6 +677,11 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
       // renders it, and `T-209`'s seam for the same states in a browser.
       data-map-reading={reading.kind}
       data-map-canvas={picture.kind}
+      // Which of SPEC §5's three compositions the measured field can hold. On
+      // the element rather than only in a memo, so the stylesheet dresses the
+      // same tier the layout used and a test can read it without inferring it
+      // from a card count.
+      data-map-tier={tier}
     >
       {/*
         The route's name, for the document outline and for a screen reader's
@@ -948,7 +935,7 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
           aria-hidden={drawing ? undefined : true}
           data-map-stage
         />
-        {!moving && <MapConstellation placement={placement} centre={hood.centre} />}
+        <MapOrbit placement={placement} centre={hood.centre} />
       </div>
 
       {/*

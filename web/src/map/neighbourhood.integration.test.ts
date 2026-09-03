@@ -17,9 +17,10 @@
  *    return the same record for one id, field by field -- which is why the
  *    Map can read a selection from either without the projection refusing a
  *    contradiction.
- * 3. **The density policy accounts for everything it does not place.** Cards
- *    placed plus omissions counted equals the number of neighbours returned,
- *    on the real fan-out rather than on a hand-built one.
+ * 3. **The orbit accounts for everything it does not place.** Cards placed
+ *    plus omissions counted equals the number of neighbours returned, on the
+ *    real fan-out rather than on a hand-built one, and at both tiers that
+ *    draw a composition.
  *
  * Skipped unless `X2KNWLDG_API_BASE` names a running server, so `npm test`
  * stays hermetic:
@@ -32,7 +33,7 @@ import { describe, expect, it } from "vitest";
 
 import { ApiClient } from "../api/client";
 import { sameRecord } from "./graphProjection";
-import { placeConstellation } from "./constellation";
+import { orbitAccountsFor, placeOrbit } from "./constellation";
 import { MAP_DEPTH_MAX, projectNeighbourhood } from "./neighbourhood";
 import { NEIGHBOURHOOD_LIMIT } from "./useNeighbourhood";
 
@@ -142,24 +143,51 @@ describe.skipIf(BASE === undefined || BASE === "")(
       const { entityId } = await busiest();
       const response = await client.call("getNeighborhood", {
         params: { entity_id: entityId },
-        query: { depth: 1, limit: NEIGHBOURHOOD_LIMIT },
+        query: { depth: MAP_DEPTH_MAX, limit: NEIGHBOURHOOD_LIMIT },
       });
       const hood = projectNeighbourhood(response.data);
-      // Every mark loaded and spread out, which is the *most* favourable case
-      // for the stage -- and the budget still bites on the real fan-out, which
-      // is exactly why the related list exists (R20).
-      let index = 0;
-      const placement = placeConstellation({
-        centreId: entityId,
-        related: hood.related,
-        position: () => {
-          index += 1;
-          return { x: 60 + (index % 3) * 260, y: 60 + Math.floor(index / 3) * 200 };
-        },
-        stage: { width: 900, height: 600 },
+      // The real fan-out of the busiest entity, at the deepest walk the
+      // contract allows, on both fields that draw a composition. The
+      // accounting is the clause R20 rests on and the one a hand-built
+      // neighbourhood cannot stress: the real graph has marks further out
+      // than one hop, and every one of them either has a card or a counted
+      // reason for having none.
+      for (const field of [
+        { width: 2260, height: 1632 },
+        { width: 1440, height: 844 },
+      ]) {
+        const placement = placeOrbit({
+          centreId: entityId,
+          related: hood.related,
+          field,
+        });
+        expect(orbitAccountsFor(placement, hood.related)).toBe(true);
+        expect(placement.cards.length).toBeLessThanOrEqual(hood.related.length);
+      }
+    });
+
+    it("names a real parent for every mark further out than one hop", async () => {
+      // `T-213` added `parentId`, and the orbit draws a hop-2 edge from the
+      // hop-1 card it names. Against the real graph rather than a fixture,
+      // because the property that matters is that the *server's* walk always
+      // gives a further-out node a nearer one to hang off.
+      const { entityId } = await busiest();
+      const response = await client.call("getNeighborhood", {
+        params: { entity_id: entityId },
+        query: { depth: MAP_DEPTH_MAX, limit: NEIGHBOURHOOD_LIMIT },
       });
-      expect(placement.cards.length + placement.omittedTotal).toBe(hood.related.length);
-      expect(placement.cards.length).toBeLessThanOrEqual(hood.related.length);
+      const hood = projectNeighbourhood(response.data);
+      const byId = new Map(hood.related.map((item) => [item.globalId, item]));
+      for (const item of hood.related) {
+        expect(item.parentId).not.toBeNull();
+        if (item.hops === 1) {
+          expect(item.parentId).toBe(hood.centreId);
+          continue;
+        }
+        // One hop closer, and joined by a relation the response carried.
+        expect(byId.get(item.parentId as string)?.hops).toBe(item.hops - 1);
+        expect(item.toParent.length).toBeGreaterThan(0);
+      }
     });
   },
 );

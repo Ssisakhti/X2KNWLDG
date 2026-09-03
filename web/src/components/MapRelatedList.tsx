@@ -34,7 +34,7 @@
 
 import type { AsyncStatus } from "../api/useAsync";
 import type { MapGraph } from "../map/graphProjection";
-import type { StageOmission, StagePlacement } from "../map/constellation";
+import type { OrbitPlacement, StageOmission } from "../map/constellation";
 import { STAGE_OMISSIONS } from "../map/constellation";
 import { MAP_DEPTHS, type MapDepth, type Neighbourhood } from "../map/neighbourhood";
 import type { NeighbourhoodFailure } from "../map/useNeighbourhood";
@@ -55,11 +55,10 @@ import { RelationCues } from "./MapRelation";
  * read as abandoned (§8.6).
  */
 const OMISSION_LABEL: Record<StageOmission, MessageKey> = {
-  not_loaded: "map.stage.omitted.notLoaded",
-  off_stage: "map.stage.omitted.offStage",
   no_room: "map.stage.omitted.noRoom",
   crowded: "map.stage.omitted.crowded",
   budget: "map.stage.omitted.budget",
+  unanchored: "map.stage.omitted.unanchored",
 };
 
 export function MapRelatedList({
@@ -88,8 +87,8 @@ export function MapRelatedList({
   graph: MapGraph | null;
   onFocus: (globalId: string | null) => void;
   peek: MapPeekBinding;
-  /** What the density policy placed, so a row can say its card is on the stage. */
-  placement: StagePlacement | null;
+  /** What the orbit placed, so a row can say its card is on the field. */
+  placement: OrbitPlacement | null;
 }) {
   const { t } = useI18n();
 
@@ -224,6 +223,25 @@ export function MapRelatedList({
                 subject="this"
                 empty={t("map.related.viaPath", { hops: entity.hops })}
               />
+              {/*
+                A neighbour further out than one hop has no relation to the
+                focus, and `T-213` is what made the alternative sayable: the
+                walk now records which neighbour it hangs off, so the row names
+                the relation that actually joins it to *that* one instead of
+                stopping at "reached through a path". Naming the focus here
+                would state a relation the records do not contain, which is why
+                the endpoint printed beside the arrow is the parent's id.
+              */}
+              {entity.toCentre.length === 0 && entity.toParent.length > 0 && (
+                <div className="stack" data-map-related-parent={entity.parentId ?? ""}>
+                  <p className="faint">{t("map.related.viaParent")}</p>
+                  <RelationCues
+                    relations={entity.toParent}
+                    subject="this"
+                    empty={t("map.related.viaPath", { hops: entity.hops })}
+                  />
+                </div>
+              )}
               <p className="faint">
                 {t("map.related.hops", { count: entity.hops })}
                 {onStage.has(entity.globalId) && (
