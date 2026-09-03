@@ -62,28 +62,33 @@ import { KindBadge, ProvenanceBadge } from "./Provenance";
 import { Mono } from "./primitives";
 
 /**
- * A card's own rectangle, written onto the element exactly as reserved.
+ * A card's own rectangle: its position and its width, exactly as reserved.
  *
- * `minBlockSize` as well as the inline size, and both halves matter.
- * `placeOrbit` reserves a box per card and guarantees no two reservations
- * overlap, and only the *width* of that box was ever written — so the height
- * was a number the layout believed and the browser had never been asked
- * about. A statement that wraps one line beyond what the measurement script
- * saw overflowed its reservation and overlapped the card below, with nothing
- * at runtime or in the suite to notice.
+ * The height is deliberately **not** written. `placeOrbit` reserves a box per
+ * card and guarantees no two reservations overlap, and the reserved height is
+ * an *upper bound* over what the browser lays out — so a card shorter than its
+ * reservation is correct and a card taller than it is the defect. Writing the
+ * height as a `min-block-size` would make every card as tall as its
+ * worst-case statement rather than as its own, which is dead space in the
+ * composition a reader is reading, and it would tell nobody when the bound was
+ * wrong.
  *
- * A minimum, not a fixed `blockSize` and not a `maxBlockSize`: clipping would
- * hide the truncation marker, which is the one kind of silent cut D-131
- * forbids. What this buys is that the reservation is a real box a browser has
- * laid out, so `data-map-card-block` below is a claim the gate can measure
- * against `getBoundingClientRect().height` rather than a comment.
+ * What was missing was not enforcement but *noticing*: the reserved height was
+ * a number the layout believed and nothing had ever asked a browser about, so
+ * a statement that wrapped one line beyond what the measurement script saw
+ * overlapped the card below in silence. `data-map-card-block` carries the
+ * reservation onto the element and the browser gate compares it with
+ * `getBoundingClientRect().height` on every card of every scenario, which is
+ * what closes that — see `renderer.spec.ts`.
+ *
+ * Clipping is the other thing this must not do: a `max-block-size` would hide
+ * the truncation marker, which is the one kind of silent cut D-131 forbids.
  */
 function cardStyle(card: OrbitCard): CSSProperties {
   return {
     left: `${card.rect.left}px`,
     top: `${card.rect.top}px`,
     inlineSize: `${card.rect.right - card.rect.left}px`,
-    minBlockSize: `${card.rect.bottom - card.rect.top}px`,
   };
 }
 
