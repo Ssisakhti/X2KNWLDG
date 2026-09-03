@@ -108,6 +108,10 @@ test.describe("the states of the graph", () => {
     const first = await counts(page);
     expect(first.nodes).toBeGreaterThan(0);
 
+    // Opened first: `T-216` folded the account to its two headline numbers,
+    // because the approved capture draws that corner as a chip (D-199). The
+    // walk's own button is inside it, with the extent it continues.
+    await openPanel(page, "counts");
     await page.locator("[data-map-load-more]").click();
     await expect(page.locator(".map")).toHaveAttribute("data-map-reading", "refused");
     // The error is stated as an error, the counts survive, and they are

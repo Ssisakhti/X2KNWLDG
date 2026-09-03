@@ -88,7 +88,9 @@ keyboard focus or selection.
   simulation was tried first and produced a field the renderer never draws.
 - **Marks** keep `mapStyle.ts` exactly: shape and base size from `NODE_PROVENANCE_MARK`
   (source circle 9, derived diamond 11, user square 9), hue from `KIND_FAMILY_COLOUR` via
-  `KIND_FAMILY`. Mark size scales with the viewport; the ratios do not.
+  `KIND_FAMILY`. Mark size scales with the viewport; the ratios do not. That last sentence
+  took until `T-216` to be true of the shipped renderer, which scaled a mark by the *framing*
+  instead — `markFieldScale` is the clause, and §17 is the decision.
 - **Edges** take their head and thickness from `EDGE_VOCABULARY_MARK`. A
   `library_synthetic` edge is **dashed as well as diamond-headed**, because at overview
   scale a head is two pixels and the vocabulary distinction has to survive.
@@ -168,7 +170,7 @@ Tokens are `tokens.css`'s, unchanged: `--text-xs`…`--text-xl`, `--space-1`…`
 |---|---|---|
 | `--bar-height` | 56 px | the workspace grid's first row |
 | `--orbit-ring` | 10 % / 12 % foreground | hop rings, below every mark |
-| `--edge-faint` | 18 % / 20 % foreground | the quiet Explore field |
+| `--edge-faint` | 18 % / 20 % foreground | the quiet Explore field — no reader on a canvas, so it ships as `MAP_QUIET_EDGE_OPACITY` (§15's first departure, closed in §17) |
 | `--float-shadow` | two-layer | lifts chrome off the stage without a hard border |
 | `--card-shadow` | two-layer | separates a card from the field it covers |
 
@@ -586,7 +588,8 @@ application surface.
 differences above became a fifth child of `T-210`, with the sizing model behind the first of
 them — Sigma's `itemSizesReference`, and the zoom rule that depends on it — decided there
 rather than assumed here. `T-215`'s acceptance is taken up again against `T-216`'s captures,
-and this gate is the instrument that judges them, unchanged.
+and this gate is the instrument that judges them, unchanged. **§17 is what it closed, and
+what is left over.**
 
 ### Regenerating the comparison
 
@@ -600,3 +603,210 @@ The gate is pointed at the real library on purpose: the mockups compose `KU-0000
 the 86-node graph, and a capture of the committed fixtures would be a picture of a different
 graph — green, and useless as a comparison. Both capture directories and the review page are
 gitignored, for the reason §12 already gives.
+
+---
+
+## 17. What `T-216` built, and what is left over
+
+`T-216` is the remediation the comparison in §16 produced (D-196): six clauses in a stated
+order, one of them carrying a decision. **It moved no card.** The gate reads the same
+7 placed / 1 counted at 2852×1688, 2 / 6 at 1440×900 and 1 / 7 at 1280×720, with every
+geometry clause still zero — and it asserts one clause more than it did.
+
+### R1 — a mark's size is a function of the field, and of nothing else
+
+The decision D-196 left open, and neither half of it turned out the way D-196 assumed. Both
+halves are mechanical facts about `scaleSize` in `sigma@4.0.0-beta.5`, which computes
+`size / zoomToSizeRatioFunction(ratio)` and then, **only** under
+`itemSizesReference: "positions"`, multiplies by `cameraRatio * graphToViewportRatio`:
+
+1. **Clamping the ratio function could not have fixed this.** That function is handed the
+   camera's ratio and nothing else, and the term that made a wider window draw bigger marks
+   is the *framing* — pixels per graph unit — which sits outside it. No clamp on a function
+   that cannot see the field can cancel the field. So the choice recorded as open was open
+   in name only: `"screen"` is the one mechanism that removes the term.
+2. **`"screen"` does not freeze size under zoom**, which is what D-196 expected it to do and
+   why it expected D-122's zoom rule to retire. The division by
+   `zoomToSizeRatioFunction` happens in *both* modes, so a mark still grows as
+   `1 / sqrt(ratio)` as the camera comes in. The two modes differ by exactly one factor —
+   the field's pixels per graph unit — and by nothing else.
+
+So D-122's zoom rule survives, and what `T-216` does to it is re-express it (R2 below)
+rather than delete it. And the viewport scale that `"screen"` leaves out is not missing: §3
+already specifies it in words — *"Mark size scales with the viewport; the ratios do not"* —
+so it moves into the one style table, where it can be read and tested:
+
+| Constant | Value | What it is |
+|---|---|---|
+| `MAP_SIZE_SETTINGS.itemSizesReference` | `"screen"` | the decision: a size is pixels, with no framing term |
+| `MAP_SIZE_SETTINGS.minEdgeThickness` | 0.75 | below the thinnest thickness the table declares |
+| `MAP_FIELD_REFERENCE_WIDTH` | 1280 px | the field the mark sizes are stated at |
+| `MAP_MARK_FIELD_SCALE` | 0.675 | the mockup's 1.35, halved: Sigma's `size` is a radius |
+| `MAP_EDGE_FIELD_SCALE` | 0.62 | the mockup's own correction on `EDGE_VOCABULARY_MARK` |
+| `MAP_EDGE_FIELD_THICKEN_WIDTH` | 1724 px | `max(1, MARK × 0.55)`, reduced to one threshold |
+
+`minEdgeThickness` is a second finding rather than a tidy-up. Sigma's floor is 1.7 px, and
+after `edgeFieldScale` the table's own thicknesses at the reference width are **1.36 px**
+for a canonical edge and **0.87 px** for a library-synthetic one — so the default floor
+would have clamped the thin one up into the thick one's neighbourhood and silently deleted
+the vocabulary distinction `mapStyle.test.ts` asserts the *constants* preserve. The floor
+is kept, below the table's smallest, because it still has a job: an edge on a camera zoomed
+far out must not vanish.
+
+What that draws, as arithmetic rather than as a picture — the approved capture's own
+numbers, asserted in `mapStyle.test.ts`:
+
+| Field width | Source circle | Derived diamond | Canonical edge | Library-synthetic edge |
+|---|---|---|---|---|
+| 1280 px | 12 px across | 15 px | 1.36 px | 0.87 px |
+| 1440 px | 14 px | 17 px | 1.36 px | 0.87 px |
+| 2852 px | 27 px | 33 px | 2.26 px | 1.44 px |
+
+**One consequence outside the composition, recorded because it is a real cost.** A mark this
+size is a smaller pointer target than a framing-scaled one, and the browser gate's own
+mark-hunting sweep felt it first: `findMark` moves the pointer over a grid of the stage until
+the route says what is under it, and over the committed **seven-node** fixtures — a tiny
+extent framed into a whole field, so the marks used to be enormous — a 24 px grid of the
+middle of the stage stopped hitting anything at all. The sweep's step and budget are now a
+function of the size the table actually draws. The marks themselves are the approved
+composition's own size, so this is the reference's target size rather than a new one, and the
+pointer path remains an enhancement over a DOM path where every mark is also a row (ADR 0005
+invariant 13) — but Sigma's `nodePickingPadding` is 0, so what a reader aims at is the mark
+and nothing more.
+
+### R2 — the label ration, re-measured and re-expressed
+
+R1 was the root cause, so the ration was re-measured after it rather than tuned before it,
+and what it needed was the **opposite** of what §16's picture suggested. With marks no longer
+inflated by the framing, `labelRenderedSizeThreshold: 14` silenced the overview completely:
+the largest mark on a 1440 px field is 8.3 px by `scaleSize`'s reckoning, so nothing could
+claim an automatic label at rest at any viewport the tier table names.
+
+The threshold is now **6**, and the number is derived rather than tried. It has to sit below
+the *smallest* mark any field draws at rest — `NODE_PROVENANCE_MARK`'s 9, floored at
+`MAP_MARK_FIELD_SCALE`, is 6.1 px — because `NODE_PROVENANCE_MARK` gives its four shapes
+four different radii on purpose: each shape encloses a different area, and the radii are
+what make the four read as the same weight (ADR 0005 invariant 15 — *the sizes are not a
+ranking*). A threshold above the smallest of them would have silenced a **circle** while a
+diamond in the same cell spoke, which turns a density rule into a statement about provenance
+that no field makes. `labelPolicy.test.ts` asserts exactly that relation, against
+`markFieldScale`, so the two cannot drift apart.
+
+The rationing therefore moves entirely to Sigma's grid, which was always the other half of
+D-122: `labelGridCellSize` is **560** (from 180), one automatic label per cell of the
+viewport, biggest mark in the cell wins. "Zoom in and it speaks" is unchanged and is the
+grid's own: the budget per cell is `ceil(labelDensity / ratio²)`, so one press of zoom-in
+takes it from one to three while the viewport culls the cells that left the screen.
+
+Measured on the running build over the real library, counted on the captures:
+
+| | Approved | This build |
+|---|---|---|
+| Automatic labels at 2852×1688 | 8 over 86 marks | **10 over 86 marks** |
+| Automatic labels at 1440×900 | 5 | **5** |
+
+### R5 — the quiet Explore field, implemented where a renderer can reach it
+
+§15 recorded `--edge-faint` as `T-214`'s one unimplemented clause: §6 proposes it for "the
+quiet Explore field", Explore's edges are WebGL, and a canvas cannot read a custom property.
+R5 closes it with `MAP_QUIET_EDGE_OPACITY` — **0.32** — in the one style table, and it is a
+third level rather than a reuse of the second:
+
+| An edge, in the state a reader meets it | Opacity |
+|---|---|
+| `normal`, with something focused — `MAP_DIMMED_EDGE_OPACITY` | 0.25 |
+| `normal`, with nothing focused — `MAP_QUIET_EDGE_OPACITY` | 0.32 |
+| on the active path — `EDGE_INTERACTION.selected` | 1 |
+
+The approved capture draws its edges at 20 % white on the dark ground and 18 % black on the
+light one, which is about this weight; unlike a grey line, a provenance hue at this opacity
+still says which of the three provenances the relation has, so nothing that ADR 0005
+invariant 9 requires is traded for the quiet. **Marks are deliberately not quieted with
+them**: ADR 0006 clause 3 has marks and structure dominating with text on demand, so
+quieting both would produce a grey picture rather than a quiet one.
+
+### R3 — the `compact` tier's chips
+
+Three surfaces, and each of the three is the finding §16 stated rather than a redesign:
+
+- **The search rail is closed to its trigger below the `full` tier.** It used to decide that
+  for itself as `focus === null`; the route decides it now, because SPEC §5 gives that tier a
+  search "closed to its trigger" and only the route measures the field. An *unmeasured* field
+  counts as wide — `orbitTier(0)` is `stack`, and a rail that mounted closed on every first
+  paint would put D-130's own opening step behind a click at every viewport.
+- **The filters fold to their trigger**, at every tier: SPEC §2 gives Explore "counts
+  top-end" and no filter controls on the stage at all, and both approved Explore captures
+  draw that corner as a two-line chip. A disclosure and not a `max-block-size`, because a
+  folded panel here states what it holds — the summary says how many filters are applied, so
+  the one thing a reader must not lose is on screen either way.
+- **The account folds to its two headline numbers.** §16's finding was that this surface "is
+  not a disclosure at all"; it is one now, its summary reads *86 nodes · 118 edges*, and the
+  five-row account is one press away. D-129 is intact and this is where to check it rather
+  than take it on trust: the surface still precedes the stage, the counts a test or a screen
+  reader reads are attributes on the **section** — the part a folded disclosure never hides —
+  and it opens itself whenever the picture is not being drawn, which is the case D-129 exists
+  for.
+
+That took the counts float from 261 px to 139 px at 1440×900 and moved no card.
+
+### R4 — Explore mounts no drawer
+
+The judgement D-196 asked for either way, recorded: **it goes.** `T-212` kept both panels
+mounted on the argument that a panel which disappears cannot say that nothing is selected,
+and three things outweigh it. ADR 0006 clause 4 allows one primary drawer to open *on
+demand*; SPEC §2 gives Explore four surfaces and none of them is a drawer, and both approved
+Explore captures leave that corner empty; and the sentence was never this drawer's only home
+— `MapSearchRail`'s focus row says *"Nothing is focused. Choose a result to focus it."* on
+the one surface SPEC §2 does give Explore, which is also the step D-130's journey is on while
+nothing is selected. What settled it is the share R6 made the gate measure: two collapsed
+panels saying "nothing focused" are 4.5 % of an 844 px field, and the approved `compact`
+composition spends 10.3 % on all of its chrome together.
+
+### R6 — the clause the gate gained, and the re-run
+
+`browser/composition.ts` reports one number more: `chromeShare`, the union of the floating
+chrome's rectangles clipped to the field, over the field's area. A **union**, because two
+surfaces that overlap cover one region once and a sum would report more than the whole field.
+`coveredShare` is that arithmetic, and `capture_mockups.ts` calls the same function over the
+approved mockups' own `.float` and `.drawer` surfaces — so the bound the gate holds this
+build to is read off the reference by the instrument that measures the build, and prints
+beside every reference capture it writes.
+
+| Tier | Approved Explore | Approved Focus | This build, worst | Bound asserted |
+|---|---|---|---|---|
+| `full` (2852×1688) | 2.7 % | 19.8 % | 11.9 % | **20 %** |
+| `compact` (1440×900) | 10.3 % | 6.4 % | 27.3 % | **30 %** |
+| `stack` (390×844) | — | 8.8 % | 0 % | **10 %** |
+
+### The four differences that remain, measured
+
+Recorded here for the acceptance rather than fixed, on the same terms §16's three were.
+
+1. **The `compact` bound is a ratchet, not the reference's own share.** This build spends
+   22.7 % of a 1440×900 field on chrome in Focus and 27.3 % of a 1280×720 one, against the
+   reference's 10.3 %, and the gap is not slack: at that tier the drawer floats *over* the
+   field instead of taking a slice out of it, and the chrome's rectangles are what
+   `placeOrbit` refuses cards against — so the share and the card counts are one number seen
+   twice. Measured, not assumed: bounding those surfaces to 14.4 % of the field placed
+   **three** cards at 1440×900 where §14 records two. `T-216` requires the recorded numbers
+   not to change, so the trade is stated instead of taken: **the reference's 10.3 % costs the
+   2 / 6 this gate holds.**
+2. **Explore's search float is not the reference's one-line chip.** 420×237 at 1440×900
+   against 420×70, because it carries two things the mockup does not draw at all: the
+   sentence that says the marks are one view of a list, and the outline's own trigger, which
+   SPEC §7 places in this drawer's panel list. Both are content rather than decoration.
+3. **Ten automatic labels at the review viewport where the reference draws eight**, and two
+   of the ten sit close enough to read as a pair. The mockup rejects a label that would land
+   near another or on a mark (§3); production has Sigma's grid and no second overlap test,
+   and adding one would be a second label policy beside `labelPolicy.ts`.
+4. **In Focus the unrelated topology is drawn at the camera's framing, not the graph's.**
+   D-146 frames the camera on the focus, so the background marks are larger and softer than
+   the reference's, which draws the whole graph small. Unchanged by `T-216` and half the size
+   it was before it: the framing is a zoom, and a zoom is the one thing that is still allowed
+   to change a mark's size.
+
+### Regenerating
+
+Unchanged from §16's three commands. `capture_mockups.ts` now prints the field and the
+chrome share beside each reference capture, which is where the bounds in the table above
+come from.

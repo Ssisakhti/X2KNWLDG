@@ -8,8 +8,17 @@
  *
  *   npx tsx web/scripts/capture_mockups.ts            # every capture
  *   npx tsx web/scripts/capture_mockups.ts explore    # one page's captures
+ *
+ * It prints one measurement beside each picture, and that measurement is the
+ * source of a number the browser gate asserts (`T-216`): the share of the
+ * field the approved composition's floating chrome covers. The bound the gate
+ * holds the build to is read off these captures rather than chosen, so it has
+ * to be re-readable from the committed mockups -- and it is read with
+ * `browser/composition.ts`'s own `coveredShare`, so the reference and the
+ * build are measured by one implementation.
  */
 import { chromium, type Browser } from "@playwright/test";
+import { coveredShare } from "../browser/composition";
 import { fileURLToPath } from "node:url";
 import http from "node:http";
 import path from "node:path";
@@ -106,12 +115,65 @@ async function capture(browser: Browser, shot: Shot, origin: string): Promise<vo
 
   const file = path.join(OUT, `${shot.name}.png`);
   await page.screenshot({ path: file, fullPage: false });
+
+  // The mockups' own chrome, named by the classes they use for it: `.float`
+  // for every corner surface and `.drawer` for the one primary drawer. The
+  // production route marks the same thing with `data-map-chrome`; the two
+  // selectors differ because the two documents do, and the arithmetic that
+  // turns them into a share is the one both read.
+  //
+  // Written without a named helper for the rectangle, deliberately: `tsx`
+  // compiles this file with esbuild's `keepNames`, which wraps every function
+  // bound to a name in a `__name` call that does not exist in the page, and
+  // the evaluation then dies with a `ReferenceError` about `__name`.
+  // `browser/composition.ts` records the same trap for the same reason.
+  const measured = await page.evaluate(() => {
+    const stage = document.getElementById("stage");
+    const stageBox = stage === null ? null : stage.getBoundingClientRect();
+    return {
+      field:
+        stageBox === null
+          ? null
+          : {
+              left: stageBox.left,
+              top: stageBox.top,
+              right: stageBox.right,
+              bottom: stageBox.bottom,
+              width: stageBox.width,
+              height: stageBox.height,
+            },
+      chrome: [...document.querySelectorAll(".float, .drawer")].map((node) => {
+        const box = node.getBoundingClientRect();
+        return {
+          name: node.className,
+          rect: {
+            left: box.left,
+            top: box.top,
+            right: box.right,
+            bottom: box.bottom,
+            width: box.width,
+            height: box.height,
+          },
+        };
+      }),
+    };
+  });
   await context.close();
 
   if (problems.length > 0) {
     throw new Error(`${shot.name} produced console errors:\n  ${problems.join("\n  ")}`);
   }
-  console.log(`  ${shot.name.padEnd(16)} ${viewport.width}x${viewport.height}  ${file}`);
+  const share = coveredShare(
+    measured.field,
+    measured.chrome.map((control) => control.rect),
+  );
+  const field = measured.field;
+  console.log(
+    `  ${shot.name.padEnd(16)} ${viewport.width}x${viewport.height}` +
+      `  field ${field === null ? "?" : `${Math.round(field.width)}x${Math.round(field.height)}`}` +
+      `  chrome ${(share * 100).toFixed(1)}% of it` +
+      `  (${measured.chrome.length} surfaces)  ${file}`,
+  );
 }
 
 async function main(): Promise<void> {

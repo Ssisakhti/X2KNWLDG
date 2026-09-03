@@ -152,16 +152,30 @@ describe("the workspace's surfaces", () => {
     expect(screen.getByRole("group", { name: "Map view controls" })).toBe(zoom);
   });
 
-  it("keeps both drawer panels mounted with nothing selected", async () => {
-    // A panel that disappears cannot say that nothing is selected, and the
-    // rule `Disclosure` exists for is that a folded panel still states what
-    // it holds.
+  it("mounts no drawer at all until something is focused (`T-216`)", async () => {
+    /*
+     * `T-212` kept both drawer panels mounted with nothing selected, on the
+     * argument that a panel which disappears cannot say that nothing is
+     * selected. D-200 reverses that: ADR 0006 clause 4 allows one primary
+     * drawer to open *on demand*, SPEC §2 gives Explore four surfaces and none
+     * of them is a drawer, and the sentence was never this drawer's only home
+     * -- the search rail's focus row says it, on the one surface SPEC §2 does
+     * give Explore.
+     *
+     * So the claim worth asserting is not "the panels are gone" but "nothing
+     * was lost with them": no drawer, and the Map still says in words that
+     * there is no selection.
+     */
     vi.stubGlobal("fetch", library());
     renderApp(<MapView createRenderer={fakeRenderers().factory} />, { route: "/map" });
     await waitFor(() => expect(document.querySelector("[data-map-nodes]")).not.toBeNull());
-    expect(document.querySelector("[data-map-panel='quickread']")).not.toBeNull();
-    expect(document.querySelector("[data-map-panel='related']")).not.toBeNull();
-    expect(screen.getAllByText("nothing focused").length).toBeGreaterThan(0);
+    expect(document.querySelector(".map__drawer")).toBeNull();
+    expect(document.querySelector("[data-map-panel='quickread']")).toBeNull();
+    expect(document.querySelector("[data-map-panel='related']")).toBeNull();
+    expect(screen.getByText("Nothing is focused. Choose a result to focus it.")).toBeDefined();
+    // And the camera's controls are still in the rail the drawer shares, so
+    // an Explore field is not a field with no way to zoom.
+    expect(one(".map__zoom").parentElement).toBe(one(".map__endrail"));
   });
 });
 

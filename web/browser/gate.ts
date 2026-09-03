@@ -185,6 +185,19 @@ export async function settledStage(page: Page): Promise<void> {
  *
  * `null` when the grid found nothing, which is a real answer for a sparse
  * graph and is why the caller decides whether that is a failure.
+ *
+ * **The grid's resolution is a function of how big a mark is, and `T-216`
+ * changed that.** Until D-197 a mark's size was multiplied by the framing, so
+ * over the committed seven-node fixtures -- a tiny extent framed into a whole
+ * field -- the marks were enormous and a coarse sweep of the middle of the
+ * stage could not miss them. They are screen pixels now: a source circle is
+ * 12 px across on a 1280 px field, which is the size the approved composition
+ * draws and a fifth of the area a 24 px probe grid needs to be sure of a hit.
+ * So the step is finer and the budget covers the whole stage rather than its
+ * middle, and the two specs that hunt for a mark over the fixtures pass again.
+ * The cost is paid only when nothing is found early: the sweep still returns on
+ * its first hit, and over the real 86-node library that is within a few dozen
+ * probes.
  */
 export async function findMark(
   page: Page,
@@ -199,7 +212,7 @@ export async function findMark(
   await stage.scrollIntoViewIfNeeded();
   const box = await stage.boundingBox();
   if (box === null) return null;
-  const step = options.step ?? 24;
+  const step = options.step ?? 14;
 
   // Nearest the middle first, because a framed focus is in the middle and its
   // neighbours are around it (D-146) -- so the search finds a mark in a few
@@ -266,7 +279,7 @@ export async function findMark(
   };
 
   let previous: { x: number; y: number } | null = null;
-  for (const point of points.slice(0, options.budget ?? 400)) {
+  for (const point of points.slice(0, options.budget ?? 6000)) {
     await page.mouse.move(box.x + point.x, box.y + point.y);
     const seen = await under();
     if (seen !== null && seen !== "" && seen !== options.exclude) {

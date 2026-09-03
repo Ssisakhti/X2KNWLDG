@@ -101,6 +101,16 @@ export interface CompositionReport {
   cards: CardMark[];
   pills: PillMark[];
   chrome: ChromeMark[];
+  /**
+   * How much of the field the floating chrome covers, as a fraction of it.
+   *
+   * The union of the chrome rectangles clipped to the field, over the field's
+   * own area -- a *union*, because two surfaces that overlap cover one region
+   * once and a sum would report a share above 1. `T-216`'s own clause: the
+   * approved captures were measured for this and the bound per tier comes from
+   * that measurement rather than from taste (`coveredShare`).
+   */
+  chromeShare: number;
   /** Marks outside the field: ADR 0006's "no card is clipped". */
   clipped: string[];
   /** Mark over mark: "no two cards overlap", and no pill over either. */
@@ -121,7 +131,7 @@ export interface CompositionReport {
  * the card it is about instead of reporting a number that went up.
  */
 export async function measureComposition(page: Page): Promise<CompositionReport> {
-  return page.evaluate(() => {
+  const report = await page.evaluate(() => {
     const route = document.querySelector(".map");
     const stage = document.querySelector("[data-map-stage]");
     const overlay = document.querySelector(".map__overlay");
@@ -280,6 +290,64 @@ export async function measureComposition(page: Page): Promise<CompositionReport>
       rotated: pills.filter((pill) => !pill.horizontal).map((pill) => pill.key),
     };
   });
+  // Computed out here rather than in the page, so that the one implementation
+  // of the arithmetic is reachable by `capture_mockups.ts` as well: the bound
+  // the gate asserts is read off the approved mockups by the same function
+  // that measures the build, and two implementations of it would be two
+  // numbers that can disagree.
+  return {
+    ...report,
+    chromeShare: coveredShare(
+      report.field,
+      report.chrome.map((control) => control.rect),
+    ),
+  };
+}
+
+/**
+ * The share of `field` covered by the union of `rects`, clipped to it.
+ *
+ * A union and not a sum: the drawer and the counts float can overlap, a sum
+ * would then report more than the whole field, and a bound stated as a share
+ * has to be a share. Coordinate compression rather than a rasterisation --
+ * six rectangles have at most seven distinct edges per axis, so the exact
+ * area is a small double loop and needs no tolerance.
+ *
+ * `0` for a field with no area, which is a route whose stage has not been laid
+ * out yet rather than a composition with no chrome on it.
+ */
+export function coveredShare(field: Rect | null, rects: readonly Rect[]): number {
+  if (field === null || field.width <= 0 || field.height <= 0) return 0;
+  const clipped = rects
+    .map((rect) => ({
+      left: Math.max(rect.left, field.left),
+      right: Math.min(rect.right, field.right),
+      top: Math.max(rect.top, field.top),
+      bottom: Math.min(rect.bottom, field.bottom),
+    }))
+    .filter((rect) => rect.right > rect.left && rect.bottom > rect.top);
+  if (clipped.length === 0) return 0;
+
+  const xs = [...new Set(clipped.flatMap((rect) => [rect.left, rect.right]))].sort(
+    (left, right) => left - right,
+  );
+  const ys = [...new Set(clipped.flatMap((rect) => [rect.top, rect.bottom]))].sort(
+    (left, right) => left - right,
+  );
+  let area = 0;
+  for (let column = 0; column + 1 < xs.length; column += 1) {
+    const x0 = xs[column] as number;
+    const x1 = xs[column + 1] as number;
+    for (let row = 0; row + 1 < ys.length; row += 1) {
+      const y0 = ys[row] as number;
+      const y1 = ys[row + 1] as number;
+      const covered = clipped.some(
+        (rect) => rect.left <= x0 && rect.right >= x1 && rect.top <= y0 && rect.bottom >= y1,
+      );
+      if (covered) area += (x1 - x0) * (y1 - y0);
+    }
+  }
+  return area / (field.width * field.height);
 }
 
 /** The three counts `SPEC.md` §14's table quotes, as one line for a log. */
@@ -293,6 +361,7 @@ export function summarise(report: CompositionReport): string {
     omittedTotal: report.omittedTotal,
     omissions: report.omissions,
     pills: report.pills.length,
+    chromeShare: Number(report.chromeShare.toFixed(4)),
     clipped: report.clipped,
     collided: report.collided,
     covered: report.covered,

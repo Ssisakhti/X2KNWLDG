@@ -160,12 +160,17 @@ describe("the Map's journey without a pointer", () => {
     await counted();
 
     expect(isOpen("search")).toBe(true);
-    expect(isOpen("quickread")).toBe(false);
-    expect(isOpen("related")).toBe(false);
     expect(isOpen("legend")).toBe(false);
-    // Folded, and still speaking: the summary says there is no selection
-    // rather than leaving a bare heading.
-    expect(screen.getAllByText("nothing focused").length).toBeGreaterThan(0);
+    // The filters are folded too, and still speaking: the summary says how
+    // many are applied, so a reader never loses the fact that the drawing is
+    // -- or is not -- filtered (`T-216`, D-199).
+    expect(isOpen("filters")).toBe(false);
+    expect(screen.getByText("no filter applied")).toBeDefined();
+    // With nothing selected there is no drawer to fold: D-200 gives it to
+    // Focus, and the rail carries the sentence it used to carry.
+    expect(document.querySelector("[data-map-panel='quickread']")).toBeNull();
+    expect(document.querySelector("[data-map-panel='related']")).toBeNull();
+    expect(screen.getByText("Nothing is focused. Choose a result to focus it.")).toBeDefined();
 
     expand("outline");
     fireEvent.click(
@@ -407,14 +412,17 @@ describe("the Map in Persian", () => {
   it("offers the same surfaces in either direction", async () => {
     // There is no second stylesheet and no component that branches on "is
     // this RTL" (D-012), so the claim worth asserting is that nothing is
-    // *missing* in Persian: the same five panels, from the same components.
+    // *missing* in Persian: the same six panels, from the same components.
+    //
+    // Read with something focused, because that is the state in which the
+    // route mounts all six: the drawer is Focus's surface (`T-216`, D-200).
     vi.stubGlobal("fetch", library());
     renderApp(<MapView createRenderer={fakeRenderers().factory} />, {
       locale: "fa",
-      route: "/map",
+      route: `/map?focus=${KU1}`,
     });
     await counted();
-    for (const id of ["search", "outline", "quickread", "related", "legend"]) {
+    for (const id of ["search", "filters", "outline", "quickread", "related", "legend"]) {
       expect(panel(id)).toBeDefined();
     }
   });

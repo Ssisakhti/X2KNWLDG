@@ -25,7 +25,15 @@ import {
   truncateForDisplay,
 } from "./labelPolicy";
 import { edge } from "../test/graphRecords";
-import { EMPTY_VIEW_STATE, MAP_INTERACTIONS, type MapViewState } from "./mapStyle";
+import {
+  EMPTY_VIEW_STATE,
+  MAP_INTERACTIONS,
+  NODE_PROVENANCE_MARK,
+  UNRECOGNISED_PROVENANCE_MARK,
+  markFieldScale,
+  type MapViewState,
+} from "./mapStyle";
+import { PROVENANCE_CLASSES } from "../api/vocabulary";
 
 /** A real knowledge-unit label: a whole sentence, which is what `library.py` stores. */
 const STATEMENT =
@@ -203,14 +211,48 @@ describe("label density", () => {
 
   it("states the zoom and density rule as settings rather than leaving it to a default", () => {
     // D-122: "the Map must have a stated policy rather than inherit whatever a
-    // default draws". `T-209` measured all four in a browser and kept them.
+    // default draws". `T-209` measured all four in a browser and `T-216`
+    // re-measured them there after the sizing model changed under them.
     expect(MAP_LABEL_SETTINGS.renderLabels).toBe(true);
     expect(MAP_LABEL_SETTINGS.renderEdgeLabels).toBe(true);
     expect(MAP_LABEL_SETTINGS.labelDensity).toBeGreaterThan(0);
-    // Sigma's defaults are a 100 px grid cell and a 6 px size threshold, which
-    // are numbers for dots with short words beside them.
+    // Sigma's default cell is 100 px, which is a number for dots with short
+    // words beside them rather than for sentences.
     expect(MAP_LABEL_SETTINGS.labelGridCellSize).toBeGreaterThan(100);
-    expect(MAP_LABEL_SETTINGS.labelRenderedSizeThreshold).toBeGreaterThan(6);
+  });
+
+  it("rations the overview by density and never by provenance (`T-216`)", () => {
+    /*
+     * D-197 changed what `labelRenderedSizeThreshold` can mean, and this is
+     * the clause that keeps the new meaning honest.
+     *
+     * A mark's drawn size used to be a function of the *framing*, so 14 px
+     * was crossed by widening the window as readily as by zooming in -- which
+     * is how the overview came to draw forty labels at 2852 and eight at
+     * 1440. A mark is now sized in screen pixels from the field's own width,
+     * and `NODE_PROVENANCE_MARK` gives its four shapes four different radii on
+     * purpose: each shape encloses a different area, so the radii are what
+     * make the four read as the same weight (ADR 0005 invariant 15 -- the
+     * sizes are not a ranking).
+     *
+     * A threshold above the smallest of them would therefore silence a
+     * *circle* while a diamond in the same cell spoke, and the overview's
+     * label ration would have become a statement about provenance that no
+     * field makes. So the threshold has to sit below the smallest mark any
+     * field draws at rest, and the rationing is left to the grid.
+     */
+    const smallest = Math.min(
+      ...PROVENANCE_CLASSES.map((provenance) => NODE_PROVENANCE_MARK[provenance].size),
+      UNRECOGNISED_PROVENANCE_MARK.size,
+    );
+    // `markFieldScale` floors at the reference width, so the narrowest field
+    // there is draws the smallest mark there is.
+    expect(MAP_LABEL_SETTINGS.labelRenderedSizeThreshold).toBeLessThan(
+      smallest * markFieldScale(0),
+    );
+    // And it is above zero, because it still has a job: two presses of
+    // zoom-out take every mark under it and the field goes silent.
+    expect(MAP_LABEL_SETTINGS.labelRenderedSizeThreshold).toBeGreaterThan(0);
   });
 
   it("keeps a relation name short enough to sit on a line", () => {

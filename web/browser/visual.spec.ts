@@ -13,8 +13,9 @@
  * SPEC §5's three compositions the field holds, that placed plus counted equals
  * the neighbours the server returned, that no card is clipped, that no two
  * marks share a pixel, that nothing sits under a floating control, that every
- * relation pill is horizontal and seated, and that the document is still the
- * viewport (D-153).
+ * relation pill is horizontal and seated, that the floating chrome covers no
+ * more of the field than the approved captures spend on it at that tier
+ * (`T-216`), and that the document is still the viewport (D-153).
  *
  * **Pictures, produced.** Every scenario writes a PNG to
  * `docs/mockups/T-215/captures/`, the same shape and the same names as
@@ -49,6 +50,45 @@ import { busiest, mapUrl, openPanel, servedGraph, settledStage, watchForTrouble 
 
 /** The review viewport ADR 0006 and SPEC are both specified against. */
 const REVIEW = { width: 2852, height: 1688 };
+
+/**
+ * How much of the field floating chrome may cover, per tier (`T-216`, D-201).
+ *
+ * The clause `T-216` adds, and the one number in this file that is *read off
+ * the approved captures* rather than measured on the build:
+ * `scripts/capture_mockups.ts` prints the share for every reference picture,
+ * with `composition.ts`'s own `coveredShare`, so the reference and the build
+ * are measured by one implementation. What it printed:
+ *
+ * | Tier | Approved Explore | Approved Focus | This build, worst |
+ * |---|---|---|---|
+ * | `full` (2852x1688) | 2.7 % | 19.8 % | 11.9 % |
+ * | `compact` (1440x900) | 10.3 % | 6.4 % | 27.3 % |
+ * | `stack` (390x844) | — | 8.8 % | 0 % |
+ *
+ * `full` and `stack` are the approved measurement, rounded up: a fifth of the
+ * field is the most chrome the approved set ever puts on one, and this build
+ * is comfortably inside it.
+ *
+ * **`compact` is not, and the reason is recorded rather than smoothed over.**
+ * This build spends 27.3 % there, against the reference's 10.3 %, and the gap
+ * is not slack: at that tier the drawer floats *over* the field instead of
+ * taking a slice out of it, and the chrome's rectangles are what
+ * `placeConstellation` refuses cards against -- so the share and the recorded
+ * card counts are one number seen twice. Measured, not assumed: bounding these
+ * surfaces to 14.4 % of the field placed **three** cards at 1440x900 where
+ * `T-213` recorded two, and `T-216` states that the recorded numbers must not
+ * change. So the `compact` bound is a ratchet a little above today's worst
+ * rather than the reference's own share, the difference between the two is a
+ * finding for the acceptance (`SPEC.md` §17), and the trade it names is
+ * explicit: the reference's 10.3 % costs the 2 / 6 this gate holds.
+ */
+const CHROME_SHARE_BOUND: Record<"full" | "compact" | "stack", number> = {
+  full: 0.2,
+  compact: 0.3,
+  stack: 0.1,
+};
+
 /** The two breakpoints the Phase 2 gate already tests. */
 const DESKTOP = { width: 1440, height: 900 };
 const LAPTOP = { width: 1280, height: 720 };
@@ -339,6 +379,23 @@ function expectNothingCollides(report: CompositionReport): void {
   expect(report.rotated, "a relation pill's text is not horizontal").toEqual([]);
 }
 
+/**
+ * The field is mostly graph: floating chrome stays inside the tier's bound.
+ *
+ * `T-216`'s clause, and it is a *share* rather than a list of rectangles on
+ * purpose -- the failure it exists to catch is not one oversized panel but
+ * four honest ones adding up, which is what `T-215`'s comparison found at the
+ * `compact` tier and what no per-surface rule would have reported.
+ */
+function expectChromeFitsTheField(report: CompositionReport, tier: Scenario["tier"]): void {
+  expect(
+    report.chromeShare,
+    `floating chrome covers ${(report.chromeShare * 100).toFixed(1)} % of the ` +
+      `${tier} field, over the ${(CHROME_SHARE_BOUND[tier] * 100).toFixed(0)} % ` +
+      "the approved captures set for it",
+  ).toBeLessThanOrEqual(CHROME_SHARE_BOUND[tier]);
+}
+
 test.describe("the composition, scenario by scenario", () => {
   for (const scenario of SCENARIOS) {
     test(scenario.name, async ({ browser }) => {
@@ -366,6 +423,7 @@ test.describe("the composition, scenario by scenario", () => {
         expect(report.tier).toBe(scenario.tier);
         expect(report.direction).toBe(scenario.locale === "fa" ? "rtl" : "ltr");
         expectNothingCollides(report);
+        expectChromeFitsTheField(report, scenario.tier);
 
         // The workspace clause: the graph occupies the route's viewport and
         // the document does not scroll (D-153). The `stack` tier is the one
@@ -608,6 +666,7 @@ test.describe("the workspace at the review viewport", () => {
       expect(report.centre).toBe(chosen);
       expect(report.tier).toBe("full");
       expectNothingCollides(report);
+      expectChromeFitsTheField(report, "full");
       expect(report.documentHeight).toBe(REVIEW.height);
       // The focus ring is on the control that was pressed, not lost to the
       // camera gesture that followed it.
@@ -647,6 +706,10 @@ test.describe("the states, at the review viewport", () => {
       expect(report.documentHeight).toBe(REVIEW.height);
       expect(report.cards).toEqual([]);
       expectNothingCollides(report);
+      // A route that cannot draw is the case that most needs this bound: the
+      // counts open themselves (D-129) and the notice takes the middle of the
+      // field, and the surface a reader is left with is still a workspace.
+      expectChromeFitsTheField(report, "full");
     } finally {
       await context.close();
     }
@@ -680,6 +743,7 @@ test.describe("the states, at the review viewport", () => {
       test.info().annotations.push({ type: "composition", description: summarise(report) });
       expect(report.documentHeight).toBe(REVIEW.height);
       expectNothingCollides(report);
+      expectChromeFitsTheField(report, "full");
     } finally {
       await context.close();
     }

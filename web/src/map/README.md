@@ -287,8 +287,8 @@ Two more modules, and neither of them touches the graph:
 
 | Path | Holds |
 |---|---|
-| `mapStyle.ts` | **The** style table — provenance/kind for nodes, vocabulary/provenance for edges, the four interaction states — plus `MapStyle`, the view state the reducers read |
-| `labelPolicy.ts` | D-122: display truncation, the density and zoom rule, and the Sigma settings that implement them |
+| `mapStyle.ts` | **The** style table — provenance/kind for nodes, vocabulary/provenance for edges, the four interaction states, and (`T-216`, D-197) the field's own scale, which is the only thing besides the camera that changes a mark's size — plus `MapStyle`, the view state and the field width the reducers read |
+| `labelPolicy.ts` | D-122: display truncation, the density and zoom rule, and the Sigma settings that implement them. The zoom rule was re-derived in `T-216` once a mark's size stopped depending on the framing (D-197) |
 
 `MapLegend` and `MapFilters` are in [`../components/`](../components/), and the
 legend reads the same tables the reducers draw from, so agreeing with the marks
@@ -392,6 +392,15 @@ at all — only what the reducers compute from it — so it goes through `refres
 which redraws with the positions untouched. `mapStyle.setView` returns whether
 anything actually changed, so a pointer moving inside the node it is already on
 costs nothing.
+
+`mapStyle.setField` is the second writer, and it returns the same answer for the
+same reason (`T-216`). A mark's size is a function of the field's width and of
+the camera, and of nothing else (D-197), so a resize really is a new picture --
+but a `ResizeObserver` fires on the height alone often enough that redrawing
+every mark for it would be a redraw per scrollbar. The width is kept beside the
+view state rather than in it: `MapViewState` is identity, and putting a
+measurement in it would let every reader of that interface, `labelPolicy`
+included, reach a number it has no business with.
 
 ## A selection asks two questions (`T-207`)
 

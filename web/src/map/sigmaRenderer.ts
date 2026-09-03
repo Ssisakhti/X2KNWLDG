@@ -29,6 +29,13 @@
  *   `false` was holding the door until a truncation and density policy existed,
  *   and `labelPolicy.ts` is that policy. It is spread in rather than restated
  *   so that the four numbers `T-209` measured live in one file.
+ * - The size settings come from `MAP_SIZE_SETTINGS`, which is D-197's, and are
+ *   spread in for the same reason. They are the answer to the largest thing
+ *   `T-215`'s comparison found: with Sigma's defaults a mark's size is a
+ *   distance in *graph units*, multiplied at draw time by the pixels-per-unit
+ *   of the current framing, so the same 86-node graph drew marks several times
+ *   larger on a 2852 px field than on a 1440 px one and the approved quiet
+ *   overview was quiet only at the narrow end (`SPEC.md` §16).
  *
  * ## Primitives
  *
@@ -101,7 +108,7 @@ import {
 import { MAP_LABEL_SETTINGS } from "./labelPolicy";
 import type { MapGraph } from "./graphProjection";
 import type { MapNodeEvent, MapPoint, MapRenderer, MapRendererFactory } from "./mapSession";
-import { MapStyle, mapStyle } from "./mapStyle";
+import { MAP_SIZE_SETTINGS, MapStyle, mapStyle } from "./mapStyle";
 
 /**
  * The shapes, paths and extremities `mapStyle.ts` draws with.
@@ -139,6 +146,7 @@ export function sigmaRendererFor(style: MapStyle): MapRendererFactory {
       settings: {
         allowInvalidContainer: false,
         enableEdgeEvents: false,
+        ...MAP_SIZE_SETTINGS,
         ...MAP_LABEL_SETTINGS,
       },
       nodeReducer: style.nodeReducer,

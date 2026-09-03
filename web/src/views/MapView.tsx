@@ -81,6 +81,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { api } from "../api/client";
 import { ApiFailure } from "../api/errors";
+import { Disclosure } from "../components/Disclosure";
 import { ErrorState } from "../components/ErrorState";
 import { MapOrbit } from "../components/MapOrbit";
 import { MapFilters } from "../components/MapFilters";
@@ -651,6 +652,29 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
    */
   const tier = orbitTier(stageBox.width);
 
+  /**
+   * How many of the three server-backed filters are set (`T-216`).
+   *
+   * `graphFilters` contributes no key at all for an unset control, precisely so
+   * that `Object.keys` is the honest answer to "what is this snapshot filtered
+   * by" -- which is the question the folded filter panel's summary has to
+   * answer while its controls are put away.
+   */
+  const appliedFilters = Object.keys(focus.filters).length;
+
+  /**
+   * Whether the field is wide enough to hold an open search rail (`T-216`).
+   *
+   * `tier === "full"` is the answer once the field has been measured, and an
+   * *unmeasured* field counts as wide: `stageBox.width` is `0` until the
+   * ResizeObserver has run, `orbitTier(0)` is therefore `stack`, and a rail
+   * that mounted closed on every first paint would put D-130's own opening
+   * step behind a click for a frame at every viewport -- including the ones
+   * with room for it. The narrowing is a thing the field says, so it waits
+   * until the field has said something.
+   */
+  const railHasRoom = stageBox.width === 0 || tier === "full";
+
   /*
    * The style table is told *after* the orbit has decided, and that ordering
    * is the whole of it: which nodes carry cards is an output of `placeOrbit`,
@@ -681,10 +705,22 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
       neighbourNodes: relatedIds,
       cardedNodes: cardedIds,
     });
+    /*
+     * And how wide the field they are drawn on is (`T-216`, D-197).
+     *
+     * SPEC §3 states that a mark's size scales with the viewport and that its
+     * ratios do not, and `markFieldScale` is that scale -- so the style table
+     * needs the one number this route already measures for the orbit's tier.
+     * Written here rather than in the ResizeObserver because this is the one
+     * place that decides when the renderer redraws, and a resize that changed
+     * a mark's size while another effect asked for the redraw would be two
+     * writers of one picture.
+     */
+    const resized = mapStyle.setField(stageBox.width);
     // `refresh`, never `update`: `update` re-settles the layout (D-128), which
     // would make the graph jump every time the pointer crossed a result row.
-    if (changed) session.current?.refresh();
-  }, [drawnFocus, hoveredNode, relatedIds, cardedIds]);
+    if (changed || resized) session.current?.refresh();
+  }, [drawnFocus, hoveredNode, relatedIds, cardedIds, stageBox.width]);
 
   return (
     <div
@@ -732,7 +768,35 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         would read as complete to anyone who never reaches the picture.
       */}
       <div className="map__float map__float--status stack" data-map-chrome>
-        <MapFilters value={focus.filters} onChange={onFiltersChange} />
+        {/*
+          The filters, folded to their trigger (`T-216`, D-199).
+
+          They were three labelled selects and a note standing open on the
+          field, which at 1440x900 made this float 485 px tall -- 14 % of the
+          field on its own, where the whole approved `compact` composition
+          spends 10.3 % on all four of its surfaces. SPEC §2 gives Explore
+          "counts top-end" and no filter controls on the stage at all, and both
+          approved Explore captures draw this corner as a two-line chip.
+
+          A disclosure rather than a `max-block-size` and a scrollbar, because
+          a folded panel here states what it holds: the summary says how many
+          filters are applied, so the one thing a reader must not lose -- that
+          the drawing *is* filtered -- is on screen whether the panel is open
+          or shut. Closed by preference at every tier rather than only at
+          `compact`, because that is what both approved captures show.
+        */}
+        <Disclosure
+          id="filters"
+          title={t("map.filters.group")}
+          summary={
+            appliedFilters === 0
+              ? t("map.filters.unfiltered")
+              : t("map.filters.summary", { count: appliedFilters })
+          }
+          preferOpen={false}
+        >
+          <MapFilters value={focus.filters} onChange={onFiltersChange} />
+        </Disclosure>
 
         {/*
           `reading.counted` is the whole distinction `T-208` added here: a
@@ -743,16 +807,43 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
           are instead.
         */}
         {reading.counted && snapshot !== null && (
-          <section
-            className="panel map__state"
-            aria-label={t("map.state.title")}
-            data-map-nodes={snapshot.nodes}
-            data-map-edges={snapshot.edges}
-            data-map-held={snapshot.pendingEdges}
-            data-map-complete={String(snapshot.complete)}
-            data-map-truncated={String(snapshot.lastPageTruncated)}
+          /*
+            The account, folded to its two headline numbers (`T-216`, D-199).
+
+            `T-215` found this surface "not a disclosure at all" -- a panel
+            standing open on the field where the approved capture has a chip --
+            and the fix is the rule this codebase already has for a panel that
+            competes for a screen: fold it, and make the *summary* carry what
+            it holds. So the chip reads "86 nodes · 118 edges" and the five-row
+            account of the walk is one press away, which is exactly the shape
+            the approved capture's counts chip has.
+
+            D-129 is untouched, and this is where to check that rather than
+            take it on trust. The surface still precedes the stage in the DOM;
+            the counts a test or a screen reader reads are attributes on the
+            *section*, which is the part a folded disclosure never hides; and
+            it opens itself whenever the picture is not being drawn, which is
+            the whole case D-129 exists for -- the text that survives when the
+            WebGL view cannot be read at all is on screen without a click, and
+            `MapOutline` already opens itself on the same condition.
+          */
+          <Disclosure
+            id="counts"
+            className="map__state"
+            title={t("map.state.title")}
+            summary={t("map.state.summary", {
+              nodes: snapshot.nodes,
+              edges: snapshot.edges,
+            })}
+            preferOpen={!drawing}
+            marks={{
+              "data-map-nodes": String(snapshot.nodes),
+              "data-map-edges": String(snapshot.edges),
+              "data-map-held": String(snapshot.pendingEdges),
+              "data-map-complete": String(snapshot.complete),
+              "data-map-truncated": String(snapshot.lastPageTruncated),
+            }}
           >
-            <h2 className="panel__title">{t("map.state.title")}</h2>
             <dl className="definitions">
               <dt>{t("map.state.nodes")}</dt>
               <dd>
@@ -817,7 +908,7 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
                 )}
               </div>
             )}
-          </section>
+          </Disclosure>
         )}
       </div>
 
@@ -841,6 +932,14 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
           onFocus={focus.focusEntity}
           peek={peek}
           sourceScope={source}
+          // Open only where the field has room for it (`T-216`, D-199).
+          // Searching is the step D-130's journey is on while nothing is
+          // selected, and at the `full` tier the rail opens itself for that
+          // reason -- but SPEC §5 gives the `compact` tier a search "closed to
+          // its trigger", and the browser priced the difference: an open rail
+          // is 429 px of an 844 px field, so a third of the overview it sits
+          // on is gone before the graph is drawn.
+          preferOpen={focus.focus === null && railHasRoom}
         />
 
         {/*
@@ -970,18 +1069,30 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         The field's inline-end rail: the one primary drawer, and the camera's
         controls under it (SPEC §2, §7 rows 6 and 7).
 
-        ADR 0006 clause 4 allows one primary drawer to open on demand over the
-        workspace, and rejected a large inspector standing permanently beside
-        the graph. So with nothing focused this is its own trigger -- two
-        collapsed panels, each still stating what it holds -- and it takes only
-        the height that needs; a focus opens it to the rail's full height and
-        takes its width out of the field.
+        ADR 0006 clause 4 allows one primary drawer to open **on demand** over
+        the workspace, and rejected a large inspector standing permanently
+        beside the graph. A focus is the demand, so a focus is what mounts it:
+        it fills the rail's height and, at the `full` tier, takes its width out
+        of the field.
 
         Quick Read holds the focus and its active relations; the related list
         follows *inside the same drawer*, which is SPEC §7's reading order:
-        focus, then its relations, then the wider list. Both panels stay
-        mounted with nothing selected, because a panel that disappears cannot
-        say that nothing is selected.
+        focus, then its relations, then the wider list.
+
+        **With nothing focused there is no drawer at all** (`T-216`, D-200),
+        which reverses `T-212`'s choice here for a reason `T-215`'s comparison
+        supplied. Both panels used to stay mounted on the argument that a panel
+        which disappears cannot say that nothing is selected -- but SPEC §2
+        gives Explore four surfaces and none of them is a drawer, both approved
+        Explore captures leave this corner empty, and the sentence was never
+        this drawer's only home: `MapSearchRail`'s focus row says "Nothing is
+        focused. Choose a result to focus it." on the one surface SPEC §2 *does*
+        give Explore, which is also the step D-130's journey is on while nothing
+        is selected. What settled it is the share `T-216` made the gate measure:
+        two collapsed panels saying "nothing focused" are 4.5 % of an 844 px
+        field, and the approved `compact` composition spends 10.3 % on all of
+        its chrome together -- so the surface saying the least was the one with
+        no room.
 
         The camera's controls are the rail's last child rather than a float in
         the same corner. In the approved Focus capture the drawer is full
@@ -993,30 +1104,32 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         nothing.
       */}
       <div className="map__endrail">
-        <div className="map__drawer" data-map-chrome>
-          <MapQuickRead
-            focus={focus.focus}
-            entity={hood.centre}
-            error={hood.centreError}
-            onRetry={hood.reload}
-            relations={neighbourhood?.active ?? []}
-            loading={hood.status === "loading"}
-          />
+        {focus.focus !== null && (
+          <div className="map__drawer" data-map-chrome>
+            <MapQuickRead
+              focus={focus.focus}
+              entity={hood.centre}
+              error={hood.centreError}
+              onRetry={hood.reload}
+              relations={neighbourhood?.active ?? []}
+              loading={hood.status === "loading"}
+            />
 
-          <MapRelatedList
-            focus={focus.focus}
-            neighbourhood={neighbourhood}
-            status={hood.status}
-            error={hood.neighbourhoodError}
-            onRetry={hood.reload}
-            depth={hood.depth}
-            onDepthChange={hood.setDepth}
-            graph={graph}
-            onFocus={focus.focusEntity}
-            peek={peek}
-            placement={placement}
-          />
-        </div>
+            <MapRelatedList
+              focus={focus.focus}
+              neighbourhood={neighbourhood}
+              status={hood.status}
+              error={hood.neighbourhoodError}
+              onRetry={hood.reload}
+              depth={hood.depth}
+              onDepthChange={hood.setDepth}
+              graph={graph}
+              onFocus={focus.focusEntity}
+              peek={peek}
+              placement={placement}
+            />
+          </div>
+        )}
 
         <div className="map__zoom row" role="group" aria-label={t("map.controls")} data-map-chrome>
           <button type="button" className="button" onClick={zoomIn} disabled={!drawn}>

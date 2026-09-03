@@ -154,6 +154,7 @@ export const en = {
   "map.canvas.pending": "Nothing has been drawn yet.",
   "map.canvas.nothing": "There is no node to draw, so the stage is empty rather than broken.",
   "map.state.title": "What is drawn",
+  "map.state.summary": "{nodes} nodes · {edges} edges",
   "map.state.nodes": "Nodes loaded",
   "map.state.edges": "Edges drawn",
   "map.state.held": "Edges held",
@@ -253,6 +254,8 @@ export const en = {
   "map.filters.vocabulary": "Relation vocabulary",
   "map.filters.note":
     "These three are the filters the graph endpoint accepts. Changing one asks the server a new question and replaces the drawing.",
+  "map.filters.summary": "{count} {count|filter|filters} applied",
+  "map.filters.unfiltered": "no filter applied",
   "map.filters.moreSources": "More sources exist than are listed here.",
   "map.filters.sourcesFailed":
     "The source list could not be read, so the other two filters are the ones offered.",
@@ -548,6 +551,7 @@ export const fa: Messages = {
   "map.canvas.pending": "هنوز چیزی ترسیم نشده است.",
   "map.canvas.nothing": "گرهی برای ترسیم نیست؛ پس صحنه خالی است، نه خراب.",
   "map.state.title": "آنچه ترسیم شده",
+  "map.state.summary": "{nodes} گره · {edges} یال",
   "map.state.nodes": "گره‌های بارگذاری‌شده",
   "map.state.edges": "یال‌های ترسیم‌شده",
   "map.state.held": "یال‌های نگه‌داشته",
@@ -647,6 +651,8 @@ export const fa: Messages = {
   "map.filters.vocabulary": "واژگان رابطه",
   "map.filters.note":
     "این سه، صافی‌هایی هستند که نقطهٔ پایانی گراف می‌پذیرد. تغییر هرکدام پرسشی تازه از سرور است و ترسیم را جایگزین می‌کند.",
+  "map.filters.summary": "{count} صافی اعمال شده",
+  "map.filters.unfiltered": "هیچ صافی اعمال نشده",
   "map.filters.moreSources": "منبع‌های بیشتری از آنچه اینجا فهرست شده وجود دارد.",
   "map.filters.sourcesFailed":
     "فهرست منبع‌ها خوانده نشد، پس تنها دو صافی دیگر ارائه می‌شود.",

@@ -406,8 +406,11 @@ describe("the Map's canvas and its constellation", () => {
     renderApp(<MapView createRenderer={harness.factory} />, { route: "/map" });
     await drawn();
 
-    // Nothing selected, and the Map says so rather than showing an empty panel.
-    expect(screen.getByText("Nothing is focused, so there is no record to read.")).toBeDefined();
+    // Nothing selected, and the Map says so on the surface Explore has: the
+    // drawer is Focus's and is not mounted at all (`T-216`, D-200), so the
+    // sentence comes from the search rail's own focus row.
+    expect(document.querySelector(".map__drawer")).toBeNull();
+    expect(screen.getByText("Nothing is focused. Choose a result to focus it.")).toBeDefined();
 
     harness.latest()?.fireNode("clickNode", KU1);
 

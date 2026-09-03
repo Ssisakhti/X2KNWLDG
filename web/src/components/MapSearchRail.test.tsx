@@ -101,6 +101,10 @@ function Harness({
           onFocus?.(globalId);
         }}
         peek={peek}
+        // The route decides this from the tier as well as from the focus
+        // (`T-216`); the harness renders the rail the way the `full` tier
+        // does with nothing selected, which is the state these tests are of.
+        preferOpen={focus === null}
       />
       {/*
         The route renders the one Peek, not the rail (`T-208`), so the harness

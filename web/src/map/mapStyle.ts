@@ -417,6 +417,121 @@ export function edgeProvenanceMark(value: string | null | undefined): EdgeProven
 }
 
 // ---------------------------------------------------------------------------
+// The field: what a mark's size is a function of (`T-216`, D-197)
+// ---------------------------------------------------------------------------
+
+/**
+ * The field width the mark sizes above are stated at.
+ *
+ * `SPEC.md` §3: "Mark size scales with the viewport; the ratios do not." The
+ * approved Explore composition draws `NODE_PROVENANCE_MARK`'s 9 as a 12 px
+ * circle on a 1280 px field and as a 27 px circle on a 2852 px one, and it is
+ * the *same* nine either way -- what changes is the field, not the ratio
+ * between a circle and a diamond.
+ *
+ * This is the width that factor is 1.35 at, and below it the factor stops
+ * shrinking: a mark on a narrow field is already as small as it can be read
+ * at, and a phone should not draw a graph in five-pixel dots.
+ */
+export const MAP_FIELD_REFERENCE_WIDTH = 1280;
+
+/**
+ * The mark scale at the reference width, as a multiplier on a **radius**.
+ *
+ * The mockup's own factor is `1.35` and it multiplies a *diameter*
+ * (`r = mark.size * 0.5 * MARK`); Sigma's `size` is a radius, so the number
+ * that reproduces the approved picture here is half of it. Stated as the
+ * halved value rather than as `1.35 / 2` at the call site, because a reader
+ * checking this against `docs/mockups/T-211/render.js` needs to be told once
+ * which of the two conventions each number is in.
+ */
+export const MAP_MARK_FIELD_SCALE = 0.675;
+
+/**
+ * How much of a *thickness* an edge is drawn at, at the reference width.
+ *
+ * `0.62` is the mockup's, and it is a real correction rather than a rounding:
+ * `EDGE_VOCABULARY_MARK`'s 2.2 and 1.4 were calibrated in `T-205` against a
+ * camera-scaled renderer, where they were multiplied up by the framing before
+ * they reached a pixel. Drawn as declared they are heavy, and the approved
+ * composition draws them at 0.62 of that.
+ */
+export const MAP_EDGE_FIELD_SCALE = 0.62;
+
+/**
+ * The field width above which an edge starts getting thicker.
+ *
+ * The mockup thickens edges on `max(1, MARK * 0.55)` rather than on `MARK`, so
+ * an edge grows more slowly than a mark and does not start growing at all
+ * until the field is wide enough. With `MARK = max(1, W / 1280) * 1.35` that
+ * expression is exactly `max(1, W / 1724)`, which is the form used here: one
+ * threshold instead of two nested factors, and the same numbers -- 1.36 px for
+ * a canonical edge at 1440, 2.26 px at 2852.
+ */
+export const MAP_EDGE_FIELD_THICKEN_WIDTH = 1724;
+
+/**
+ * The multiplier on every node radius, for a field this wide.
+ *
+ * A **camera-independent** function, and that is the whole of D-197: Sigma's
+ * default `itemSizesReference: "positions"` reads a size as a distance in
+ * graph units and multiplies it by the pixels-per-graph-unit of the current
+ * framing, so the same graph drew marks several times larger on a 2852 px
+ * field than on a 1440 px one and the approved quiet field was quiet only at
+ * the narrow end (`SPEC.md` §16). `sigmaRenderer.ts` therefore asks for
+ * `"screen"` sizes -- pixels, with no framing term -- and the viewport scale
+ * SPEC §3 does specify is applied here, where it can be read and tested.
+ *
+ * Zero, or any width below the reference, draws the reference composition: a
+ * route whose stage has not been measured yet is a route about to be measured,
+ * not a route with no marks.
+ */
+export function markFieldScale(fieldWidth: number): number {
+  return Math.max(1, fieldWidth / MAP_FIELD_REFERENCE_WIDTH) * MAP_MARK_FIELD_SCALE;
+}
+
+/** The same, for an edge's thickness. Flatter, and it starts later. */
+export function edgeFieldScale(fieldWidth: number): number {
+  return Math.max(1, fieldWidth / MAP_EDGE_FIELD_THICKEN_WIDTH) * MAP_EDGE_FIELD_SCALE;
+}
+
+/**
+ * The renderer settings that make the two scales above the only ones there are
+ * (D-197). `sigmaRenderer.ts` spreads them in.
+ *
+ * - `itemSizesReference: "screen"` is the decision. Sigma's default is
+ *   `"positions"`, which reads every `size` this table returns as a distance
+ *   in graph units and multiplies it by `cameraRatio * graphToViewportRatio`
+ *   at draw time -- the framing. Two consequences, and both are `T-215`'s
+ *   finding: a wider window frames the same graph into more pixels per unit
+ *   and therefore draws bigger marks, and the marks then cross
+ *   `labelRenderedSizeThreshold` and the label grid fills. `"screen"` drops
+ *   the `graphToViewportRatio` term entirely, so a size is a pixel size and
+ *   the only thing that scales it is the field width, in `markFieldScale`.
+ *
+ *   It does **not** freeze size under zoom, which is what D-196 assumed when
+ *   it opened this question. Sigma divides by `zoomToSizeRatioFunction(ratio)`
+ *   in both modes -- the default is `Math.sqrt` -- so a mark still grows as
+ *   the camera comes in, at `1 / sqrt(ratio)`. D-122's zoom rule is therefore
+ *   not retired by this change, and `labelPolicy.ts` re-expresses rather than
+ *   deletes it.
+ *
+ * - `minEdgeThickness` is lowered from Sigma's 1.7 because 1.7 is above the
+ *   thinnest thickness this table declares. `EDGE_VOCABULARY_MARK` draws a
+ *   canonical edge at 2.2 and a library-synthetic one at 1.4, and after
+ *   `edgeFieldScale` at the reference width those are 1.36 px and 0.87 px --
+ *   so Sigma's floor would have clamped the thin one up to the thick one's
+ *   neighbourhood and quietly deleted the vocabulary distinction that
+ *   `mapStyle.test.ts` asserts the *constants* preserve. The floor is kept,
+ *   at a value below the table's own smallest, because it still has a job:
+ *   an edge on a camera zoomed far out must not vanish.
+ */
+export const MAP_SIZE_SETTINGS = {
+  itemSizesReference: "screen",
+  minEdgeThickness: 0.75,
+} as const;
+
+// ---------------------------------------------------------------------------
 // Interaction
 // ---------------------------------------------------------------------------
 
@@ -465,6 +580,31 @@ export const EDGE_INTERACTION: Record<MapInteraction, InteractionMark> = {
  */
 export const MAP_DIMMED_NODE_OPACITY = 0.35;
 export const MAP_DIMMED_EDGE_OPACITY = 0.25;
+
+/**
+ * What an edge is drawn at on the overview, where *nothing* is focused
+ * (`T-216`, D-198).
+ *
+ * `--edge-faint` is §6's proposed token for "the quiet Explore field", and
+ * `T-214` recorded it as its one unimplemented clause: Explore's edges are
+ * WebGL and a canvas cannot read a custom property (`SPEC.md` §15, D-194).
+ * This is that clause, implemented where a renderer can reach it. The approved
+ * capture draws its edges at 20 % white on the dark ground and 18 % black on
+ * the light one; a provenance hue at this opacity carries about that weight
+ * and, unlike a grey line, still says which of the three provenances the
+ * relation has.
+ *
+ * It applies to the `normal` state and only while nothing is selected, so
+ * hovering a mark still lights its own edges: with a focus on stage the
+ * unrelated edges go further down, to `MAP_DIMMED_EDGE_OPACITY`, and the
+ * active path comes up to 1. Three levels, in the order a reader meets them.
+ *
+ * Nodes are deliberately not quieted with them. The approved overview draws
+ * its marks at full strength on a faint web of edges -- marks and structure
+ * dominate, and text arrives on demand (ADR 0006 clause 3) -- so quieting both
+ * would produce a grey picture rather than a quiet one.
+ */
+export const MAP_QUIET_EDGE_OPACITY = 0.32;
 
 /** The floor every opacity in this module stays above. Asserted in the tests. */
 export const MAP_MIN_VISIBLE_OPACITY = 0.15;
@@ -582,6 +722,7 @@ export function mapNodeStyle(
   record: EntityRef,
   interaction: MapInteraction,
   view: MapViewState,
+  fieldWidth: number,
 ): MapNodeDisplay {
   const mark = nodeProvenanceMark(record.provenance_class);
   const family = kindFamily(record.kind);
@@ -597,7 +738,11 @@ export function mapNodeStyle(
 
   return {
     shape: mark.shape,
-    size: mark.size * state.scale,
+    // Screen pixels, scaled by the field and by nothing else (D-197). The
+    // renderer is configured with `itemSizesReference: "screen"`, so this
+    // number reaches the shader as a radius in pixels rather than as a
+    // distance in graph units the framing then multiplies.
+    size: mark.size * state.scale * markFieldScale(fieldWidth),
     color: colour,
     opacity: dimmed ? MAP_DIMMED_NODE_OPACITY : state.opacity,
     zIndex: state.zIndex,
@@ -626,17 +771,25 @@ export function mapEdgeStyle(
   record: IndexedRelation,
   interaction: MapInteraction,
   view: MapViewState,
+  fieldWidth: number,
 ): MapEdgeDisplay {
   const vocabulary = edgeVocabularyMark(record.relation_vocabulary);
   const provenance = edgeProvenanceMark(record.provenance_class);
   const state = EDGE_INTERACTION[interaction];
   const dimmed = interaction === "normal" && hasFocus(view);
+  // The other half of `dimmed`: an edge in the `normal` state on a field with
+  // nothing focused is the overview's own web, and the overview is quiet.
+  const quiet = interaction === "normal" && !hasFocus(view);
   const visibility = edgeLabelVisibility(record, interaction, view);
 
   return {
-    size: vocabulary.size * state.scale,
+    size: vocabulary.size * state.scale * edgeFieldScale(fieldWidth),
     color: provenance.colour,
-    opacity: dimmed ? MAP_DIMMED_EDGE_OPACITY : state.opacity,
+    opacity: dimmed
+      ? MAP_DIMMED_EDGE_OPACITY
+      : quiet
+        ? MAP_QUIET_EDGE_OPACITY
+        : state.opacity,
     zIndex: state.zIndex,
     depth: state.top ? "topEdges" : "edges",
     visibility: "visible",
@@ -685,12 +838,42 @@ export type MapEdgeReducer = (
  *
  * `setView` reports whether anything actually changed, so a caller can skip a
  * redraw for a pointer move that ended on the node it started on.
+ *
+ * The **field width** is kept beside the view state rather than in it, and the
+ * separation is deliberate (`T-216`). `MapViewState` is identity: an existing
+ * `global_id` per role, and nothing a renderer measured. A field width is the
+ * opposite kind of fact -- one number about the surface, from `MapView`'s
+ * `ResizeObserver` -- and putting it in the view state would make every reader
+ * of that interface, `labelPolicy` included, able to reach a measurement it has
+ * no business with. Two setters, two `changed` answers, one redraw either way.
  */
 export class MapStyle {
   private state: MapViewState = EMPTY_VIEW_STATE;
+  /**
+   * The field the marks are drawn on, in CSS pixels. `0` until measured, which
+   * `markFieldScale` reads as the reference composition (D-197).
+   */
+  private width = 0;
 
   get view(): MapViewState {
     return this.state;
+  }
+
+  get fieldWidth(): number {
+    return this.width;
+  }
+
+  /**
+   * The field's width changed, so every mark and every edge is a new size.
+   *
+   * Reports whether anything changed, on the same terms `setView` does: a
+   * `ResizeObserver` fires on the height alone often enough that redrawing
+   * every mark for it would be a redraw per scrollbar.
+   */
+  setField(width: number): boolean {
+    if (!Number.isFinite(width) || width === this.width) return false;
+    this.width = width;
+    return true;
   }
 
   setView(next: Partial<MapViewState>): boolean {
@@ -723,10 +906,16 @@ export class MapStyle {
       attributes.record,
       nodeInteraction(key, this.state, state.isHovered),
       this.state,
+      this.width,
     );
 
   readonly edgeReducer: MapEdgeReducer = (_key, _data, attributes) =>
-    mapEdgeStyle(attributes.record, edgeInteraction(attributes.record, this.state), this.state);
+    mapEdgeStyle(
+      attributes.record,
+      edgeInteraction(attributes.record, this.state),
+      this.state,
+      this.width,
+    );
 }
 
 function sameMembers(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {

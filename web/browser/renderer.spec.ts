@@ -56,6 +56,12 @@ test.describe("the renderer's lifecycle", () => {
 
     // A filter change is a different question, so it is a different snapshot
     // and a new renderer (D-118). Each replacement must kill its predecessor.
+    //
+    // Opened first: `T-216` folded the filters to their trigger, because the
+    // approved capture draws that corner as a two-line chip and three open
+    // selects were 215 px of the field (D-199). The controls are the same
+    // controls, one press further in.
+    await openPanel(page, "filters");
     for (const value of ["source", "derived", ""]) {
       await page.locator('[data-map-filter="provenance_class"]').selectOption(value);
       await expect(page.locator("[data-map-nodes]")).toBeVisible();
@@ -113,6 +119,8 @@ test.describe("the renderer's lifecycle", () => {
 
     await page.goto(mapUrl());
     await expect(page.locator("[data-map-renderer-failed]")).toBeVisible();
+    // Behind its trigger since `T-216` (D-199), and reached the same way.
+    await openPanel(page, "filters");
     for (const value of ["source", "derived", "", "source", "derived", ""]) {
       await page.locator('[data-map-filter="provenance_class"]').selectOption(value);
       await expect(page.locator("[data-map-renderer-failed]")).toBeVisible();

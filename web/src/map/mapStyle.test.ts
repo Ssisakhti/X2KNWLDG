@@ -40,8 +40,14 @@ import {
   KIND_FAMILY_COLOUR,
   MAP_DIMMED_EDGE_OPACITY,
   MAP_DIMMED_NODE_OPACITY,
+  MAP_EDGE_FIELD_SCALE,
+  MAP_EDGE_FIELD_THICKEN_WIDTH,
+  MAP_FIELD_REFERENCE_WIDTH,
   MAP_INTERACTIONS,
+  MAP_MARK_FIELD_SCALE,
   MAP_MIN_VISIBLE_OPACITY,
+  MAP_QUIET_EDGE_OPACITY,
+  MAP_SIZE_SETTINGS,
   MapStyle,
   NODE_INTERACTION,
   NODE_PROVENANCE_MARK,
@@ -54,8 +60,10 @@ import {
   hasFocus,
   kindFamily,
   kindsOfFamily,
-  mapEdgeStyle,
-  mapNodeStyle,
+  edgeFieldScale,
+  mapEdgeStyle as mapEdgeStyleOn,
+  mapNodeStyle as mapNodeStyleOn,
+  markFieldScale,
   nodeInteraction,
   nodeProvenanceMark,
   type MapInteraction,
@@ -68,6 +76,34 @@ const C1 = "library:concepts:C-000001";
 
 function view(overrides: Partial<MapViewState> = {}): MapViewState {
   return { ...EMPTY_VIEW_STATE, ...overrides };
+}
+
+/**
+ * The two reducers, over the field width the mark sizes are *stated* at
+ * (`T-216`).
+ *
+ * Every assertion below except the sizing ones is about a shape, a hue, an
+ * opacity or a label, and none of those moves with the field -- so the field
+ * is defaulted here rather than repeated forty times, and the one number it
+ * defaults to is `MAP_FIELD_REFERENCE_WIDTH`, where `markFieldScale` is
+ * exactly `MAP_MARK_FIELD_SCALE`. A test that cares passes its own.
+ */
+function mapNodeStyle(
+  record: EntityRef,
+  interaction: MapInteraction,
+  state: MapViewState,
+  fieldWidth: number = MAP_FIELD_REFERENCE_WIDTH,
+) {
+  return mapNodeStyleOn(record, interaction, state, fieldWidth);
+}
+
+function mapEdgeStyle(
+  record: IndexedRelation,
+  interaction: MapInteraction,
+  state: MapViewState,
+  fieldWidth: number = MAP_FIELD_REFERENCE_WIDTH,
+) {
+  return mapEdgeStyleOn(record, interaction, state, fieldWidth);
 }
 
 /**
@@ -307,6 +343,156 @@ describe("the four interaction states", () => {
         expect(style.color).toMatch(/^#[0-9a-f]{6}$/);
       }
     }
+  });
+});
+
+describe("a mark's size is a function of the field, and of nothing else", () => {
+  /*
+   * `T-216`, D-197. This is the clause the browser cannot assert: a canvas
+   * label and a WebGL mark have no DOM node, and the gate says so rather than
+   * pretending otherwise (`SPEC.md` §16). What *is* assertable is the rule
+   * itself -- that the two settings which used to make a mark's size a
+   * function of the framing are gone, and that the scale that replaced them
+   * reads the field's width and nothing else.
+   */
+  it("asks Sigma for screen sizes, which is what drops the framing term", () => {
+    // Sigma's default is `"positions"`: a size is a distance in graph units,
+    // multiplied at draw time by `cameraRatio * graphToViewportRatio`. The
+    // second factor is the field, so the same graph drew marks several times
+    // larger at 2852 px than at 1440 px -- the largest of the three
+    // differences `T-215`'s comparison found.
+    expect(MAP_SIZE_SETTINGS.itemSizesReference).toBe("screen");
+  });
+
+  it("keeps a floor below the thinnest thickness the table itself declares", () => {
+    // Sigma's own floor is 1.7, which is above every thickness this table
+    // draws at the reference width -- so it would have clamped a
+    // library-synthetic edge up to a canonical one's neighbourhood and
+    // deleted a distinction the constants preserve.
+    const thinnest = Math.min(
+      ...RELATION_VOCABULARIES.map((vocabulary) => EDGE_VOCABULARY_MARK[vocabulary].size),
+      UNRECOGNISED_VOCABULARY_MARK.size,
+    );
+    expect(MAP_SIZE_SETTINGS.minEdgeThickness).toBeLessThan(
+      thinnest * edgeFieldScale(MAP_FIELD_REFERENCE_WIDTH),
+    );
+  });
+
+  it("scales every mark by the field width and no ratio by anything", () => {
+    // The property SPEC §3 states in words: "Mark size scales with the
+    // viewport; the ratios do not."
+    const wide = 2852;
+    for (const provenance of PROVENANCE_CLASSES) {
+      const record = unit("KU-000001", { provenance_class: provenance });
+      const narrow = mapNodeStyle(record, "normal", view(), MAP_FIELD_REFERENCE_WIDTH);
+      const large = mapNodeStyle(record, "normal", view(), wide);
+      expect(large.size / narrow.size).toBeCloseTo(wide / MAP_FIELD_REFERENCE_WIDTH, 6);
+    }
+    // ... and the ratio between two provenances is the same on both fields.
+    const circle = NODE_PROVENANCE_MARK.source;
+    const diamond = NODE_PROVENANCE_MARK.derived;
+    for (const width of [MAP_FIELD_REFERENCE_WIDTH, wide]) {
+      const one = mapNodeStyle(unit("KU-000001"), "normal", view(), width);
+      const two = mapNodeStyle(
+        unit("KU-000001", { provenance_class: "derived" }),
+        "normal",
+        view(),
+        width,
+      );
+      expect(two.size / one.size).toBeCloseTo(diamond.size / circle.size, 6);
+    }
+  });
+
+  it("draws the approved composition on a field narrower than the reference", () => {
+    // A stage that has not been measured yet reports zero, and a route about
+    // to be measured is not a route with no marks: the scale floors at the
+    // reference width rather than collapsing.
+    expect(markFieldScale(0)).toBe(MAP_MARK_FIELD_SCALE);
+    expect(markFieldScale(390)).toBe(MAP_MARK_FIELD_SCALE);
+    expect(markFieldScale(MAP_FIELD_REFERENCE_WIDTH)).toBe(MAP_MARK_FIELD_SCALE);
+    expect(edgeFieldScale(0)).toBe(MAP_EDGE_FIELD_SCALE);
+    // An edge thickens later than a mark does, which is the mockup's own
+    // curve: `max(1, MARK * 0.55)` rather than `MARK`.
+    expect(edgeFieldScale(MAP_FIELD_REFERENCE_WIDTH)).toBe(MAP_EDGE_FIELD_SCALE);
+    expect(edgeFieldScale(MAP_EDGE_FIELD_THICKEN_WIDTH * 2)).toBeCloseTo(
+      MAP_EDGE_FIELD_SCALE * 2,
+      6,
+    );
+  });
+
+  it("reproduces the diameters the approved capture was measured at", () => {
+    // The numbers in `SPEC.md` §3 and §17, as arithmetic rather than as a
+    // picture: a source circle is 12 px across on a 1280 px field, 14 on
+    // 1440 and 27 on 2852, and a canonical edge is 1.4 px thick on the first
+    // two and 2.3 on the last.
+    const diameter = (width: number) =>
+      mapNodeStyle(unit("KU-000001"), "normal", view(), width).size * 2;
+    expect(Math.round(diameter(1280))).toBe(12);
+    expect(Math.round(diameter(1440))).toBe(14);
+    expect(Math.round(diameter(2852))).toBe(27);
+
+    const thickness = (width: number) =>
+      mapEdgeStyle(edge(KU1, KU2), "normal", view(), width).size;
+    expect(thickness(1280)).toBeCloseTo(1.36, 2);
+    expect(thickness(1440)).toBeCloseTo(1.36, 2);
+    expect(thickness(2852)).toBeCloseTo(2.26, 2);
+  });
+
+  it("hands the field to the reducers through the one style table", () => {
+    const style = new MapStyle();
+    expect(style.fieldWidth).toBe(0);
+    expect(style.setField(2852)).toBe(true);
+    expect(style.fieldWidth).toBe(2852);
+    // The same width twice is not a redraw, and neither is a measurement that
+    // has not arrived: a `ResizeObserver` fires on the height alone often
+    // enough that either would be a redraw per scrollbar.
+    expect(style.setField(2852)).toBe(false);
+    expect(style.setField(Number.NaN)).toBe(false);
+
+    const attributes = nodeAttributes(unit("KU-000001"));
+    const wide = style.nodeReducer(KU1, undefined, attributes, { isHovered: false });
+    style.setField(MAP_FIELD_REFERENCE_WIDTH);
+    const narrow = style.nodeReducer(KU1, undefined, attributes, { isHovered: false });
+    expect(wide.size).toBeGreaterThan(narrow.size);
+  });
+});
+
+describe("the overview is quiet, and a focus is quieter still", () => {
+  it("draws the overview's edges faint, and lights them under the pointer", () => {
+    // `T-214`'s one unimplemented clause, implemented (`SPEC.md` §15, §17):
+    // §6 proposed `--edge-faint` for "the quiet Explore field" and a canvas
+    // cannot read a custom property, so the number lives in the one table a
+    // renderer can reach.
+    const overview = mapEdgeStyle(edge(KU1, KU2), "normal", view());
+    expect(overview.opacity).toBe(MAP_QUIET_EDGE_OPACITY);
+    expect(overview.opacity).toBeGreaterThan(MAP_MIN_VISIBLE_OPACITY);
+    expect(overview.visibility).toBe("visible");
+
+    // Hovering a mark still lights its own edges: the quiet rule is about the
+    // `normal` state, not about the absence of a selection.
+    const peeked = view({ hoveredNode: KU1 });
+    const lit = mapEdgeStyle(edge(KU1, KU2), edgeInteraction(edge(KU1, KU2), peeked), peeked);
+    expect(lit.opacity).toBeGreaterThan(MAP_QUIET_EDGE_OPACITY);
+  });
+
+  it("orders the three levels an edge is drawn at", () => {
+    // Unrelated with a focus on stage, unrelated with nothing focused, and on
+    // the active path -- in the order a reader meets them.
+    const focused = view({ selectedNode: KU1 });
+    expect(MAP_DIMMED_EDGE_OPACITY).toBeLessThan(MAP_QUIET_EDGE_OPACITY);
+    expect(MAP_QUIET_EDGE_OPACITY).toBeLessThan(EDGE_INTERACTION.selected.opacity);
+    expect(mapEdgeStyle(edge(KU2, C1), "normal", focused).opacity).toBe(MAP_DIMMED_EDGE_OPACITY);
+    expect(mapEdgeStyle(edge(KU1, KU2), "selected", focused).opacity).toBe(
+      EDGE_INTERACTION.selected.opacity,
+    );
+  });
+
+  it("leaves the marks at full strength, because a grey field is not a quiet one", () => {
+    // ADR 0006 clause 3: marks and structure dominate and text arrives on
+    // demand. Quieting both would produce a grey picture rather than a quiet
+    // one, so only the web behind the marks is faint.
+    const mark = mapNodeStyle(unit("KU-000001"), "normal", view());
+    expect(mark.opacity).toBe(NODE_INTERACTION.normal.opacity);
   });
 });
 

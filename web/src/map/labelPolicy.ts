@@ -20,9 +20,9 @@
  * 2. **Density is a rule, not a hope.** A label is drawn when the policy names
  *    a reason to draw it, and the reasons are: it is the focus, it is the node
  *    under the pointer or the keyboard, it is one of a *bounded* number of
- *    neighbours of the focus, or -- with nothing focused -- the camera has
- *    zoomed in far enough that Sigma's own label grid can place it without
- *    collisions. The overview never attempts 86 sentences again.
+ *    neighbours of the focus, or -- with nothing focused -- Sigma's own label
+ *    grid has room for it in its cell, which the camera coming in makes more
+ *    of. The overview never attempts 86 sentences again.
  *
  * The mechanism for the second half is Sigma's, deliberately: `labelVisibility`
  * per item decides *whether the policy forces a label*, and the three settings
@@ -90,7 +90,8 @@ export const MAP_EDGE_LABEL_CHARS = 32;
  * drew nine sentences into a cluster about 250 px across -- ForceAtlas2 pulls
  * a node's neighbours *towards* it, so a fan-out is the densest part of the
  * picture, which is the worst place to bypass Sigma's label grid. Sigma's own
- * budget for that area, at `labelGridCellSize: 180`, is one or two labels.
+ * budget for that area was one or two labels at the `labelGridCellSize: 180`
+ * of the day, and is one at the 560 `T-216` measured.
  *
  * Four is the largest fan-out that stayed readable. Above it the neighbours
  * keep their marks, their emphasis and their place in the semantic related
@@ -117,32 +118,54 @@ export const MAP_LABEL_NEIGHBOUR_BUDGET = 4;
  * - `edgeLabelAnchors: "nodeLabels"` keeps an edge label tied to a node that
  *   already has one, which is Sigma's own way of saying the same thing the
  *   edge policy says.
- * - `labelDensity: 1` with `labelGridCellSize: 180` is the overview budget: at
- *   most one automatic label per 180x180 px cell of the viewport. On a stage
- *   around 900x600 that is roughly fifteen labels rather than eighty-six.
- * - `labelRenderedSizeThreshold: 14` is the zoom rule. A node must be drawn at
- *   least 14 px across before it may claim an automatic label, and node size
- *   grows with the camera, so the overview is quiet and zooming in is what
- *   makes it speak. Raised from Sigma's 6 because 6 is a threshold for dots
- *   with words beside them, not for sentences.
+ * - `labelDensity: 1` with `labelGridCellSize: 560` is the overview budget: at
+ *   most one automatic label per 560x560 px cell of the viewport, and the
+ *   biggest mark in a cell is the one that gets it. On the review field that
+ *   is **ten labels over 86 marks**, and five at 1440x900 -- against the eight
+ *   and the five the approved composition draws (`SPEC.md` §3, §17).
+ * - `labelRenderedSizeThreshold: 6` is the zoom rule, re-expressed rather than
+ *   retired (`T-216`, D-197). A node must still be drawn at least this many
+ *   pixels across before it may claim an automatic label. What changed is what
+ *   moves that number: until `T-216` a mark's drawn size was a function of the
+ *   *framing*, so 14 was crossed by making the window wider as readily as by
+ *   zooming in -- which is exactly how the overview came to draw forty labels
+ *   at the review viewport and eight at 1440. A mark is now sized in screen
+ *   pixels from the field's own width (`MAP_SIZE_SETTINGS`,
+ *   `markFieldScale`), and the camera is the only thing left that changes it:
+ *   Sigma divides every size by `zoomToSizeRatioFunction(ratio)`, so a mark
+ *   grows as `1 / sqrt(ratio)` coming in and shrinks going out.
+ *
+ *   The value has to sit **below the smallest mark any field draws at rest**,
+ *   and that is why it is 6 rather than 14. `NODE_PROVENANCE_MARK`'s smallest
+ *   is 9, `markFieldScale` floors at 0.675, so the smallest mark at rest is
+ *   6.1 px on any field -- and a threshold above it would silence a *circle*
+ *   while a diamond in the same cell spoke, turning a density rule into a
+ *   statement about provenance that no field makes (ADR 0005 invariant 15).
+ *   Below 6.1 the rule bites on the camera alone, which is what it is for: two
+ *   zoom-outs take every mark under it and the field goes silent.
+ *
+ *   The other half of "zoom in and it speaks" was always Sigma's own and is
+ *   untouched: the grid hands out `ceil(labelDensity / ratio^2)` labels per
+ *   cell, so one press of zoom-in raises the budget from one per cell to
+ *   three while the viewport culls the cells that left the screen.
  * - `hideLabelsOnMove: true` drops labels while the camera is panning or
  *   zooming. Text that reflows every frame is unreadable anyway, and the
  *   labels return the moment the camera stops.
  *
- * `T-209` measured these four on the real graph in Chrome and kept all four:
- * the framed overview draws **8 labels over 86 marks**, and two zoom presses
- * make about twelve speak in the visible area, which is exactly the "quiet
- * until you look closer" D-122 asked for. They are stated here, once, so that
- * re-measuring means editing a value rather than finding where the behaviour
- * came from.
+ * `T-209` measured these four on the real graph in Chrome, and `T-216`
+ * re-measured them there after the sizing model changed under them: the
+ * framed overview draws **ten labels over 86 marks** at 2852x1688 and five at
+ * 1440x900, which is the "quiet until you look closer" D-122 asked for at both
+ * ends rather than at one. They are stated here, once, so that re-measuring
+ * means editing a value rather than finding where the behaviour came from.
  */
 export const MAP_LABEL_SETTINGS = {
   renderLabels: true,
   renderEdgeLabels: true,
   edgeLabelAnchors: "nodeLabels",
   labelDensity: 1,
-  labelGridCellSize: 180,
-  labelRenderedSizeThreshold: 14,
+  labelGridCellSize: 560,
+  labelRenderedSizeThreshold: 6,
   hideLabelsOnMove: true,
 } as const;
 

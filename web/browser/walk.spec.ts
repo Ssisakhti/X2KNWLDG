@@ -164,6 +164,10 @@ test.describe("the Map, opened", () => {
     // button, never an automatic fetch. Each press must move the count, which
     // is also what makes this loop terminate for a reason rather than on a
     // timer.
+    // Opened first, and once: `T-216` folded the account to its two headline
+    // numbers (D-199), and the walk's own button is inside it. A disclosure
+    // stays open once opened, so this is not a press per page.
+    await openPanel(page, "counts");
     for (let pages = 0; pages < 60; pages += 1) {
       const button = page.locator("[data-map-load-more]");
       if ((await button.count()) === 0) break;
@@ -256,6 +260,13 @@ test.describe("search, preview, focus, read, and back", () => {
     const neighbour = await neighbourButton.getAttribute("data-map-focus-action");
     await neighbourButton.click();
     await expect(page).toHaveURL(new RegExp(`focus=${encodeURIComponent(neighbour ?? "")}`));
+    // Waited for, not raced: the URL changes before the neighbour's own two
+    // requests are answered, and going back on top of them aborts requests
+    // that were about to succeed -- which `watchForTrouble` reports as a
+    // failed request, correctly, because from the network's side that is what
+    // it is. A reader reads the neighbour before pressing Back, so the test
+    // does too.
+    await expect(page.locator("[data-map-quickread]")).toContainText(String(neighbour));
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`focus=${encodeURIComponent(chosen ?? "")}`));
     await expect(page.locator('.map[data-map-canvas="drawing"]')).toBeVisible();
