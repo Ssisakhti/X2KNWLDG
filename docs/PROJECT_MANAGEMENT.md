@@ -498,7 +498,7 @@ git diff --stat -- output/                  # expect: empty, always
 git status --porcelain -- tests/fixtures/runs/   # expect: empty — regeneration is byte-identical (D-157)
 .venv/bin/python tools/generate_api_types.py --check   # expect: types.d.ts is up to date
 (cd web && npm ci && npm run typecheck)     # expect: silent — tsc --noEmit, risk R17
-(cd web && npm test && npm run build)       # expect: 621 passed, 23 skipped; then a clean build
+(cd web && npm test && npm run build)       # expect: 631 passed, 23 skipped; then a clean build
 ```
 
 `--check` duplicates `tests/test_api_types.py::test_the_committed_declarations_are_current`;
