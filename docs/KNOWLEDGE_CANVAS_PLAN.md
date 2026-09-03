@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0, 1, 2 and 2.1 are complete. `T-210`'s visual-quality gate has been walked to its end: `T-211`'s compositions were approved (D-191), `T-212`–`T-214` built and dressed them (D-192–D-194), `T-215`'s real-browser gate went green and its captures were **refused** (D-195, D-196), `T-216` delivered the six remediations that refusal produced (D-197–D-201), and the user accepted the captures on 2026-09-03 (D-202). **Phase 3 is unblocked and `T-301` is the only claimable task.** The approved compositions, their specification and the record of what each task built and departed from are in [`docs/mockups/T-211/`](mockups/T-211/SPEC.md) §13–§17 (D-150–D-154, D-191–D-202; [ADR 0006](adr/0006-map-visual-quality.md))
+**Current stage:** Phases 0, 1, 2 and 2.1 are complete. The user has chosen Twitter/X as the next product phase, ahead of Canvas. **Phase 2.2 / `T-220` is active; `T-221` is complete and `T-222` is the only claimable task.** The accepted acquisition boundary qualifies `x-cli` first on the user's real Iran environment, keeps FxTwitter/FxEmbed explicit opt-in, uses official oEmbed only for corroboration, limits Firefox to passive credential-free capture, and excludes Treasury/twscrape account-pool and evasion patterns (D-204; [ADR 0007](adr/0007-twitter-acquisition-boundary.md)). Phase 3 remains technically unblocked after the accepted Map gate (D-202) but is deliberately deferred until the Twitter phase closes.
 **Last updated:** 2026-09-03
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -71,8 +71,10 @@ The key architectural principle:
 
 ### 3.3. Sources
 
-- First phase: YouTube.
-- Later: Twitter/X, Medium, web pages, PDFs, and other content types.
+- Implemented first source: YouTube.
+- Next source phase: Twitter/X, before Canvas, under the qualification-first boundary in
+  [ADR 0007](adr/0007-twitter-acquisition-boundary.md).
+- Later: Medium, web pages, PDFs, and other content types.
 - Neither the UI core nor the index model may treat `video_id` as a concept common to all sources.
 
 ## 4. Current state of the repository
@@ -641,7 +643,8 @@ Planned adapters:
 3. Medium/article adapter
 4. Generic file/PDF adapter
 
-Only the YouTube adapter is implemented in the first phase, but its interface will be generic.
+Only the YouTube adapter is currently implemented. Phase 2.2 adds Twitter through the same
+generic boundary; it does not make a provider response part of the adapter contract.
 
 ### 11.1 What an adapter does with what it cannot map
 
@@ -663,6 +666,31 @@ while its `relationships.json` is intact is **refused** at adapt time, naming th
 edge: stranded edges would make `/api/graph` and `/api/sources/{id}/relations` disagree about
 one fact, `check_index_integrity` would refuse the whole project later anyway, and the
 failure belongs on the run that causes it.
+
+### 11.2 Twitter/X acquisition boundary
+
+Acquisition and adaptation are separate seams. A Twitter provider may return a command result,
+JSON, HTML or an observed browser response, but extraction and the adapter consume only one
+provider-neutral canonical capture. The capture preserves the raw response as immutable
+evidence and records its SHA-256, acquisition time, provider and provider version, request
+surface, post/thread ordering, omissions and failure state. X ids are strings throughout.
+
+Provider success cannot imply conversation completeness. The capture and coverage model must
+distinguish a single post, a provably complete same-author self-thread, an observed subset,
+tombstones/unavailable items and a provider outage. Each expected or included post is covered,
+omitted with a reason or unresolved. Only the first two can become `PASS`, and only when the
+provider supplies evidence for the relevant boundary.
+
+The approved provider order is qualification-dependent, not an unconditional fallback chain:
+
+1. `x-cli`, if `T-222` proves the pinned public/credential-free path in Iran;
+2. FxTwitter/FxEmbed, only after explicit per-use consent to third-party disclosure;
+3. passive Firefox capture of responses already loaded through user-driven browsing;
+4. official oEmbed as corroboration for a public anchor, never as thread acquisition.
+
+There is no silent provider switch. Treasury/twscrape account pools, X passwords or cookies,
+multi-account/proxy rotation, automated browsing and stealth/evasion are outside the product.
+The full decision and rejected alternatives are in [ADR 0007](adr/0007-twitter-acquisition-boundary.md).
 
 ## 12. Library choices and constraints
 
@@ -821,6 +849,13 @@ Firm numbers are not set before a real dataset exists. During the performance ph
 - Opening an external URL must be an explicit, visible action.
 - Write APIs are permitted only against `workspace/` and the cache.
 - The canonical API is read-only in the first phase.
+- No X password, cookie, token, browser profile or session export may enter project data,
+  fixtures, logs or errors.
+- A third-party Twitter provider requires explicit opt-in, a fixed reviewed HTTPS origin and
+  a visible disclosure that the requested post id and ordinary network metadata leave the
+  machine. Redirects to unapproved origins are refused.
+- Passive browser capture observes only responses already received during ordinary user-driven
+  browsing; it makes no additional X request and performs no automated interaction.
 
 ## 15. API
 
@@ -1016,6 +1051,65 @@ recorded numbers are a regression surface, a per-tier bound on the share of the 
 chrome may cover, and four measured differences recorded in `docs/mockups/T-211/SPEC.md` §17 (which D-203 later added two more to, items 5 and 6)
 rather than remembered.
 
+### Phase 2.2 — Twitter/X source foundation
+
+**Goal:** add useful public Twitter/X sources without a paid API, without storing an account
+session, and without coupling the knowledge pipeline to one brittle provider.
+
+This phase deliberately precedes Canvas by the user's 2026-09-03 roadmap decision (D-204;
+[ADR 0007](adr/0007-twitter-acquisition-boundary.md)). Its first act is an empirical spike on
+the user's real Iran environment. `x-cli` is the primary candidate, not an assumed dependency.
+
+MVP scope:
+
+- public single posts;
+- provable same-author self-threads, root-first even when acquisition starts from a middle post;
+- Persian/RTL text, replies and quotes represented without merging distinct authors;
+- post text/entities, author and created time when stated, media metadata/alt text, poll
+  snapshot, edit/tombstone/unavailable state and long-form content only where acquisition
+  proves them;
+- exact post-id and text-span/excerpt locators, with item-based coverage.
+
+Explicitly out of scope: private/bookmarked/account-only content, third-party reply trees as
+one authored thread, engagement history, recursive fetching of linked pages, credentials,
+account/proxy rotation, browser automation, stealth/evasion and any payment or regional-access
+circumvention.
+
+Deliverables:
+
+1. A reproducible acquisition capability matrix from the target environment, testing a pinned
+   `x-cli` first and the same cases through FxTwitter/FxEmbed and official oEmbed.
+2. A provider-neutral canonical Twitter capture with immutable raw evidence, digests, provider
+   provenance, explicit omissions and schema-valid `PASS`/`PARTIAL`/`FAIL` fixtures.
+3. At least one qualified acquisition provider. `x-cli` is used only if the spike passes; the
+   separately installed/external-tool boundary is preferred until its AGPL and maintenance
+   implications are deliberately revisited.
+4. Explicit opt-in FxTwitter fallback and official oEmbed corroboration if retained by the
+   spike; no silent network fallback.
+5. Passive Firefox capture/import if needed: user-initiated observation of responses already
+   loaded by ordinary browsing, with no extra requests or session material.
+6. Twitter extraction, segmentation, precise provenance, item-based coverage and validators.
+7. Source adapter, index/API/Library/Reader/Search/Map coexistence and an end-to-end failure
+   rehearsal beside the existing YouTube source.
+
+Acceptance criteria:
+
+- At least one no-payment route passes the declared MVP on the user's actual environment; a
+  successful request with incomplete content is recorded `PARTIAL`, not promoted to success.
+- The entire acquisition can be revalidated from immutable raw bytes and recorded SHA-256;
+  the acquisition provider/version/time and every omission are visible.
+- No password, cookie, token, browser profile or session export is read, stored or logged.
+- Every included or expected post is covered, omitted with a reason or unresolved. Deleted,
+  private, suspended, withheld and unavailable items cannot disappear silently.
+- A provider can be replaced without changing extraction, adapter, index or UI contracts.
+- YouTube and Twitter coexist through the generic model; existing ids, raw evidence, outputs
+  and Map visual regression surface remain unchanged.
+- `WORKFLOW.md` is updated only after the behaviour and validators exist, and promises only
+  matrix capabilities that passed.
+
+The exact executable tasks and dependencies are `T-221`–`T-229` in
+`PROJECT_MANAGEMENT.md` §5. `T-222` is currently the only claimable task.
+
 ### Phase 3 — Canvas and board persistence
 
 **Goal:** building a personal workspace on top of existing knowledge.
@@ -1071,9 +1165,9 @@ Possible deliverables, based on real priority:
 
 This phase is scoped only after the actual files in use are known.
 
-### Phase 6 — New sources
+### Phase 6 — Additional sources
 
-**Goal:** adding Twitter/X and Medium without changing the UI core.
+**Goal:** adding Medium, web pages and later approved source types without changing the UI core.
 
 Deliverables:
 
@@ -1212,6 +1306,25 @@ and bounded neighbourhood. It may use returned direction and hop count only; it 
 identity, infer importance/clusters, merge neighbourhood data into the snapshot or persist its
 positions as graph truth. Explore restores deterministically.
 
+### Risk 11: a public Twitter provider is unavailable from Iran or changes abruptly
+
+Mitigation: qualify the exact pinned candidate from the target environment before integration;
+save provider version, raw evidence and failure results; keep acquisition behind a replaceable
+canonical boundary. Documentation alone cannot close this risk.
+
+### Risk 12: a successful acquisition is mistaken for a complete thread
+
+Mitigation: provider success and completeness are separate. Model post order, omissions,
+tombstones and unresolved items explicitly; use item-based coverage; make passive observation
+`PARTIAL` unless a checkable boundary proves it complete.
+
+### Risk 13: credentials, third-party disclosure, terms or licence obligations are hidden
+
+Mitigation: accept no X password/cookie/token/session export; make FxTwitter explicit opt-in;
+exclude account pools, automation and evasion; state that unofficial access is not represented
+as X-approved; keep `x-cli` outside the runtime dependency graph until the qualification and
+AGPL boundary are recorded. See [ADR 0007](adr/0007-twitter-acquisition-boundary.md).
+
 ## 19. Recorded decisions
 
 This table is the canonical index of decisions and answers "what was decided". The reasoning, rejected alternatives, and consequences are recorded in `docs/adr/`. The ADR convention is described in `docs/adr/README.md`.
@@ -1317,6 +1430,7 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 
 | D-202 | The `T-216` captures are accepted: `T-215`, `T-216` and `T-210` close, R21 closes, and Phase 3 is unblocked — and the `compact` tier's chrome bound is accepted as a ratchet rather than as the reference's own share ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The decision the whole of Phase 2.1 existed to make possible, made the way ADR 0006 clause 5 says it must be: by a person looking at two sets of pictures. D-196 was the same clause exercised in the other direction, which is what makes this one worth recording — the gate was green both times and only one of the two answers was yes. What is accepted is the composition **and** the four differences `SPEC.md` §17 records as remaining. The first of them was a trade rather than an explanation and was taken deliberately: the chrome's rectangles are what the orbit refuses cards against, so bringing the `compact` share down to the reference's 10.3 % was measured to place three cards at 1440×900 where D-193 recorded two. The recorded numbers stand and the bound is a ratchet, so a later task may still take that trade — what it may not do is take it silently |
 | D-203 | A green suite is evidence about what it looks at: seventy-one findings from a six-reader audit of a tree whose every gate was passing, closed with guards at the level the misses happened | accepted | The shape they share is the decision. Each guard that missed one was real and pointed at the known half of its problem: a stylesheet suite that never computed a contrast **number**; `validate_coverage` measuring a window against a bound the audited document supplied; the `ui` extra checked against the packages it declares, so an undeclared import was invisible to the job built to catch it; a drift guard asserted in prose and never written; six of sixteen visual scenarios whose numbers assert only on the machine holding the private library. So the remediation is 53 contrast assertions, a frontend lint gate and a type-check program for the capture scripts (both CI steps, and the second found a fault on its first run), a parameter-by-parameter served-versus-frozen comparison, one `PagedList` for the ladder five surfaces had copied, and guards that read every component through a glob rather than a list. **One finding's answer was found by measuring it rather than by reading it**: the card reservations were reported as never enforced, and enforcing them was tried and reverted — over all 86 centres of the real library, 63 lay a card out taller than its reservation and *none* of them overlaps, so the box is a seating input and the sentence calling it an upper bound over the drawn card was the actual defect. True upper bounds cost a recorded card (7 / 1 becomes 6 / 2) to buy nothing a reader sees, so the numbers stand, the claim is corrected where it was written, and the gate asserts the invariant a reader would notice — no two cards over the same pixels — over ten centres rather than two. Two further defects were found by the new tests rather than by the audit. What is not fixed is named rather than closed |
+| D-204 | Insert Phase 2.2 / `T-220` before Canvas and qualify a no-payment Twitter/X acquisition route from the user's real Iran environment before integration ([ADR 0007](adr/0007-twitter-acquisition-boundary.md)) | accepted | `x-cli` is the primary candidate but not yet a dependency; `T-222` measures its exact pinned public/credential-free route before a schema or adapter is frozen. FxTwitter/FxEmbed is explicit opt-in fallback because the requested id leaves the machine, official oEmbed is corroboration only, and Firefox fallback passively imports responses ordinary browsing already received. Treasury/twscrape account pools, credentials, rotation, automation and evasion are excluded. Every accepted route ends at one provider-neutral immutable capture with honest item-based completeness; Canvas remains technically ready but deliberately deferred |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
@@ -1325,7 +1439,19 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 
 ## 20. Open questions
 
-These board/media questions do not block Phase 2.1 and must be answered at the appropriate later phase:
+The Twitter questions below block contracts but are answered by `T-222`'s evidence, not by
+guessing or by asking the user to choose a library name:
+
+- Does the pinned credential-free `x-cli` path work from the target Iran environment for a
+  public single post and a same-author self-thread?
+- Which long-post, Article, edit, poll, media/alt-text and tombstone fields are actually
+  available and stable enough to enter the canonical contract?
+- Can the tested route prove a self-thread boundary from root and middle anchors, or must the
+  capture remain `PARTIAL`?
+- If `x-cli` does not qualify, is explicit opt-in FxTwitter sufficient, or is passive Firefox
+  capture required for the approved MVP?
+
+These board/media questions remain deferred to their appropriate later phase:
 
 - Should boards enter Git by default, or only have a local backup?
 - Should user notes stay limited to plain Markdown, or is rich text required?
@@ -1441,39 +1567,45 @@ An agent must not guess the answers to these if the decision would cause a notic
 - [x] `T-216` the six remediations that refusal produced: a mark sized by its field rather than
   by the camera, a re-derived label ration, a quiet Explore field, chips at the `compact` tier,
   no drawer in Explore, and a per-tier chrome-share bound (D-197–D-201)
-- [ ] **Canvas — Phase 3 / `T-301`: next and only claimable task**, unblocked by `T-210`'s
-  completion (D-202)
+- [x] Phase 2.2 / `T-221`: acquisition, privacy and risk boundary accepted in
+  [ADR 0007](adr/0007-twitter-acquisition-boundary.md) (D-204)
+- [ ] **Phase 2.2 / `T-222`: next and only claimable task** — qualify a pinned `x-cli` and
+  the approved alternatives from the user's real Iran environment before freezing contracts
+- [ ] Phase 2.2 / `T-223`–`T-229`: canonical capture, qualified providers, extraction,
+  coverage, adapter/product coexistence and the full phase gate
+- [ ] Canvas — Phase 3 / `T-301`: technically unblocked by `T-210`, deliberately deferred
+  until the Twitter phase gate closes (D-204)
 - [ ] Pen annotations
-- [ ] Adapters for future sources
+- [ ] Additional adapters for Medium, web pages and future approved sources
 
 Live status, task breakdown, and track ownership are maintained in `docs/PROJECT_MANAGEMENT.md`. In case of conflict, that file is the authority on **status** and this document is the authority on **design**.
 
 ## 23. Precise next step
 
-**Claim only `T-301`.** Phase 2.1 closed on 2026-09-03: the user accepted the browser captures
-against the approved compositions (D-202), so `T-211`–`T-216` all pass, `T-210` is done and
-Phase 3 is unblocked. `T-301` is the Canvas epic in §16 Phase 3 — board CRUD, entities added
-from the Library, the Reader and the Map, the core custom nodes, user relations, frames,
-autosave, undo/redo, and portable persistence under `workspace/boards/`.
+**Claim only `T-222`.** The acquisition boundary is already accepted (D-204;
+[ADR 0007](adr/0007-twitter-acquisition-boundary.md)); the next uncertainty must be measured
+on the target environment before any schema, adapter or UI is implemented.
 
-The `T-301` session must:
+The `T-222` session must:
 
-1. Read §14 (the board model), §15's **reserved and unimplemented** board endpoints, §16
-   Phase 3's four acceptance criteria, and the task row and integration boundaries in
-   `PROJECT_MANAGEMENT.md` §5 and §8.6.
-2. Decide where a board *lives* before deciding what it looks like. D-027 freezes the v1 HTTP
-   surface at eleven `GET` endpoints, so a board is local state under `workspace/boards/` and
-   not a new endpoint. Nothing may write, move or reinterpret a file under `output/`.
-3. Keep a user relation distinguishable from a canonical one at every surface that draws both
-   — the Map already encodes vocabulary and provenance without relying on colour, and a board
-   that blurs the two would undo it.
-4. Make a partially corrupt board openable. §16's second criterion is about one bad node not
-   costing a whole board, which is a loading policy rather than a rendering detail.
-5. Leave the Map alone. `T-210` left an approved reference set, sixteen browser scenarios
-   holding recorded numbers, a per-tier chrome-share bound and four measured differences (six since D-203) in
-   `docs/mockups/T-211/SPEC.md` §17. The Canvas is a new surface and does not touch them; a
-   task that reaches back into the Map's style table, label policy, stylesheet or route owes a
-   re-run of `visual.spec.ts` and a sentence about what moved.
+1. Test a pinned `x-cli` release first, unauthenticated and without reading Firefox state.
+   Record command shape, version, stdout/stderr, exit status, elapsed time, raw bytes and
+   SHA-256. Keep X ids as strings.
+2. Run the same public fixture matrix through FxTwitter/FxEmbed and official oEmbed: single
+   post, Persian/RTL, self-thread from root and middle anchors, reply/quote, long post/note,
+   X Article, media/alt text, poll, edit and unavailable/tombstone cases. Include malformed,
+   outage and rate-limit responses.
+3. Mark every matrix cell `PASS`, `PARTIAL`, `FAIL` or `NOT_SUPPORTED` with a reason. Measure
+   acquisition success, ordering and completeness separately; never infer one from another.
+4. Commit only sanitized fixtures and a reproducible spike report. Never persist a cookie,
+   token, account identifier, private post, browser profile or session material. Record what
+   sanitization removed.
+5. Finish with a go/no-go and supported-capability table that chooses the exact default and
+   fallback order. `x-cli` becomes primary only if the credential-free MVP actually passes.
+
+Do not claim `T-223`, edit `WORKFLOW.md` or integrate a provider during this task. The contract
+must be frozen around observed target-environment data, not around documentation. The detailed
+task row and acceptance criteria are in `PROJECT_MANAGEMENT.md` §5.
 
 ## 24. Research references
 
@@ -1514,8 +1646,51 @@ The `T-301` session must:
 - SQLite WAL: <https://sqlite.org/wal.html>
 - Vite: <https://vite.dev/guide/>
 - FastAPI: <https://fastapi.tiangolo.com/>
+- `x-cli`: <https://github.com/tamnd/x-cli>
+- `x-cli` reading guide: <https://x-cli.tamnd.com/guides/reading-tweets/>
+- `x-cli` account tiers: <https://x-cli.tamnd.com/guides/your-account/>
+- `x-cli` CLI reference and releases:
+  <https://x-cli.tamnd.com/reference/cli/>
+  <https://github.com/tamnd/x-cli/releases>
+- FxTwitter/FxEmbed API and service version:
+  <https://docs.fxembed.com/api/introduction/>
+  <https://fxtwitter.com/version>
+- FxTwitter thread and conversation endpoints:
+  <https://docs.fxembed.com/api/twitter/operations/2threadid/>
+  <https://docs.fxembed.com/api/twitter/operations/2conversationid/>
+- FxTwitter FAQ and source:
+  <https://docs.fxembed.com/guide/faq/>
+  <https://github.com/FxEmbed/FxEmbed>
+- Official X oEmbed: <https://docs.x.com/x-for-websites/oembed-api>
+- Official X id, conversation, edit, expansion and error semantics:
+  <https://docs.x.com/fundamentals/x-ids>
+  <https://docs.x.com/x-api/fundamentals/conversation-id>
+  <https://docs.x.com/x-api/fundamentals/edit-posts>
+  <https://docs.x.com/x-api/fundamentals/expansions>
+  <https://docs.x.com/x-api/fundamentals/response-codes-and-errors>
+- X Terms, developer policy and purchaser terms:
+  <https://x.com/en/tos>
+  <https://docs.x.com/developer-terms/policy>
+  <https://legal.x.com/en/purchaser-terms.html>
+- `twscrape` and a current breakage example:
+  <https://github.com/vladkens/twscrape>
+  <https://github.com/vladkens/twscrape/issues/327>
+- `xTap` passive-capture reference: <https://github.com/mkubicek/xTap>
+- XCancel legal-notice shutdown context: <https://github.com/dgw/sopel-cancelx>
 
 ## 25. Document change history
+
+### 2026-09-03 — Twitter/X source foundation moved before Canvas
+
+- Inserted Phase 2.2 / `T-220` before Canvas by user decision; Phase 3 remains technically
+  unblocked but is deliberately deferred.
+- Accepted [ADR 0007](adr/0007-twitter-acquisition-boundary.md) and D-204: qualify `x-cli`
+  first from the real Iran environment; keep FxTwitter explicit opt-in, oEmbed corroborative
+  and Firefox capture passive; exclude credentials, account pools, rotation and evasion.
+- Defined the public single-post and provable same-author self-thread MVP, provider-neutral
+  immutable capture, item-based coverage and the `T-221`–`T-229` execution sequence.
+- Marked `T-221` complete and `T-222` as the only claimable task. No production code,
+  canonical output or operational workflow was changed by this planning session.
 
 ### 2026-09-03 — Map visual-quality remediation approved
 
