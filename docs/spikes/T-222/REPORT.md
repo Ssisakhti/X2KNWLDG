@@ -2,8 +2,8 @@
 
 - **Task:** `T-222`, Phase 2.2 (`T-220`), the first executable task after
   [ADR 0007](../../adr/0007-twitter-acquisition-boundary.md)
-- **Measured:** 2026-09-03, from the user's own machine and network (Iran),
-  `darwin/arm64`
+- **Measured:** 2026-09-03, on the user's own machine, `darwin/arm64`.
+  ⚠️ **Not from an Iranian egress — see the correction in §0**
 - **Provider under test:** [`tamnd/x-cli`](https://github.com/tamnd/x-cli)
   **v0.5.0**, AGPL-3.0 — `x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z)`
 - **Credentials used:** none. No X session, cookie, password, browser profile
@@ -13,12 +13,59 @@
 
 ---
 
+## 0. Correction of record — the environment was not measured from Iran
+
+**Found after the matrix was committed, and it limits what §2 may be read to
+mean.** The premise of `T-222`, in ADR 0007 and in the task row, is qualification
+*from the user's real Iran environment*. That premise was assumed from the
+user's stated location and never verified. It is wrong:
+
+| Check | Result |
+|---|---|
+| `ipinfo.io` | `country: US`, `region: New York`, `org: AS208226 Ouiheberg SARL` |
+| `cloudflare.com/cdn-cgi/trace` (independent) | `ip=50.117.3.112`, `loc=US`, `colo=EWR` |
+| Shell proxy variables | none set |
+| macOS system proxy | `HTTPEnable: 0`, `HTTPSEnable: 0`, `SOCKSEnable: 0` |
+| Tunnel interfaces | **`utun4` active**, `10.141.112.250 --> 10.141.0.1` |
+
+So the traffic left through an active tunnel presenting a US egress, not from an
+Iranian one — invisible to both proxy checks, which is why it was missed.
+
+**What this does not affect.** Every capability finding is a property of X's
+surfaces and of the tool, not of geography, and stands as measured: the Tier 0
+truncation ceiling (§5), thread enumerability in both directions (§4), the field
+shapes and the four disagreements with the tool's own table (§7), exit-code
+semantics (§6), and the privacy and licence audit (§8).
+
+**What this does affect, and it is the question the task was actually asked.**
+
+- **Reachability from Iran is unmeasured.** §2 shows the surfaces answering
+  through this egress. It is not evidence that
+  `cdn.syndication.twimg.com`, `x.com/i/api/graphql`, `publish.x.com` or
+  `api.fxtwitter.com` answer from an Iranian one.
+- **The latency figures describe the tunnel**, not the target environment.
+- **The rate-limit observations are confounded.** X's budgets are per-IP, and a
+  shared VPN egress may share them with other users of that egress — which is a
+  candidate explanation for how quickly the 30-per-15-minute syndication profile
+  budget was exhausted here.
+
+**The decision this surfaces**, which belongs to the user rather than to this
+report: if X is reached through a tunnel in normal use — the ordinary situation
+where it is blocked — then the tunnel is part of the real environment and should
+be named as a dependency of the phase, with the matrix re-run and its reachability
+recorded honestly. If instead the intent is a path that works without one, then
+`T-222`'s environment qualification is **not met** and must be re-run with the
+tunnel down before `T-229` can close the phase. ADR 0007 declined to circumvent
+regional restrictions as a matter of design, and it did not contemplate a tunnel,
+so this needs an explicit answer and not an assumption. Recorded as **D-209**.
+
 ## 1. Verdict
 
 **GO, with one scope correction that needs a decision.**
 
-A no-payment, credential-free path works from this environment and is good
-enough to build Phase 2.2 on. Every Tier 0 surface answered; 52 matrix cells
+A no-payment, credential-free path works from this machine and is good enough to
+build Phase 2.2 on — with the environment caveat in §0, which downgrades "works
+from Iran" to "works through the tunnel this machine currently uses". Every Tier 0 surface answered; 52 matrix cells
 were measured with **zero `FAIL`**.
 
 But the phase MVP as written in `PROJECT_MANAGEMENT.md` §5 is *"public single
@@ -42,8 +89,8 @@ reported whole threads while silently dropping 70% of their posts (§4).
 
 ## 2. The environment answers
 
-`x doctor`, Tier 0, no guest token, from Iran — every credential-free surface
-reachable, no proxy, no VPN, no payment:
+`x doctor`, Tier 0, no guest token — every credential-free surface reachable
+**through the egress described in §0**, without payment:
 
 | # | Surface | Host | Status | Latency |
 |---|---|---|---|---|
