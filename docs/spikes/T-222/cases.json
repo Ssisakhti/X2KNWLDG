@@ -183,5 +183,27 @@
       "why": "Not separable from a deleted post at any credential-free tier.",
       "structural_evidence": "Tier 0 collapses all three into one message; `x routes` puts distinguishable errors at Tier 2."
     }
+  ],
+  "text_fidelity_cases": [
+    {
+      "id": "fa_text_only_zwnj_digits",
+      "ref": "2027781710667010262",
+      "why": "Persian prose carrying ZWNJ, Persian digits, keheh and ye; no media."
+    },
+    {
+      "id": "fa_trailing_media_link",
+      "ref": "1580541310636883972",
+      "why": "Persian post whose authored text ends in a media t.co link."
+    },
+    {
+      "id": "fa_expandable_link",
+      "ref": "2095494053508874355",
+      "why": "Persian post with a non-media t.co link that expands to an x.com URL."
+    },
+    {
+      "id": "fa_persian_digits_manoto",
+      "ref": "1889360640810295387",
+      "why": "A second Persian source, to keep the finding off one account."
+    }
   ]
 }

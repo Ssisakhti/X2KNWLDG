@@ -231,6 +231,14 @@ the strongest argument for keeping a second route: Tier 1 and FxTwitter agreed
 character-for-character at 521 and 2967, so cross-route agreement is a real
 verification mechanism where no in-band completeness signal exists.
 
+**With one correction that §5a makes.** All three long-post samples happened to
+be link-free prose, and "agreed character-for-character" does not generalize:
+where a post contains a link the two routes disagree *by design*, because x-cli
+preserves the authored `t.co` form while FxTwitter expands links and strips a
+trailing media one. A truncation check that compares raw text would therefore
+fire on almost every post carrying media or a URL. It has to compare
+URL-normalized text.
+
 The ceiling was probed once further, outside the matrix, on a 3659-character
 post: Tier 0 returned **276 characters**, Tier 1 and FxTwitter both returned all
 3659, and the two agreed exactly again. So Tier 1 is intact to at least 3659
@@ -238,6 +246,56 @@ characters. That is a **measured floor on its capacity, not a proof of it** —
 X's note posts run to far greater lengths than anything located here without
 search, so a higher ceiling may exist and has not been ruled out. `T-223` should
 therefore treat text completeness as corroborated, never as asserted (§12).
+
+## 5a. Persian text survives; the routes disagree about links
+
+Measured by [`fidelity.py`](fidelity.py) into [`fidelity.json`](fidelity.json),
+across four Persian posts from three accounts. This exists because a source claim
+cites a post id **plus an exact text span**: if two routes disagree about the
+characters, a span recorded from one silently misresolves against the other.
+
+**The reassuring half. No Persian codepoint was damaged by any route.** ZWNJ
+(`U+200C`), Persian ye (`U+06CC`), Persian keheh (`U+06A9`) and Persian digits
+(`U+06F0`–`U+06F9`) came back identical from Tier 1 and FxTwitter in every case.
+ZWNJ is not a corner case here — it appeared in **53 of 60** posts sampled from
+one Persian account alone, so silent folding would have corrupted most of the
+corpus. `cases_with_real_codepoint_damage` is empty.
+
+**The half that changes the design. The routes represent links differently.**
+
+| Case | Tier 0 | Tier 1 | FxTwitter | Raw equal? | Equal after URL normalization? |
+|---|---|---|---|---|---|
+| Persian prose, ZWNJ + Persian digits | **273** | 418 | 418 | yes | yes |
+| Persian post ending in a media link | 285 | 285 | 261 | **no** | yes |
+| Persian post with an expandable link | 60 | 60 | 77 | **no** | yes |
+| Second Persian source | 142 | 142 | 135 | **no** | yes |
+
+Three of four disagree raw, and all four agree once URLs are normalized away:
+
+- **x-cli preserves the authored form** — `https://t.co/WlXNDbE5I2`.
+- **FxTwitter expands a non-media link** — the same post's `t.co` becomes
+  `https://x.com/i/broadcasts/1OGwbnpYmVLKB`, which is *longer* than the original.
+- **FxTwitter strips a trailing media link entirely**, exposing the media in a
+  separate field instead.
+
+One apparent codepoint disagreement turned out to be an artifact of exactly this:
+the `ascii_digits` class vanished from FxTwitter's inventory for one post because
+the digits lived inside the stripped `t.co` slug. The script now compares
+inventories on URL-normalized text and reports the artifact separately, because
+"the routes disagree about characters" and "one route dropped a URL" are not the
+same finding and must not be logged as though they were.
+
+**And a fourth truncation instance, in Persian.** Tier 0 returned **273 of 418**
+characters of the link-free Persian post — a post nowhere near the 2967-character
+extreme of §5. Silent truncation is not an exotic long-post problem; it reaches
+ordinary Persian news posts.
+
+**What this obliges `T-223` to decide.** One canonical text form, because the
+offsets of every stored span depend on it. On this evidence the authored `t.co`
+form is the better canonical choice — it is what the author wrote, it is what
+raw evidence contains, and expansion is a lossy, provider-specific opinion that
+can change without the post changing. Expanded targets belong in text entities
+beside the span, not inside it.
 
 ## 6. Failure semantics are clean and distinguishable
 
@@ -343,12 +401,13 @@ guess.
 only route that passed every MVP cell, it sends nothing to a third party, and
 Tier 0 is disqualified as a sole default by the silent truncation in §5.
 
-**A decision is needed on this, because Tier 1 is an escalation from Tier 0**
-and ADR 0007 said to test unauthenticated first. What a guest token is: an
+**Accepted by the user on 2026-09-03 (D-207).** It needed ratifying because
+Tier 1 is an escalation from Tier 0 and ADR 0007 said to test unauthenticated
+first. What a guest token is: an
 anonymous value X mints on request, tied to no account, stored as
 `guest_token` + `minted_at`, metered per operation (500 for a single post, 50 for an archive read). It is not a credential,
 a session or an account, so it sits inside the ADR's exclusions — but it is
-minted material, and the ADR did not name it. §11 puts this to the user.
+minted material, and the ADR did not name it. §11 records the answer.
 
 **Fallback order:**
 
@@ -356,7 +415,8 @@ minted material, and the ADR did not name it. §11 puts this to the user.
    the thread parent-walk, which is where it is strongest. Never for a post
    that might be long, unless a Tier 1 or FxTwitter read confirms the length.
 2. **FxTwitter**, explicit opt-in per ADR 0007 §3 (`T-225`). It agreed with the
-   guest tier on **every** MVP cell, character-for-character at both 521 and 2967, so it
+   guest tier on **every** MVP cell, and character-for-character on link-free
+   prose at 521, 2967 and 3659 — with the URL caveat in §5a — so it
    is a real cross-check rather than a second guess — at the cost of disclosing
    the post id. Reviewed origin `api.fxtwitter.com`; treat `200` as meaningless
    without a `tweet` object.
@@ -365,23 +425,41 @@ minted material, and the ADR did not name it. §11 puts this to the user.
    Persian case — and nothing else. It cannot carry timestamps, media, parents
    or quotes, and can never raise completeness. Origin `publish.x.com`.
 
-**`T-226` (passive Firefox capture) is promoted from optional to required** for
-any thread the user anchors at its root. It is the only remaining credential-free
-way to observe descendants, because a browsing session loads the conversation
-that no public surface will enumerate. If the user accepts the "anchor at the
-last post" contract instead, `T-226` can stay optional — that is the §11 choice.
+**`T-226` (passive Firefox capture) stays optional.** The user chose the
+"anchor at the last post" contract instead (D-206), so the descendant gap is
+closed by asking rather than by browsing. That is the better trade on the
+evidence available: `T-226` is untested here, and it plausibly inherits the same
+unprovability — an observed subset is `PARTIAL` unless completeness is
+independently proven, and "the browser loaded to the end" is not a proof.
 
-## 11. What this puts to the user
+## 11. What this put to the user, and what he decided
 
-1. **Self-thread ingestion contract.** Either (a) the product asks for the
-   **last** post of a thread and reports `PASS`, or (b) it accepts a root
-   anchor and reports `PARTIAL` with the descendants named as unresolved, or
-   (c) `T-226` is brought forward to close the gap. This changes the MVP
-   sentence in `PROJECT_MANAGEMENT.md` §5 either way.
-2. **Tier 1 (guest) as the default read.** §10 states exactly what it is and
-   what it stores. Tier 0 alone cannot represent long posts honestly.
-3. **Confirm the pin.** v0.5.0, AGPL-3.0, invoked as an external binary, with
-   the two digests in §8 recorded as the qualified artefacts.
+Answered on 2026-09-03. Recorded as D-206 and D-207 in
+[`PROJECT_MANAGEMENT.md`](../../PROJECT_MANAGEMENT.md) §6.
+
+1. **Self-thread ingestion contract (D-206) — decided: ask for the last post.**
+   Ingestion asks for the thread's final post, walks upward to the root and
+   reports `PASS`; a root anchor warns and asks for the last post rather than
+   being accepted quietly. Completeness is recorded as *"complete to root from a
+   user-asserted terminal anchor"*, never as an observed fact. This keeps `PASS`
+   meaningful instead of making `PARTIAL` the normal state — and it leaves one
+   permanent, explicit residual risk: the terminal anchor is a human judgement
+   the system cannot verify, so a thread continued later will be silently short.
+   `T-226` was **not** promoted, which is well judged: it is untested and
+   probably inherits the same wall, "I scrolled to the end" being no more
+   provable than "this is the last post".
+2. **Tier 1 (guest) as the default read (D-207) — decided: yes.** Tier 0 remains
+   the fallback for short single posts and for the parent-walk, where it is
+   unmetered and at its strongest. Tier 0 alone cannot represent long posts
+   honestly (§5).
+3. **The pin (D-208) — still open.** v0.5.0, AGPL-3.0, external binary, the two
+   digests in §8.
+
+**And one item this report did not originally raise.** ADR 0007's "no payment or
+regional restriction is to be circumvented" was written about not evading the
+paid API; the accepted path routes around a state-level block on the user's own
+traffic, which is a different thing. §0 explains why one clarifying line is
+worth adding so the record does not read as self-contradictory. Also open.
 
 ## 12. What `T-223` must encode
 
@@ -402,6 +480,15 @@ Carried forward as contract requirements, each traceable to a measurement above:
 - `alt_text` is real and worth carrying — 62 of 108 media objects had it (§7).
 - Raw evidence keeps its **pre-sanitization digest** alongside the sanitized
   one, and sanitization records what it removed (§8).
+- **One canonical text form, and it is the authored one.** Spans are offsets
+  into it, so the choice is load-bearing. Store expanded link targets as
+  entities beside the span, never substituted into it (§5a).
+- **Any cross-route text comparison normalizes URLs first.** Raw comparison
+  disagrees on three of four Persian posts purely over link representation, so a
+  raw check would fire on almost every post with media or a URL (§5a).
+- **Persian codepoints need no special handling but do need a guard.** Nothing
+  damaged ZWNJ, Persian ye, keheh or Persian digits, and a regression test
+  should keep it that way (§5a).
 - **Text completeness has no in-band signal**, so it is not assertable from one
   route. A capture records the surface that supplied the text and, where a
   second route was read, whether the two agreed. Tier 1 and FxTwitter matched

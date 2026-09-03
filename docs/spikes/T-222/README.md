@@ -14,7 +14,9 @@ Read [`REPORT.md`](REPORT.md) for the capability table and the go/no-go.
 |---|---|
 | [`REPORT.md`](REPORT.md) | The spike report: capability matrix, findings, decision |
 | [`cases.json`](cases.json) | The matrix definition — refs, why each was chosen, what a route must observe to `PASS` |
-| [`qualify.py`](qualify.py) | The harness. Stdlib only, imports nothing from the package |
+| [`qualify.py`](qualify.py) | The capability harness. Stdlib only, imports nothing from the package |
+| [`fidelity.py`](fidelity.py) | The Persian/RTL addendum — cross-route text fidelity, which the per-cell matrix structurally cannot see |
+| `fidelity.json` | Generated. Codepoint inventories, URL-representation differences, per-case verdicts |
 | `results.json` | Generated. Every cell with its verdict, reason, latency, digests |
 | `fixtures/` | Generated. Sanitized response bodies, one per cell |
 
@@ -31,6 +33,7 @@ shasum -a 256 -c checksums.txt --ignore-missing   # must say OK
 tar xzf x_0.5.0_darwin_arm64.tar.gz               # yields ./x
 
 python3 docs/spikes/T-222/qualify.py --xcli ./x --rate 1.2
+python3 docs/spikes/T-222/fidelity.py --xcli ./x
 ```
 
 Exit `0` means every cell was measured, `1` that a cell failed, `2` that the
