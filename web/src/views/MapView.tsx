@@ -115,6 +115,9 @@ import { withFocusRescue } from "../lib/focusRescue";
 /** The typed loader over the frozen operation, built once rather than per render. */
 const loadGraphPage = apiGraphPages(api);
 
+/** One empty set, so "no cards" is the same object on every render. */
+const EMPTY_CARDED: ReadonlySet<string> = new Set<string>();
+
 /**
  * Whether two measured chrome lists describe the same rectangles (`T-212`).
  *
@@ -344,16 +347,6 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawnFocus, holdingId]);
 
-  useEffect(() => {
-    const changed = mapStyle.setView({
-      selectedNode: drawnFocus,
-      hoveredNode,
-      neighbourNodes: relatedIds,
-    });
-    // `refresh`, never `update`: `update` re-settles the layout (D-128), which
-    // would make the graph jump every time the pointer crossed a result row.
-    if (changed) session.current?.refresh();
-  }, [drawnFocus, hoveredNode, relatedIds]);
 
   // One session for the life of the route. The cleanup is the only thing
   // standing between a filter/reload loop and a pile of WebGL contexts, and
@@ -657,6 +650,41 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
    * dropped (SPEC §5's `stack` tier).
    */
   const tier = orbitTier(stageBox.width);
+
+  /*
+   * The style table is told *after* the orbit has decided, and that ordering
+   * is the whole of it: which nodes carry cards is an output of `placeOrbit`,
+   * so the effect that hands the view state to the renderer has to sit below
+   * the memo that computes it. It used to sit beside the selection effects
+   * two hundred lines up, where `placement` does not exist yet.
+   */
+  /**
+   * Which nodes the orbit has drawn a card for (`T-214`).
+   *
+   * Handed to the style table so their canvas labels go: a card carries the
+   * statement in more of it than a label can and with the cut marked, and the
+   * label underneath it is the same sentence twice in one place (ADR 0006
+   * clause 5). A neighbour the orbit *counted* is deliberately not in here --
+   * its label is the only thing naming it.
+   */
+  const cardedIds = useMemo(() => {
+    if (placement === null) return EMPTY_CARDED;
+    const carded = new Set<string>(placement.cards.map((card) => card.globalId));
+    if (placement.centre !== null) carded.add(placement.centre.globalId);
+    return carded;
+  }, [placement]);
+
+  useEffect(() => {
+    const changed = mapStyle.setView({
+      selectedNode: drawnFocus,
+      hoveredNode,
+      neighbourNodes: relatedIds,
+      cardedNodes: cardedIds,
+    });
+    // `refresh`, never `update`: `update` re-settles the layout (D-128), which
+    // would make the graph jump every time the pointer crossed a result row.
+    if (changed) session.current?.refresh();
+  }, [drawnFocus, hoveredNode, relatedIds, cardedIds]);
 
   return (
     <div

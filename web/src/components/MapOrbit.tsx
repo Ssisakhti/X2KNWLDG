@@ -58,7 +58,7 @@ import {
 import { previewOfEntity } from "../map/useMapSearch";
 import { PreviewStatement } from "./MapResultCard";
 import { RelationPill } from "./MapRelation";
-import { ProvenanceBadge } from "./Provenance";
+import { KindBadge, ProvenanceBadge } from "./Provenance";
 import { Mono } from "./primitives";
 
 /** A card's own rectangle, written onto the element exactly as reserved. */
@@ -104,7 +104,7 @@ function OrbitCardView({
           {primary ? t("map.stage.primary") : t("map.stage.neighbour")}
         </span>
         {preview.provenance !== null && <ProvenanceBadge provenance={preview.provenance} />}
-        {!card.chip && <span className="badge">{preview.kind ?? t("common.notStated")}</span>}
+        {!card.chip && <KindBadge kind={preview.kind} />}
         {card.hops > 1 && (
           <span className="badge">{t("map.orbit.hopBadge", { hops: card.hops })}</span>
         )}

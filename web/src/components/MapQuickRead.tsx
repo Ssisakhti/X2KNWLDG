@@ -58,7 +58,7 @@ import type { NeighbourhoodFailure } from "../map/useNeighbourhood";
 import { Disclosure } from "./Disclosure";
 import { ErrorState } from "./ErrorState";
 import { RelationCues } from "./MapRelation";
-import { ProvenanceBadge } from "./Provenance";
+import { KindBadge, ProvenanceBadge } from "./Provenance";
 import { Bidi, DefinitionList, Missing, Mono } from "./primitives";
 
 /** The one locator type v1 produces. The rest are reserved and shown as they are. */
@@ -148,7 +148,7 @@ export function MapQuickRead({
     ) : (
       <span className="row">
         {entity !== null && <ProvenanceBadge provenance={entity.provenance_class} />}
-        {entity !== null && <span className="badge">{entity.kind ?? t("common.notStated")}</span>}
+        {entity !== null && <KindBadge kind={entity.kind} />}
         <Mono>{focus}</Mono>
       </span>
     );

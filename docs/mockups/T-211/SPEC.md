@@ -458,3 +458,36 @@ in D-193.
    before the picture is still there and still reachable without a pointer. At 1440×900 the
    counts surface was 57 % of the field's height, standing where the outgoing side of the
    orbit is drawn.
+
+---
+
+## 15. What `T-214` built, and the two places it departed
+
+`T-214` implemented §6's visual system over the composition `T-213` placed. It moved no card
+and changed no coordinate: `measure_orbit.ts` reads the same 7 placed / 1 counted at
+2852×1688 and 2 / 6 at 1440×900, with the same zeros for clipping, overlap, chrome and
+unseated pills. What changed is what a reader can tell apart.
+
+| Clause (§6, ADR 0006 clause 5) | How it is met |
+|---|---|
+| Provenance never colour alone | Four signals, unchanged and now asserted as a stylesheet rule: rail colour, rail **border style** (`solid`/`dashed`/`dotted`), badge glyph (`◆`/`◇`/`✎`) and the badge word |
+| Kind hue is a small cue, never a card fill | `KindBadge` — an 8 px swatch from `KIND_FAMILY_COLOUR`, beside the record's own kind token, at every place the Map names a kind. A rule asserts no card is ever filled with it |
+| The focused card is the centre by four means | Size (the tier's `primaryBox`), a doubled border, a 1 px accent ring with an accent glow behind it, and a 4 % accent ground tint in light mode only, where the glow reads as weaker |
+| Type scale with an explicit hierarchy | Three card sizes carry three type sizes: `--text-md` for the statement being read, `--text-sm` for one being judged, `--text-xs` for a mark further out |
+| Graph labels may not render under cards | A node the orbit has carded loses its canvas label, and an edge whose **both** endpoints are carded loses its relation label, because the card and the pill already carry them — in more text and with the cut marked. A neighbour the orbit only *counted* keeps its label, so every neighbour is still named |
+| Nothing decorative implies a quantity | Asserted: no token keys a size, an opacity or a colour to a `confidence`, and `mapStyle` never reads that field at all |
+
+The two deliberate departures. Each is also in D-194.
+
+1. **`--edge-faint` is not implemented, because nothing can read it.** §6 proposes it for
+   "the quiet Explore field", and Explore's edges are drawn by WebGL: a canvas cannot read a
+   CSS custom property, which is the same constraint `mapStyle`'s comment on `labelColor`
+   already records. The production equivalent exists and is `MAP_DIMMED_EDGE_OPACITY`, in the
+   one style table, where a renderer can reach it. Adding the token as well would ship a
+   number with no reader and two places to change it.
+
+2. **The kind swatch is on the Map's surfaces, not the Library's and the Reader's.** The hue
+   is `KIND_FAMILY_COLOUR`'s, the legend that explains it is the Map's, and a swatch on a
+   Reader row would be a colour with no key on that screen. `EntityCard`, `SearchResults` and
+   `ReaderView` keep the plain badge; they name the same kind in the same words.
+

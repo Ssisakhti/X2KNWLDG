@@ -31,7 +31,7 @@ import { useI18n } from "../i18n";
 import { formatConfidence, formatSeconds } from "../lib/format";
 import type { MapPeekState } from "../map/useMapPeek";
 import { previewOfEntity } from "../map/useMapSearch";
-import { ProvenanceBadge } from "./Provenance";
+import { KindBadge, ProvenanceBadge } from "./Provenance";
 import { PreviewStatement } from "./MapResultCard";
 import { Missing, Mono } from "./primitives";
 
@@ -65,7 +65,7 @@ export function MapPeekCard({
       <div className="row">
         <span className="badge">{t("map.peek.title")}</span>
         {preview.provenance !== null && <ProvenanceBadge provenance={preview.provenance} />}
-        <span className="badge">{preview.kind ?? t("common.notStated")}</span>
+        <KindBadge kind={preview.kind} />
         <span className="faint">
           {t("reader.units.confidence")}: {confidence ?? <Missing />}
         </span>

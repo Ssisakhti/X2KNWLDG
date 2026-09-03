@@ -36,6 +36,7 @@
  * edges would be the same mistake with smaller words.
  */
 
+import type { IndexedRelation } from "../api/contract";
 import type { MapInteraction, MapViewState } from "./mapStyle";
 
 /** What Sigma may do with a label the policy has not forced. */
@@ -216,17 +217,32 @@ export function isTruncated(displayed: string | null): boolean {
  * Whether the policy forces this node's label, leaves it to Sigma, or refuses
  * it.
  *
- * `"hidden"` appears in exactly one case, and it is not a way of removing a
- * node: with a focus on stage, an unrelated node keeps its mark and its
- * position and loses only its *label*, because a screen carrying a focused
- * statement plus eighty ambient sentences is the pile D-122 exists to prevent.
- * The mark stays drawn and dimmed -- de-emphasised, never represented as
- * absent (§5 `T-205`).
+ * `"hidden"` appears in two cases, and neither is a way of removing a node.
+ *
+ * With a focus on stage, an unrelated node keeps its mark and its position and
+ * loses only its *label*, because a screen carrying a focused statement plus
+ * eighty ambient sentences is the pile D-122 exists to prevent. The mark stays
+ * drawn and dimmed -- de-emphasised, never represented as absent (§5 `T-205`).
+ *
+ * The second is `T-214`'s, and it is the same argument at a different scale: a
+ * node the Directional Orbit has given a **card** already has its statement on
+ * screen, in more of it than a label can carry and with the cut marked. Drawing
+ * the label as well puts the same sentence twice in the same place, the lower
+ * copy underneath the upper one -- which is exactly the "no graph label under a
+ * card" clause ADR 0006 clause 5 states. A carded node loses its label; a
+ * neighbour the orbit counted rather than placed keeps it, so every neighbour
+ * is still named one way or the other.
+ *
+ * Note the order: the card clause is checked *before* the interaction, because
+ * the focused node is always carded and `"selected"` would otherwise force its
+ * label straight back under its own card.
  */
 export function nodeLabelVisibility(
+  key: string,
   interaction: MapInteraction,
   view: MapViewState,
 ): MapLabelVisibility {
+  if (view.cardedNodes.has(key)) return "hidden";
   if (interaction === "selected" || interaction === "hovered") return "visible";
   if (interaction === "neighbour") {
     return view.neighbourNodes.size <= MAP_LABEL_NEIGHBOUR_BUDGET ? "visible" : "auto";
@@ -241,7 +257,20 @@ export function nodeLabelVisibility(
  * whatever is under the pointer or the keyboard. Everything else is `"hidden"`,
  * which is why turning `renderEdgeLabels` on does not put 118 words on the
  * overview.
+ *
+ * `T-214` adds the clause the node rule gained: an edge whose **both**
+ * endpoints carry orbit cards is already named, horizontally and in full, by
+ * the relation pill the orbit seated clear of every card. Drawing the canvas
+ * label as well writes the relation twice in one place, the lower copy under a
+ * card -- which is the clause ADR 0006 clause 5 states. An edge running from a
+ * carded node to a neighbour the orbit only *counted* keeps its label, because
+ * nothing else on screen names that one.
  */
-export function edgeLabelVisibility(interaction: MapInteraction): MapLabelVisibility {
+export function edgeLabelVisibility(
+  record: IndexedRelation,
+  interaction: MapInteraction,
+  view: MapViewState,
+): MapLabelVisibility {
+  if (view.cardedNodes.has(record.from_id) && view.cardedNodes.has(record.to_id)) return "hidden";
   return interaction === "selected" || interaction === "hovered" ? "visible" : "hidden";
 }

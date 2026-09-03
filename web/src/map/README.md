@@ -531,6 +531,26 @@ left: **7 of 8 neighbours placed and 1 counted at 2852×1688**, against 4 and 4;
 overlaps, zero cards or pills under a floating control, zero pills without a
 clear seat.
 
+### A card and a label are the same statement, so only one is drawn
+
+`T-214` closed the clause ADR 0006 clause 5 had stated since the ADR was written and that
+shipped broken through two tasks: **a graph label may not render under a card.** It did.
+The focused node's label and up to four neighbour labels were drawn on the canvas underneath
+the very cards carrying those statements — in less text, without the cut marked, and behind
+an opaque surface.
+
+`MapViewState.cardedNodes` is the fix, and it is a *set of ids* rather than a flag on
+purpose. A node the orbit has carded loses its label; a neighbour the orbit **counted**
+rather than placed keeps it, because nothing else on screen names that one. Hiding every
+label in Focus would have taken a name away from exactly the neighbours the omission report
+exists to protect. The same clause runs on edges: a relation whose *both* endpoints are
+carded is already named by the pill the orbit seated clear of every card, so its canvas label
+goes; a relation from a carded node to a counted one keeps it.
+
+The card clause is checked **before** the interaction state, and that order is load-bearing:
+the focused node is always carded, and `"selected"` would otherwise force its label straight
+back under its own card.
+
 ### The overlay owns nothing
 
 No button, no link, no field, `pointer-events: none`, `aria-hidden` (D-137).

@@ -277,6 +277,28 @@ input {
   font-family: var(--font-mono);
 }
 
+/*
+ * The kind's family hue, as a small cue beside the word (T-214, SPEC §6).
+ *
+ * Eight pixels, and never the card's fill: hue is the *second* signal here and
+ * the record's own vocabulary is the first. A card tinted by kind would read
+ * as a category with a status, and the only classification this project
+ * colours a whole surface with is provenance.
+ *
+ * The colour is written inline by `KindBadge` from `KIND_FAMILY_COLOUR`, which
+ * is the same table the legend explains and the mark on the stage is drawn
+ * with, so a reader can carry one to the other. The ring keeps a light hue
+ * legible on `--bg-raised` and a dark one on the dark field.
+ */
+.badge__swatch {
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+  align-self: center;
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
 .provenance {
   border-inline-start-width: var(--rail-width);
 }
@@ -1041,21 +1063,57 @@ input {
 
 /*
  * The focused card is the centre by four means at once (SPEC §6): size, a
- * doubled border, an accent ring, and — in light mode, where a glow reads as
- * weaker — a tint in its own ground. Four, because any one of them alone is a
- * cue a reader can miss.
+ * doubled border, an accent ring with a glow behind it, and — in light mode,
+ * where a glow reads as weaker — a tint in its own ground. Four, because any
+ * one of them alone is a cue a reader can miss: the size is lost on a reader
+ * who never sees the other cards, the border is lost in greyscale at a
+ * distance, the ring is lost against a light field, and the tint is lost on a
+ * dark one.
+ *
+ * The rail stays the *provenance* rail. The accent says "this is the one you
+ * asked for"; it never says where the statement came from, and the two must
+ * not be confused on the one card a reader is reading.
  */
 .map__card--primary {
   border-width: calc(var(--border-width) * 2);
   border-inline-start-width: var(--rail-width);
   outline: 1px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, var(--bg-raised));
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--accent) 16%, transparent),
+    var(--card-shadow);
 }
 
-/* A mark further out carries less, by design. */
+/*
+ * The tint is light-mode only, and the media query is the reason it is here
+ * rather than a token: on a dark field a 4 % accent wash over `--bg-raised` is
+ * invisible, and the glow above is what carries the same job. Stated as
+ * "light" rather than "not dark" so the default `color-scheme: light dark`
+ * still gets it.
+ */
+@media not (prefers-color-scheme: dark) {
+  .map__card--primary {
+    background: color-mix(in srgb, var(--accent) 4%, var(--bg-raised));
+  }
+}
+
+/*
+ * Three sizes of card, three sizes of type (SPEC §6's hierarchy).
+ *
+ * The focused statement is the one being read, a neighbour's is being judged,
+ * and a mark further out carries less by design — so the type follows the box
+ * rather than every card being one size in three rectangles. The scale is
+ * `tokens.css`'s and nothing new is introduced.
+ */
+.map__card--primary .statement,
+.map__card--primary > p {
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+}
+
 .map__card--chip {
   font-size: var(--text-xs);
   padding: var(--space-2);
+  gap: var(--space-1);
 }
 
 /*

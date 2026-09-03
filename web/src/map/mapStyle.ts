@@ -502,12 +502,31 @@ export interface MapViewState {
   hoveredNode: string | null;
   /** The focus's neighbours, by `global_id`. */
   neighbourNodes: ReadonlySet<string>;
+  /**
+   * The nodes the Directional Orbit has drawn a card for (`T-214`).
+   *
+   * A label on the canvas and a card over it are the *same statement* twice,
+   * and the card is underneath nothing while the label is underneath the
+   * card: ADR 0006 clause 5 says graph labels may not render under cards, and
+   * `T-210`'s acceptance criterion says a label never sits under a Focus card.
+   * So a node with a card has no label, and a node without one keeps exactly
+   * the rule it had. Every neighbour is therefore still named -- by its card
+   * if it has one, by its label if it does not -- which is a stronger
+   * statement than either "hide them all in Focus" or the pile that was
+   * there before.
+   *
+   * A *set of ids* rather than a flag, because the orbit places some
+   * neighbours and counts others, and the ones it counted are exactly the
+   * ones whose label still has a job to do.
+   */
+  cardedNodes: ReadonlySet<string>;
 }
 
 export const EMPTY_VIEW_STATE: MapViewState = {
   selectedNode: null,
   hoveredNode: null,
   neighbourNodes: new Set<string>(),
+  cardedNodes: new Set<string>(),
 };
 
 /** Whether anything is focused. With no focus, nothing is de-emphasised. */
@@ -585,7 +604,7 @@ export function mapNodeStyle(
     depth: state.top ? "topNodes" : "nodes",
     visibility: "visible",
     label: truncateForDisplay(record.label, MAP_LABEL_CHARS[interaction]),
-    labelVisibility: nodeLabelVisibility(interaction, view),
+    labelVisibility: nodeLabelVisibility(record.global_id, interaction, view),
     // The label wears the mark's own hue rather than a fixed ink colour: the
     // stage follows the user's light/dark preference and WebGL cannot read a
     // CSS custom property, so a mid-tone that is legible on both is the only
@@ -612,7 +631,7 @@ export function mapEdgeStyle(
   const provenance = edgeProvenanceMark(record.provenance_class);
   const state = EDGE_INTERACTION[interaction];
   const dimmed = interaction === "normal" && hasFocus(view);
-  const visibility = edgeLabelVisibility(interaction);
+  const visibility = edgeLabelVisibility(record, interaction, view);
 
   return {
     size: vocabulary.size * state.scale,
@@ -680,11 +699,13 @@ export class MapStyle {
       hoveredNode: next.hoveredNode !== undefined ? next.hoveredNode : this.state.hoveredNode,
       neighbourNodes:
         next.neighbourNodes !== undefined ? next.neighbourNodes : this.state.neighbourNodes,
+      cardedNodes: next.cardedNodes !== undefined ? next.cardedNodes : this.state.cardedNodes,
     };
     if (
       merged.selectedNode === this.state.selectedNode &&
       merged.hoveredNode === this.state.hoveredNode &&
-      sameMembers(merged.neighbourNodes, this.state.neighbourNodes)
+      sameMembers(merged.neighbourNodes, this.state.neighbourNodes) &&
+      sameMembers(merged.cardedNodes, this.state.cardedNodes)
     ) {
       return false;
     }
