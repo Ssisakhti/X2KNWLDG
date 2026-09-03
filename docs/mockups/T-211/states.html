@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>T-211 — Honest states</title>
+<link rel="stylesheet" href="mockup.css">
+<style>
+  html, body { overflow: auto; }
+  .sheet { padding: var(--space-6); display: grid; gap: var(--space-5);
+           grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+  .demo { border: var(--border-width) solid var(--border); border-radius: var(--radius-lg);
+          overflow: hidden; background: var(--stage-ground); }
+  .demo__label { padding: var(--space-2) var(--space-3); background: var(--bg-raised);
+                 border-block-end: var(--border-width) solid var(--border);
+                 font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.07em;
+                 color: var(--fg-faint); display: flex; gap: var(--space-2); align-items: baseline; }
+  .demo__label .mono { text-transform: none; letter-spacing: 0; }
+  .demo__stage { block-size: 260px; position: relative; display: grid; place-items: center;
+                 padding: var(--space-5); }
+  h1 { font-size: var(--text-xl); margin: 0 0 var(--space-1); }
+  .lede { color: var(--fg-muted); margin: 0 0 var(--space-5); max-inline-size: 92ch; }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div style="grid-column: 1 / -1">
+    <h1>Honest states, at the workspace composition</h1>
+    <p class="lede">
+      Every state below already exists in <span class="mono">mapState.ts</span> as
+      <span class="mono">describeGraph</span> and <span class="mono">describeCanvas</span>.
+      T-211 changes where they are drawn, never what they say: a state is a notice inside the
+      workspace, not a line that pushes the stage down the document. The floating status keeps
+      whatever counts really arrived, and says so.
+    </p>
+  </div>
+  <div id="demos" style="display: contents"></div>
+</div>
+
+<script type="module">
+import { t, LOCALE, RTL, el } from "./render.js";
+document.documentElement.lang = LOCALE;
+document.body.dir = RTL ? "rtl" : "ltr";
+
+/* Text is quoted from the `en` catalogue in web/src/i18n/catalog.ts, so the
+   mockup states what the Map already states. */
+const STATES = [
+  { reading: "unasked", canvas: "pending",
+    title: "No page of the graph has been read yet",
+    body: "…so this Map states nothing about what your library holds." },
+  { reading: "empty", canvas: "nothing",
+    title: "There is no node to draw",
+    body: "The index holds no graph node, so the stage is empty rather than broken. This is not a drawing that failed." },
+  { reading: "partial", canvas: "drawing",
+    title: "Part of the graph",
+    body: "More of it exists than is drawn. The server cut the last page's node list short at the requested limit.",
+    counts: "42 / 86 nodes · 61 edges · 3 held" },
+  { reading: "refused", canvas: "drawing",
+    title: "The request for the next page failed",
+    body: "The counts shown are from the pages that did arrive. They are not an answer to the request that failed.",
+    counts: "42 nodes · 61 edges", stale: true },
+  { reading: "whole", canvas: "unavailable",
+    title: "This browser did not provide the graphics the drawing needs",
+    body: "The renderer needs WebGL2, and loading it was refused. Nothing else on this Map depends on it: the counts, the list of what the Map holds, search, focus, related knowledge and Quick Read all work as they are.",
+    detail: "WebGL2 context creation failed" },
+  { reading: "whole", canvas: "refused",
+    title: "The graph could not be drawn",
+    body: "The counts are what the index returned; only the drawing is missing. The renderer refuses a container with no size, so a stage that has not been laid out yet is the usual cause, and the next layout recovers it.",
+    detail: "container has no size" },
+];
+
+const host = document.getElementById("demos");
+for (const state of STATES) {
+  const demo = el("div", "demo");
+  const label = el("div", "demo__label");
+  label.append(
+    el("span", "mono", `data-map-reading="${state.reading}"`),
+    el("span", "mono", `data-map-canvas="${state.canvas}"`),
+  );
+  demo.appendChild(label);
+
+  const stageBox = el("div", "demo__stage");
+  const notice = el("div", "notice");
+  notice.appendChild(el("strong", "", state.title));
+  notice.appendChild(el("p", "", state.body));
+  if (state.detail) {
+    const detail = el("p", "", state.detail);
+    detail.style.marginBlockStart = "var(--space-2)";
+    detail.style.fontFamily = "var(--font-mono)";
+    detail.style.fontSize = "var(--text-xs)";
+    detail.style.color = "var(--fg-faint)";
+    notice.appendChild(detail);
+  }
+  stageBox.appendChild(notice);
+
+  if (state.counts) {
+    const float = el("div", "float");
+    float.style.insetBlockStart = "var(--space-3)";
+    float.style.insetInlineEnd = "var(--space-3)";
+    float.style.position = "absolute";
+    float.appendChild(el("span", "float__num", state.counts));
+    if (state.stale) {
+      const note = el("div", "", "These are the pages that did arrive.");
+      note.style.fontSize = "var(--text-xs)";
+      note.style.color = "var(--fg-faint)";
+      float.appendChild(note);
+    }
+    stageBox.appendChild(float);
+  }
+  demo.appendChild(stageBox);
+  host.appendChild(demo);
+}
+</script>
+</body>
+</html>

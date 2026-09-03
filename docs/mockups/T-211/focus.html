@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>T-211 — Focus (Directional Orbit)</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="workspace">
+  <header class="bar">
+    <span class="bar__brand" data-i18n="app.title"></span>
+    <nav class="bar__nav">
+      <button class="pill" data-i18n="nav.library"></button>
+      <button class="pill pill--on" data-i18n="nav.map"></button>
+    </nav>
+    <span class="bar__spacer"></span>
+    <span class="mono" id="route"></span>
+  </header>
+
+  <main class="stage" id="stage">
+    <svg class="stage__svg" id="svg"></svg>
+    <div class="stage__overlay" id="overlay"></div>
+
+    <div class="float float--focusbar">
+      <button class="pill" id="back">← Explore</button>
+      <span class="float__sep">|</span>
+      <span class="float__label" data-i18n="map.focus.title"></span>
+      <span class="mono" id="focusid"></span>
+      <span class="float__sep">·</span>
+      <span id="hopcount" style="color:var(--fg-muted);font-size:var(--text-sm)"></span>
+    </div>
+
+    <div class="float float--zoom">
+      <button class="iconbtn" title="Zoom out">−</button>
+      <button class="iconbtn" title="Reset the view">⤢</button>
+      <button class="iconbtn" title="Zoom in">+</button>
+    </div>
+
+    <!-- The one primary drawer. It is bounded, it overlays the stage rather
+         than pushing it, and its inline-size is subtracted from the orbit's
+         own width so it can never cover the focused card (WCAG 2.2 AA
+         "Focus Not Obscured"). -->
+    <aside class="drawer" id="drawer">
+      <div class="drawer__head">
+        <h2 class="drawer__title" data-i18n="map.quickRead.title"></h2>
+        <span class="bar__spacer"></span>
+        <span class="badge" id="qr-kind"></span>
+        <span class="badge" id="qr-prov"></span>
+        <button class="iconbtn" style="min-block-size:2rem;min-inline-size:2rem" title="Close">×</button>
+      </div>
+      <div class="drawer__body" id="qr"></div>
+    </aside>
+  </main>
+</div>
+
+<script type="module">
+import { DATA, t, LOCALE, RTL, statement, relationGloss, excerptOf, kindColour, el, svg,
+         markPath, mmss, NODE_PROVENANCE_MARK, EDGE_VOCABULARY_MARK, PROVENANCE_GLYPH,
+         PROPOSED, cutToBudget, MAP_DIMMED_NODE_OPACITY, bdi } from "./render.js";
+
+document.documentElement.lang = LOCALE;
+document.body.dir = RTL ? "rtl" : "ltr";
+for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
+
+const C = DATA.centre;
+document.getElementById("route").textContent = `#/map?focus=${C.global_id}`;
+document.getElementById("focusid").textContent = C.global_id;
+const hop1 = DATA.related.filter((r) => r.hops === 1).length;
+const hop2 = DATA.related.filter((r) => r.hops === 2).length;
+document.getElementById("hopcount").textContent =
+  RTL ? `${hop1} همسایه در گام ۱ · ${hop2} در گام ۲`
+      : `${hop1} at hop 1 · ${hop2} at hop 2`;
+window.__omissionNote = null;
+
+const stage = document.getElementById("stage");
+const W = stage.clientWidth, H = stage.clientHeight;
+
+/**
+ * Three compositions, not one scaled three ways.
+ *
+ * The orbit needs room for a centre card plus a card on each side. Below that
+ * it cannot be drawn honestly, and the answer is NOT to shrink everything
+ * until the text is unreadable: it is to place fewer cards and COUNT the ones
+ * left off, which is the rule `placeConstellation` already implements with its
+ * `StageOmission` reasons. Every omitted neighbour stays in the related list.
+ */
+const MODE = W < 900 ? "stack" : W < 2000 ? "compact" : "full";
+const NARROW = MODE !== "full";
+document.documentElement.dataset.mode = MODE;
+
+const s = document.getElementById("svg");
+s.setAttribute("viewBox", `0 0 ${W} ${H}`);
+const overlay = document.getElementById("overlay");
+const drawer = document.getElementById("drawer");
+
+// ---- stack composition, for viewports the orbit cannot honestly hold ------
+
+function renderStack() {
+  const host = document.getElementById("stage");
+  host.classList.add("stage--stack");
+  document.getElementById("drawer").style.display = "none";
+  document.querySelector(".float--zoom").style.display = "none";
+  const bar = document.querySelector(".float--focusbar");
+  bar.classList.add("float--focusbar-stack");
+
+  const scroll = el("div", "stack-list");
+
+  const primaryCard = el("article", `card card--stack-primary card--${C.provenance_class}`);
+  const head = el("div", "card__head");
+  badges(C, head);
+  primaryCard.appendChild(head);
+  primaryCard.appendChild(el("p", "card__statement", statement(C)));
+  const foot = el("div", "card__foot");
+  if (C.locator) foot.append(el("span", "", `at ${mmss(C.locator.start_sec)}–${mmss(C.locator.end_sec)}`));
+  foot.append(el("span", "mono", C.global_id));
+  primaryCard.appendChild(foot);
+  scroll.appendChild(primaryCard);
+
+  scroll.appendChild(el("h2", "stack-list__title",
+    `${t("map.related.title")} · ${DATA.related.length}`));
+
+  for (const item of DATA.related) {
+    const rel = item.relations[0].record;
+    const row = el("article", `card card--stack card--${item.record.provenance_class}`);
+    const cue = el("div", "card__head");
+    const arrow = RTL ? "←" : "→";
+    const near = item.parentId === C.global_id
+      ? (RTL ? "کانون" : "focus")
+      : (portLabel(item.parentId) ?? (RTL ? "کانون" : "focus"));
+    const pill = el("span", "relpill relpill--inline");
+    const name = el("strong", "", relationGloss(rel.relation));
+    if (item.toCentre === "incoming") {
+      pill.append(name, el("span", "relpill__dir", arrow), el("span", "relpill__focus", near));
+    } else {
+      pill.append(el("span", "relpill__focus", near), el("span", "relpill__dir", arrow), name);
+    }
+    cue.append(pill, el("span", "badge", `${RTL ? "گام" : "hop"} ${item.hops}`));
+    row.appendChild(cue);
+    const cut = cutToBudget(statement(item.record), PROPOSED.NEIGHBOUR_CHARS);
+    row.appendChild(el("p", "card__statement", cut.shown + (cut.truncated ? "…" : "")));
+    scroll.appendChild(row);
+  }
+  host.appendChild(scroll);
+}
+
+function portLabel(globalId) {
+  const found = DATA.related.find((r) => r.globalId === globalId);
+  return found ? found.record.local_id : null;
+}
+
+// ---- geometry ------------------------------------------------------------
+// The drawer's width is removed from the orbit's own field FIRST, so the
+// centre is centred in what remains. Nothing is placed under the drawer.
+const DRAWER = NARROW ? 0 : PROPOSED.DRAWER_WIDTH + 32;
+if (NARROW) drawer.style.display = "none";   // one primary drawer at a time
+const FIELD = W - DRAWER;
+// The drawer is placed with a LOGICAL property, so in Persian it sits on the
+// left. The orbit's field must move with it, or the mirrored layout puts the
+// focused card underneath the drawer -- which is a WCAG 2.2 AA "Focus Not
+// Obscured" failure, and was one until this line existed.
+const ORIGIN = RTL ? DRAWER : 0;
+const cx = ORIGIN + FIELD / 2;
+const cy = H / 2;
+
+// Incoming left, outgoing right is a READING order, so it mirrors with the
+// script: in Persian the incoming side is the right, where reading starts.
+// The relation records are untouched; only which side draws them changes.
+const FLIP = RTL ? -1 : 1;
+
+const SIZES = {
+  full: { P: PROPOSED.PRIMARY_BOX, CARD: PROPOSED.CARD_BOX, CHIP: PROPOSED.CHIP_BOX,
+          perSide: Infinity, showFar: true },
+  compact: { P: { width: 420, height: 200 }, CARD: { width: 264, height: 132 },
+             CHIP: PROPOSED.CHIP_BOX, perSide: 2, showFar: false },
+  stack: { P: { width: Math.min(340, W - 32), height: 190 }, CARD: { width: 0, height: 0 },
+           CHIP: { width: 0, height: 0 }, perSide: 0, showFar: false },
+};
+const { P, CARD, CHIP, perSide, showFar } = SIZES[MODE];
+const scale = Math.min(1, FIELD / 2280);
+// The band is bounded by the floating chrome, not by the stage edge. The focus
+// bar occupies the top-left and the omission note the top-right in compact, so
+// a card placed against the stage edge is a card placed under a control.
+const TOP_INSET = MODE === "full" ? 150 : 140;
+const BOTTOM_INSET = MODE === "full" ? 130 : 110;
+const bandY = Math.max(
+  120,
+  Math.min(560, H / 2 - TOP_INSET - (MODE === "full" ? 116 : 66)),
+);
+const armNear = (MODE === "compact" ? 250 : 400) * scale;
+const armFar = (MODE === "compact" ? 60 : 130) * scale;
+
+const allIncoming = DATA.related.filter((r) => r.hops === 1 && r.side === "incoming");
+const allOutgoing = DATA.related.filter((r) => r.hops === 1 && r.side === "outgoing");
+const allFar = DATA.related.filter((r) => r.hops === 2);
+
+// The accounting must be total: placed + omitted === returned. That is the
+// invariant the browser gate already asserts for the stage overlay, and a
+// mockup that quietly dropped a neighbour would be proposing a lie.
+const incoming = allIncoming.slice(0, perSide);
+const outgoing = allOutgoing.slice(0, perSide);
+const far = showFar ? allFar : [];
+const omitted = {
+  budget: (allIncoming.length - incoming.length) + (allOutgoing.length - outgoing.length),
+  no_room: allFar.length - far.length,
+};
+const omittedTotal = omitted.budget + omitted.no_room;
+
+/** Evenly spaced in y, then pushed out along x by an ellipse-like arm, so the
+ *  band nearest the centre card is always the one furthest from it. */
+function place(list, dir) {
+  const n = list.length;
+  return list.map((item, i) => {
+    const tpos = n === 1 ? 0 : (i / (n - 1)) * 2 - 1;      // -1 .. 1
+    const y = cy + tpos * bandY;
+    const arm = armNear + armFar * (1 - Math.abs(tpos));
+    const portX = cx + dir * arm;
+    return { item, y, portX, dir };
+  });
+}
+const left = place(incoming, -1 * FLIP);
+const right = place(outgoing, 1 * FLIP);
+
+// hop 2 sits in the gaps between the hop-1 rows, never on one, so a chip and a
+// card can never share a band.
+function placeFar(list) {
+  const bySide = { incoming: [], outgoing: [] };
+  for (const r of list) bySide[r.side].push(r);
+  const out = [];
+  for (const [side, group] of Object.entries(bySide)) {
+    const dir = (side === "incoming" ? -1 : 1) * FLIP;
+    const n = group.length;
+    group.forEach((item, i) => {
+      const tpos = n === 1 ? -0.45 : (i / (n - 1)) * 1.9 - 0.95;
+      out.push({
+        item, dir,
+        y: cy + tpos * (bandY + 120),
+        portX: cx + dir * (armNear + armFar + 300 * scale),
+      });
+    });
+  }
+  return out;
+}
+const chips = placeFar(far);
+
+// Shared by both compositions: the helpers draw the same card either way, and
+// the registries are what the self-check at the foot of this file measures.
+const boxes = [];
+function card(rec, x, y, w, h, kind) {
+  const node = el("div", `${kind} ${kind}--${rec.provenance_class}`);
+  node.style.left = `${x}px`;
+  node.style.top = `${y}px`;
+  node.style.inlineSize = `${w}px`;
+  boxes.push({ id: rec.local_id, left: x, top: y, right: x + w, bottom: y + h });
+  return node;
+}
+
+function badges(rec, into) {
+  const prov = el("span", `badge badge--${rec.provenance_class}`);
+  prov.append(el("span", "badge__glyph", PROVENANCE_GLYPH[rec.provenance_class] ?? "?"), " ",
+              t(`provenance.${rec.provenance_class}`));
+  const kind = el("span", "badge");
+  const sw = el("span", "kindswatch");
+  sw.style.background = kindColour(rec.kind);
+  sw.style.marginInlineEnd = "6px";
+  kind.append(sw, rec.kind ?? t("common.notStated"));
+  into.append(prov, kind);
+  const conf = el("span", "", "");
+  conf.style.fontSize = "var(--text-xs)";
+  conf.style.color = "var(--fg-faint)";
+  if (rec.confidence === null || rec.confidence === undefined) {
+    conf.append(`${t("reader.units.confidence")}: `, el("span", "missing", t("common.notStated")));
+  } else {
+    conf.textContent = `${t("reader.units.confidence")}: ${rec.confidence}`;
+  }
+  into.append(conf);
+}
+const pillBoxes = [];
+let primary = null;
+
+// The orbit and the stack are two compositions, not one scaled twice. Below
+// the orbit's minimum width there is nothing to orbit, and a scaled orbit
+// produced rings and side labels around a card wider than the viewport.
+if (MODE === "stack") {
+  renderStack();
+} else {
+  // ---- faint unrelated topology -------------------------------------------
+  // "Unrelated structure remains present but faint" -- present, never absent,
+  // and never competing. It is drawn first so everything else sits over it.
+  const related = new Set([C.global_id, ...DATA.related.map((r) => r.globalId)]);
+  const gFaint = svg("g", { opacity: String(MAP_DIMMED_NODE_OPACITY * 0.55) });
+  const byId = new Map(DATA.nodes.map((n) => [n.global_id, n]));
+  const fx = (n) => ORIGIN + 60 + n.x * (FIELD - 120);
+  const fy = (n) => 90 + n.y * (H - 180);
+  for (const e of DATA.edges) {
+    const a = byId.get(e.from_id), b = byId.get(e.to_id);
+    if (!a || !b || related.has(a.global_id) || related.has(b.global_id)) continue;
+    gFaint.appendChild(svg("line", {
+      x1: fx(a), y1: fy(a), x2: fx(b), y2: fy(b),
+      stroke: "var(--edge-faint)", "stroke-width": 1,
+    }));
+  }
+  for (const n of DATA.nodes) {
+    if (related.has(n.global_id)) continue;
+    const mark = NODE_PROVENANCE_MARK[n.provenance_class] ?? { shape: "triangle", size: 10 };
+    const r = mark.size * 0.42;
+    const node = mark.shape === "circle"
+      ? svg("circle", { cx: fx(n), cy: fy(n), r })
+      : svg("path", { d: markPath(mark.shape, r), transform: `translate(${fx(n)},${fy(n)})` });
+    node.setAttribute("fill", kindColour(n.kind));
+    gFaint.appendChild(node);
+  }
+  s.appendChild(gFaint);
+
+  // ---- hop rings -----------------------------------------------------------
+  for (const [i, ring] of [[1, armNear + armFar], [2, armNear + armFar + 300 * scale]]) {
+    s.appendChild(svg("ellipse", {
+      cx, cy, rx: ring, ry: Math.min(bandY + (i === 1 ? 90 : 190), H / 2 - 24),
+      fill: "none", stroke: "var(--orbit-ring)", "stroke-width": 1,
+      "stroke-dasharray": "2 10",
+    }));
+    const ry = Math.min(bandY + (i === 1 ? 90 : 190), H / 2 - 24);
+    const label = el("div", "ringlabel", RTL ? `گام ${i === 1 ? "۱" : "۲"}` : `hop ${i}`);
+    // On the vertical axis at the foot of the ring: at the top it shared a line
+    // with the side labels and the two ran through each other.
+    label.style.left = `${cx}px`;
+    label.style.top = `${cy + ry + 14}px`;
+    overlay.appendChild(label);
+  }
+
+  // ---- side labels ---------------------------------------------------------
+  for (const [dir, word, gloss] of [
+    [-1 * FLIP, RTL ? "ورودی" : "incoming", RTL ? "به کانون" : "into the focus"],
+    [1 * FLIP, RTL ? "خروجی" : "outgoing", RTL ? "از کانون" : "out of the focus"],
+  ]) {
+    const label = el("div", "sidelabel");
+    label.append(el("strong", "", word), el("span", "sidelabel__gloss", gloss));
+    label.style.left = `${cx + dir * (armNear + armFar * 0.5)}px`;
+    label.style.top = "94px";
+    overlay.appendChild(label);
+  }
+
+  // ---- the primary card ----------------------------------------------------
+  primary = card(C, cx - P.width / 2, cy - P.height / 2, P.width, P.height, "card card--primary");
+  const phead = el("div", "card__head");
+  badges(C, phead);
+  primary.appendChild(phead);
+  const pcut = cutToBudget(statement(C), PROPOSED.PRIMARY_CHARS);
+  const pstatement = el("p", "card__statement");
+  pstatement.appendChild(bdi(pcut.shown));
+  primary.appendChild(pstatement);
+  if (pcut.truncated) primary.appendChild(el("p", "card__cut", RTL ? "کوتاه شده؛ متن کامل در خوانش سریع." : "Shortened here; the complete text is in Quick Read."));
+  const pfoot = el("div", "card__foot");
+  if (C.locator) pfoot.append(el("span", "", `${RTL ? "در" : "at"} ${mmss(C.locator.start_sec)}–${mmss(C.locator.end_sec)}`));
+  pfoot.append(el("span", "mono", C.global_id));
+  primary.appendChild(pfoot);
+  overlay.appendChild(primary);
+
+  // ---- neighbour cards, then edges, then pills ----------------------------
+  // Two passes on purpose. A pill can only be placed where no card is, so every
+  // card must exist before the first pill is positioned. The single pass this
+  // replaces put a relation label on top of a neighbour's provenance badge --
+  // the exact "no label over readable card content" clause the gate names.
+  const gEdges = svg("g");
+  const portOf = new Map();
+  const edgeSpecs = [];
+
+  function neighbour(spot, isFar) {
+    const { item, y, portX, dir } = spot;
+    const rec = item.record;
+    const rel = item.relations[0].record;
+    const w = isFar ? CHIP.width : CARD.width;
+    const h = isFar ? CHIP.height : CARD.height;
+    // The card is laid out so its PORT touches the orbit and its body extends
+    // away from the centre. That is geometry, not writing direction, so it is
+    // computed from `dir` rather than taken from a logical property.
+    const x = dir === -1 ? portX - w : portX;
+    const top = y - h / 2;
+
+    const node = card(rec, x, top, w, h, isFar ? "chip" : "card");
+    if (!isFar) {
+      const head = el("div", "card__head");
+      badges(rec, head);
+      node.appendChild(head);
+    }
+    const budget = isFar ? PROPOSED.CHIP_CHARS : PROPOSED.NEIGHBOUR_CHARS;
+    const cut = cutToBudget(statement(rec), budget);
+    const body = el("p", "card__statement");
+  body.appendChild(bdi(cut.shown + (cut.truncated ? "…" : "")));
+  node.appendChild(body);
+    if (isFar) {
+      const foot = el("div", "card__foot");
+      foot.append(el("span", "badge__glyph", PROVENANCE_GLYPH[rec.provenance_class] ?? "?"),
+                  el("span", "", ` ${rel.relation}`));
+      node.appendChild(foot);
+    }
+    overlay.appendChild(node);
+    portOf.set(item.globalId, { x: portX, y, localId: rec.local_id });
+    edgeSpecs.push({ item, rel, portX, y, dir, isFar });
+  }
+
+  for (const spot of [...left, ...right]) neighbour(spot, false);
+  for (const spot of chips) neighbour(spot, true);
+
+  /** A point on the cubic used for the edge, so a pill can ride the real path. */
+  function pointOn(from, to, u) {
+    const bend = (to.y - from.y) * 0.12;
+    const p1 = { x: from.x + (to.x - from.x) * 0.45, y: from.y + bend };
+    const p2 = { x: from.x + (to.x - from.x) * 0.55, y: to.y - bend };
+    const v = 1 - u;
+    return {
+      x: v * v * v * from.x + 3 * v * v * u * p1.x + 3 * v * u * u * p2.x + u * u * u * to.x,
+      y: v * v * v * from.y + 3 * v * v * u * p1.y + 3 * v * u * u * p2.y + u * u * u * to.y,
+    };
+  }
+
+  for (const spec of edgeSpecs) {
+    const { item, rel, portX, y, dir, isFar } = spec;
+    // A hop-1 edge leaves the primary card's own port; a hop-2 edge leaves the
+    // hop-1 card it is actually joined to. `parentId` exists so this is read
+    // from the records rather than assumed to be a spoke from the centre.
+    const parent = isFar ? portOf.get(item.parentId) : null;
+    const from = parent ? { x: parent.x, y: parent.y } : { x: cx + dir * (P.width / 2), y: cy };
+    const to = { x: portX, y };
+
+    gEdges.appendChild(svg("path", {
+      d: `M${from.x},${from.y} C${from.x + (to.x - from.x) * 0.45},${from.y + (to.y - from.y) * 0.12} `
+       + `${from.x + (to.x - from.x) * 0.55},${to.y - (to.y - from.y) * 0.12} ${to.x},${to.y}`,
+      fill: "none", stroke: "var(--accent)", "stroke-width": isFar ? 1.2 : 1.8,
+      opacity: isFar ? 0.5 : 0.85,
+      "stroke-dasharray": rel.relation_vocabulary === "library_synthetic" ? "6 5" : "",
+    }));
+    for (const point of [from, to]) {
+      gEdges.appendChild(svg("circle", {
+        cx: point.x, cy: point.y, r: isFar ? 3 : 4, fill: "var(--stage-ground)",
+        stroke: "var(--accent)", "stroke-width": 2, opacity: isFar ? 0.6 : 1,
+      }));
+    }
+
+    // The near end of a hop-2 relation is its PARENT, not the focus. Naming the
+    // focus there would state a relation the records do not contain.
+    const nearWord = parent ? parent.localId : (RTL ? "کانون" : "focus");
+    const pill = el("div", `relpill${isFar ? "" : " relpill--active"}`);
+    const arrow = RTL ? "←" : "→";
+    const name = el("strong", "", relationGloss(rel.relation));
+    const near = el("span", "relpill__focus", nearWord);
+    if (item.toCentre === "incoming") pill.append(name, el("span", "relpill__dir", arrow), near);
+    else pill.append(near, el("span", "relpill__dir", arrow), name);
+    pill.append(el("span", "relpill__vocab", rel.relation_vocabulary === "canonical" ? "◆" : "◇"));
+    overlay.appendChild(pill);
+
+    // Walk the path for a seat that lands on no card and no other pill.
+    const size = pill.getBoundingClientRect();
+    const half = { w: size.width / 2 + 6, h: size.height / 2 + 4 };
+    // Two freedoms: where along the path the pill sits, and how far it is lifted
+    // off the path. A short hop-2 edge between two adjacent cards has almost no
+    // clear run, so the lift is what seats it -- with a leader line drawn back to
+    // the path so the pill still reads as belonging to that edge.
+    let seated = null;
+    search:
+    for (const lift of [0, -34, 34, -62, 62, -92, 92]) {
+      for (const u of [0.58, 0.46, 0.68, 0.36, 0.76, 0.28, 0.84, 0.5]) {
+        const on = pointOn(from, to, u);
+        const at = { x: on.x, y: on.y + lift };
+        const box = { left: at.x - half.w, right: at.x + half.w,
+                      top: at.y - half.h, bottom: at.y + half.h };
+        if (box.left < ORIGIN + 8 || box.right > ORIGIN + FIELD - 8
+            || box.top < 8 || box.bottom > H - 8) continue;
+        const hitsCard = boxes.some((b) =>
+          box.left < b.right && b.left < box.right && box.top < b.bottom && b.top < box.bottom);
+        const hitsPill = pillBoxes.some((b) =>
+          box.left < b.right && b.left < box.right && box.top < b.bottom && b.top < box.bottom);
+        if (!hitsCard && !hitsPill) { seated = { at, box, on, lift }; break search; }
+      }
+    }
+    // Every seat was taken: keep the pill on the path rather than drop the
+    // relation, and record it so the self-check below reports it honestly.
+    if (seated === null) {
+      const at = pointOn(from, to, 0.58);
+      seated = { at, box: { left: at.x - half.w, right: at.x + half.w,
+                            top: at.y - half.h, bottom: at.y + half.h }, crowded: true };
+    }
+    if (seated.lift) {
+      gEdges.appendChild(svg("line", {
+        x1: seated.on.x, y1: seated.on.y, x2: seated.at.x,
+        y2: seated.at.y - Math.sign(seated.lift) * (size.height / 2),
+        stroke: "var(--border-strong)", "stroke-width": 1, "stroke-dasharray": "2 3",
+      }));
+    }
+    pill.style.left = `${seated.at.x}px`;
+    pill.style.top = `${seated.at.y}px`;
+    pillBoxes.push({ ...seated.box, id: `pill:${rel.relation}`, crowded: seated.crowded === true });
+  }
+  s.appendChild(gEdges);
+
+  // ---- what the stage could not hold, counted rather than dropped ----------
+  if (omittedTotal > 0) {
+    const note = el("div", "float");
+    note.style.position = "absolute";
+    note.style.insetBlockEnd = "var(--space-4)";
+    note.style.insetInlineStart = "var(--space-4)";   // opposite the drawer
+    note.style.maxInlineSize = "420px";
+    note.appendChild(el("div", "float__label",
+      RTL ? "آنچه بر صحنه جا نشد" : "Not placed on the stage"));
+    const parts = [];
+    if (omitted.budget > 0) {
+      parts.push(RTL ? `${omitted.budget} همسایه بیش از سهم صحنه`
+                     : `${omitted.budget} beyond the stage's card budget`);
+    }
+    if (omitted.no_room > 0) {
+      parts.push(RTL ? `${omitted.no_room} در گام ۲، بدون جای کافی`
+                     : `${omitted.no_room} at hop 2, with no room at this size`);
+    }
+    const line = el("p", "", parts.join(" · "));
+    line.style.margin = "0";
+    line.style.fontSize = "var(--text-xs)";
+    line.style.color = "var(--fg-muted)";
+    note.appendChild(line);
+    const all = el("p", "",
+      RTL ? "همه در فهرست دانش مرتبط می‌مانند." : "All of them remain in the related list.");
+    all.style.margin = "var(--space-1) 0 0";
+    all.style.fontSize = "var(--text-xs)";
+    all.style.color = "var(--fg-faint)";
+    note.appendChild(all);
+    stage.appendChild(note);
+  }
+
+  // The accounting the gate checks: nothing returned may simply vanish.
+  const placedNeighbours = incoming.length + outgoing.length + far.length;
+  if (placedNeighbours + omittedTotal !== DATA.related.length) {
+    console.error("ACCOUNTING: placed + omitted !== returned");
+  }
+}
+
+// ---- Quick Read, in MapQuickRead's real six-section order ----------------
+document.getElementById("qr-kind").textContent = C.kind;
+const qp = document.getElementById("qr-prov");
+qp.className = `badge badge--${C.provenance_class}`;
+qp.textContent = `${PROVENANCE_GLYPH[C.provenance_class]} ${t(`provenance.${C.provenance_class}`)}`;
+
+const qr = document.getElementById("qr");
+function section(title, ...children) {
+  const box = el("section", "section");
+  box.appendChild(el("h3", "section__title", title));
+  box.append(...children);
+  qr.appendChild(box);
+}
+const full = el("p", "statement");
+full.appendChild(bdi(statement(C)));
+section(t("map.quickRead.statement"), full);
+
+const ex = excerptOf(C);
+if (ex) {
+  const dl = el("dl", "dl");
+  dl.append(el("dt", "", RTL ? "بازه" : "Time range"),
+            el("dd", "", `${mmss(C.locator.start_sec)} – ${mmss(C.locator.end_sec)}`),
+            el("dt", "", RTL ? "قطعه" : "Segment"), el("dd", "mono", C.locator.segment_id));
+  section(RTL ? "شواهد ثبت‌شده" : "Recorded evidence", el("blockquote", "excerpt", `“${ex}”`), dl);
+}
+
+const list = el("ul", "rellist");
+for (const a of DATA.active) {
+  const row = el("li");
+  row.append(
+    el("span", "badge", a.record.relation_vocabulary === "canonical" ? "◆ canonical" : "◇ library"),
+    el("span", "relpill__dir", a.direction === "incoming" ? "←" : "→"),
+    el("strong", "", a.record.relation),
+    el("span", "mono", a.otherId),
+  );
+  if (a.record.confidence === null) row.append(el("span", "missing", t("common.notStated")));
+  list.appendChild(row);
+}
+section(`${t("map.related.title")} · ${DATA.active.length}`, list);
+
+const dl2 = el("dl", "dl");
+dl2.append(el("dt", "", RTL ? "خاستگاه" : "Provenance"), el("dd", "", t(`provenance.${C.provenance_class}`)),
+           el("dt", "", t("reader.units.confidence")), el("dd", "", String(C.confidence)),
+           el("dt", "", RTL ? "شناسهٔ منبع" : "Source id"), el("dd", "mono", C.source_id));
+section(RTL ? "خاستگاه و منبع" : "Provenance and source", dl2);
+
+const dl3 = el("dl", "dl");
+for (const [k, v] of [["global_id", C.global_id], ["local_id", C.local_id],
+                      ["library_id", C.library_id], ["entity_type", C.entity_type],
+                      ["kind", C.kind], ["canonical_path", C.canonical_path],
+                      ["schema_version", C.schema_version]]) {
+  dl3.append(el("dt", "mono", k), el("dd", "mono", String(v)));
+}
+section(t("map.quickRead.technical"), dl3);
+
+// ---- self-check: the acceptance clauses, measured rather than asserted ----
+const hits = [];
+if (MODE !== "stack") {
+for (let i = 0; i < boxes.length; i += 1) {
+  for (let j = i + 1; j < boxes.length; j += 1) {
+    const a = boxes[i], b = boxes[j];
+    if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) {
+      hits.push(`${a.id} overlaps ${b.id}`);
+    }
+  }
+}
+// Floating chrome is part of the clipping test: a card under the focus bar is
+// clipped by it just as surely as by the stage edge.
+const stageBox = stage.getBoundingClientRect();
+for (const chrome of stage.querySelectorAll(".float")) {
+  const r = chrome.getBoundingClientRect();
+  const zone = { left: r.left - stageBox.left, right: r.right - stageBox.left,
+                 top: r.top - stageBox.top, bottom: r.bottom - stageBox.top };
+  for (const b of boxes) {
+    if (b.left < zone.right && zone.left < b.right
+        && b.top < zone.bottom && zone.top < b.bottom) {
+      hits.push(`${b.id} runs under ${chrome.className.replace("float ", "")}`);
+    }
+  }
+}
+
+const drawerBox = NARROW ? null : drawer.getBoundingClientRect();
+const primaryBox = primary.getBoundingClientRect();
+// Checked on both sides, because the drawer changes side with the script.
+if (drawerBox && primaryBox.right > drawerBox.left && primaryBox.left < drawerBox.right) {
+  hits.push("the drawer covers the focused card");
+}
+for (const b of boxes) {
+  if (b.left < ORIGIN || b.top < 0 || b.right > ORIGIN + FIELD || b.bottom > H) {
+    hits.push(`${b.id} is clipped`);
+  }
+}
+  for (const pill of pillBoxes) {
+    if (pill.crowded) hits.push(`${pill.id} found no clear seat on its path`);
+  }
+}
+window.__geometry = { cards: boxes.length, pills: pillBoxes.length, overlaps: hits };
+if (hits.length > 0) console.error("GEOMETRY:", hits.join(" | "));
+</script>
+</body>
+</html>

@@ -176,3 +176,11 @@ node_modules/
 web/test-results/
 web/playwright-report/
 web/blob-report/
+
+# The T-211 mockup captures. Same rule as the browser gate above: the sources
+# are committed -- the mockup pages, their stylesheet, the extracted records and
+# the layout -- and what one run of them rendered is not. `capture_mockups.ts`
+# reproduces every PNG from those sources, so committing them would store a
+# render that can drift from its own source with nothing to notice. The approved
+# compositions also live, permanently, in the published review artifact.
+docs/mockups/*/captures/
