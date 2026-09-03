@@ -7,7 +7,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 
 import { LOCALES, useI18n } from "../i18n";
 import type { Locale } from "../i18n";
@@ -32,10 +32,32 @@ function LocaleSwitch() {
   );
 }
 
+/**
+ * The routes whose content is a workspace rather than a document (`T-212`).
+ *
+ * D-153 makes the Map a viewport workspace: the graph fills the usable route
+ * viewport and every control floats over it, so the frame must stop being a
+ * centred, scrolling text column for that route and become a two-row grid
+ * with no overflow of its own.
+ *
+ * The path is named here rather than reported upwards by the view, and that
+ * is deliberate on two counts. It is a fact about the *frame* -- how tall the
+ * bar is and whether the document scrolls -- which is this component's
+ * subject and not the view's. And a child that told the frame what to be
+ * would have to do it in an effect, which means one render of the Map in the
+ * document composition before the workspace one: on a route whose whole
+ * purpose is that the stage is measured and handed to a renderer, that first
+ * layout is a renderer created against the wrong box.
+ *
+ * `Shell` already names `/map` twice, in the nav.
+ */
+const WORKSPACE_ROUTES: readonly string[] = ["/map"];
+
 export function Shell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
+  const workspace = WORKSPACE_ROUTES.includes(useLocation().pathname);
   return (
-    <div className="shell">
+    <div className={`shell${workspace ? " shell--workspace" : ""}`}>
       {/*
         D-108: `nav.skipToContent` was translated in both catalogs and
         `<main id="content">` was rendered, and nothing linked the two — a

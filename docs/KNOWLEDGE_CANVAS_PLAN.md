@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0, 1 and 2 are complete. Phase 2.1 (`T-210`) is in progress and still blocks Phase 3. Its approval gate has passed: `T-211`'s Explore and Focus compositions were approved on 2026-09-03 (D-191), so `T-212` is the only claimable task and the fixed order `T-212` → `T-213` → `T-214` → `T-215` begins. The approved compositions and their specification are in [`docs/mockups/T-211/`](mockups/T-211/SPEC.md) (D-150–D-154, D-191; [ADR 0006](adr/0006-map-visual-quality.md))
+**Current stage:** Phases 0, 1 and 2 are complete. Phase 2.1 (`T-210`) is in progress and still blocks Phase 3. Its approval gate has passed (`T-211`, D-191) and the workspace under it is built: `T-212` made the Map a viewport workspace, measured at 2852×1688 as a 1688 px document that does not scroll against 5795 px before (D-192). **`T-213`, the Directional Orbit, is the only claimable task**, and the rest of the order is `T-213` → `T-214` → `T-215`. The approved compositions, their specification and the record of what `T-212` built are in [`docs/mockups/T-211/`](mockups/T-211/SPEC.md) (D-150–D-154, D-191, D-192; [ADR 0006](adr/0006-map-visual-quality.md))
 **Last updated:** 2026-09-03
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -1164,18 +1164,23 @@ Mitigation: pin versions at implementation time; review licences before any majo
 
 ### Risk 9: functional completion is mistaken for visual acceptance
 
-Status: **open; blocks Phase 3 — but its first gate has passed.** The Map passes its
+Status: **open; blocks Phase 3 — two of its four children are done.** The Map passes its
 behavioural browser gate, and the reviewed composition did not meet the user's reference bar.
-`T-211`'s replacement compositions were approved on 2026-09-03 (D-191); the risk stays open
-until `T-215` shows the *running* UI matching them, because approved pictures are not a
+`T-211`'s replacement compositions were approved on 2026-09-03 (D-191) and `T-212` built the
+workspace under them (D-192); the risk stays open until `T-215` shows the *running* UI
+matching the approved compositions, because neither approved pictures nor a green suite is a
 shipped screen.
 
 Mitigation: Phase 2.1 separates visual acceptance from Phase 2 history. `T-211` required
 approved Explore and Focus mockups before implementation — delivered — and `T-215` requires
 final browser captures plus geometry assertions against them. A green behavioural suite alone
-cannot close the risk. The mockups made that concrete: their own in-page geometry checks
-caught four defects a passing component suite would not have seen, including an RTL drawer
-covering the focused card.
+cannot close the risk, and both halves of Phase 2.1 have now demonstrated it. The mockups'
+own in-page geometry checks caught four defects a passing component suite would not have
+seen, including an RTL drawer covering the focused card. `T-212`'s 605-test jsdom suite then
+went green while the *browser* found three more: a focused card 5 px over the field's edge
+because the drawer had been subtracted from a field too narrow to hold it, the counts surface
+and the drawer laid out as one rectangle at 1440×900, and a screenshot comparison that had
+quietly become a test of a focus ring. jsdom has no layout; every rectangle in it is zero.
 
 ### Risk 10: Focus becomes a second graph or invents meaning
 
@@ -1276,6 +1281,7 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-153 | The Map is a viewport workspace with compact floating controls and bounded Search/related/Quick Read drawers, while truthful DOM order and keyboard access remain intact ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Document-flow panels currently push the core graph and reading journey below the fold |
 | D-154 | An editorial visual system plus screenshot-based browser QA is mandatory: no clipping, card overlap or labels beneath cards; relation pills stay horizontal; light/dark and English/Persian are verified ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Behavioural tests alone did not reveal the visual hierarchy, collision and polish failures seen in the reviewed screenshot |
 | D-191 | `T-211`'s Explore and Focus compositions are approved; implementation runs `T-212` → `T-213` → `T-214` → `T-215` and the committed sources in `docs/mockups/T-211/` are `T-215`'s reference, regenerated on demand ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The gate ADR 0006 clause 2 opened is closed. It settles three things for the implementation: the Map is a viewport workspace whose document does not scroll; Focus is a Directional Orbit whose radius is `hops` and whose sides are relation direction; and below the orbit's minimum width the answer is fewer cards with counted omissions, never smaller text |
+| D-192 | `T-212` composes the Map as a viewport workspace: `Shell` gives `/map` a `var(--bar-height) 1fr` frame, the stage is the field rather than a band on a page, every control is a bounded floating surface, and `placeConstellation` refuses a card that would be drawn under one ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | D-153 asked for the graph to occupy the usable route viewport, and the measurement is what makes this a decision rather than a restyle: at 2852×1688 the focused document was 5795 px and is now 1688 px, the viewport itself, and the stage moved from 790 px down a document to 56 px down a workspace. Four things are settled by it. **The route names the composition, not the view**: `Shell` holds the workspace path, because how tall the bar is and whether the document scrolls are facts about the frame, and a child that reported them upwards would have to do it in an effect — one render of the Map in the document composition first, which on this route means a renderer created against the wrong box. **The chrome is measured, never stated as insets**: the composition mirrors under `dir="rtl"`, and an inset per edge is the defect D-191 carries forward — so the surfaces marked `data-map-chrome` are read back with `getBoundingClientRect` in the stage's own coordinates and handed to the policy as rectangles, which is the same overlap test the crowding clause already ran. A card refused for one is `no_room`: the mark *is* on the stage, so `off_stage` would send a reader panning a camera that is not the problem. **The drawer's width comes out of the field only at SPEC §5's `full` tier**, because subtracting 560 px from a 1280 px viewport leaves a field too narrow to place the 416 px primary card beside its own centred mark — 452 px needed on one side, 344 available on either — and the card D-132 guarantees then hangs over the edge; the browser gate measured exactly that, at 5 px. **Below 48rem the route keeps its document composition**, which is a scope boundary rather than a compromise: SPEC §5's third tier is the orbit's narrowest and belongs to `T-213`. The four departures from the approved `SPEC.md` are recorded in its §13, the largest being that the camera's controls share the inline-end rail with the drawer instead of being painted over by it — a *Focus Not Obscured* failure in the approved capture itself |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those

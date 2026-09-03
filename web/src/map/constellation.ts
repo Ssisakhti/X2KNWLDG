@@ -214,6 +214,27 @@ export interface ConstellationInput {
   /** Where a node's mark is, in stage pixels, or `null`. `MapSession.nodePosition`. */
   position: (globalId: string) => MapPoint | null;
   stage: StageBox;
+  /**
+   * The floating chrome's own rectangles, in the same stage pixels (`T-212`).
+   *
+   * The workspace put controls *on* the field instead of above it, and a card
+   * is drawn over whatever the route puts on the stage (D-137: the overlay is
+   * a sibling of the renderer's container, so nothing clips it). A card under
+   * the search surface or the legend therefore shows its first two words and
+   * hides the visible truncation marker -- the one silent cut D-131 forbids,
+   * arriving from a new direction. The mockup's own geometry check found it at
+   * 1440x900 before any of this was written.
+   *
+   * Measured rather than stated as insets, and for two reasons. The chrome is
+   * placed with logical properties so it changes side with the script, and an
+   * inset per edge would have to be mirrored by hand -- which is the defect
+   * D-191 carries forward. And a rectangle to avoid is a test this module
+   * already has: it is the same overlap the crowding clause runs.
+   *
+   * Empty by default, which is the document composition and every unit test
+   * that predates the workspace.
+   */
+  obstacles?: readonly StageRect[];
   /** Overridden only to re-measure the policy; defaults to the stated budget. */
   budget?: number;
   /** The neighbour card's footprint. Defaults to what `T-209` measured. */
@@ -285,6 +306,21 @@ function fitsStage(rect: StageRect, box: StageBox, inset: number): boolean {
   );
 }
 
+/**
+ * Whether a card's rectangle is clear of the floating chrome (`T-212`).
+ *
+ * Kept separate from `fitsStage` so the two failures stay distinguishable
+ * while debugging, and folded into the same clause when a reason is reported:
+ * a mark on the field whose card has nowhere to go that is both on the stage
+ * and clear of the controls is `no_room`, which is exactly what that reason
+ * says -- the mark is on the stage but its card would not be. It is not
+ * `off_stage`, which would send a reader panning a camera that is not the
+ * problem, and it is not `crowded`, which names another *card*.
+ */
+function clearsChrome(rect: StageRect, obstacles: readonly StageRect[]): boolean {
+  return !obstacles.some((chrome) => stageCardsOverlap(rect, chrome));
+}
+
 /** Whether two card rectangles share any pixel. Touching edges do not. */
 export function stageCardsOverlap(a: StageRect, b: StageRect): boolean {
   return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
@@ -328,6 +364,7 @@ export function placeConstellation(input: ConstellationInput): StagePlacement {
   const box = input.box ?? MAP_STAGE_CARD_BOX;
   const primaryBox = input.primaryBox ?? MAP_STAGE_PRIMARY_BOX;
   const inset = input.inset ?? MAP_STAGE_CARD_INSET;
+  const obstacles = input.obstacles ?? [];
   const { width, height } = input.stage;
   const omitted = noOmissions();
 
@@ -382,12 +419,32 @@ export function placeConstellation(input: ConstellationInput): StagePlacement {
   // nothing on screen. A neighbour has no such guarantee, and is counted.
   const centre = input.centreId === null ? "not_loaded" : anchor(input.centreId);
   const preferred = typeof centre === "string" ? null : centre;
+  /*
+   * Three tiers rather than two (`T-212`).
+   *
+   * The card D-132 *guarantees* is chosen by the best answer available, and
+   * the workspace added a third-best: on the stage and clear of the chrome,
+   * then merely on the stage, then the preferred direction whatever it
+   * covers. The old two tiers would have opened the focused card straight
+   * under the counts surface as soon as a focus was framed near the field's
+   * top end -- and being *covered* is worse for this card than being cut off,
+   * because it is the one card the reader asked for.
+   *
+   * The last tier stays a fallback rather than becoming a refusal: a
+   * selection with nothing on screen is not an improvement on a card partly
+   * over an edge, and a neighbour in the same position is counted and listed
+   * instead (R20).
+   */
+  const options = preferred === null ? [] : orientations(preferred);
+  const onStage = options.filter((option) =>
+    fitsStage(stageCardRect(option, primaryBox), input.stage, inset),
+  );
   const primary =
     preferred === null
       ? null
-      : (orientations(preferred).find((option) =>
-          fitsStage(stageCardRect(option, primaryBox), input.stage, inset),
-        ) ?? preferred);
+      : (onStage.find((option) => clearsChrome(stageCardRect(option, primaryBox), obstacles)) ??
+        onStage[0] ??
+        preferred);
   if (primary !== null) taken.push(stageCardRect(primary, primaryBox));
 
   for (const related of input.related) {
@@ -400,9 +457,10 @@ export function placeConstellation(input: ConstellationInput): StagePlacement {
     // which of those leave it clear of the cards already placed. Two clauses
     // in that order, so the reason a card was refused is the real one: no
     // room at all is not the same answer as a neighbour already there.
-    const fitting = orientations(candidate).filter((option) =>
-      fitsStage(stageCardRect(option, box), input.stage, inset),
-    );
+    const fitting = orientations(candidate).filter((option) => {
+      const rect = stageCardRect(option, box);
+      return fitsStage(rect, input.stage, inset) && clearsChrome(rect, obstacles);
+    });
     if (fitting.length === 0) {
       omitted.no_room += 1;
       continue;

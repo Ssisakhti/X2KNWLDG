@@ -77,7 +77,7 @@
  * two routes that never draw a graph.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import { ApiFailure } from "../api/errors";
@@ -97,6 +97,7 @@ import {
   placeConstellation,
   type StageBox,
   type StagePlacement,
+  type StageRect,
 } from "../map/constellation";
 import { GraphConflictError } from "../map/graphProjection";
 import type { GraphFilters } from "../map/graphSnapshot";
@@ -114,6 +115,28 @@ import { withFocusRescue } from "../lib/focusRescue";
 /** The typed loader over the frozen operation, built once rather than per render. */
 const loadGraphPage = apiGraphPages(api);
 
+/**
+ * Whether two measured chrome lists describe the same rectangles (`T-212`).
+ *
+ * `getBoundingClientRect` returns a fresh object every call, so the measured
+ * list is a new array on every measurement and storing it unconditionally
+ * would re-place every card on every render. This is the guard that makes the
+ * layout effect idempotent.
+ */
+function sameRects(a: readonly StageRect[], b: readonly StageRect[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((rect, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      rect.left === other.left &&
+      rect.top === other.top &&
+      rect.right === other.right &&
+      rect.bottom === other.bottom
+    );
+  });
+}
+
 export function MapView({ createRenderer }: { createRenderer?: MapRendererFactory } = {}) {
   const { t } = useI18n();
 
@@ -129,6 +152,8 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   const walk = useGraphWalk(loadGraphPage, focus.filters, [source, provenance, vocabulary]);
 
   const stage = useRef<HTMLDivElement | null>(null);
+  /** The route's own element: the field every floating surface is placed on. */
+  const root = useRef<HTMLDivElement | null>(null);
   const session = useRef<MapSession | null>(null);
   /** Which snapshot the live renderer was created for; `0` is none. */
   const attached = useRef(0);
@@ -198,6 +223,17 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
 
   /** The stage's measured box, in pixels. Zero until the container is laid out. */
   const [stageBox, setStageBox] = useState<StageBox>({ width: 0, height: 0 });
+  /**
+   * Where the floating chrome is, in the stage's own pixels (`T-212`).
+   *
+   * The workspace put the controls on the field instead of above it, so
+   * "which cards may the stage carry" now has a second half: not under the
+   * search surface, the counts, the legend, the drawer or the camera's
+   * controls. They are *measured* rather than stated as insets because the
+   * whole composition mirrors under `dir="rtl"` and a hand-written inset per
+   * edge is the exact defect D-191 carries forward from the mockup.
+   */
+  const [chrome, setChrome] = useState<readonly StageRect[]>([]);
   /** Bumped when the camera settles, which is when cards are placed again. */
   const [placedAt, setPlacedAt] = useState(0);
   //: Bumped to ask the draw effect to try again after a refusal (D-176).
@@ -473,6 +509,62 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     return () => observer.disconnect();
   }, []);
 
+  /**
+   * Measure the floating chrome against the stage (`T-212`).
+   *
+   * One rectangle per surface marked `data-map-chrome`, in the coordinates
+   * `MapSession.nodePosition` answers in -- the renderer's own container --
+   * because that is the space a card's anchor is in and a rectangle in any
+   * other space is a policy about nothing.
+   *
+   * A zero-sized surface is skipped rather than reserved as a point: in jsdom
+   * every rectangle is zero, and a run of empty rectangles at the origin would
+   * refuse every card at the top-start corner of a stage that has no measured
+   * size either.
+   */
+  const measureChrome = useCallback(() => {
+    const container = stage.current;
+    const host = root.current;
+    if (container === null || host === null) return;
+    const base = container.getBoundingClientRect();
+    const measured: StageRect[] = [];
+    for (const element of host.querySelectorAll<HTMLElement>("[data-map-chrome]")) {
+      const box = element.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      measured.push({
+        left: box.left - base.left,
+        top: box.top - base.top,
+        right: box.right - base.left,
+        bottom: box.bottom - base.top,
+      });
+    }
+    setChrome((current) => (sameRects(current, measured) ? current : measured));
+  }, []);
+
+  /*
+   * Two triggers, because a surface moves for two different reasons.
+   *
+   * A layout effect after every render catches the ones a render causes: the
+   * drawer opening takes its width out of the field, which moves the counts
+   * and the camera's controls without either of them changing size. The
+   * observer catches the ones no render causes: a panel expanded by its own
+   * `<details>`, a font arriving, the window resized.
+   *
+   * The setter compares before it stores, so neither trigger can loop.
+   */
+  useLayoutEffect(measureChrome);
+
+  useEffect(() => {
+    const host = root.current;
+    if (host === null || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measureChrome);
+    observer.observe(host);
+    for (const element of host.querySelectorAll<HTMLElement>("[data-map-chrome]")) {
+      observer.observe(element);
+    }
+    return () => observer.disconnect();
+  }, [measureChrome]);
+
   // `MapFilters` speaks the API's parameter names and `mapLink` stores the same
   // three values, so this is a rename and not a translation. A control returning
   // to "any" clears the parameter rather than spelling an empty one.
@@ -569,167 +661,252 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
       related: neighbourhood?.related ?? [],
       position: (globalId) => session.current?.nodePosition(globalId) ?? null,
       stage: stageBox,
+      obstacles: chrome,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawing, focus.focus, drawnFocus, neighbourhood, stageBox, placedAt, snapshotId, pages]);
+  }, [
+    drawing,
+    focus.focus,
+    drawnFocus,
+    neighbourhood,
+    stageBox,
+    chrome,
+    placedAt,
+    snapshotId,
+    pages,
+  ]);
 
   return (
     <div
-      className="stack map"
+      ref={root}
+      /*
+       * The field (`T-212`, D-153).
+       *
+       * `stack map` until now: a flex column of panels, which is what made the
+       * stage a 640 px band 790 px down a 5795 px document. It is a workspace
+       * now -- one positioned field with the graph in it and every control
+       * floating on top -- and `map--focused` is the one fact five surfaces
+       * have to agree about: a focus opens the drawer, and the drawer's width
+       * comes out of the field before anything is placed in it.
+       */
+      className={`map${focus.focus === null ? "" : " map--focused"}`}
       // The two readings, as one attribute each: the whole route's state in a
       // place a test can read without going looking for the sentence that
       // renders it, and `T-209`'s seam for the same states in a browser.
       data-map-reading={reading.kind}
       data-map-canvas={picture.kind}
     >
-      <h1>{t("map.title")}</h1>
-      <p className="muted">{t("map.subtitle")}</p>
-
-      <MapFilters value={focus.filters} onChange={onFiltersChange} />
-
-      {error instanceof ApiFailure && <ErrorState error={error} onRetry={walk.reload} />}
-
-      {conflict !== null && (
-        <div className="notice notice--internal" role="alert" data-map-conflict={conflict.field}>
-          <strong>{t("map.conflict.title")}</strong>
-          <p>
-            {t("map.conflict.detail", {
-              kind: conflict.kind,
-              id: conflict.id,
-              field: conflict.field,
-            })}
-          </p>
-        </div>
-      )}
+      {/*
+        The route's name, for the document outline and for a screen reader's
+        heading list. Visually hidden because the app bar already carries it
+        and a workspace has no room for a title and a subtitle: the pixels a
+        heading would take are the pixels the graph exists in. Hidden, not
+        removed -- `visually-hidden` keeps it in the accessibility tree, which
+        is where its readers are.
+      */}
+      <h1 className="visually-hidden">{t("map.title")}</h1>
+      <p className="visually-hidden">{t("map.subtitle")}</p>
 
       {/*
-        The Map's own state, in words, before the picture (D-129).
+        Filters and counts: the field's top end (SPEC §2, §7 row 2).
 
-        `reading.counted` is the whole distinction `T-208` added here: a
-        snapshot with no page applied has nothing to count, and printing zeros
-        for it would say "your library holds no graph" on the strength of a
-        request that has not been answered. So the counts appear when there are
-        counts, and the states that precede them say what they are instead.
+        The counts still precede the stage in the DOM, which is D-129 and is
+        the reason this surface is second rather than wherever it looks
+        best: it is the text that survives when the WebGL view cannot be read
+        at all, and a Map whose only honest description came after the picture
+        would read as complete to anyone who never reaches the picture.
       */}
-      {reading.kind === "loading" && !reading.counted && (
-        <p className="muted">{t("map.reading.loading")}</p>
-      )}
-      {reading.kind === "unasked" && <p className="muted">{t("map.reading.unasked")}</p>}
+      <div className="map__float map__float--status stack" data-map-chrome>
+        <MapFilters value={focus.filters} onChange={onFiltersChange} />
 
-      {reading.counted && snapshot !== null && (
-        <section
-          className="panel map__state"
-          aria-label={t("map.state.title")}
-          data-map-nodes={snapshot.nodes}
-          data-map-edges={snapshot.edges}
-          data-map-held={snapshot.pendingEdges}
-          data-map-complete={String(snapshot.complete)}
-          data-map-truncated={String(snapshot.lastPageTruncated)}
-        >
-          <h2 className="panel__title">{t("map.state.title")}</h2>
-          <dl className="definitions">
-            <dt>{t("map.state.nodes")}</dt>
-            <dd>
-              {snapshot.knownNodeTotal === null
-                ? `${snapshot.nodes} · ${t("common.unknownTotal")}`
-                : `${snapshot.nodes} / ${snapshot.knownNodeTotal}`}
-            </dd>
-            <dt>{t("map.state.edges")}</dt>
-            <dd>{snapshot.edges}</dd>
-            <dt>{t("map.state.held")}</dt>
-            <dd>
-              {snapshot.pendingEdges}
-              {snapshot.pendingEdges > 0 && (
-                <span className="faint"> — {t("map.state.heldNote")}</span>
-              )}
-            </dd>
-            <dt>{t("map.state.pages")}</dt>
-            <dd>{snapshot.pagesApplied}</dd>
-            <dt>{t("map.state.extent")}</dt>
-            <dd>
-              {snapshot.complete ? t("map.state.complete") : t("map.state.partial")}
-              {snapshot.lastPageTruncated && (
-                <span className="faint"> — {t("map.state.truncated")}</span>
-              )}
-            </dd>
-          </dl>
-          {reading.kind === "empty" && <p className="muted">{t("map.empty")}</p>}
-          {(reading.kind === "refused" || reading.kind === "conflict") && (
-            // The pages that arrived before the failure are still drawn, and
-            // they are still true -- but they are not an answer to the
-            // question that failed, and a count sitting under an error panel
-            // reads as one.
-            <p className="faint" data-map-reading-stale>
-              {t("map.reading.stale")}
-            </p>
-          )}
-          {reading.kind === "loading" && <p className="muted">{t("map.reading.loading")}</p>}
-        </section>
-      )}
-
-      <div className="row" role="group" aria-label={t("map.controls")}>
-        <button type="button" className="button" onClick={zoomIn} disabled={!drawn}>
-          {t("map.zoomIn")}
-        </button>
-        <button type="button" className="button" onClick={zoomOut} disabled={!drawn}>
-          {t("map.zoomOut")}
-        </button>
-        <button type="button" className="button" onClick={resetView} disabled={!drawn}>
-          {t("map.resetView")}
-        </button>
-        {snapshot?.hasMore === true && (
-          <button
-            type="button"
-            className="button"
-            onClick={withFocusRescue(walk.loadMore)}
-            disabled={loadingMore}
-            data-map-load-more
+        {/*
+          `reading.counted` is the whole distinction `T-208` added here: a
+          snapshot with no page applied has nothing to count, and printing
+          zeros for it would say "your library holds no graph" on the strength
+          of a request that has not been answered. So the counts appear when
+          there are counts, and the states centred on the field say what they
+          are instead.
+        */}
+        {reading.counted && snapshot !== null && (
+          <section
+            className="panel map__state"
+            aria-label={t("map.state.title")}
+            data-map-nodes={snapshot.nodes}
+            data-map-edges={snapshot.edges}
+            data-map-held={snapshot.pendingEdges}
+            data-map-complete={String(snapshot.complete)}
+            data-map-truncated={String(snapshot.lastPageTruncated)}
           >
-            {t("map.loadMore")}
-          </button>
-        )}
-        {loadingMore && (
-          <button type="button" className="button" onClick={withFocusRescue(walk.cancel)}>
-            {t("map.stopLoading")}
-          </button>
+            <h2 className="panel__title">{t("map.state.title")}</h2>
+            <dl className="definitions">
+              <dt>{t("map.state.nodes")}</dt>
+              <dd>
+                {snapshot.knownNodeTotal === null
+                  ? `${snapshot.nodes} · ${t("common.unknownTotal")}`
+                  : `${snapshot.nodes} / ${snapshot.knownNodeTotal}`}
+              </dd>
+              <dt>{t("map.state.edges")}</dt>
+              <dd>{snapshot.edges}</dd>
+              <dt>{t("map.state.held")}</dt>
+              <dd>
+                {snapshot.pendingEdges}
+                {snapshot.pendingEdges > 0 && (
+                  <span className="faint"> — {t("map.state.heldNote")}</span>
+                )}
+              </dd>
+              <dt>{t("map.state.pages")}</dt>
+              <dd>{snapshot.pagesApplied}</dd>
+              <dt>{t("map.state.extent")}</dt>
+              <dd>
+                {snapshot.complete ? t("map.state.complete") : t("map.state.partial")}
+                {snapshot.lastPageTruncated && (
+                  <span className="faint"> — {t("map.state.truncated")}</span>
+                )}
+              </dd>
+            </dl>
+            {reading.kind === "empty" && <p className="muted">{t("map.empty")}</p>}
+            {(reading.kind === "refused" || reading.kind === "conflict") && (
+              // The pages that arrived before the failure are still drawn, and
+              // they are still true -- but they are not an answer to the
+              // question that failed, and a count sitting under an error panel
+              // reads as one.
+              <p className="faint" data-map-reading-stale>
+                {t("map.reading.stale")}
+              </p>
+            )}
+            {reading.kind === "loading" && <p className="muted">{t("map.reading.loading")}</p>}
+
+            {/*
+              Continuing the walk is about the graph's *extent*, so it belongs
+              with the counts that state that extent rather than with the
+              camera's controls, which are about the picture. `T-212` split the
+              one control row the document composition had along that line.
+            */}
+            {(snapshot.hasMore === true || loadingMore) && (
+              <div className="row">
+                {snapshot.hasMore === true && (
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={withFocusRescue(walk.loadMore)}
+                    disabled={loadingMore}
+                    data-map-load-more
+                  >
+                    {t("map.loadMore")}
+                  </button>
+                )}
+                {loadingMore && (
+                  <button type="button" className="button" onClick={withFocusRescue(walk.cancel)}>
+                    {t("map.stopLoading")}
+                  </button>
+                )}
+              </div>
+            )}
+          </section>
         )}
       </div>
 
-      <MapSearchRail
-        graph={graph}
-        revision={snapshotId + pages}
-        focus={focus.focus}
-        onFocus={focus.focusEntity}
-        peek={peek}
-        sourceScope={source}
-      />
+      {/*
+        Search, and the list the drawing is a view of: the field's top start
+        (SPEC §2, §7 rows 3 and 5).
+
+        SPEC §7 numbers the outline after the stage while placing it visually
+        "in the search drawer's panel list". Those two cannot both be true of
+        one DOM, and the visual column is the binding one -- the table's own
+        subject is that tab order must follow visual order, and a panel
+        rendered inside this surface is the only way the keyboard reaches it
+        where a reader sees it. So the outline is this drawer's second panel
+        and precedes the stage, which is also what D-129 asks for.
+      */}
+      <div className="map__float map__float--search stack" data-map-chrome>
+        <MapSearchRail
+          graph={graph}
+          revision={snapshotId + pages}
+          focus={focus.focus}
+          onFocus={focus.focusEntity}
+          peek={peek}
+          sourceScope={source}
+        />
+
+        {/*
+          The pointer path is an enhancement over the DOM path, and this
+          sentence is where the Map says so: the marks are one view of a list
+          that is right here, and everything a mark can do a row can do. It
+          names the panel by its title rather than by its position, which is
+          why moving the panel did not make the sentence wrong.
+        */}
+        <p className="faint" data-map-stage-companion>
+          {t("map.stage.companion")}
+        </p>
+
+        <MapOutline
+          graph={graph}
+          revision={snapshotId + pages}
+          focus={focus.focus}
+          onFocus={focus.focusEntity}
+          peek={peek}
+          // The companion opens itself whenever it is the only view of the
+          // graph: no renderer, a refused container, or nothing drawn yet.
+          preferOpen={!drawing}
+        />
+      </div>
 
       {/*
-        A browser that cannot draw at all, and a renderer that refused this
-        container, are two states with two answers (`T-208`). The first is
-        permanent for this browser and the second usually resolves on the next
-        layout, so they are not one message -- and neither of them costs the
-        reader anything but the picture: the counts above and every list below
-        are unchanged, and the outline is opened for them.
+        The honest states, centred on the field (`T-211`'s states sheet).
+
+        Before the stage in the DOM and over it on screen. `mapState.ts`
+        decides what each of these says; this decides only where, and the
+        answer is "in the workspace" rather than "on a line that pushes the
+        stage down the document". A browser that cannot draw at all and a
+        renderer that refused this container stay two states with two answers
+        (`T-208`): the first is permanent for this browser and the second
+        usually resolves on the next layout. Neither costs the reader anything
+        but the picture -- the counts and every list are unchanged, and the
+        outline is opened for them.
       */}
-      {picture.kind === "unavailable" && (
-        <div className="notice notice--unavailable" role="alert" data-map-renderer-unavailable>
-          <strong>{t("map.renderer.unavailable")}</strong>
-          <p>{t("map.renderer.unavailableNote")}</p>
-          <Bidi as="p" className="faint">
-            {picture.detail}
-          </Bidi>
-        </div>
-      )}
-      {picture.kind === "refused" && (
-        <div className="notice notice--unavailable" role="alert" data-map-renderer-failed>
-          <strong>{t("map.renderer.failed")}</strong>
-          <p>{t("map.renderer.failedNote")}</p>
-          <Bidi as="p" className="faint">
-            {picture.detail}
-          </Bidi>
-        </div>
-      )}
+      <div className="map__notices">
+        {error instanceof ApiFailure && <ErrorState error={error} onRetry={walk.reload} />}
+
+        {conflict !== null && (
+          <div className="notice notice--internal" role="alert" data-map-conflict={conflict.field}>
+            <strong>{t("map.conflict.title")}</strong>
+            <p>
+              {t("map.conflict.detail", {
+                kind: conflict.kind,
+                id: conflict.id,
+                field: conflict.field,
+              })}
+            </p>
+          </div>
+        )}
+
+        {reading.kind === "loading" && !reading.counted && (
+          <p className="notice muted">{t("map.reading.loading")}</p>
+        )}
+        {reading.kind === "unasked" && <p className="notice muted">{t("map.reading.unasked")}</p>}
+
+        {picture.kind === "unavailable" && (
+          <div className="notice notice--unavailable" role="alert" data-map-renderer-unavailable>
+            <strong>{t("map.renderer.unavailable")}</strong>
+            <p>{t("map.renderer.unavailableNote")}</p>
+            <Bidi as="p" className="faint">
+              {picture.detail}
+            </Bidi>
+          </div>
+        )}
+        {picture.kind === "refused" && (
+          <div className="notice notice--unavailable" role="alert" data-map-renderer-failed>
+            <strong>{t("map.renderer.failed")}</strong>
+            <p>{t("map.renderer.failedNote")}</p>
+            <Bidi as="p" className="faint">
+              {picture.detail}
+            </Bidi>
+          </div>
+        )}
+
+        {picture.kind === "pending" && <p className="notice muted">{t("map.canvas.pending")}</p>}
+        {picture.kind === "nothing" && <p className="notice muted">{t("map.canvas.nothing")}</p>}
+      </div>
 
       {/*
         The WebGL surface, and the overlay anchored to it.
@@ -737,7 +914,7 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         One label, and one label is not accessibility: it describes the
         existence of a graph rather than its selectable entities, which is why
         ADR 0005 (D-120) pairs it with a DOM surface and why the counts above
-        are rendered as text. `MapOutline` below is the rest of that pairing
+        are rendered as text. `MapOutline` is the rest of that pairing
         (`T-208`), and the label is written only while there is a picture to
         label.
 
@@ -748,6 +925,11 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         inside that container would be removed from under React the first time
         a filter changed.
 
+        The pair is the field less the drawer (`T-212`): both are absolutely
+        placed in one box, and that box is what is measured and handed to
+        `placeConstellation`, so opening the drawer is a resize the renderer is
+        told about rather than a surface laid over a picture that did not move.
+
         While the camera is moving nothing is drawn here at all -- the same
         rule `hideLabelsOnMove` applies to labels, for the same reason.
       */}
@@ -755,7 +937,8 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         {/*
           `role="img"` only while there *is* a picture (`T-208`). An empty box
           announced as an image of the knowledge graph is a claim about content
-          that is not there, and the states below say what is there instead.
+          that is not there, and the notices centred on the field say what is
+          there instead.
         */}
         <div
           ref={stage}
@@ -769,63 +952,90 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
       </div>
 
       {/*
+        The field's inline-end rail: the one primary drawer, and the camera's
+        controls under it (SPEC §2, §7 rows 6 and 7).
+
+        ADR 0006 clause 4 allows one primary drawer to open on demand over the
+        workspace, and rejected a large inspector standing permanently beside
+        the graph. So with nothing focused this is its own trigger -- two
+        collapsed panels, each still stating what it holds -- and it takes only
+        the height that needs; a focus opens it to the rail's full height and
+        takes its width out of the field.
+
+        Quick Read holds the focus and its active relations; the related list
+        follows *inside the same drawer*, which is SPEC §7's reading order:
+        focus, then its relations, then the wider list. Both panels stay
+        mounted with nothing selected, because a panel that disappears cannot
+        say that nothing is selected.
+
+        The camera's controls are the rail's last child rather than a float in
+        the same corner. In the approved Focus capture the drawer is full
+        height at the inline end and the zoom float is at the bottom end
+        underneath it, so the drawer paints over the camera controls: a reader
+        who opens Quick Read cannot zoom the graph they are reading about, which
+        is the *Focus Not Obscured* failure SPEC §8 cites, one surface over.
+        Sharing the rail costs the drawer about 60 px and costs the reader
+        nothing.
+      */}
+      <div className="map__endrail">
+        <div className="map__drawer" data-map-chrome>
+          <MapQuickRead
+            focus={focus.focus}
+            entity={hood.centre}
+            error={hood.centreError}
+            onRetry={hood.reload}
+            relations={neighbourhood?.active ?? []}
+            loading={hood.status === "loading"}
+          />
+
+          <MapRelatedList
+            focus={focus.focus}
+            neighbourhood={neighbourhood}
+            status={hood.status}
+            error={hood.neighbourhoodError}
+            onRetry={hood.reload}
+            depth={hood.depth}
+            onDepthChange={hood.setDepth}
+            graph={graph}
+            onFocus={focus.focusEntity}
+            peek={peek}
+            placement={placement}
+          />
+        </div>
+
+        <div className="map__zoom row" role="group" aria-label={t("map.controls")} data-map-chrome>
+          <button type="button" className="button" onClick={zoomIn} disabled={!drawn}>
+            {t("map.zoomIn")}
+          </button>
+          <button type="button" className="button" onClick={zoomOut} disabled={!drawn}>
+            {t("map.zoomOut")}
+          </button>
+          <button type="button" className="button" onClick={resetView} disabled={!drawn}>
+            {t("map.resetView")}
+          </button>
+        </div>
+      </div>
+
+      {/* The quietest surface on the field: the bottom start (SPEC §2, §7 row 8). */}
+      <div className="map__float map__float--legend" data-map-chrome>
+        <MapLegend />
+      </div>
+
+      {/*
         The one Peek, rendered in the one place (invariant 13).
 
-        It is here rather than in the search rail because `T-208` made the
-        panels foldable, and a Peek rendered inside a collapsed `<details>` is
-        a card nobody can see -- while the pointer that opened it was on the
-        canvas, which has no other way to say what a mark states. Below the
-        stage rather than above it, because a transient card that resizes the
-        container makes the renderer re-measure on every hover.
+        It is not inside any panel, because `T-208` made the panels foldable
+        and a Peek rendered inside a collapsed `<details>` is a card nobody can
+        see -- while the pointer that opened it was on the canvas, which has no
+        other way to say what a mark states. It is the route's, and it floats
+        at the field's block end rather than in the flow, because a transient
+        card that resizes anything makes the renderer re-measure on every
+        hover. It is deliberately not measured as chrome: it is the reader's
+        own momentary card, it closes on leaving the mark or on Escape, and
+        re-placing every neighbour card underneath it would make the
+        constellation flicker as the pointer crossed the stage.
       */}
       {peek.peek !== null && <MapPeekCard peek={peek.peek} onClose={() => peek.close()} />}
-
-      {picture.kind === "pending" && <p className="muted">{t("map.canvas.pending")}</p>}
-      {picture.kind === "nothing" && <p className="muted">{t("map.canvas.nothing")}</p>}
-      {/*
-        The pointer path is an enhancement over the DOM path, and this sentence
-        is where the Map says so: the marks are one view of a list that is
-        right below, and everything a mark can do a row can do.
-      */}
-      <p className="faint" data-map-stage-companion>
-        {t("map.stage.companion")}
-      </p>
-
-      <MapOutline
-        graph={graph}
-        revision={snapshotId + pages}
-        focus={focus.focus}
-        onFocus={focus.focusEntity}
-        peek={peek}
-        // The companion opens itself whenever it is the only view of the
-        // graph: no renderer, a refused container, or nothing drawn yet.
-        preferOpen={!drawing}
-      />
-
-      <MapQuickRead
-        focus={focus.focus}
-        entity={hood.centre}
-        error={hood.centreError}
-        onRetry={hood.reload}
-        relations={neighbourhood?.active ?? []}
-        loading={hood.status === "loading"}
-      />
-
-      <MapRelatedList
-        focus={focus.focus}
-        neighbourhood={neighbourhood}
-        status={hood.status}
-        error={hood.neighbourhoodError}
-        onRetry={hood.reload}
-        depth={hood.depth}
-        onDepthChange={hood.setDepth}
-        graph={graph}
-        onFocus={focus.focusEntity}
-        peek={peek}
-        placement={placement}
-      />
-
-      <MapLegend />
     </div>
   );
 }

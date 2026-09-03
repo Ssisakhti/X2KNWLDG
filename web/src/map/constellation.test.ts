@@ -552,3 +552,150 @@ describe("the stage card policy", () => {
     expect(placement.omitted.not_loaded).toBe(1);
   });
 });
+
+/**
+ * `T-212`: the workspace put the controls on the field.
+ *
+ * Until the Map became a workspace, everything that competed with a card was
+ * either the stage's own edge or another card, and both were already clauses
+ * here. D-153 added a third competitor: a search surface, the counts, the
+ * legend, the one primary drawer and the camera's controls all float *on* the
+ * field now. A card is drawn over whatever the route puts there -- the overlay
+ * is a sibling of the renderer's container, so nothing clips it (D-137) --
+ * which means a card under a control shows its first two words and hides the
+ * visible truncation marker. That is the one silent cut D-131 forbids,
+ * arriving from a new direction, and the mockup's own geometry check found it
+ * at 1440x900 before any of this was written.
+ *
+ * The reason such a card is refused is `no_room`, and that is the point of
+ * asserting it: the mark *is* on the stage, so `off_stage` would send a reader
+ * panning a camera that is not the problem, and `crowded` names another card.
+ */
+describe("the stage's floating chrome", () => {
+  const FIELD = { width: 1200, height: 800 };
+
+  /** A surface across the field's whole top edge, 200 px deep. */
+  const TOP_CHROME = { left: 0, top: 0, right: FIELD.width, bottom: 200 };
+
+  it("changes nothing when there is none, which is every stage before T-212", () => {
+    // The default is an empty list, so the clause is additive: the policy's
+    // own tests above pass an input with no `obstacles` at all.
+    const rows = neighbours(3);
+    const points = spread(rows);
+    const input = {
+      centreId: null,
+      related: rows,
+      position: positions(points),
+      stage: STAGE_WIDE,
+      box: TEST_BOX,
+    };
+    expect(placeConstellation({ ...input, obstacles: [] })).toEqual(placeConstellation(input));
+  });
+
+  it("refuses a card that would be drawn underneath a floating control", () => {
+    // One neighbour, anchored where every orientation of its card lands
+    // inside the surface across the top of the field.
+    const [row] = neighbours(1);
+    const at = (obstacles: readonly { left: number; top: number; right: number; bottom: number }[]) =>
+      placeConstellation({
+        centreId: null,
+        related: [row!],
+        position: positions({ [row!.globalId]: { x: 600, y: 100 } }),
+        stage: FIELD,
+        box: TEST_BOX,
+        obstacles,
+      });
+
+    // Without the surface the card is placed: the mark is well inside the
+    // stage and nothing else is on it.
+    expect(at([]).cards).toHaveLength(1);
+
+    // With it, no orientation is both on the stage and clear of the control.
+    const refused = at([TOP_CHROME]);
+    expect(refused.cards).toHaveLength(0);
+    // The real reason, not a convenient one: the mark is on the stage.
+    expect(refused.omitted.no_room).toBe(1);
+    expect(refused.omitted.off_stage).toBe(0);
+    expect(refused.omitted.crowded).toBe(0);
+    // And it is counted, which is what keeps it in the related list (R20).
+    expect(refused.omittedTotal).toBe(1);
+  });
+
+  it("opens a card the other way rather than refusing it", () => {
+    // The same clause as the crowding one: a card tries all four orientations
+    // before it is refused, so a control above a mark costs a direction and
+    // not a card. `above: false` grows the card downwards, away from the
+    // surface across the top.
+    const [row] = neighbours(1);
+    const placement = placeConstellation({
+      centreId: null,
+      related: [row!],
+      position: positions({ [row!.globalId]: { x: 600, y: 260 } }),
+      stage: FIELD,
+      box: TEST_BOX,
+      obstacles: [TOP_CHROME],
+    });
+    expect(placement.cards).toHaveLength(1);
+    expect(placement.cards[0]!.above).toBe(false);
+    expect(stageCardRect(placement.cards[0]!, TEST_BOX).top).toBeGreaterThanOrEqual(
+      TOP_CHROME.bottom,
+    );
+  });
+
+  it("keeps the selected card out from under the chrome as well", () => {
+    // The card D-132 *guarantees* now chooses between three tiers rather than
+    // two: on the stage and clear of the controls, then merely on the stage,
+    // then the preferred direction whatever it covers. Being covered is worse
+    // for this card than for any other, because it is the one the reader asked
+    // for -- a WCAG 2.2 AA *Focus Not Obscured* failure and not a cosmetic
+    // overlap (SPEC §8).
+    const centre = unit("KU-000001");
+    const placement = placeConstellation({
+      centreId: centre.global_id,
+      related: [],
+      position: positions({ [centre.global_id]: { x: 600, y: 260 } }),
+      stage: FIELD,
+      obstacles: [TOP_CHROME],
+    });
+    expect(placement.primary).not.toBeNull();
+    const rect = stageCardRect(placement.primary!, MAP_STAGE_PRIMARY_BOX);
+    expect(stageCardsOverlap(rect, TOP_CHROME)).toBe(false);
+  });
+
+  it("still places the selected card when every direction is covered", () => {
+    // The fallback stays a fallback. A selection with nothing on screen is not
+    // an improvement on a card partly under a control, and this is the card
+    // D-132 guarantees -- a neighbour in the same position is refused and
+    // counted instead, which the clause above asserts.
+    const centre = unit("KU-000001");
+    const placement = placeConstellation({
+      centreId: centre.global_id,
+      related: [],
+      position: positions({ [centre.global_id]: { x: 600, y: 100 } }),
+      stage: FIELD,
+      obstacles: [{ left: 0, top: 0, right: FIELD.width, bottom: FIELD.height }],
+    });
+    expect(placement.primary).not.toBeNull();
+    expect(placement.primary?.globalId).toBe(centre.global_id);
+  });
+
+  it("counts placed cards plus omissions as the neighbours it was given", () => {
+    // The accounting is total whatever the chrome does to it, which is the
+    // claim R20 is judged on: every neighbour the API returned is either a
+    // card on the stage or a counted reason there is none.
+    const rows = neighbours(6);
+    const points = spread(rows);
+    const placement = placeConstellation({
+      centreId: null,
+      related: rows,
+      position: positions(points),
+      stage: STAGE_WIDE,
+      box: TEST_BOX,
+      obstacles: [{ left: 0, top: 0, right: STAGE_WIDE.width, bottom: 300 }],
+    });
+    expect(placement.cards.length + placement.omittedTotal).toBe(rows.length);
+    expect(
+      STAGE_OMISSIONS.reduce((sum, reason) => sum + placement.omitted[reason], 0),
+    ).toBe(placement.omittedTotal);
+  });
+});

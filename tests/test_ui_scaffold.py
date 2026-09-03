@@ -1667,29 +1667,149 @@ def test_the_map_stage_states_a_size() -> None:
     states rather than a blank canvas nobody can explain — but it means the
     stage's size is load-bearing, and `T-209` measured *how*: the renderer
     refuses a dimension of exactly zero and accepts everything else, so a
-    two-pixel stage is drawn into and reported as a picture (D-145). The
-    stylesheet's **minimum** is therefore what stands between a small window
-    and an unreadable graph the route calls drawn — not, as `T-208` assumed, a
-    way of avoiding a stated refusal. It is stated once, in the stylesheet,
-    and the renderer is told about every change to it.
+    two-pixel stage is drawn into and reported as a picture (D-145).
+
+    `T-212` gave the stage its size a second way and this test had to follow.
+    In the workspace composition the stage is not a band on a page with a
+    block size of its own: it is absolutely placed against the field, which is
+    the route viewport less the app bar (D-153). So the question this asks is
+    unchanged — *is the container's size stated in the stylesheet* — while
+    what counts as an answer now depends on the composition:
+
+    * the workspace stage is inset to a field that itself states a block size;
+    * the document composition below 48rem, which `T-213` replaces with SPEC
+      §5's third tier, keeps both the size and the **minimum** D-145 is about.
+
+    There is deliberately no minimum on the workspace stage. A minimum only
+    protects a reader when something can take the overflow, and in a workspace
+    nothing can: the document does not scroll, so a stage taller than the field
+    is a clipped graph rather than a scrollable one. A short window is a small
+    field, which is what a small window *is* here.
     """
     renderer = (WEB / "src" / "map" / "sigmaRenderer.ts").read_text(encoding="utf-8")
     assert "allowInvalidContainer: false" in renderer
     base = (WEB / "src" / "styles" / "base.css").read_text(encoding="utf-8")
-    stage = re.search(r"\.map__stage\s*\{[^}]*\}", base)
+
+    narrow = re.search(r"@media \(max-width: 48rem\) \{.*?\n\}\n", base, re.S)
+    assert narrow is not None, "the Map lost the breakpoint its document composition lives in"
+    workspace = base.replace(narrow.group(0), "")
+
+    stage = re.search(r"\.map__stage\s*\{[^}]*\}", workspace)
     assert stage is not None, "the Map's stage has no style, so it has no size"
-    assert "block-size" in stage.group(0), (
-        "the Map's stage declares no block size, so `allowInvalidContainer: "
-        "false` will refuse the renderer"
+    assert "position: absolute" in stage.group(0) and "inset: 0" in stage.group(0), (
+        "the workspace stage is neither sized nor inset to its field, so "
+        "`allowInvalidContainer: false` will refuse the renderer"
     )
-    assert "min-block-size" in stage.group(0), (
-        "the Map's stage declares no *minimum* block size, so a narrow window "
-        "draws a graph a reader cannot see and the route still calls it drawn "
-        "(D-145)"
+    field = re.search(r"\n\.map\s*\{[^}]*\}", workspace)
+    assert field is not None, "the Map has no field for the stage to be inset to"
+    assert "block-size" in field.group(0), (
+        "the Map's field declares no block size, so the stage inset to it has "
+        "no size either and `allowInvalidContainer: false` will refuse the renderer"
     )
+
+    narrow_stage = re.search(r"\.map__stage\s*\{[^}]*\}", narrow.group(0))
+    assert narrow_stage is not None, "the document composition's stage has no style"
+    assert "block-size" in narrow_stage.group(0), (
+        "the document composition's stage declares no block size, so "
+        "`allowInvalidContainer: false` will refuse the renderer"
+    )
+    assert "min-block-size" in narrow_stage.group(0), (
+        "the document composition's stage declares no *minimum* block size, so "
+        "a narrow window draws a graph a reader cannot see and the route still "
+        "calls it drawn (D-145)"
+    )
+
     view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
     assert 'className="map__stage"' in view
     assert "ResizeObserver" in view, "nothing hands a container resize to the renderer"
+
+
+# ---------------------------------------------------------------------------
+# T-212 — the Map is a viewport workspace, and the document does not scroll
+# ---------------------------------------------------------------------------
+
+
+def test_the_map_workspace_does_not_scroll_the_document() -> None:
+    """D-153's first clause, and the one jsdom cannot answer.
+
+    The rejected screen was not badly coloured; it was composed as a document.
+    `T-211` measured it on the real build at 2852x1688: the stage began 790 px
+    down, and focusing one entity produced a document 3.4 screens tall, so the
+    Search -> Focus -> Quick Read loop the Map exists for needed about 4100 px
+    of scrolling. Every component test in `web/` runs in jsdom, which has no
+    layout at all — every rectangle is zero and no stylesheet is applied — so
+    the rule that the document does not scroll can only be checked where it is
+    written.
+
+    SPEC §2 states it as ``html, body { overflow: hidden }``. It is scoped to
+    the route rather than written globally because three routes share this
+    document and the other two *are* documents: the Library and the Reader
+    must scroll. What must hold is that the workspace frame is a fixed-height
+    grid with no overflow of its own, and that the document around it cannot
+    scroll while that frame is mounted.
+    """
+    base = (WEB / "src" / "styles" / "base.css").read_text(encoding="utf-8")
+    tokens = (WEB / "src" / "styles" / "tokens.css").read_text(encoding="utf-8")
+
+    frame = re.search(r"\.shell--workspace\s*\{[^}]*\}", base)
+    assert frame is not None, "no workspace frame, so the Map is still a document"
+    assert "overflow: hidden" in frame.group(0), (
+        "the workspace frame scrolls, which is the composition D-153 replaces"
+    )
+    assert "grid-template-rows: var(--bar-height) 1fr" in frame.group(0), (
+        "the workspace is not the app bar plus the field, so the stage does "
+        "not fill the usable route viewport"
+    )
+    assert "--bar-height:" in tokens, (
+        "`--bar-height` is not a token, so the bar's height and the grid row "
+        "it is given are two numbers that can disagree"
+    )
+
+    # The document itself, and it must be conditional: the rule may not reach
+    # the two routes that have to scroll.
+    document = re.search(r"html:has\(\.shell--workspace\)[^{]*\{[^}]*\}", base)
+    assert document is not None, (
+        "nothing stops the document scrolling behind the workspace (SPEC §2)"
+    )
+    assert "overflow: hidden" in document.group(0)
+    assert not re.search(r"\nhtml,\s*\nbody\s*\{[^}]*overflow: hidden", base), (
+        "`overflow: hidden` is written on `html, body` unconditionally, which "
+        "stops the Library and the Reader scrolling as well"
+    )
+
+    # And the field the stage is inset to must be the frame's second row
+    # rather than the old centred text column.
+    main = re.search(r"\.shell--workspace \.shell__main\s*\{[^}]*\}", base)
+    assert main is not None, "the workspace's main is still the document column"
+    assert "max-inline-size: none" in main.group(0), (
+        "the workspace keeps the 78rem column that left 1604 px of the review "
+        "viewport unused (`T-211` §1)"
+    )
+
+
+def test_the_card_policy_is_told_where_the_floating_chrome_is() -> None:
+    """A card is drawn over whatever the route puts on the stage.
+
+    The overlay is a sibling of the renderer's container rather than a child
+    of it (D-137), so nothing clips a card that leaves the stage — which was
+    already how `T-209` found two statements sitting behind the search rail.
+    The workspace made that failure mode ordinary rather than rare: the
+    controls are *on* the field now. So the policy takes the chrome's own
+    rectangles, and the route measures them rather than stating them as
+    insets — the composition mirrors under ``dir="rtl"``, and a hand-written
+    inset per edge is the defect D-191 carries forward from the mockup.
+    """
+    policy = (WEB / "src" / "map" / "constellation.ts").read_text(encoding="utf-8")
+    assert "obstacles?: readonly StageRect[]" in policy, (
+        "the density policy cannot be told where the floating chrome is"
+    )
+    view = (WEB / "src" / "views" / "MapView.tsx").read_text(encoding="utf-8")
+    assert "obstacles: chrome" in view, "the route does not tell the policy about its chrome"
+    assert "data-map-chrome" in view, "no surface is marked as chrome, so none is measured"
+    assert "getBoundingClientRect" in view, (
+        "the chrome is not measured, so its position is stated somewhere and "
+        "will be stated wrong in the mirrored composition"
+    )
 
 
 # ---------------------------------------------------------------------------

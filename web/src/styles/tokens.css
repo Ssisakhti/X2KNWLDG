@@ -47,6 +47,20 @@
   --border-width: 1px;
   --rail-width: 3px;
 
+  /* Workspace (T-212, SPEC §6) --------------------------------------- */
+  /* The app bar's height, as the first row of the Map's workspace grid.
+     It is a token rather than a number in `base.css` because two rules
+     need the same value -- the grid row and the bar itself -- and a bar
+     one pixel taller than the row it is given is a workspace that
+     scrolls by one pixel, which is the whole thing D-153 forbids. */
+  --bar-height: 56px;
+  /* Lifts a floating surface off the field without a hard border. Two
+     layers: a tight one that reads as an edge and a wide one that reads
+     as height. A single shadow does one or the other. */
+  --float-shadow:
+    0 1px 2px rgb(0 0 0 / 8%),
+    0 8px 24px rgb(0 0 0 / 10%);
+
   /* Colour ----------------------------------------------------------- */
   --bg: #fbfaf8;
   --bg-raised: #ffffff;
@@ -122,5 +136,11 @@
     --status-unknown-bg: #26252a;
 
     --missing-fg: #7d7871;
+
+    /* A dark field needs a deeper shadow to separate a surface from it at
+       all: the light-mode values are invisible over `#17161a`. */
+    --float-shadow:
+      0 1px 2px rgb(0 0 0 / 40%),
+      0 10px 30px rgb(0 0 0 / 45%);
   }
 }

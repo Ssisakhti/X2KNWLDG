@@ -334,3 +334,65 @@ numbers are the durable evidence — 1248 px column, 790 px stage top, 5795 px d
 the script prints exactly those on every run, so the claim can be re-checked against a live
 build even when the images are gone. The images themselves remain in the published review
 artifact.
+
+---
+
+## 13. What `T-212` built, and the four places it departed
+
+`T-212` implemented §2's workspace and §7's order. The §1 numbers were re-measured on the
+running build at the same viewport by the same method, and they are the "after" the baseline
+exists to be compared against:
+
+| Measured at 2852×1688 | Before | After |
+|---|---|---|
+| Route content column | 1248 px | **2852 px** — there is no column |
+| Stage top edge | 790 px | **56 px** — the app bar, and nothing else |
+| Stage size, Explore | 1216 × 640 (38 % of the viewport) | **2852 × 1632** (97 %) |
+| Stage size, Focus | 1216 × 640 | 2260 × 1632 — the field less the drawer |
+| Document height, Explore | 1873 px | **1688 px — the viewport. It does not scroll** |
+| Document height, Focus | **5795 px** | **1688 px** |
+| Neighbour cards placed / omitted, Focus | 2 / 7 | **4 / 4** |
+
+At 1440×900 the same loop needs no scroll either: the document is 900 px in both states. The
+one number that moved the wrong way is the card count at that viewport — 1 placed and 8
+counted, against 2 and 7 before — because the neighbourhood is framed by camera *ratio*, so
+its marks are half as far apart on a field half as wide and the neighbours collide with the
+focused card rather than with the chrome. Every one of the eight is counted and listed (R20),
+and `T-213` replaces this placement entirely: SPEC §5 gives the `compact` tier a deterministic
+two-cards-per-side orbit rather than cards pinned to ForceAtlas marks.
+
+This file is a contract, so the four deliberate departures are recorded here rather than left
+to be discovered. Each is also in D-192.
+
+1. **The camera's controls share the inline-end rail with the drawer instead of floating
+   under it.** §2 puts the zoom bottom-end and §4 gives the drawer the full height at the
+   inline end; in the approved capture the drawer therefore paints *over* the zoom float,
+   because `.drawer` carries `z-index: 5` and `.float` carries none. A reader who opens Quick
+   Read cannot zoom the graph they are reading about — the same WCAG 2.2 AA *Focus Not
+   Obscured* failure §8 cites, one surface over. The rail is a flex column with the controls
+   last, so the position §2 states is kept and the drawer is about 60 px shorter.
+
+2. **`html, body { overflow: hidden }` is scoped to the route.** Written as
+   `html:has(.shell--workspace)`, because three routes share one document and the other two
+   *are* documents: the Library and the Reader must scroll. The clause itself is unchanged.
+
+3. **The outline is a panel inside the search drawer, so it precedes the stage.** §7 numbers
+   it after the stage while placing it visually in that drawer's panel list, and those cannot
+   both be true of one DOM. The visual column is the binding one — the table's own subject is
+   that tab order follows visual order — and it agrees with D-129, which wants the account
+   before the picture.
+
+4. **The drawer's width comes out of the field only at the `full` tier.** §5 already says the
+   `compact` tier keeps the drawer "closed to its trigger", and the browser gate measured why
+   that boundary is arithmetic: subtract 560 px and its margins from a 1280 px viewport and
+   the field is 688 px, the camera frames the focus in the middle of it, and the 416 px
+   primary card needs 452 px of clear field on one side and has 344 px on either. No
+   orientation fits, the card D-132 guarantees falls back to its preferred direction, and it
+   hangs 5 px over the edge. Below 2000 px the drawer floats over the field instead, and the
+   chrome-avoiding clause in `placeConstellation` is what keeps the card out from under it.
+
+Two clauses of §5 and all of §6's constants are deliberately **not** implemented: the
+`compact` and `stack` compositions and the new card boxes belong to `T-213` and `T-214`, which
+own the orbit and the visual system. Below 48rem the route keeps the document composition it
+already had and its tested touch journey, rather than shipping four floating surfaces stacked
+on one another at 390 px.
