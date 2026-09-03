@@ -2,8 +2,8 @@
 
 - **Task:** `T-222`, Phase 2.2 (`T-220`), the first executable task after
   [ADR 0007](../../adr/0007-twitter-acquisition-boundary.md)
-- **Measured:** 2026-09-03, on the user's own machine, `darwin/arm64`.
-  ⚠️ **Not from an Iranian egress — see the correction in §0**
+- **Measured:** 2026-09-03, on the user's own machine, `darwin/arm64`, through
+  the always-on tunnel that is part of that environment — see §0
 - **Provider under test:** [`tamnd/x-cli`](https://github.com/tamnd/x-cli)
   **v0.5.0**, AGPL-3.0 — `x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z)`
 - **Credentials used:** none. No X session, cookie, password, browser profile
@@ -13,7 +13,7 @@
 
 ---
 
-## 0. Correction of record — the environment was not measured from Iran
+## 0. Correction of record — the environment is the tunnel, not a bare Iranian egress
 
 **Found after the matrix was committed, and it limits what §2 may be read to
 mean.** The premise of `T-222`, in ADR 0007 and in the task row, is qualification
@@ -37,35 +37,47 @@ truncation ceiling (§5), thread enumerability in both directions (§4), the fie
 shapes and the four disagreements with the tool's own table (§7), exit-code
 semantics (§6), and the privacy and licence audit (§8).
 
-**What this does affect, and it is the question the task was actually asked.**
+**What this scopes.** §2 shows the surfaces answering *through this tunnel*. It
+is not evidence that `cdn.syndication.twimg.com`, `x.com/i/api/graphql`,
+`publish.x.com` or `api.fxtwitter.com` answer from a bare Iranian egress, and no
+claim here should be read that way. Since the tunnel is always on, that is the
+environment the phase targets — but it is a dependency, and the phase must say
+so.
 
-- **Reachability from Iran is unmeasured.** §2 shows the surfaces answering
-  through this egress. It is not evidence that
-  `cdn.syndication.twimg.com`, `x.com/i/api/graphql`, `publish.x.com` or
-  `api.fxtwitter.com` answer from an Iranian one.
-- **The latency figures describe the tunnel**, not the target environment.
-- **The rate-limit observations are confounded.** X's budgets are per-IP, and a
-  shared VPN egress may share them with other users of that egress — which is a
-  candidate explanation for how quickly the 30-per-15-minute syndication profile
-  budget was exhausted here.
+**Resolved by the user on 2026-09-03: the tunnel is always on, so it is part of
+the real environment.** The measurements therefore do describe the target
+environment, and `T-222`'s environment half is met — with the tunnel named as a
+dependency of the phase rather than left implicit. Two consequences were then
+measured rather than assumed:
 
-**The decision this surfaces**, which belongs to the user rather than to this
-report: if X is reached through a tunnel in normal use — the ordinary situation
-where it is blocked — then the tunnel is part of the real environment and should
-be named as a dependency of the phase, with the matrix re-run and its reachability
-recorded honestly. If instead the intent is a path that works without one, then
-`T-222`'s environment qualification is **not met** and must be re-run with the
-tunnel down before `T-229` can close the phase. ADR 0007 declined to circumvent
-regional restrictions as a matter of design, and it did not contemplate a tunnel,
-so this needs an explicit answer and not an assumption. Recorded as **D-209**.
+- **The egress is stable.** `50.117.3.112` / `colo=EWR` on three consecutive
+  samples. It does not rotate, so per-IP budgets and latency are reproducible.
+- **The shared-budget worry does not hold.** The consumption recorded in
+  `limits.json` matches this session's own request count — 486 of 500
+  `TweetResultByRestId` and 19 of 50 `UserTweets` remaining — so the budgets
+  behave as a dedicated egress rather than one shared with strangers. The
+  latency figures in §2 are the tunnel's, which is the correct number for this
+  environment.
+
+What remains is a **named dependency, not an open question**: X is reached
+through a tunnel, so `T-223`/`T-224` must distinguish "the tunnel is down" from
+"the provider changed" — otherwise a routine network drop reads as provider
+drift and can discard a capture that was fine.
+
+One wording point is left for the user. ADR 0007 says no *payment or regional
+restriction* is to be circumvented, in a sentence written about not evading the
+paid API. The accepted path routes around a state-level block on the user's own
+traffic, which is a different thing from evading X's access controls or its
+payment. The phrasing deserves one clarifying line so the record does not read
+as self-contradictory. Recorded as **D-209**, resolved.
 
 ## 1. Verdict
 
 **GO, with one scope correction that needs a decision.**
 
 A no-payment, credential-free path works from this machine and is good enough to
-build Phase 2.2 on — with the environment caveat in §0, which downgrades "works
-from Iran" to "works through the tunnel this machine currently uses". Every Tier 0 surface answered; 52 matrix cells
+build Phase 2.2 on. §0 records what "the environment" means here: the user's
+always-on tunnel, now a named dependency of the phase rather than an assumption. Every Tier 0 surface answered; 52 matrix cells
 were measured with **zero `FAIL`**.
 
 But the phase MVP as written in `PROJECT_MANAGEMENT.md` §5 is *"public single
@@ -106,9 +118,28 @@ reported whole threads while silently dropping 70% of their posts (§4).
 Median end-to-end latency per route, across the matrix: oEmbed 808 ms,
 FxTwitter 847 ms, x-cli guest 1861 ms, x-cli Tier 0 3130 ms.
 
-**Budgets observed**, which bound any future design: syndication tweet — none
-observed; syndication profile — **30 / 15 min**; guest GraphQL — **500 / 15
-min**; app-only v1.1 — 75 / 15 min.
+**Budgets observed**, which bound any future design. The guest tier is **metered
+per operation, not per tier**, and the first version of this report flattened it
+to a single "500 / 15 min" — a 10x overstatement of the scarcest one. Read back
+from `~/.local/share/x/limits.json` after the run:
+
+| Operation / surface | Limit per 15 min |
+|---|---|
+| syndication tweet (s1) | none observed |
+| syndication profile (s2) | 30 |
+| oembed (s3) | none observed |
+| guest `TweetResultByRestId` — one post | **500** |
+| guest `UserByScreenName` — one user | 150 |
+| guest `UserTweets` — the author archive | **50** |
+| app-only v1.1 (s5) | 75 |
+
+This lands well for the recommended design and badly for the one it rejects. A
+single-post capture and a parent-walk spend `TweetResultByRestId` at 500 per
+window, or the unmetered syndication surface at Tier 0 — comfortable. The
+author-archive read costs the **50** budget, and a deep read pages, so it burns
+several at a time. The archive was already only `PARTIAL` evidence for
+descendants (§4); it is also the scarcest call available, which is a second
+reason not to build thread discovery on it.
 
 ## 3. Capability matrix
 
@@ -315,7 +346,7 @@ Tier 0 is disqualified as a sole default by the silent truncation in §5.
 **A decision is needed on this, because Tier 1 is an escalation from Tier 0**
 and ADR 0007 said to test unauthenticated first. What a guest token is: an
 anonymous value X mints on request, tied to no account, stored as
-`guest_token` + `minted_at`, with a 500/15-min budget. It is not a credential,
+`guest_token` + `minted_at`, metered per operation (500 for a single post, 50 for an archive read). It is not a credential,
 a session or an account, so it sits inside the ADR's exclusions — but it is
 minted material, and the ADR did not name it. §11 puts this to the user.
 
