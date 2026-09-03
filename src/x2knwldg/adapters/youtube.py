@@ -180,8 +180,8 @@ class YouTubeAdapter(SourceAdapter):
         unmappable: list[dict[str, str]] = []
         damaged: list[dict[str, str]] = []
         artifacts = self._artifacts(run_dir, source_id, metadata, hash_artifacts, unmappable)
-        knowledge = self._read(run_dir / "knowledge_units.json", damaged)
-        relationships = self._read(run_dir / "relationships.json", damaged)
+        knowledge = self.read_canonical(run_dir / "knowledge_units.json", damaged)
+        relationships = self.read_canonical(run_dir / "relationships.json", damaged)
         units = _items(knowledge, "units", self.relative(run_dir / "knowledge_units.json"))
         edges = _items(
             relationships, "relationships", self.relative(run_dir / "relationships.json")
@@ -213,7 +213,7 @@ class YouTubeAdapter(SourceAdapter):
             )
         )
 
-    def _read(self, path: Path, damaged: list[dict[str, str]]) -> Any | None:
+    def read_canonical(self, path: Path, damaged: list[dict[str, str]]) -> Any | None:
         """A canonical file, or ``None`` — recording *why* when there is a why.
 
         An absent file is an absence and says nothing. A file that is present
@@ -344,46 +344,6 @@ class YouTubeAdapter(SourceAdapter):
             "adapter_metadata": adapter_metadata,
         }
 
-    def _status(self, run_dir: Path, damaged: list[dict[str, str]]) -> dict[str, Any]:
-        """Copy the run status out of the two validator files.
-
-        ``overall`` is ``validation.json``'s top-level status, which already
-        aggregates all five sections including coverage (``pipeline.py:281``).
-        Recomputing it here would be a second opinion, and the UI is forbidden
-        one (ADR 0001 invariant 2).
-        """
-        validation_path = run_dir / "validation.json"
-        coverage_path = run_dir / "coverage.json"
-        validation = self._read(validation_path, damaged)
-        coverage = self._read(coverage_path, damaged)
-
-        status: dict[str, Any] = {
-            "validation": read_status(validation),
-            "coverage": read_status(coverage),
-            "overall": read_status(validation),
-            "validation_path": self.relative(validation_path) if validation is not None else None,
-            "coverage_path": self.relative(coverage_path) if coverage is not None else None,
-        }
-        # Copied verbatim inside the bounds the record can carry. A count above
-        # the WORKFLOW.md cap of three means the run broke the repair rule, and
-        # a count that is not a whole number means the file is damaged: both are
-        # refused here, loudly and by name. Clamping would hide the first and
-        # nulling would restate the second as 'no file', which is a different
-        # claim. ``0`` is the honest never-audited state ``coverage.py`` writes
-        # and is carried through as stated.
-        if isinstance(coverage, Mapping) and "audit_attempts" in coverage:
-            status["audit_attempts"] = copied_number(
-                coverage.get("audit_attempts"),
-                owner=self.relative(coverage_path),
-                field="audit_attempts",
-                minimum=0,
-                maximum=MAX_AUDIT_ATTEMPTS,
-                integer=True,
-            )
-        else:
-            status["audit_attempts"] = None
-        return status
-
     def _counts(
         self,
         run_dir: Path,
@@ -404,12 +364,12 @@ class YouTubeAdapter(SourceAdapter):
             counts["derived_units"] = sum(1 for u in units if u.get("source_class") == "derived")
         if edges is not None:
             counts["relationships"] = len(edges)
-        transcript = self._read(run_dir / "transcript.json", damaged)
+        transcript = self.read_canonical(run_dir / "transcript.json", damaged)
         if transcript is not None:
             counts["captions"] = len(
                 _items(transcript, "captions", self.relative(run_dir / "transcript.json"))
             )
-        segments = self._read(run_dir / "segments.json", damaged)
+        segments = self.read_canonical(run_dir / "segments.json", damaged)
         if segments is not None:
             counts["segments"] = len(
                 _items(segments, "segments", self.relative(run_dir / "segments.json"))

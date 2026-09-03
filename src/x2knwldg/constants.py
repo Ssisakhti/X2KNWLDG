@@ -65,6 +65,13 @@ OMISSION_REASONS = {
     "audience_reaction",
     "unintelligible",
     "off_topic",
+    # T-227. An *included* post that was never observed — a tombstone — has no
+    # content to audit, and the omission is minted by
+    # `twitter.extract.create_pending_coverage` rather than chosen by an
+    # auditor. `other_explained` is the right value for a judgement call and the
+    # wrong one for a case the pipeline generates on every such run: "explain
+    # yourself" invites a different sentence each time for one structural fact.
+    "source_unavailable",
     "other_explained",
 }
 

@@ -37,6 +37,9 @@ from x2knwldg.artifacts import _carry_coverage_scaffold_forward, apply_extractio
 from x2knwldg.constants import COVERAGE_WINDOW_SEC, DERIVED_KINDS, SOURCE_KINDS
 from x2knwldg.pipeline import PipelineError
 from x2knwldg.validators import (
+    validate_item_coverage,
+    validate_item_coverage_links,
+    validate_post_provenance,
     MAX_AUDIT_ATTEMPTS,
     MIN_EVIDENCE_EXCERPT_CHARS,
     validate_coverage,
@@ -1088,6 +1091,316 @@ def test_every_window_naming_the_same_first_unit_cannot_claim_pass() -> None:
     ], "the first window is the only one that unit is evidence for"
 
 
+# ---------------------------------------------------------------------------
+# T-227 — the Twitter medium: a post id and a codepoint span, and item coverage
+#
+# Same doctrine as everything above: each fixture differs from an honest one by
+# exactly one defect, so a passing case proves the branch and nothing else.
+# ---------------------------------------------------------------------------
+
+POST_ID = "1795393908886712425"
+OTHER_POST_ID = "1795265406191735191"
+POST_TEXT = "Convolutional networks were introduced in 1989."
+
+
+def _post_source(**overrides: Any) -> dict[str, Any]:
+    # No run id: a post claim carries none, and the cross-run guard is the
+    # `post_id` having to be an item of this run's capture.
+    source = {
+        "post_id": POST_ID,
+        "start_char": 0,
+        "end_char": 22,
+        "evidence_excerpt": POST_TEXT[0:22],
+    }
+    source.update(overrides)
+    return source
+
+
+def _post_unit(**overrides: Any) -> dict[str, Any]:
+    unit = {
+        "id": "KU-000001",
+        "kind": "claim",
+        "source_class": "source",
+        "content": "ConvNets were introduced in 1989.",
+        "confidence": 0.9,
+        "source": _post_source(),
+    }
+    unit.update(overrides)
+    return unit
+
+
+def _post_units(*units: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+    document = {
+        "schema_version": "1.0",
+        "video_id": POST_ID,
+        "source_type": "twitter",
+        "units": list(units),
+    }
+    document.update(overrides)
+    return document
+
+
+def _item(post_id: str = POST_ID, *, available: bool = True, text: Any = POST_TEXT) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "post_id": post_id,
+        "availability": {"state": "available" if available else "unavailable"},
+    }
+    if available and text is not None:
+        item["text"] = {"canonical": text, "form": "authored"}
+    return item
+
+
+def _capture(**overrides: Any) -> dict[str, Any]:
+    capture = {
+        "schema_version": "1.0",
+        "items": [_item()],
+        "anchor": {"post_id": POST_ID, "role": "single_post", "terminal_claim": "none"},
+        "order": {"basis": "single_item"},
+        "coverage": {
+            "status": "PASS",
+            "expected_item_count": 1,
+            "included_post_ids": [POST_ID],
+            "omitted_items": [],
+        },
+    }
+    capture.update(overrides)
+    return capture
+
+
+def _coverage_item(**overrides: Any) -> dict[str, Any]:
+    entry = {
+        "item_id": "CI-0001",
+        "post_id": POST_ID,
+        "status": "covered",
+        "knowledge_units": ["KU-000001"],
+        "omitted_items": [],
+        "unresolved_items": [],
+    }
+    entry.update(overrides)
+    return entry
+
+
+def _item_coverage(**overrides: Any) -> dict[str, Any]:
+    document = {
+        "schema_version": "1.0",
+        "source_type": "twitter",
+        "source_id": POST_ID,
+        "basis": "items",
+        "status": "PARTIAL",
+        "audit_attempts": 1,
+        "items": [_coverage_item()],
+        "excluded_items": [],
+    }
+    document.update(overrides)
+    return document
+
+
+def test_an_honest_twitter_run_passes_every_validator() -> None:
+    document = _post_units(_post_unit())
+    assert validate_knowledge_units(document)["status"] == "PASS"
+    assert validate_post_provenance(document, _capture())["status"] == "PASS"
+    assert validate_item_coverage(_item_coverage(), _capture())["status"] == "PASS"
+    assert validate_item_coverage_links(_item_coverage(), document["units"]) == []
+
+
+def test_a_twitter_unit_is_not_asked_for_seconds_it_cannot_have() -> None:
+    """The dispatch, stated as the defect it prevents (D-226).
+
+    Before the medium was declared, `required` was the YouTube set
+    unconditionally, so every post claim came back missing `video_id`,
+    `segment_id`, `start_sec` and `end_sec` — four errors for a unit that is
+    correct — and `invalid_source_timing` on top, because a bound that is absent
+    is not a number.
+    """
+    result = validate_knowledge_units(_post_units(_post_unit()))
+    assert result["status"] == "PASS", result["errors"]
+    # And the same unit filed as a YouTube run is refused, so the dispatch is
+    # not merely widening what everyone accepts.
+    as_youtube = _post_units(_post_unit())
+    del as_youtube["source_type"]
+    codes = {error["code"] for error in validate_knowledge_units(as_youtube)["errors"]}
+    assert "incomplete_provenance" in codes
+
+
+POST_UNIT_CODES: list[tuple[str, Any]] = [
+    ("unknown_source_type", _post_units(_post_unit(), source_type="mastodon")),
+    (
+        "invalid_source_span",
+        _post_units(_post_unit(source=_post_source(start_char=True))),
+    ),
+]
+
+
+POST_PROVENANCE_CODES: list[tuple[str, Any, Any]] = [
+    (
+        "unknown_source_post",
+        _post_units(_post_unit(source=_post_source(post_id="999999999999999999"))),
+        _capture(),
+    ),
+    (
+        "claim_cites_unavailable_post",
+        _post_units(_post_unit()),
+        _capture(items=[_item(available=False)]),
+    ),
+    (
+        "source_post_without_text",
+        _post_units(_post_unit()),
+        _capture(items=[_item(text=None)]),
+    ),
+    (
+        "invalid_source_span",
+        _post_units(_post_unit(source=_post_source(end_char="22"))),
+        _capture(),
+    ),
+    (
+        "source_span_outside_post",
+        _post_units(_post_unit(source=_post_source(end_char=len(POST_TEXT) + 10))),
+        _capture(),
+    ),
+    (
+        # The span points at one phrase and the excerpt quotes another. Both
+        # are "in the post", which is why the YouTube substring rule would
+        # have accepted this one.
+        "evidence_excerpt_is_not_its_span",
+        _post_units(_post_unit(source=_post_source(evidence_excerpt=POST_TEXT[28:38]))),
+        _capture(),
+    ),
+]
+
+
+@pytest.mark.parametrize("code,document,capture", POST_PROVENANCE_CODES, ids=[c for c, _, _ in POST_PROVENANCE_CODES])
+def test_post_provenance_defects_are_named(code: str, document: Any, capture: Any) -> None:
+    result = validate_post_provenance(document, capture)
+    assert result["status"] == "FAIL"
+    assert code in {error["code"] for error in result["errors"]}
+
+
+ITEM_COVERAGE_CODES: list[tuple[str, Any, Any]] = [
+    ("coverage_items_not_array", {"audit_attempts": 1, "items": "CI-0001"}, _capture()),
+    ("coverage_basis_not_items", _item_coverage(basis="windows"), _capture()),
+    ("coverage_item_not_object", _item_coverage(items=["CI-0001"]), _capture()),
+    (
+        "coverage_item_field_not_array",
+        _item_coverage(items=[_coverage_item(unresolved_items=1)]),
+        _capture(),
+    ),
+    (
+        "coverage_item_without_post_id",
+        _item_coverage(items=[_coverage_item(post_id="")]),
+        _capture(),
+    ),
+    (
+        "duplicate_coverage_item",
+        _item_coverage(items=[_coverage_item(), _coverage_item(item_id="CI-0002")]),
+        _capture(),
+    ),
+    (
+        "coverage_item_not_in_capture",
+        _item_coverage(items=[_coverage_item(post_id="999999999999999999")]),
+        _capture(),
+    ),
+    (
+        "invalid_coverage_item_status",
+        _item_coverage(items=[_coverage_item(status="audited")]),
+        _capture(),
+    ),
+    (
+        # The acceptance clause: an included post with no entry at all.
+        "included_post_without_coverage",
+        _item_coverage(items=[]),
+        _capture(),
+    ),
+    (
+        "unavailable_post_not_omitted",
+        _item_coverage(items=[_coverage_item(status="covered")]),
+        _capture(items=[_item(available=False)]),
+    ),
+    (
+        "unavailable_post_with_units",
+        _item_coverage(items=[_coverage_item(status="omitted", omitted_items=[{"type": "source_unavailable"}])]),
+        _capture(items=[_item(available=False)]),
+    ),
+    (
+        "omitted_item_without_accounting",
+        _item_coverage(status="PASS", items=[_coverage_item(status="omitted", knowledge_units=[])]),
+        _capture(),
+    ),
+    (
+        "covered_item_without_accounting",
+        _item_coverage(status="PASS", items=[_coverage_item(knowledge_units=[])]),
+        _capture(),
+    ),
+    (
+        # A run cannot be more complete than the evidence under it.
+        "coverage_pass_over_incomplete_capture",
+        _item_coverage(status="PASS"),
+        _capture(
+            coverage={
+                "status": "PARTIAL",
+                "expected_item_count": 2,
+                "included_post_ids": [POST_ID],
+                "omitted_items": [{"post_id": OTHER_POST_ID, "reason": "by another author"}],
+            }
+        ),
+    ),
+    (
+        "coverage_summary_disagrees_with_items",
+        _item_coverage(summary={"total_items": 7}),
+        _capture(),
+    ),
+]
+
+
+@pytest.mark.parametrize("code,document,capture", ITEM_COVERAGE_CODES, ids=[c for c, _, _ in ITEM_COVERAGE_CODES])
+def test_item_coverage_defects_are_named(code: str, document: Any, capture: Any) -> None:
+    result = validate_item_coverage(document, capture)
+    assert result["status"] == "FAIL"
+    assert code in {error["code"] for error in result["errors"]}
+
+
+ITEM_COVERAGE_LINK_CODES: list[tuple[str, Any, Any]] = [
+    (
+        "coverage_item_knowledge_units_not_array",
+        _item_coverage(items=[_coverage_item(knowledge_units="KU-000001")]),
+        _post_units(_post_unit()),
+    ),
+    (
+        "coverage_names_unknown_unit",
+        _item_coverage(items=[_coverage_item(knowledge_units=["KU-999999"])]),
+        _post_units(_post_unit()),
+    ),
+    (
+        # A claim about another post, cited under this one: the entry looks
+        # covered and has no evidence of its own.
+        "unit_cited_under_another_post",
+        _item_coverage(items=[_coverage_item()]),
+        _post_units(_post_unit(source=_post_source(post_id=OTHER_POST_ID))),
+    ),
+    (
+        "covered_item_without_own_evidence",
+        _item_coverage(items=[_coverage_item(knowledge_units=[])]),
+        _post_units(_post_unit()),
+    ),
+    (
+        "pass_with_uncited_units",
+        _item_coverage(status="PASS", items=[_coverage_item(knowledge_units=[], omitted_items=[{"type": "off_topic"}])]),
+        _post_units(_post_unit()),
+    ),
+]
+
+
+@pytest.mark.parametrize("code,coverage,knowledge", ITEM_COVERAGE_LINK_CODES, ids=[c for c, _, _ in ITEM_COVERAGE_LINK_CODES])
+def test_item_coverage_link_defects_are_named(code: str, coverage: Any, knowledge: Any) -> None:
+    errors = validate_item_coverage_links(coverage, knowledge["units"])
+    assert code in {error["code"] for error in errors}
+
+
+@pytest.mark.parametrize("code,document", POST_UNIT_CODES, ids=[c for c, _ in POST_UNIT_CODES])
+def test_post_unit_defects_are_named(code: str, document: Any) -> None:
+    result = validate_knowledge_units(document)
+    assert code in {error["code"] for error in result["errors"]}
+
+
 def test_every_emittable_code_is_covered_here() -> None:
     """The guard that keeps the lists above from going stale.
 
@@ -1122,6 +1435,12 @@ def test_every_emittable_code_is_covered_here() -> None:
         )
     }
     covered |= {code for code, _, _ in COVERAGE_LINK_CODES}
+    # T-227's medium-dispatched validators, cased in the same file for the same
+    # reason: one place that proves every code's branch still fires.
+    covered |= {code for code, _ in POST_UNIT_CODES}
+    covered |= {code for code, _, _ in POST_PROVENANCE_CODES}
+    covered |= {code for code, _, _ in ITEM_COVERAGE_CODES}
+    covered |= {code for code, _, _ in ITEM_COVERAGE_LINK_CODES}
     # Named elsewhere in this file, by the tests that introduced them.
     covered |= {"source_time_outside_segment", "invalid_source_timing"}
     missing = sorted(emittable - covered)
