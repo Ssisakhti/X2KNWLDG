@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0",
+  "acquisition": {
+    "provider": {
+      "tool": "tamnd/x-cli",
+      "version": "0.5.0",
+      "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+      "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+      "licence": "AGPL-3.0"
+    },
+    "requested_at": "2026-09-03T20:36:00Z",
+    "routes_read": [
+      {
+        "route": "xcli_tier0",
+        "tier": 0,
+        "surface": "syndication_tweet",
+        "outcome": "not_found",
+        "exit_code": 6,
+        "request_shape": "x tweet 999999999999999999 --tier 0 -o json",
+        "error_text": "Tweet not found: 999999999999999999 (deleted, suspended, or protected)."
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "not_found",
+        "exit_code": 6,
+        "request_shape": "x tweet 999999999999999999 --tier guest -o json"
+      },
+      {
+        "route": "fxtwitter",
+        "tier": 0,
+        "surface": "fxtwitter",
+        "outcome": "not_found",
+        "http_status": 404,
+        "request_shape": "https://api.fxtwitter.com/i/status/999999999999999999"
+      }
+    ],
+    "network": {
+      "via_tunnel": true,
+      "note": "always-on tunnel; named Phase 2.2 dependency (D-209)"
+    }
+  },
+  "raw_evidence": [
+    {
+      "route": "fxtwitter",
+      "path": "docs/spikes/T-222/fixtures/unavailable_post__fxtwitter.txt",
+      "sha256_raw": "c0e7508f40fe3a2df1232979c3c496d431e80a8a8f3aa9ac9a99f87fddd5abdc",
+      "sha256_sanitized": "c0e7508f40fe3a2df1232979c3c496d431e80a8a8f3aa9ac9a99f87fddd5abdc",
+      "sanitization_removed": []
+    }
+  ],
+  "anchor": {
+    "post_id": "999999999999999999",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "items": [
+    {
+      "post_id": "999999999999999999",
+      "availability": {
+        "state": "unavailable",
+        "reason": "not_determinable_at_this_tier"
+      }
+    }
+  ],
+  "order": {
+    "basis": "single_item"
+  },
+  "completeness": {
+    "upward": {
+      "status": "incomplete",
+      "basis": "unresolved_hop",
+      "unresolved_at": "999999999999999999"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "nothing resolved to walk from"
+    }
+  },
+  "coverage": {
+    "status": "FAIL",
+    "expected_item_count": 1,
+    "included_post_ids": [],
+    "omitted_items": [
+      {
+        "post_id": "999999999999999999",
+        "reason": "unavailable on all three routes; deleted, suspended and protected are not distinguishable below Tier 2"
+      }
+    ]
+  }
+}

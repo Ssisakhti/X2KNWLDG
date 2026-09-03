@@ -1,0 +1,72 @@
+[
+  {
+    "post_id": "2094007256576565379",
+    "path": "tests/fixtures/captures/raw/nasa_roman_2094007256576565379.json",
+    "sha256_raw": "c0efe52046dd9e0adea8ec682279b0fa03957f0f297300bca58af1fb719bcf7f",
+    "sha256_sanitized": "c0efe52046dd9e0adea8ec682279b0fa03957f0f297300bca58af1fb719bcf7f",
+    "sanitization_removed": []
+  },
+  {
+    "post_id": "2094017464216563968",
+    "path": "tests/fixtures/captures/raw/nasa_roman_2094017464216563968.json",
+    "sha256_raw": "b91a253c41ebefa18cccec0304018b2b663fca53f1f889e6d0839e557570e367",
+    "sha256_sanitized": "b91a253c41ebefa18cccec0304018b2b663fca53f1f889e6d0839e557570e367",
+    "sanitization_removed": []
+  },
+  {
+    "post_id": "2094023339434012989",
+    "path": "tests/fixtures/captures/raw/nasa_roman_2094023339434012989.json",
+    "sha256_raw": "ed855821546cae20c4d75fb542c1c9e93c9448369b19109f3cb35e3d0dcdd451",
+    "sha256_sanitized": "ed855821546cae20c4d75fb542c1c9e93c9448369b19109f3cb35e3d0dcdd451",
+    "sanitization_removed": []
+  },
+  {
+    "post_id": "2094024294988701975",
+    "path": "tests/fixtures/captures/raw/nasa_roman_2094024294988701975.json",
+    "sha256_raw": "dee418d2de088bc72e50cdc7823545a411a47c3ebf4052a39e66f94bfebc2539",
+    "sha256_sanitized": "dee418d2de088bc72e50cdc7823545a411a47c3ebf4052a39e66f94bfebc2539",
+    "sanitization_removed": []
+  },
+  {
+    "post_id": "2094025441984098677",
+    "path": "tests/fixtures/captures/raw/nasa_roman_2094025441984098677.json",
+    "sha256_raw": "154cbd5d2c15c0b814e54d750209af0ab3d9ae1b00a1739f9a3b4e18344d9042",
+    "sha256_sanitized": "154cbd5d2c15c0b814e54d750209af0ab3d9ae1b00a1739f9a3b4e18344d9042",
+    "sanitization_removed": []
+  },
+  {
+    "post_id": "2094025920579354632",
+    "path": "tests/fixtures/captures/raw/nasa_roman_2094025920579354632.json",
+    "sha256_raw": "0586b4395c6ab8a369da22364e6be43a31655353f07c15dae6639fb0fc1e5c2a",
+    "sha256_sanitized": "0586b4395c6ab8a369da22364e6be43a31655353f07c15dae6639fb0fc1e5c2a",
+    "sanitization_removed": []
+  },
+  {
+    "post_id": "2094028067924504596",
+    "path": "tests/fixtures/captures/raw/nasa_roman_2094028067924504596.json",
+    "sha256_raw": "e38d8ace1059418fae2e08c3b05fb500ed4360e20b1e4a826b20d231f04e12ef",
+    "sha256_sanitized": "e38d8ace1059418fae2e08c3b05fb500ed4360e20b1e4a826b20d231f04e12ef",
+    "sanitization_removed": []
+  },
+  {
+    "post_id": "2094033367767339277",
+    "path": "tests/fixtures/captures/raw/nasa_roman_2094033367767339277.json",
+    "sha256_raw": "ca99251548e7f17b8f6f068519d33aa42085deda534f7a1a3ea06ddde0549d0f",
+    "sha256_sanitized": "ca99251548e7f17b8f6f068519d33aa42085deda534f7a1a3ea06ddde0549d0f",
+    "sanitization_removed": []
+  },
+  {
+    "post_id": "2094036569640317348",
+    "path": "tests/fixtures/captures/raw/nasa_roman_2094036569640317348.json",
+    "sha256_raw": "c79e74062a4d51295c735ae923d72d2fc80b32210c59837ee389c72d81e09a07",
+    "sha256_sanitized": "c79e74062a4d51295c735ae923d72d2fc80b32210c59837ee389c72d81e09a07",
+    "sanitization_removed": []
+  },
+  {
+    "post_id": "2094037638856454625",
+    "path": "tests/fixtures/captures/raw/nasa_roman_2094037638856454625.json",
+    "sha256_raw": "1861fd3d5f65e9295d9f5c62cf003cf25eba678830ee5f11817d599abdf1b4e8",
+    "sha256_sanitized": "1861fd3d5f65e9295d9f5c62cf003cf25eba678830ee5f11817d599abdf1b4e8",
+    "sanitization_removed": []
+  }
+]

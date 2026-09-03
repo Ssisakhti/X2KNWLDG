@@ -12,6 +12,9 @@ post. That matters twice over for this project.
   2. Persian carries codepoints that normalization loves to damage — ZWNJ,
      the Persian/Arabic ye and kaf pairs, three digit systems, bidi controls.
      A route that quietly folds any of them corrupts the corpus.
+  3. A provider's own entity spans may index codepoints or UTF-16 units. The
+     two agree across all of Persian and diverge after the first emoji, so the
+     basis has to be measured against astral text, not assumed.
 
 Stdlib only; imports nothing from `x2knwldg`; integrates no provider.
 
@@ -103,15 +106,55 @@ class Fetch:
         except (json.JSONDecodeError, IndexError, KeyError):
             return None
 
-    def fx_text(self, ref: str) -> str | None:
+    def fx_post(self, ref: str) -> dict[str, Any] | None:
         request = urllib.request.Request(
             f"{FX_ORIGIN}/i/status/{ref}", headers={"User-Agent": USER_AGENT}
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
-                return ((json.load(response) or {}).get("tweet") or {}).get("text")
+                return (json.load(response) or {}).get("tweet") or {}
         except Exception:  # noqa: BLE001 - an outage is a result, not a crash
             return None
+
+
+def facet_alignment(post: dict[str, Any]) -> dict[str, Any]:
+    """Do the provider's entity spans index codepoints or UTF-16 units?
+
+    The difference is invisible in Persian, which is all BMP, and corrupts every
+    span after the first emoji. Measured rather than assumed: an astral
+    character makes the two readings disagree, and only one of them slices the
+    authored link back out.
+    """
+    raw = post.get("raw_text") or {}
+    text = raw.get("text") or ""
+    checks = []
+    encoded = text.encode("utf-16-le")
+    for facet in raw.get("facets") or []:
+        start, end = facet.get("indices", [0, 0])
+        original = facet.get("original")
+        by_codepoint = text[start:end] == original
+        by_utf16 = encoded[start * 2 : end * 2].decode("utf-16-le", "replace") == original
+        checks.append(
+            {
+                "type": facet.get("type"),
+                "indices": [start, end],
+                "codepoint_aligned": by_codepoint,
+                "utf16_aligned": by_utf16,
+            }
+        )
+    return {
+        "astral_characters": sorted({c for c in text if ord(c) > 0xFFFF}),
+        "facets": checks,
+        "basis": (
+            "not_exercised"
+            if not checks
+            else "codepoints"
+            if all(c["codepoint_aligned"] for c in checks)
+            else "utf-16"
+            if all(c["utf16_aligned"] for c in checks)
+            else "inconsistent"
+        ),
+    }
 
 
 def classify(tier0: str | None, guest: str | None, fx: str | None) -> tuple[str, str]:
@@ -163,7 +206,13 @@ def main() -> int:
         ref = case["ref"]
         tier0 = fetch.xcli_text(ref, "0")
         guest = fetch.xcli_text(ref, "guest")
-        fx = fetch.fx_text(ref)
+        post = fetch.fx_post(ref) or {}
+        # `tweet.text` is a RENDERED form: links expanded, a trailing media link
+        # dropped. `raw_text.text` is the authored form, which is what a locator
+        # span must index. Comparing the rendered field is what made the routes
+        # look like they disagreed about Persian text; they do not.
+        fx = ((post.get("raw_text") or {}).get("text")) or None
+        fx_rendered = post.get("text") or None
         verdict, reason = classify(tier0, guest, fx)
         entry = {
             "case": case["id"],
@@ -171,7 +220,14 @@ def main() -> int:
             "why": case["why"],
             "verdict": verdict,
             "reason": reason,
-            "lengths": {"tier0": len(tier0 or ""), "guest": len(guest or ""), "fxtwitter": len(fx or "")},
+            "lengths": {
+                "tier0": len(tier0 or ""),
+                "guest": len(guest or ""),
+                "fxtwitter_authored": len(fx or ""),
+                "fxtwitter_rendered": len(fx_rendered or ""),
+            },
+            "authored_vs_rendered_differ": (fx or "") != (fx_rendered or ""),
+            "entity_span_basis": facet_alignment(post),
             "identical_raw": {"guest_vs_fx": guest == fx, "tier0_vs_guest": tier0 == guest},
             "identical_url_normalized": {
                 "guest_vs_fx": strip_urls(guest or "") == strip_urls(fx or "")
@@ -208,6 +264,15 @@ def main() -> int:
             for e in report["comparisons"]
             if not e["identical_raw"]["guest_vs_fx"]
             and e["identical_url_normalized"]["guest_vs_fx"]
+        ],
+        "authored_text_identical_across_routes": [
+            e["case"] for e in report["comparisons"] if e["identical_raw"]["guest_vs_fx"]
+        ],
+        "entity_span_basis": sorted(
+            {e["entity_span_basis"]["basis"] for e in report["comparisons"]}
+        ),
+        "cases_with_astral_characters": [
+            e["case"] for e in report["comparisons"] if e["entity_span_basis"]["astral_characters"]
         ],
         "tier0_truncated": [e["case"] for e in report["comparisons"] if e["tier0_truncated"]],
     }

@@ -1,0 +1,130 @@
+{
+  "schema_version": "1.0",
+  "acquisition": {
+    "provider": {
+      "tool": "tamnd/x-cli",
+      "version": "0.5.0",
+      "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+      "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+      "licence": "AGPL-3.0"
+    },
+    "requested_at": "2026-09-03T20:36:00Z",
+    "routes_read": [
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2095206153277862026 --tier guest -o json"
+      }
+    ],
+    "network": {
+      "via_tunnel": true,
+      "note": "always-on tunnel; named Phase 2.2 dependency (D-209)"
+    }
+  },
+  "raw_evidence": [
+    {
+      "route": "xcli_guest",
+      "path": "docs/spikes/T-222/fixtures/photo_with_alt__xcli_guest.txt",
+      "sha256_raw": "5b976ccc23afe285a21b76902c7c3262b73418419b10dd85f7ecdbff62a33b74",
+      "sha256_sanitized": "5b976ccc23afe285a21b76902c7c3262b73418419b10dd85f7ecdbff62a33b74",
+      "sanitization_removed": []
+    },
+    {
+      "route": "fxtwitter",
+      "path": "docs/spikes/T-222/fixtures/photo_with_alt__fxtwitter.txt",
+      "sha256_raw": "5726740683b03608773b5c34cc4c7bd5af7a92f4ac17357e42485be0824420f1",
+      "sha256_sanitized": "5726740683b03608773b5c34cc4c7bd5af7a92f4ac17357e42485be0824420f1",
+      "sanitization_removed": []
+    }
+  ],
+  "anchor": {
+    "post_id": "2095206153277862026",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "items": [
+    {
+      "post_id": "2095206153277862026",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2095206153277862026",
+      "created_at": "2026-09-02T17:44:08Z",
+      "lang": "en",
+      "text": {
+        "canonical": "“They’re an all-star team.”\n\nIn the most recent episode of Houston We Have a Podcast, Artemis III Chief Training Officer Debbie O’Connell discusses how the crew is preparing for each phase of their mission, from launch to splashdown. https://t.co/UhusoKY7BQ https://t.co/YUeZzFeibC",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "corroborated",
+          "corroborated_by": [
+            {
+              "route": "fxtwitter",
+              "tier": 0,
+              "surface": "fxtwitter"
+            }
+          ],
+          "agreement": "identical_url_normalized"
+        },
+        "entities": [
+          {
+            "kind": "url",
+            "start_char": 234,
+            "end_char": 257,
+            "shortened": "https://t.co/UhusoKY7BQ",
+            "expanded": "https://go.nasa.gov/4ydXwBz"
+          },
+          {
+            "kind": "url",
+            "start_char": 258,
+            "end_char": 281,
+            "shortened": "https://t.co/YUeZzFeibC",
+            "expanded": "https://x.com/NASA/status/2095206153277862026/photo/1"
+          }
+        ]
+      },
+      "media": [
+        {
+          "type": "photo",
+          "url": "https://pbs.twimg.com/media/HROq5KIWgAM3j6n.jpg",
+          "key": "3_2095206150606061571",
+          "width": 1920,
+          "height": 1280,
+          "alt_text": "Artemis III crew members, NASA astronauts Randy Bresnick (left) and Andre Douglas, take a selfie in front of the right-hand aft assembly solid rocket booster segment of the Artemis III Space Launch System rocket inside the Vehicle Assembly Building at NASA’s Kennedy Space Center in Florida. Credit: NASA/Kim Shiflett"
+        }
+      ]
+    }
+  ],
+  "order": {
+    "basis": "single_item"
+  },
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "single_item"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "a single post makes no claim about a conversation"
+    }
+  },
+  "coverage": {
+    "status": "PASS",
+    "expected_item_count": 1,
+    "included_post_ids": [
+      "2095206153277862026"
+    ],
+    "omitted_items": []
+  }
+}

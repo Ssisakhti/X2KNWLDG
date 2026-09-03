@@ -1,0 +1,111 @@
+[
+  {
+    "kind": "tweet",
+    "id": "2094025920579354632",
+    "uri": "x://tweet/2094025920579354632",
+    "url": "https://x.com/NASA/status/2094025920579354632",
+    "tier": 1,
+    "surfaces": [
+      "s4"
+    ],
+    "sources": [
+      "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222094025920579354632%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+    ],
+    "text": "Fairing separation. Free of its protective shell, our Roman telescope has its first taste of space. https://t.co/LnZx28lFpb",
+    "created_at": "2026-08-30T11:34:19Z",
+    "lang": "en",
+    "author": {
+      "kind": "user",
+      "id": "nasa",
+      "uri": "x://user/nasa",
+      "url": "https://x.com/nasa",
+      "tier": 1,
+      "surfaces": [
+        "s4"
+      ],
+      "sources": [
+        "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222094025920579354632%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+      ],
+      "username": "NASA",
+      "rest_id": "11348282",
+      "name": "NASA",
+      "created_at": "2007-12-19T20:20:32Z",
+      "description": "Making the seemingly impossible, possible. ✨",
+      "location": "Pale Blue Dot",
+      "website": "http://www.nasa.gov/",
+      "verified": true,
+      "verified_type": "government",
+      "metrics": {
+        "followers": 92383834,
+        "following": 117,
+        "tweets": 74271,
+        "listed": 96944,
+        "likes": 16982,
+        "media": 28136
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1321163587679784960/0ZxKlEKB_normal.jpg",
+      "profile_banner": "https://pbs.twimg.com/profile_banners/11348282/1775567134",
+      "entities": {
+        "urls": [
+          "http://www.nasa.gov/"
+        ]
+      }
+    },
+    "conversation_id": "2094007256576565379",
+    "reply_to": "2094025441984098677",
+    "reply_to_user": "NASA",
+    "metrics": {
+      "replies": 17,
+      "retweets": 175,
+      "likes": 1175,
+      "quotes": 12,
+      "bookmarks": 45,
+      "impressions": 100291
+    },
+    "entities": {},
+    "media": [
+      {
+        "key": "13_2094025777448665088",
+        "type": "video",
+        "url": "https://pbs.twimg.com/amplify_video_thumb/2094025777448665088/img/1SHSjbq5qVsuR0sa.jpg",
+        "width": 3840,
+        "height": 2160,
+        "duration_ms": 11477,
+        "variants": [
+          {
+            "bitrate": 0,
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/amplify_video/2094025777448665088/pl/MxziOjG2tcmbF3F6.m3u8?tag=29\u0026v=20c"
+          },
+          {
+            "bitrate": 256000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094025777448665088/vid/avc1/480x270/W77q0F06ziO48ydd.mp4?tag=29"
+          },
+          {
+            "bitrate": 832000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094025777448665088/vid/avc1/640x360/rRUCibsx_zoJOIBc.mp4?tag=29"
+          },
+          {
+            "bitrate": 2176000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094025777448665088/vid/avc1/1280x720/uDkpJmir6DISVd4i.mp4?tag=29"
+          },
+          {
+            "bitrate": 10368000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094025777448665088/vid/avc1/1920x1080/sQBAWSKbfJPndHdN.mp4?tag=29"
+          },
+          {
+            "bitrate": 25128000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094025777448665088/vid/avc1/3840x2160/lRa6VTI5pSLI1dVN.mp4?tag=29"
+          }
+        ]
+      }
+    ],
+    "source": "Twitter Web App",
+    "is_reply": true
+  }
+]

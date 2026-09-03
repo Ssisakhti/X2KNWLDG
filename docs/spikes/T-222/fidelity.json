@@ -13,7 +13,14 @@
       "lengths": {
         "tier0": 273,
         "guest": 418,
-        "fxtwitter": 418
+        "fxtwitter_authored": 418,
+        "fxtwitter_rendered": 418
+      },
+      "authored_vs_rendered_differ": false,
+      "entity_span_basis": {
+        "astral_characters": [],
+        "facets": [],
+        "basis": "not_exercised"
       },
       "identical_raw": {
         "guest_vs_fx": true,
@@ -38,14 +45,31 @@
       "ref": "1580541310636883972",
       "why": "Persian post whose authored text ends in a media t.co link.",
       "verdict": "PASS",
-      "reason": "identical once URLs are normalized away; the routes disagree only about link representation, not about the authored text",
+      "reason": "the two independent routes returned identical characters",
       "lengths": {
         "tier0": 285,
         "guest": 285,
-        "fxtwitter": 261
+        "fxtwitter_authored": 285,
+        "fxtwitter_rendered": 261
+      },
+      "authored_vs_rendered_differ": true,
+      "entity_span_basis": {
+        "astral_characters": [],
+        "facets": [
+          {
+            "type": "media",
+            "indices": [
+              262,
+              285
+            ],
+            "codepoint_aligned": true,
+            "utf16_aligned": true
+          }
+        ],
+        "basis": "codepoints"
       },
       "identical_raw": {
-        "guest_vs_fx": false,
+        "guest_vs_fx": true,
         "tier0_vs_guest": true
       },
       "identical_url_normalized": {
@@ -57,13 +81,9 @@
         "persian_keheh U+06A9",
         "persian_ye U+06CC"
       ],
-      "codepoints_agree_guest_vs_fx": false,
+      "codepoints_agree_guest_vs_fx": true,
       "codepoints_agree_url_normalized": true,
-      "first_difference_guest_vs_fx": {
-        "index": 261,
-        "note": "one is a prefix of the other",
-        "length_delta": 24
-      },
+      "first_difference_guest_vs_fx": null,
       "tier0_truncated": false
     },
     {
@@ -71,14 +91,34 @@
       "ref": "2095494053508874355",
       "why": "Persian post with a non-media t.co link that expands to an x.com URL.",
       "verdict": "PASS",
-      "reason": "identical once URLs are normalized away; the routes disagree only about link representation, not about the authored text",
+      "reason": "the two independent routes returned identical characters",
       "lengths": {
         "tier0": 60,
         "guest": 60,
-        "fxtwitter": 77
+        "fxtwitter_authored": 60,
+        "fxtwitter_rendered": 77
+      },
+      "authored_vs_rendered_differ": true,
+      "entity_span_basis": {
+        "astral_characters": [
+          "📡",
+          "📺"
+        ],
+        "facets": [
+          {
+            "type": "url",
+            "indices": [
+              37,
+              60
+            ],
+            "codepoint_aligned": true,
+            "utf16_aligned": false
+          }
+        ],
+        "basis": "codepoints"
       },
       "identical_raw": {
-        "guest_vs_fx": false,
+        "guest_vs_fx": true,
         "tier0_vs_guest": true
       },
       "identical_url_normalized": {
@@ -90,13 +130,7 @@
       ],
       "codepoints_agree_guest_vs_fx": true,
       "codepoints_agree_url_normalized": true,
-      "first_difference_guest_vs_fx": {
-        "index": 45,
-        "left": "t",
-        "left_codepoint": "U+0074",
-        "right": "x",
-        "right_codepoint": "U+0078"
-      },
+      "first_difference_guest_vs_fx": null,
       "tier0_truncated": false
     },
     {
@@ -104,14 +138,40 @@
       "ref": "1889360640810295387",
       "why": "A second Persian source, to keep the finding off one account.",
       "verdict": "PASS",
-      "reason": "identical once URLs are normalized away; the routes disagree only about link representation, not about the authored text",
+      "reason": "the two independent routes returned identical characters",
       "lengths": {
         "tier0": 142,
         "guest": 142,
-        "fxtwitter": 135
+        "fxtwitter_authored": 142,
+        "fxtwitter_rendered": 135
+      },
+      "authored_vs_rendered_differ": true,
+      "entity_span_basis": {
+        "astral_characters": [],
+        "facets": [
+          {
+            "type": "url",
+            "indices": [
+              95,
+              118
+            ],
+            "codepoint_aligned": true,
+            "utf16_aligned": true
+          },
+          {
+            "type": "media",
+            "indices": [
+              119,
+              142
+            ],
+            "codepoint_aligned": true,
+            "utf16_aligned": true
+          }
+        ],
+        "basis": "codepoints"
       },
       "identical_raw": {
-        "guest_vs_fx": false,
+        "guest_vs_fx": true,
         "tier0_vs_guest": true
       },
       "identical_url_normalized": {
@@ -125,13 +185,7 @@
       ],
       "codepoints_agree_guest_vs_fx": true,
       "codepoints_agree_url_normalized": true,
-      "first_difference_guest_vs_fx": {
-        "index": 103,
-        "left": "t",
-        "left_codepoint": "U+0074",
-        "right": "w",
-        "right_codepoint": "U+0077"
-      },
+      "first_difference_guest_vs_fx": null,
       "tier0_truncated": false
     }
   ],
@@ -144,13 +198,20 @@
       "persian_ye U+06CC"
     ],
     "cases_with_real_codepoint_damage": [],
-    "cases_whose_inventory_gap_is_only_a_stripped_url": [
-      "fa_trailing_media_link"
-    ],
-    "url_representation_differs": [
+    "cases_whose_inventory_gap_is_only_a_stripped_url": [],
+    "url_representation_differs": [],
+    "authored_text_identical_across_routes": [
+      "fa_text_only_zwnj_digits",
       "fa_trailing_media_link",
       "fa_expandable_link",
       "fa_persian_digits_manoto"
+    ],
+    "entity_span_basis": [
+      "codepoints",
+      "not_exercised"
+    ],
+    "cases_with_astral_characters": [
+      "fa_expandable_link"
     ],
     "tier0_truncated": [
       "fa_text_only_zwnj_digits"

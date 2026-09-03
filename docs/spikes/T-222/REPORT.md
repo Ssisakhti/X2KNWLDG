@@ -231,13 +231,11 @@ the strongest argument for keeping a second route: Tier 1 and FxTwitter agreed
 character-for-character at 521 and 2967, so cross-route agreement is a real
 verification mechanism where no in-band completeness signal exists.
 
-**With one correction that §5a makes.** All three long-post samples happened to
-be link-free prose, and "agreed character-for-character" does not generalize:
-where a post contains a link the two routes disagree *by design*, because x-cli
-preserves the authored `t.co` form while FxTwitter expands links and strips a
-trailing media one. A truncation check that compares raw text would therefore
-fire on almost every post carrying media or a URL. It has to compare
-URL-normalized text.
+**And §5a strengthens this rather than qualifying it.** Compared on FxTwitter's
+authored field, `raw_text.text`, the two routes are byte-identical on link- and
+media-bearing Persian posts as well — so the check needs no URL normalization and
+raises no false positives. An earlier version of this report claimed the opposite;
+that was a field-selection error of mine, corrected in §5a.
 
 The ceiling was probed once further, outside the matrix, on a 3659-character
 post: Tier 0 returned **276 characters**, Tier 1 and FxTwitter both returned all
@@ -247,55 +245,65 @@ X's note posts run to far greater lengths than anything located here without
 search, so a higher ceiling may exist and has not been ruled out. `T-223` should
 therefore treat text completeness as corroborated, never as asserted (§12).
 
-## 5a. Persian text survives; the routes disagree about links
+## 5a. Persian text survives, and the routes do not disagree after all
 
 Measured by [`fidelity.py`](fidelity.py) into [`fidelity.json`](fidelity.json),
 across four Persian posts from three accounts. This exists because a source claim
 cites a post id **plus an exact text span**: if two routes disagree about the
 characters, a span recorded from one silently misresolves against the other.
 
-**The reassuring half. No Persian codepoint was damaged by any route.** ZWNJ
-(`U+200C`), Persian ye (`U+06CC`), Persian keheh (`U+06A9`) and Persian digits
-(`U+06F0`–`U+06F9`) came back identical from Tier 1 and FxTwitter in every case.
-ZWNJ is not a corner case here — it appeared in **53 of 60** posts sampled from
-one Persian account alone, so silent folding would have corrupted most of the
-corpus. `cases_with_real_codepoint_damage` is empty.
+**Correction of record.** The first version of this section reported that the
+routes disagree about link representation and agree only after URLs are
+normalized away. That was **my error, not theirs** — I was comparing FxTwitter's
+`tweet.text`, which is a *rendered* field with links expanded and a trailing
+media link dropped. FxTwitter also returns `raw_text.text`, the **authored**
+form. Compared on that field the routes are **byte-identical on all four posts,
+media and links included**:
 
-**The half that changes the design. The routes represent links differently.**
-
-| Case | Tier 0 | Tier 1 | FxTwitter | Raw equal? | Equal after URL normalization? |
+| Case | Tier 0 | Tier 1 | FxTwitter `raw_text` | FxTwitter `tweet.text` | Authored forms identical? |
 |---|---|---|---|---|---|
-| Persian prose, ZWNJ + Persian digits | **273** | 418 | 418 | yes | yes |
-| Persian post ending in a media link | 285 | 285 | 261 | **no** | yes |
-| Persian post with an expandable link | 60 | 60 | 77 | **no** | yes |
-| Second Persian source | 142 | 142 | 135 | **no** | yes |
+| Persian prose, ZWNJ + Persian digits | **273** | 418 | 418 | 418 | yes |
+| Persian post ending in a media link | 285 | 285 | 285 | 261 | yes |
+| Persian post with an expandable link | 60 | 60 | 60 | 77 | yes |
+| Second Persian source | 142 | 142 | 142 | 135 | yes |
 
-Three of four disagree raw, and all four agree once URLs are normalized away:
+`url_representation_differs` is now empty, and the corroboration mechanism is
+therefore **stronger** than §5 claimed: exact equality on the authored text, with
+no normalization needed and no false positives on posts carrying media or a URL.
+The rendered field remains useful for display; it is simply not the field a
+locator may index.
 
-- **x-cli preserves the authored form** — `https://t.co/WlXNDbE5I2`.
-- **FxTwitter expands a non-media link** — the same post's `t.co` becomes
-  `https://x.com/i/broadcasts/1OGwbnpYmVLKB`, which is *longer* than the original.
-- **FxTwitter strips a trailing media link entirely**, exposing the media in a
-  separate field instead.
+**Persian codepoints are undamaged.** ZWNJ (`U+200C`), Persian ye (`U+06CC`),
+Persian keheh (`U+06A9`) and Persian digits (`U+06F0`–`U+06F9`) came back
+identical from both routes every time. ZWNJ is not a corner case — it appeared in
+**53 of 60** posts sampled from one Persian account, so silent folding would have
+corrupted most of the corpus. `cases_with_real_codepoint_damage` is empty.
 
-One apparent codepoint disagreement turned out to be an artifact of exactly this:
-the `ascii_digits` class vanished from FxTwitter's inventory for one post because
-the digits lived inside the stripped `t.co` slug. The script now compares
-inventories on URL-normalized text and reports the artifact separately, because
-"the routes disagree about characters" and "one route dropped a URL" are not the
-same finding and must not be logged as though they were.
+**Entities need no guessing, and their spans are codepoint offsets.**
+`raw_text.facets` carries `indices`, `original` (the authored `t.co`) and
+`replacement` (the expansion) as a triple, so a capture never has to pair a link
+with a target by inference. It would have had to: x-cli's own `entities.urls`
+holds *expanded* URLs that do not appear in the text at all, and one post had two
+`t.co` links against one entry, so any pairing from that field alone is a guess.
+
+The index basis was measured rather than assumed, because the two candidate
+readings agree across the whole of Persian — which is BMP — and diverge after the
+first emoji. On a post containing 📺 and 📡 before its link, the codepoint slice
+returns the authored URL exactly and the UTF-16 slice returns
+`'\ufffd\nhttps://t.co/wqrI5Vh4'` — mangled and shifted by two. **Facet indices
+are codepoints**, which is what Python string slicing does natively; a capture
+built on the UTF-16 reading would corrupt every span after the first emoji, in
+exactly the posts a Persian corpus is full of.
 
 **And a fourth truncation instance, in Persian.** Tier 0 returned **273 of 418**
-characters of the link-free Persian post — a post nowhere near the 2967-character
+characters of the link-free Persian post — nowhere near the 2967-character
 extreme of §5. Silent truncation is not an exotic long-post problem; it reaches
 ordinary Persian news posts.
 
-**What this obliges `T-223` to decide.** One canonical text form, because the
-offsets of every stored span depend on it. On this evidence the authored `t.co`
-form is the better canonical choice — it is what the author wrote, it is what
-raw evidence contains, and expansion is a lossy, provider-specific opinion that
-can change without the post changing. Expanded targets belong in text entities
-beside the span, not inside it.
+**What this obliges `T-223` to encode.** One canonical text form, and the
+authored one, because span offsets are offsets into it. Both qualified routes
+supply it, so nothing depends on the third party to build a capture. Expansions
+go in entities beside the span, sourced from facets, with codepoint offsets.
 
 ## 6. Failure semantics are clean and distinguishable
 
@@ -415,8 +423,8 @@ minted material, and the ADR did not name it. §11 records the answer.
    the thread parent-walk, which is where it is strongest. Never for a post
    that might be long, unless a Tier 1 or FxTwitter read confirms the length.
 2. **FxTwitter**, explicit opt-in per ADR 0007 §3 (`T-225`). It agreed with the
-   guest tier on **every** MVP cell, and character-for-character on link-free
-   prose at 521, 2967 and 3659 — with the URL caveat in §5a — so it
+   guest tier on **every** MVP cell, and character-for-character on its authored
+   field including link- and media-bearing posts (§5a), so it
    is a real cross-check rather than a second guess — at the cost of disclosing
    the post id. Reviewed origin `api.fxtwitter.com`; treat `200` as meaningless
    without a `tweet` object.
@@ -483,9 +491,15 @@ Carried forward as contract requirements, each traceable to a measurement above:
 - **One canonical text form, and it is the authored one.** Spans are offsets
   into it, so the choice is load-bearing. Store expanded link targets as
   entities beside the span, never substituted into it (§5a).
-- **Any cross-route text comparison normalizes URLs first.** Raw comparison
-  disagrees on three of four Persian posts purely over link representation, so a
-  raw check would fire on almost every post with media or a URL (§5a).
+- **Cross-route comparison uses each provider's authored field.** FxTwitter's
+  `raw_text.text` is byte-identical to x-cli's text on every post measured,
+  media and links included; its `tweet.text` is a rendered field and must never
+  be compared against, nor indexed by a locator (§5a).
+- **Entity spans are codepoint offsets, and come from facets.** `raw_text.facets`
+  supplies `indices`/`original`/`replacement` as a triple, so no link has to be
+  paired with a target by inference — x-cli's `entities.urls` cannot support that
+  pairing. The basis is codepoints, proven against astral emoji; the UTF-16
+  reading corrupts every span after the first one (§5a).
 - **Persian codepoints need no special handling but do need a guard.** Nothing
   damaged ZWNJ, Persian ye, keheh or Persian digits, and a regression test
   should keep it that way (§5a).

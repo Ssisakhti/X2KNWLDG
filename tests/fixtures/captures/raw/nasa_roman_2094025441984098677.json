@@ -1,0 +1,115 @@
+[
+  {
+    "kind": "tweet",
+    "id": "2094025441984098677",
+    "uri": "x://tweet/2094025441984098677",
+    "url": "https://x.com/NASA/status/2094025441984098677",
+    "tier": 1,
+    "surfaces": [
+      "s4"
+    ],
+    "sources": [
+      "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222094025441984098677%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+    ],
+    "text": "First and second stage separation complete. The first stage’s job is done, while the Falcon Heavy’s second stage and @NASARoman continue the journey. https://t.co/ZpmMQNn0mB",
+    "created_at": "2026-08-30T11:32:25Z",
+    "lang": "en",
+    "author": {
+      "kind": "user",
+      "id": "nasa",
+      "uri": "x://user/nasa",
+      "url": "https://x.com/nasa",
+      "tier": 1,
+      "surfaces": [
+        "s4"
+      ],
+      "sources": [
+        "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222094025441984098677%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+      ],
+      "username": "NASA",
+      "rest_id": "11348282",
+      "name": "NASA",
+      "created_at": "2007-12-19T20:20:32Z",
+      "description": "Making the seemingly impossible, possible. ✨",
+      "location": "Pale Blue Dot",
+      "website": "http://www.nasa.gov/",
+      "verified": true,
+      "verified_type": "government",
+      "metrics": {
+        "followers": 92383834,
+        "following": 117,
+        "tweets": 74271,
+        "listed": 96944,
+        "likes": 16982,
+        "media": 28136
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1321163587679784960/0ZxKlEKB_normal.jpg",
+      "profile_banner": "https://pbs.twimg.com/profile_banners/11348282/1775567134",
+      "entities": {
+        "urls": [
+          "http://www.nasa.gov/"
+        ]
+      }
+    },
+    "conversation_id": "2094007256576565379",
+    "reply_to": "2094024294988701975",
+    "reply_to_user": "NASA",
+    "metrics": {
+      "replies": 8,
+      "retweets": 93,
+      "likes": 610,
+      "quotes": 3,
+      "bookmarks": 26,
+      "impressions": 51726
+    },
+    "entities": {
+      "mentions": [
+        "NASARoman"
+      ]
+    },
+    "media": [
+      {
+        "key": "13_2094025260404281344",
+        "type": "video",
+        "url": "https://pbs.twimg.com/amplify_video_thumb/2094025260404281344/img/R0QncXO19TgVkXiL.jpg",
+        "width": 3840,
+        "height": 2160,
+        "duration_ms": 26496,
+        "variants": [
+          {
+            "bitrate": 0,
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/amplify_video/2094025260404281344/pl/YOzPshv0y3Oes3zf.m3u8?tag=29"
+          },
+          {
+            "bitrate": 256000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094025260404281344/vid/avc1/480x270/WX9T75IS7eCrLqwq.mp4?tag=29"
+          },
+          {
+            "bitrate": 832000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094025260404281344/vid/avc1/640x360/krMO3Mn_ssGTRyXq.mp4?tag=29"
+          },
+          {
+            "bitrate": 2176000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094025260404281344/vid/avc1/1280x720/F5bXr_9bJHZCFFD9.mp4?tag=29"
+          },
+          {
+            "bitrate": 10368000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094025260404281344/vid/avc1/1920x1080/cLgWgCMlN8yK66Pb.mp4?tag=29"
+          },
+          {
+            "bitrate": 25128000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094025260404281344/vid/avc1/3840x2160/zL3Y_IQlM-rAYJzz.mp4?tag=29"
+          }
+        ]
+      }
+    ],
+    "source": "Twitter Web App",
+    "is_reply": true
+  }
+]

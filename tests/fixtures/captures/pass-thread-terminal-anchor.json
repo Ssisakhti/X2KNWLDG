@@ -1,0 +1,877 @@
+{
+  "schema_version": "1.0",
+  "acquisition": {
+    "provider": {
+      "tool": "tamnd/x-cli",
+      "version": "0.5.0",
+      "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+      "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+      "licence": "AGPL-3.0"
+    },
+    "requested_at": "2026-09-03T20:36:00Z",
+    "routes_read": [
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094007256576565379 --tier guest -o json"
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094017464216563968 --tier guest -o json"
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094023339434012989 --tier guest -o json"
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094024294988701975 --tier guest -o json"
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094025441984098677 --tier guest -o json"
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094025920579354632 --tier guest -o json"
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094028067924504596 --tier guest -o json"
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094033367767339277 --tier guest -o json"
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094036569640317348 --tier guest -o json"
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094037638856454625 --tier guest -o json"
+      }
+    ],
+    "network": {
+      "via_tunnel": true,
+      "note": "always-on tunnel; named Phase 2.2 dependency (D-209)"
+    }
+  },
+  "raw_evidence": [
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094007256576565379.json",
+      "sha256_raw": "c0efe52046dd9e0adea8ec682279b0fa03957f0f297300bca58af1fb719bcf7f",
+      "sha256_sanitized": "c0efe52046dd9e0adea8ec682279b0fa03957f0f297300bca58af1fb719bcf7f",
+      "sanitization_removed": []
+    },
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094017464216563968.json",
+      "sha256_raw": "b91a253c41ebefa18cccec0304018b2b663fca53f1f889e6d0839e557570e367",
+      "sha256_sanitized": "b91a253c41ebefa18cccec0304018b2b663fca53f1f889e6d0839e557570e367",
+      "sanitization_removed": []
+    },
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094023339434012989.json",
+      "sha256_raw": "ed855821546cae20c4d75fb542c1c9e93c9448369b19109f3cb35e3d0dcdd451",
+      "sha256_sanitized": "ed855821546cae20c4d75fb542c1c9e93c9448369b19109f3cb35e3d0dcdd451",
+      "sanitization_removed": []
+    },
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094024294988701975.json",
+      "sha256_raw": "dee418d2de088bc72e50cdc7823545a411a47c3ebf4052a39e66f94bfebc2539",
+      "sha256_sanitized": "dee418d2de088bc72e50cdc7823545a411a47c3ebf4052a39e66f94bfebc2539",
+      "sanitization_removed": []
+    },
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094025441984098677.json",
+      "sha256_raw": "154cbd5d2c15c0b814e54d750209af0ab3d9ae1b00a1739f9a3b4e18344d9042",
+      "sha256_sanitized": "154cbd5d2c15c0b814e54d750209af0ab3d9ae1b00a1739f9a3b4e18344d9042",
+      "sanitization_removed": []
+    },
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094025920579354632.json",
+      "sha256_raw": "0586b4395c6ab8a369da22364e6be43a31655353f07c15dae6639fb0fc1e5c2a",
+      "sha256_sanitized": "0586b4395c6ab8a369da22364e6be43a31655353f07c15dae6639fb0fc1e5c2a",
+      "sanitization_removed": []
+    },
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094028067924504596.json",
+      "sha256_raw": "e38d8ace1059418fae2e08c3b05fb500ed4360e20b1e4a826b20d231f04e12ef",
+      "sha256_sanitized": "e38d8ace1059418fae2e08c3b05fb500ed4360e20b1e4a826b20d231f04e12ef",
+      "sanitization_removed": []
+    },
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094033367767339277.json",
+      "sha256_raw": "ca99251548e7f17b8f6f068519d33aa42085deda534f7a1a3ea06ddde0549d0f",
+      "sha256_sanitized": "ca99251548e7f17b8f6f068519d33aa42085deda534f7a1a3ea06ddde0549d0f",
+      "sanitization_removed": []
+    },
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094036569640317348.json",
+      "sha256_raw": "c79e74062a4d51295c735ae923d72d2fc80b32210c59837ee389c72d81e09a07",
+      "sha256_sanitized": "c79e74062a4d51295c735ae923d72d2fc80b32210c59837ee389c72d81e09a07",
+      "sanitization_removed": []
+    },
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094037638856454625.json",
+      "sha256_raw": "1861fd3d5f65e9295d9f5c62cf003cf25eba678830ee5f11817d599abdf1b4e8",
+      "sha256_sanitized": "1861fd3d5f65e9295d9f5c62cf003cf25eba678830ee5f11817d599abdf1b4e8",
+      "sanitization_removed": []
+    }
+  ],
+  "anchor": {
+    "post_id": "2094037638856454625",
+    "role": "thread_terminal",
+    "terminal_claim": "user_asserted"
+  },
+  "items": [
+    {
+      "post_id": "2094007256576565379",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "created_at": "2026-08-30T10:20:09Z",
+      "lang": "en",
+      "text": {
+        "canonical": "LIVE: Today’s the day!\n\n@NASARoman is getting ready to head to its new home 1 million miles from Earth, where it will change how we view the universe. Liftoff is currently scheduled for 7:26am ET (1126 UTC). https://t.co/fJi2wd5ztm",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        },
+        "entities": [
+          {
+            "kind": "mention",
+            "start_char": 24,
+            "end_char": 34,
+            "handle": "NASARoman"
+          }
+        ]
+      }
+    },
+    {
+      "post_id": "2094017464216563968",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "parent_post_id": "2094007256576565379",
+      "created_at": "2026-08-30T11:00:43Z",
+      "lang": "en",
+      "text": {
+        "canonical": "\"This mission could change our fundamental understanding of the universe: dark matter, dark energy, maybe 100,000 more exoplanets. This is a really exciting time.\" @NASAAdmin previews what we'll learn from the @NASARoman Space Telescope. https://t.co/OT8XRSQFZ3",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        },
+        "entities": [
+          {
+            "kind": "mention",
+            "start_char": 164,
+            "end_char": 174,
+            "handle": "NASAAdmin"
+          },
+          {
+            "kind": "mention",
+            "start_char": 210,
+            "end_char": 220,
+            "handle": "NASARoman"
+          }
+        ]
+      },
+      "media": [
+        {
+          "type": "video",
+          "url": "https://pbs.twimg.com/amplify_video_thumb/2094015688759255040/img/6wxcpiTH9CXQkCYT.jpg",
+          "key": "13_2094015688759255040",
+          "width": 3840,
+          "height": 2160,
+          "duration_ms": 29013,
+          "variants": [
+            {
+              "url": "https://video.twimg.com/amplify_video/2094015688759255040/pl/rU-C0vqzctZL5ocd.m3u8?tag=29&v=f10",
+              "content_type": "application/x-mpegURL",
+              "bitrate": 0
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094015688759255040/vid/avc1/480x270/gWUKiGispfzF2ihM.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 256000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094015688759255040/vid/avc1/640x360/HpxCe-he_FhdpehN.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 832000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094015688759255040/vid/avc1/1280x720/_y-WsFqqkKZ3E_o_.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 2176000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094015688759255040/vid/avc1/1920x1080/c-vtQSHujwV2GzgC.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 10368000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094015688759255040/vid/avc1/3840x2160/_gWoJ2XzNDBjwI8w.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 25128000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "post_id": "2094023339434012989",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "parent_post_id": "2094017464216563968",
+      "created_at": "2026-08-30T11:24:03Z",
+      "lang": "en",
+      "text": {
+        "canonical": "Our teams are GO. @NASARoman is ready for launch. https://t.co/bLy089aso6",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        },
+        "entities": [
+          {
+            "kind": "mention",
+            "start_char": 18,
+            "end_char": 28,
+            "handle": "NASARoman"
+          }
+        ]
+      },
+      "media": [
+        {
+          "type": "video",
+          "url": "https://pbs.twimg.com/amplify_video_thumb/2094023270735499264/img/iOgq3Y8_0QA_v2T6.jpg",
+          "key": "13_2094023270735499264",
+          "width": 3840,
+          "height": 2160,
+          "duration_ms": 12352,
+          "variants": [
+            {
+              "url": "https://video.twimg.com/amplify_video/2094023270735499264/pl/iDdsO5Dfgxb7C8-G.m3u8?tag=29&v=fd3",
+              "content_type": "application/x-mpegURL",
+              "bitrate": 0
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094023270735499264/vid/avc1/480x270/8YyCnpH53Z1jAl02.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 256000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094023270735499264/vid/avc1/640x360/Vo-OtmoQKZ8oWKHZ.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 832000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094023270735499264/vid/avc1/1280x720/NrOZZflWvTmA7dNd.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 2176000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094023270735499264/vid/avc1/1920x1080/TWp-sm1OxvApxC-d.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 10368000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094023270735499264/vid/avc1/3840x2160/0GMMeVhi9BPx6SL7.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 25128000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "post_id": "2094024294988701975",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "parent_post_id": "2094023339434012989",
+      "created_at": "2026-08-30T11:27:51Z",
+      "lang": "en",
+      "text": {
+        "canonical": "Liftoff! @NASARoman begins its flight to space. The Roman telescope’s wide field of view will generate never-before-seen images, revolutionizing our understanding of the universe. https://t.co/tWGW14hohO",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        },
+        "entities": [
+          {
+            "kind": "mention",
+            "start_char": 9,
+            "end_char": 19,
+            "handle": "NASARoman"
+          }
+        ]
+      },
+      "media": [
+        {
+          "type": "video",
+          "url": "https://pbs.twimg.com/amplify_video_thumb/2094024240437547008/img/UIH-oa1BFucPXCpa.jpg",
+          "key": "13_2094024240437547008",
+          "width": 3840,
+          "height": 2160,
+          "duration_ms": 32896,
+          "variants": [
+            {
+              "url": "https://video.twimg.com/amplify_video/2094024240437547008/pl/MeWHHniTISojYyQH.m3u8?tag=29&v=d8b",
+              "content_type": "application/x-mpegURL",
+              "bitrate": 0
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094024240437547008/vid/avc1/480x270/UazEpdmCJehe4HMQ.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 256000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094024240437547008/vid/avc1/640x360/QIxD4HvEsLm1cE5q.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 832000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094024240437547008/vid/avc1/1280x720/5OBu_Rw3hgFHw5Ao.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 2176000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094024240437547008/vid/avc1/1920x1080/HhBj1AWoLEAqe6Mc.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 10368000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094024240437547008/vid/avc1/3840x2160/qE7lB6dsLKuphA95.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 25128000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "post_id": "2094025441984098677",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "parent_post_id": "2094024294988701975",
+      "created_at": "2026-08-30T11:32:25Z",
+      "lang": "en",
+      "text": {
+        "canonical": "First and second stage separation complete. The first stage’s job is done, while the Falcon Heavy’s second stage and @NASARoman continue the journey. https://t.co/ZpmMQNn0mB",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        },
+        "entities": [
+          {
+            "kind": "mention",
+            "start_char": 117,
+            "end_char": 127,
+            "handle": "NASARoman"
+          }
+        ]
+      },
+      "media": [
+        {
+          "type": "video",
+          "url": "https://pbs.twimg.com/amplify_video_thumb/2094025260404281344/img/R0QncXO19TgVkXiL.jpg",
+          "key": "13_2094025260404281344",
+          "width": 3840,
+          "height": 2160,
+          "duration_ms": 26496,
+          "variants": [
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025260404281344/pl/YOzPshv0y3Oes3zf.m3u8?tag=29",
+              "content_type": "application/x-mpegURL",
+              "bitrate": 0
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025260404281344/vid/avc1/480x270/WX9T75IS7eCrLqwq.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 256000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025260404281344/vid/avc1/640x360/krMO3Mn_ssGTRyXq.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 832000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025260404281344/vid/avc1/1280x720/F5bXr_9bJHZCFFD9.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 2176000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025260404281344/vid/avc1/1920x1080/cLgWgCMlN8yK66Pb.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 10368000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025260404281344/vid/avc1/3840x2160/zL3Y_IQlM-rAYJzz.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 25128000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "post_id": "2094025920579354632",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "parent_post_id": "2094025441984098677",
+      "created_at": "2026-08-30T11:34:19Z",
+      "lang": "en",
+      "text": {
+        "canonical": "Fairing separation. Free of its protective shell, our Roman telescope has its first taste of space. https://t.co/LnZx28lFpb",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        }
+      },
+      "media": [
+        {
+          "type": "video",
+          "url": "https://pbs.twimg.com/amplify_video_thumb/2094025777448665088/img/1SHSjbq5qVsuR0sa.jpg",
+          "key": "13_2094025777448665088",
+          "width": 3840,
+          "height": 2160,
+          "duration_ms": 11477,
+          "variants": [
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025777448665088/pl/MxziOjG2tcmbF3F6.m3u8?tag=29&v=20c",
+              "content_type": "application/x-mpegURL",
+              "bitrate": 0
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025777448665088/vid/avc1/480x270/W77q0F06ziO48ydd.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 256000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025777448665088/vid/avc1/640x360/rRUCibsx_zoJOIBc.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 832000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025777448665088/vid/avc1/1280x720/uDkpJmir6DISVd4i.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 2176000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025777448665088/vid/avc1/1920x1080/sQBAWSKbfJPndHdN.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 10368000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094025777448665088/vid/avc1/3840x2160/lRa6VTI5pSLI1dVN.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 25128000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "post_id": "2094028067924504596",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "parent_post_id": "2094025920579354632",
+      "created_at": "2026-08-30T11:42:51Z",
+      "lang": "en",
+      "text": {
+        "canonical": "The Falcon Heavy rocket’s side boosters return to Earth, coming in for a targeted landing at Cape Canaveral Space Force Station. https://t.co/Y35wNIJ10l",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        }
+      },
+      "media": [
+        {
+          "type": "video",
+          "url": "https://pbs.twimg.com/amplify_video_thumb/2094027948508491776/img/hLHlnPFAc0SUH-fA.jpg",
+          "key": "13_2094027948508491776",
+          "width": 3840,
+          "height": 2160,
+          "duration_ms": 25962,
+          "variants": [
+            {
+              "url": "https://video.twimg.com/amplify_video/2094027948508491776/pl/KKfUrDMLsvfDH0rZ.m3u8?tag=29&v=1ba",
+              "content_type": "application/x-mpegURL",
+              "bitrate": 0
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094027948508491776/vid/avc1/480x270/Jdt2KL6Wh5p_GGhE.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 256000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094027948508491776/vid/avc1/640x360/29P1Xw_7CurY3dQA.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 832000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094027948508491776/vid/avc1/1280x720/ks1u9wMDC3MefauC.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 2176000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094027948508491776/vid/avc1/1920x1080/xLCVKcmrQqfc2xpr.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 10368000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094027948508491776/vid/avc1/3840x2160/2LFeee6PmWgASrYd.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 25128000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "post_id": "2094033367767339277",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "parent_post_id": "2094028067924504596",
+      "created_at": "2026-08-30T12:03:54Z",
+      "lang": "en",
+      "text": {
+        "canonical": "Acquisition of signal confirmed for our @NASARoman telescope. We have spacecraft separation, and a last look at Roman, now flying on its own. https://t.co/ZKTzQCAGxC https://t.co/IOuHw9MYwr",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        },
+        "entities": [
+          {
+            "kind": "mention",
+            "start_char": 40,
+            "end_char": 50,
+            "handle": "NASARoman"
+          }
+        ]
+      },
+      "media": [
+        {
+          "type": "video",
+          "url": "https://pbs.twimg.com/amplify_video_thumb/2094032841583570944/img/qsv-sTyOnKtjgOOX.jpg",
+          "key": "13_2094032841583570944",
+          "width": 3840,
+          "height": 2160,
+          "duration_ms": 15210,
+          "variants": [
+            {
+              "url": "https://video.twimg.com/amplify_video/2094032841583570944/pl/joz5RtaVsulzdmS1.m3u8?tag=29&v=c4c",
+              "content_type": "application/x-mpegURL",
+              "bitrate": 0
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094032841583570944/vid/avc1/480x270/syDjMsfyLtpdHquO.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 256000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094032841583570944/vid/avc1/640x360/fzzQDx2gx6tTxX4i.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 832000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094032841583570944/vid/avc1/1280x720/KmECYnMtaS7YY6X7.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 2176000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094032841583570944/vid/avc1/1920x1080/1nMcAQwWA7h93IvL.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 10368000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094032841583570944/vid/avc1/3840x2160/paSIH9jf6fKyB89V.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 25128000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "post_id": "2094036569640317348",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "parent_post_id": "2094033367767339277",
+      "created_at": "2026-08-30T12:16:38Z",
+      "lang": "en",
+      "text": {
+        "canonical": "The spacecraft is power positive: solar arrays are actively providing electricity to @NASARoman. https://t.co/4X1BG0FtDS",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        },
+        "entities": [
+          {
+            "kind": "mention",
+            "start_char": 85,
+            "end_char": 95,
+            "handle": "NASARoman"
+          }
+        ]
+      },
+      "media": [
+        {
+          "type": "video",
+          "url": "https://pbs.twimg.com/amplify_video_thumb/2094036340354453504/img/I70Qlq6vFiMaJ66c.jpg",
+          "key": "13_2094036340354453504",
+          "width": 3840,
+          "height": 2160,
+          "duration_ms": 30741,
+          "variants": [
+            {
+              "url": "https://video.twimg.com/amplify_video/2094036340354453504/pl/xzZVekJYJ4JoUM6r.m3u8?tag=29&v=d5e",
+              "content_type": "application/x-mpegURL",
+              "bitrate": 0
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094036340354453504/vid/avc1/480x270/lJfJXK6g0s6A33jT.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 256000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094036340354453504/vid/avc1/640x360/zhVIecvjTb6Z7Nw1.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 832000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094036340354453504/vid/avc1/1280x720/_d5w0FCTgKWqMHMt.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 2176000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094036340354453504/vid/avc1/1920x1080/PllGtJGI9uWVeTct.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 10368000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/2094036340354453504/vid/avc1/3840x2160/J9PUSh6DDpB6O6yh.mp4?tag=29",
+              "content_type": "video/mp4",
+              "bitrate": 25128000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "post_id": "2094037638856454625",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "parent_post_id": "2094036569640317348",
+      "created_at": "2026-08-30T12:20:53Z",
+      "lang": "en",
+      "text": {
+        "canonical": "After a million-mile journey, deployments, calibrations, and tests, we expect to share Roman’s first images in early 2027. Sign up to claim your pixel and be part of history: https://t.co/mG6d5j0zsh",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        }
+      }
+    }
+  ],
+  "order": {
+    "basis": "parent_links",
+    "note": "root-first; derived from parent links, never from arrival order"
+  },
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "root_reached",
+      "single_author": true
+    },
+    "downward": {
+      "status": "unprovable",
+      "reason": "complete to root from a user-asserted terminal anchor; no credential-free route can enumerate descendants to confirm the anchor is the thread's last post"
+    }
+  },
+  "coverage": {
+    "status": "PASS",
+    "expected_item_count": 10,
+    "included_post_ids": [
+      "2094007256576565379",
+      "2094017464216563968",
+      "2094023339434012989",
+      "2094024294988701975",
+      "2094025441984098677",
+      "2094025920579354632",
+      "2094028067924504596",
+      "2094033367767339277",
+      "2094036569640317348",
+      "2094037638856454625"
+    ],
+    "omitted_items": []
+  }
+}

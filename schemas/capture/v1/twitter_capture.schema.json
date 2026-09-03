@@ -1,0 +1,802 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x2knwldg.local/schemas/capture/v1/twitter_capture.schema.json",
+  "title": "Twitter/X canonical capture (v1)",
+  "description": "One acquisition of one public X post or same-author self-thread, normalized away from every provider's response shape. Delivered by T-223 and frozen on the measurements in docs/spikes/T-222/REPORT.md, not on any provider's documentation — that report records four places where the candidate tool's own field table disagreed with what it returned. Extraction and UI consume this record; they never see a provider response (ADR 0007 decision 7). Every constraint below exists to make a specific dishonest record unrepresentable rather than merely discouraged, so the reasons are recorded inline.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "acquisition",
+    "raw_evidence",
+    "anchor",
+    "items",
+    "order",
+    "completeness",
+    "coverage"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "acquisition": {
+      "$ref": "#/$defs/acquisition"
+    },
+    "raw_evidence": {
+      "description": "One entry per route actually read. Immutable: a later capture never rewrites an earlier one (ADR 0007 invariant 3).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/rawEvidence"
+      }
+    },
+    "anchor": {
+      "$ref": "#/$defs/anchor"
+    },
+    "items": {
+      "description": "The captured posts in root-first order. Order is asserted by 'order', never by position alone.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/post"
+      }
+    },
+    "order": {
+      "$ref": "#/$defs/order"
+    },
+    "completeness": {
+      "$ref": "#/$defs/completeness"
+    },
+    "coverage": {
+      "$ref": "#/$defs/coverage"
+    }
+  },
+  "$defs": {
+    "postId": {
+      "$comment": "String, never a number: T-222 observed both '20' and '2094037638856454625', and the larger exceeds a double's exact-integer range, so any numeric handling would silently corrupt it. Narrow to digits because every id observed was numeric; the v1 README permits widening a pattern in place, so a future non-numeric id costs an edit rather than a version.",
+      "type": "string",
+      "pattern": "^[0-9]{1,25}$"
+    },
+    "username": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_]{1,15}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "isoTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "minLength": 20
+    },
+    "tier": {
+      "$comment": "0 and 1 only. Tier 2 is session cookies, which ADR 0007 decision 6 excludes, so a capture that claims it is unrepresentable rather than merely disallowed by policy.",
+      "enum": [
+        0,
+        1
+      ]
+    },
+    "surface": {
+      "$comment": "The named surfaces T-222 actually exercised. A capture must say which one filled it, because the same field arrives complete or truncated depending on the surface (REPORT.md section 5).",
+      "enum": [
+        "syndication_tweet",
+        "syndication_timeline",
+        "oembed",
+        "guest_graphql",
+        "app_only_v11",
+        "media_cdn",
+        "xcom_html",
+        "fxtwitter"
+      ]
+    },
+    "route": {
+      "enum": [
+        "xcli_tier0",
+        "xcli_guest",
+        "fxtwitter",
+        "oembed"
+      ]
+    },
+    "provenance": {
+      "description": "Which route, tier and surface produced a value.",
+      "type": "object",
+      "required": [
+        "route",
+        "tier",
+        "surface"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/route"
+        },
+        "tier": {
+          "$ref": "#/$defs/tier"
+        },
+        "surface": {
+          "$ref": "#/$defs/surface"
+        }
+      }
+    },
+    "acquisition": {
+      "type": "object",
+      "required": [
+        "provider",
+        "requested_at",
+        "routes_read",
+        "network"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "description": "The externally installed, pinned tool. Never vendored; never a build dependency (D-208).",
+          "type": "object",
+          "required": [
+            "tool",
+            "version",
+            "binary_sha256",
+            "licence"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version_string": {
+              "type": "string",
+              "minLength": 1
+            },
+            "binary_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "licence": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "requested_at": {
+          "$ref": "#/$defs/isoTimestamp"
+        },
+        "routes_read": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/routeRead"
+          }
+        },
+        "network": {
+          "$comment": "D-209: the qualified path is used over an always-on tunnel, which is a named environment dependency of Phase 2.2. Recorded per capture so a later reachability failure can be told apart from provider drift instead of being blamed on the provider.",
+          "type": "object",
+          "required": [
+            "via_tunnel"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "via_tunnel": {
+              "type": "boolean"
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        }
+      }
+    },
+    "routeRead": {
+      "description": "One request actually made. A failed read is recorded, not dropped: an outage that leaves no trace is indistinguishable from a route never tried.",
+      "type": "object",
+      "required": [
+        "route",
+        "tier",
+        "surface",
+        "outcome",
+        "request_shape"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/route"
+        },
+        "tier": {
+          "$ref": "#/$defs/tier"
+        },
+        "surface": {
+          "$ref": "#/$defs/surface"
+        },
+        "outcome": {
+          "$comment": "'rate_limited' and 'timeout' are named because T-222 measured them as distinct, deterministic exits (5 and 8). A transport failure must never be scored as evidence about a capability.",
+          "enum": [
+            "ok",
+            "not_found",
+            "malformed_reference",
+            "rate_limited",
+            "timeout",
+            "provider_error",
+            "unreachable"
+          ]
+        },
+        "request_shape": {
+          "$comment": "The argv or URL shape, with any request token stripped. Never a credential, never a cookie (ADR 0007 invariant 1).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "http_status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "latency_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error_text": {
+          "type": "string",
+          "maxLength": 1024
+        }
+      }
+    },
+    "rawEvidence": {
+      "type": "object",
+      "required": [
+        "route",
+        "path",
+        "sha256_raw",
+        "sha256_sanitized",
+        "sanitization_removed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/route"
+        },
+        "path": {
+          "description": "Project-relative path to the preserved bytes. Forward slashes; no absolute path, no parent traversal.",
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[^\\\\]+$",
+          "maxLength": 512
+        },
+        "sha256_raw": {
+          "$comment": "The digest BEFORE sanitization, kept alongside the sanitized one so a redaction cannot be passed off as the original bytes (REPORT.md section 8).",
+          "$ref": "#/$defs/sha256"
+        },
+        "sha256_sanitized": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sanitization_removed": {
+          "$comment": "What redaction actually removed. An empty array is a real, meaningful claim here — 'nothing matched' — unlike the absent-not-empty fields on a post, because sanitization always ran.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "anchor": {
+      "description": "The reference the user supplied, and what role it plays in the thread.",
+      "type": "object",
+      "required": [
+        "post_id",
+        "role",
+        "terminal_claim"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "post_id": {
+          "$ref": "#/$defs/postId"
+        },
+        "role": {
+          "enum": [
+            "single_post",
+            "thread_terminal",
+            "thread_root",
+            "thread_middle"
+          ]
+        },
+        "terminal_claim": {
+          "$comment": "D-206. Nothing credential-free proves an anchor is a thread's last post, so the basis is recorded and 'observed' is not an option. 'user_asserted' is the contract's normal case; 'none' means no terminal claim is made at all.",
+          "enum": [
+            "user_asserted",
+            "none"
+          ]
+        }
+      }
+    },
+    "textEntity": {
+      "description": "A span inside the canonical text, plus what it points at. D-211: the expanded target lives here, never substituted into the text.",
+      "type": "object",
+      "required": [
+        "kind",
+        "start_char",
+        "end_char"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "url",
+            "mention",
+            "hashtag",
+            "cashtag"
+          ]
+        },
+        "start_char": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_char": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "shortened": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "expanded": {
+          "$comment": "A provider's expansion of a t.co link. Kept beside the span because T-222 measured one expansion that was LONGER than the authored link, so substituting it would shift every subsequent offset in a stored corpus without the post changing (REPORT.md section 5a).",
+          "type": "string",
+          "maxLength": 2048
+        },
+        "handle": {
+          "$ref": "#/$defs/username"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        }
+      }
+    },
+    "text": {
+      "type": "object",
+      "required": [
+        "canonical",
+        "form",
+        "supplied_by",
+        "completeness"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "canonical": {
+          "$comment": "The authored form, t.co links intact (D-211). Every span in this capture and every locator downstream is an offset into this string.",
+          "type": "string"
+        },
+        "form": {
+          "const": "authored"
+        },
+        "supplied_by": {
+          "$ref": "#/$defs/provenance"
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/textEntity"
+          }
+        },
+        "completeness": {
+          "$comment": "Text completeness has no in-band signal on any measured route, so it is never asserted from one read. Tier 0 returned 280 of 3659 characters with no field announcing the loss, so 'unverified' is the honest default and 'corroborated' requires a second route that agreed.",
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "enum": [
+                "corroborated",
+                "unverified",
+                "known_truncated"
+              ]
+            },
+            "corroborated_by": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/provenance"
+              }
+            },
+            "agreement": {
+              "$comment": "URL-normalized comparison. A raw comparison disagreed on three of four Persian posts purely over link representation, so a raw check would fire on almost every post carrying media or a URL (REPORT.md section 5a).",
+              "enum": [
+                "identical",
+                "identical_url_normalized",
+                "disagree"
+              ]
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        }
+      }
+    },
+    "author": {
+      "type": "object",
+      "required": [
+        "username",
+        "rest_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "username": {
+          "$ref": "#/$defs/username"
+        },
+        "rest_id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,25}$"
+        },
+        "display_name": {
+          "type": "string",
+          "maxLength": 256
+        }
+      }
+    },
+    "media": {
+      "type": "object",
+      "required": [
+        "type",
+        "url"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        "type": {
+          "enum": [
+            "photo",
+            "video",
+            "animated_gif"
+          ]
+        },
+        "url": {
+          "$comment": "Metadata and a stable-as-available URL. Binary preservation is out of ADR 0007's MVP scope, and these hosts expire, so a reader must treat this as decaying.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "alt_text": {
+          "$comment": "Author-written. Real and worth carrying: 62 of 108 media objects observed had it. Absent when the author wrote none — never an empty string standing in for one.",
+          "type": "string",
+          "minLength": 1
+        },
+        "variants": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "content_type": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "bitrate": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "metrics": {
+      "$comment": "ADR 0007: a metric is only meaningful as an explicitly time-stamped observation, so observed_at is required and every count is optional. A capture therefore cannot carry a bare number that a reader would compare across time as though it were a property of the post.",
+      "type": "object",
+      "required": [
+        "observed_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "observed_at": {
+          "$ref": "#/$defs/isoTimestamp"
+        },
+        "replies": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reposts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "likes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "quotes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bookmarks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "impressions": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "availability": {
+      "type": "object",
+      "required": [
+        "state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "available",
+            "unavailable"
+          ]
+        },
+        "reason": {
+          "$comment": "Tier 0 and Tier 1 collapse deleted, suspended and protected into one message; x routes puts distinguishable errors at Tier 2, which is excluded. So the only honest value at a qualified tier is 'not_determinable_at_this_tier'. The specific reasons are listed but unreachable without a tier that can tell them apart, which is the point.",
+          "enum": [
+            "not_determinable_at_this_tier",
+            "deleted",
+            "suspended",
+            "protected"
+          ]
+        }
+      }
+    },
+    "post": {
+      "type": "object",
+      "required": [
+        "post_id",
+        "availability"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "post_id": {
+          "$ref": "#/$defs/postId"
+        },
+        "conversation_id": {
+          "$comment": "Optional by measurement, not by preference: a Tier 0 single-post read returns null for it, so a capture taken at Tier 0 legitimately cannot name the conversation it walked (REPORT.md section 7).",
+          "$ref": "#/$defs/postId"
+        },
+        "parent_post_id": {
+          "description": "The post this one replies to. Present for every thread member except the root.",
+          "$ref": "#/$defs/postId"
+        },
+        "author": {
+          "$ref": "#/$defs/author"
+        },
+        "created_at": {
+          "$ref": "#/$defs/isoTimestamp"
+        },
+        "lang": {
+          "type": "string",
+          "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$|^und$|^qam$|^qct$|^qht$|^qme$|^qst$|^zxx$"
+        },
+        "text": {
+          "$ref": "#/$defs/text"
+        },
+        "media": {
+          "$comment": "Absent when the post carries none. An empty array would claim 'observed, and there was none', which a truncating surface cannot support.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/media"
+          }
+        },
+        "quote": {
+          "$comment": "A quoted post is a separate cited source, not embedded content (ADR 0007 decision 8). Its id and author are available at Tier 0, so both are required when a quote is recorded at all.",
+          "type": "object",
+          "required": [
+            "quoted_post_id",
+            "quoted_author_username"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "quoted_post_id": {
+              "$ref": "#/$defs/postId"
+            },
+            "quoted_author_username": {
+              "$ref": "#/$defs/username"
+            }
+          }
+        },
+        "metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "availability": {
+          "$ref": "#/$defs/availability"
+        },
+        "poll": {
+          "$comment": "T-222 located no public poll in 610 credential-free posts and the tool declares 'poll' with no surface at any tier. So a poll is representable but only as a real observation: minProperties forbids recording {} as though absence had been observed. Same doctrine for edits, article and reply_settings below (REPORT.md section 9).",
+          "type": "object",
+          "minProperties": 1
+        },
+        "edits": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/postId"
+          }
+        },
+        "article": {
+          "type": "object",
+          "minProperties": 1
+        },
+        "reply_settings": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "order": {
+      "type": "object",
+      "required": [
+        "basis"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "$comment": "Order is derived from parent links and never from the order records arrived in: the archive route returns a ranked selection, so arrival order carries no chronological meaning at all (REPORT.md section 4).",
+          "enum": [
+            "parent_links",
+            "single_item"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 512
+        }
+      }
+    },
+    "completeness": {
+      "$comment": "Kept separate from request success, and directional, because T-222 measured the two directions as different kinds of claim: upward is provable by termination at a parent-less root, downward is not provable by any credential-free route.",
+      "type": "object",
+      "required": [
+        "upward",
+        "downward"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "upward": {
+          "type": "object",
+          "required": [
+            "status",
+            "basis"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "enum": [
+                "complete",
+                "incomplete"
+              ]
+            },
+            "basis": {
+              "$comment": "'root_reached' means a post with no parent was reached and every hop resolved — the one real completeness proof available. 'unresolved_hop' names the id that broke the chain.",
+              "enum": [
+                "root_reached",
+                "unresolved_hop",
+                "single_item"
+              ]
+            },
+            "single_author": {
+              "type": "boolean"
+            },
+            "unresolved_at": {
+              "$ref": "#/$defs/postId"
+            }
+          }
+        },
+        "downward": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "$comment": "'unprovable' is the only honest value at a qualified tier and there is deliberately no 'complete': x thread and x replies return the anchor alone, the whole reply tree is Tier 2, and a 250-post author archive held 3 of 10 members of a real thread. A capture cannot claim it enumerated descendants.",
+              "enum": [
+                "unprovable",
+                "not_applicable"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        }
+      }
+    },
+    "coverage": {
+      "$comment": "Item-based, per ADR 0007 and the T-223 row: every included post is accounted for and every omission carries a reason. PASS while an expected item is unaccounted for is impossible — JSON Schema cannot compare two arrays, so that bound is asserted in tests/test_twitter_capture_schema.py, in the same way the extraction bundle's window bounds are.",
+      "type": "object",
+      "required": [
+        "status",
+        "expected_item_count",
+        "included_post_ids",
+        "omitted_items"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "PASS",
+            "PARTIAL",
+            "FAIL"
+          ]
+        },
+        "expected_item_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "included_post_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/postId"
+          }
+        },
+        "omitted_items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "post_id": {
+                "$ref": "#/$defs/postId"
+              },
+              "descriptor": {
+                "description": "Used when the omitted item has no known id — a descendant that cannot be enumerated has no id to name.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
