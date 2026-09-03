@@ -1,9 +1,21 @@
 # T-211 — Visual specification: Explore and Focus
 
-**Status:** awaiting approval · **Review viewport:** 2852×1688 · **Binding:** [ADR 0006](../../adr/0006-map-visual-quality.md)
+**Status:** **approved 2026-09-03 (D-191)** · **Review viewport:** 2852×1688 · **Binding:** [ADR 0006](../../adr/0006-map-visual-quality.md)
 
-This is the approval gate for Phase 2.1. It changes no production UI. `T-212`–`T-215`
-become claimable only when the two compositions below are explicitly approved.
+This was the approval gate for Phase 2.1, and it has passed. It changes no production UI.
+`T-212` is now claimable, and the order `T-212` → `T-213` → `T-214` → `T-215` is fixed.
+
+From here this file is a **contract, not a proposal**: a deliberate departure from what is
+specified here is a change to this file and a note in the decision ledger, not a silent
+divergence.
+
+**What `T-215` compares against.** The *sources* in this directory are the reference — the
+mockup pages, `mockup.css`, `render.js`, and the extracted `data.js` / `layout.json`. They are
+committed; the PNGs they render are not, on the same rule `.gitignore` already applies to the
+browser gate's own output. `capture_mockups.ts` reproduces every capture from these sources on
+demand, so there is no stored render that can drift from its own source with nothing to notice
+it. The approved compositions also live permanently in the published review artifact, which is
+the record of what was accepted on 2026-09-03.
 
 The four reference images are not in the repository, so the compositions are derived from
 ADR 0006's written characterisation of what each contributes. What each one gave, and what
@@ -304,3 +316,21 @@ clone has no captures until the third command is run, which is the intended stat
 Regeneration is deterministic. `layout.json` is committed rather than recomputed on every run,
 so a change to the field is a reviewable diff instead of a silent reshuffle; re-run the first
 command only when the graph or the layout constants actually change.
+
+**The two baseline captures are the exception, and they are not reproducible from a clone.**
+`capture_baseline.ts` photographs the *running* application, so it needs the API served, the
+bundle built and a preview running — and it reads `output/`, which is gitignored and local to
+whoever ingested the source. A clone with a different library, or none, cannot reproduce them:
+
+```bash
+../.venv/bin/python scripts/dev_api.py --project-root .. --port 8955
+X2KNWLDG_API_BASE=http://127.0.0.1:8955 npm run build
+X2KNWLDG_API_BASE=http://127.0.0.1:8955 npx vite preview --port 4199
+npx tsx scripts/capture_baseline.ts
+```
+
+That is why the baseline is recorded as **numbers in §1** rather than only as pictures. The
+numbers are the durable evidence — 1248 px column, 790 px stage top, 5795 px document — and
+the script prints exactly those on every run, so the claim can be re-checked against a live
+build even when the images are gone. The images themselves remain in the published review
+artifact.

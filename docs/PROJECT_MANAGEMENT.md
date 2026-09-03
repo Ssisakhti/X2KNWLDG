@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-09-03 · **Phases 0, 1 and 2 are complete. Phase 2.1 is approved and planned.** `T-201` remains the completed functional Knowledge Map epic and its real-browser gate remains valid. The user's comparison with the four approved visual references rejected the current composition as release quality, so `T-210` now blocks Phase 3. `T-211` — high-fidelity Explore and Focus mockups with explicit user approval before production UI work — is the only claimable task (D-150–D-154; [ADR 0006](adr/0006-map-visual-quality.md))
+**Last updated:** 2026-09-03 · **Phases 0, 1 and 2 are complete. Phase 2.1 is in progress and its approval gate has passed.** `T-201` remains the completed functional Knowledge Map epic and its real-browser gate remains valid. `T-210` still blocks Phase 3. **`T-211` is done: the user approved both compositions on 2026-09-03 (D-191), so `T-212` is now the only claimable task** and the fixed order `T-212` → `T-213` → `T-214` → `T-215` begins (D-150–D-154; [ADR 0006](adr/0006-map-visual-quality.md))
 **Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
@@ -100,7 +100,7 @@ Exit criteria live in canvas plan §16; this table tracks state only.
 | **0** | Contracts & scaffolding | ✅ `done` | ❌ **No — serialization point** | Schemas validate; contract frozen |
 | **1** | Read-only Library & Reader | ✅ `done` — four tracks + `T-116`; §7.4 scenarios 1–3 walked and passing | — | Search works; status honest; rebuild is equivalent |
 | **2** | Knowledge Map | ✅ `complete` — `T-202`–`T-209` delivered and browser-verified the renderer, progressive graph, visual grammar, URL/search/focus journey, Quick Read, semantic DOM path, honest states, touch, bidi and lifecycle guarantees (D-117–D-149) | Closed; Phase 2.1 is next | ✅ functional gate met in a browser: provenance distinguishable without colour; empty/partial/refused graphs honest; selection reaches evidence |
-| **2.1** | Map visual-quality remediation · `T-210` | 🟡 `approved / planned` — `T-211` is the only claimable task | ❌ Serial through mockup approval; implementation sequence in §8.7 | Approved Explore and Focus compositions reproduced in the real browser with no clipping, overlap or page-scroll dependency |
+| **2.1** | Map visual-quality remediation · `T-210` | 🟡 `in progress` — `T-211` done and approved (D-191); `T-212` is the only claimable task | ❌ Serial; implementation sequence in §8.7 | Approved Explore and Focus compositions reproduced in the real browser with no clipping, overlap or page-scroll dependency |
 | **3** | Canvas & board persistence | ⛔ `blocked by T-210` | ⚠️ Sequential with Phase 4 | Layout survives restart; partial corruption tolerated |
 | **4** | Pen & annotation | `not started` | ⚠️ Sequential with Phase 3 | Strokes stable under zoom/pan; no canonical leakage |
 | **5** | Richer media & documents | `not started` | ✅ Per-format | Scoped only once real files are in use |
@@ -227,7 +227,7 @@ is binding. Phase 3 is blocked until this gate passes.
 | ID | Task | Flag | Depends on | Acceptance |
 |---|---|---|---|---|
 | `T-210` | **Epic — Map Visual Quality Pass.** Deliver two distinct, coherent compositions over the existing Map: a quiet Explore overview and a readable Focus workspace. Preserve the same `GraphSnapshot`, `mapLink`, selected `global_id`, neighbourhood response, card formatter, honest states, semantic DOM path and renderer lifecycle. No new endpoint, graph store, identity, inferred score, cluster or canonical field | `S` | Phase 2 gate | All children `T-211`–`T-215` pass; the user accepts the browser captures as materially matching the hierarchy, polish and legibility of the reference set; Phase 3 remains untouched |
-| `T-211` | **High-fidelity visual specification and approval gate.** Produce two screenshot-level mockups — Explore and Focus — at the current review viewport (2852×1688), plus responsive notes for the already-tested desktop/narrow breakpoints. Specify layout grid, component bounds, type scale, spacing, colour roles, card hierarchy, node/edge states, drawers, loading/empty/error states, dark/light behaviour, English/Persian mirroring and reduced motion. Annotate what each of the four references contributes and what is deliberately not copied. This task changes no production UI | `S` | `T-210` | The user explicitly approves both screenshots before `T-212` begins. The mockups demonstrate: graph above the fold; one obvious primary action and one obvious focus; no text/edge/card collision; incoming left, outgoing right and hop rings; Search and Quick Read without page scroll; long English and Persian content; and no fabricated data dimension |
+| ~~`T-211`~~ | ✅ **done, approved 2026-09-03 (D-191).** Two screenshot-level compositions at 2852×1688 in [`docs/mockups/T-211/`](../docs/mockups/T-211/SPEC.md), plus dark/light, English/Persian, the 1440×900 and 390×844 breakpoints, an honest-states strip, and the measured baseline they replace. The sources are committed; the captures they render are **gitignored and regenerated** by `capture_mockups.ts`, so a clone reproduces them rather than trusting a stored PNG (the rule `.gitignore` already applies to the browser gate's output). Explore uses the **production** layout path — `seedPosition` + `forceAtlas2`/`inferSettings` at `MAP_LAYOUT_ITERATIONS`, driven by `mockup_layout.ts`. No production UI changed: `git diff` over `web/src/` and `output/` is empty and both suites hold their baseline. The pages measure their own acceptance clauses and the capture script refuses an image while one is violated, which caught four real defects before implementation — a pill over a card, a drawer covering the focused card under RTL (a WCAG 2.2 AA *Focus Not Obscured* failure), cards under the floating chrome at 1440×900, and physical coordinates assigned to `inset-inline-start`, which mirrored an already-mirrored layout | `S` | `T-210` | Met |
 | `T-212` | **Viewport workspace shell.** Refactor Map composition so the graph fills the usable route viewport. Keep navigation compact; move counts/status, filters and legend into a restrained floating toolbar; make Search, related knowledge and Quick Read bounded drawers/rails that do not push the stage down the page. Preserve semantic DOM order, honest states, URL history, keyboard/touch operation and the one-disclosure/motion policies | `S` | approved `T-211` | At the review viewport, Search → Focus → Quick Read needs no document scroll; opening a drawer never clips the selected card; only one primary drawer competes with the stage; empty/partial/refused/no-WebGL states remain explicit; existing keyboard and touch journeys still pass |
 | `T-213` | **Directional Orbit Focus composition.** Keep ForceAtlas for Explore, but present a bounded focused neighbourhood in a deterministic reading layout: selected Knowledge Card at the centre; incoming relations left; outgoing relations right; actual hop 1–3 as distance/rings; stable identity tie-breaks within a band; self-loops stated without fake direction. Use visible ports and horizontal relation pills. Fade unrelated topology without representing it as absent. The layout is derived presentation state over the existing snapshot and transient neighbourhood, never a second graph store | `S` | `T-212` | Focus is the unmistakable centre; direction and hop can be read before opening a card; no active edge or label crosses card text; changing focus is stable and Back restores the prior focus; missing/partial/truncated neighbourhoods are stated; Explore restores deterministically |
 | `T-214` | **Editorial visual system.** Implement the approved visual tokens and component hierarchy: neutral charcoal field, neutral readable cards, one strong active accent, restrained semantic hues, provenance via shape/border/badge as well as colour, compact metadata, deliberate whitespace, consistent ports/edge weights, horizontal relation pills and clear hover/keyboard/selected states. Labels appear by semantic zoom/interaction in Explore and never underneath Focus cards | `S` | `T-213` | Dark/light and English/Persian captures preserve hierarchy and contrast; provenance survives greyscale; long content truncates visibly with complete text reachable in Quick Read; no card, pill or focus ring is clipped; decorative styling never implies a score or relation not returned by the API |
@@ -467,6 +467,7 @@ Required approach:
 
 A future session must not consolidate these into one form without also updating `kg_navigator.md`.
 
+| D-191 | `T-211`'s Explore and Focus compositions are approved; Phase 2.1 implementation proceeds in the fixed order `T-212` → `T-213` → `T-214` → `T-215`, and the committed sources in `docs/mockups/T-211/` are the reference `T-215` regenerates and compares the running UI against | accepted | ADR 0006 clause 2 requires explicit approval of both screenshots before any production Map surface is refactored, and the approval arrived on 2026-09-03. Three things are settled by it and are no longer open for re-litigation during implementation: the Map is a viewport workspace whose document does not scroll; Focus is a Directional Orbit whose radius is `hops` and whose sides are relation direction; and below the orbit's minimum width the answer is **fewer cards with counted omissions**, never smaller text — at 390 px there is no orbit at all. The mockups also fix a rule the implementation inherits: stage placement is computed in physical pixels and must use physical `left`/`top`, because a logical inset mirrors an already-mirrored coordinate (D-012's stated exception, and the cause of the RTL drawer defect) |
 ---
 
 ## 7. Definition of done and checks
@@ -865,28 +866,30 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 
 ## 11. Next step
 
-**Claim only `T-211`: the high-fidelity visual specification and approval gate.** Phase 2 is
-functionally complete, but the reviewed screen is not accepted as release-quality UI. Phase 3
-must not start and no production Map component should be refactored yet.
+**Claim `T-212`: the viewport workspace shell.** `T-211` is done and both compositions were
+approved on 2026-09-03 (D-191), so the gate ADR 0006 opened is closed and production work on
+the Map may begin. Phase 3 remains blocked until the whole of `T-210` lands.
 
-The `T-211` owner must first read [ADR 0006](adr/0006-map-visual-quality.md), §5's `T-210`
-backlog, the existing §8.6 reuse boundaries and the user's four visual references. Then:
+The `T-212` owner reads [ADR 0006](adr/0006-map-visual-quality.md), the approved
+[`SPEC.md`](mockups/T-211/SPEC.md) and §8.6's reuse boundaries first, then refactors the Map's
+composition so the graph fills the usable route viewport: the app bar stays compact, counts,
+filters and legend become restrained floating surfaces, and Search, related knowledge and
+Quick Read become bounded drawers rather than document-flow sections. `SPEC.md` §2 gives the
+grid and the chrome positions, §6 the proposed constants and what each replaces, and §7 the
+semantic-order/visual-order table the refactor must preserve.
 
-1. Capture the current Explore and Focus screens at **2852×1688** as the comparison baseline.
-2. Produce one high-fidelity **Explore** mockup: the graph fills the usable route viewport;
-   controls are compact; the field is quiet; labels appear by zoom/interaction; search can
-   open without pushing the stage below the fold.
-3. Produce one high-fidelity **Focus / Directional Orbit** mockup: selected Knowledge Card at
-   the centre, incoming relations left, outgoing relations right, actual hop as ring/distance,
-   visible ports, horizontal relation pills, restrained unrelated context and a bounded Quick
-   Read drawer.
-4. Show realistic long content in both English and Persian, and state light/dark, narrow-screen,
-   keyboard-focus and reduced-motion behaviour. Use only fields the API actually returns.
-5. Present both screenshots to the user and stop for explicit approval. A wireframe, component
-   list or green test suite is not acceptance for this task.
+Three constraints from the approved spec bind the implementation, and each exists because a
+mockup violated it first:
 
-Only after that approval does `T-212` become claimable. The execution order is fixed:
-`T-212` workspace shell → `T-213` Directional Orbit → `T-214` visual system → `T-215`
-real-browser visual gate. The constraints inherited from Phase 2 remain: no second graph store,
-selection grammar, card formatter, renderer lifecycle, honest-state reducer, disclosure or
-reduced-motion reader; no canonical/output changes; no invented visual metric.
+1. The drawer's width comes out of the field **before** the centre is placed, and the check
+   runs on both inline sides — a drawer that covers the focused card is a WCAG 2.2 AA
+   *Focus Not Obscured* failure, not a cosmetic overlap.
+2. Absolute stage placement uses physical `left`/`top`. Everything in flow stays logical.
+3. Placed cards plus counted omissions must equal the neighbours the API returned, at every
+   breakpoint.
+
+The Phase 2 boundaries are unchanged: no second graph store, selection grammar, card
+formatter, Sigma lifecycle, honest-state reducer, disclosure or reduced-motion reader; no
+canonical or `output/` changes; no invented visual metric. `T-213`'s Directional Orbit is
+presentation state derived from the existing snapshot and neighbourhood, and never flows back
+into either.

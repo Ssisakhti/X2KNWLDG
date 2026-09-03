@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0, 1 and 2 are complete. Phase 2.1 (`T-210`) is approved and blocks Phase 3: the functional Map passed its real-browser gate, but the user rejected its composition against the approved visual references. `T-211`, high-fidelity Explore and Focus mockups with explicit approval before production UI work, is the only claimable task (D-150–D-154; [ADR 0006](adr/0006-map-visual-quality.md))
+**Current stage:** Phases 0, 1 and 2 are complete. Phase 2.1 (`T-210`) is in progress and still blocks Phase 3. Its approval gate has passed: `T-211`'s Explore and Focus compositions were approved on 2026-09-03 (D-191), so `T-212` is the only claimable task and the fixed order `T-212` → `T-213` → `T-214` → `T-215` begins. The approved compositions and their specification are in [`docs/mockups/T-211/`](mockups/T-211/SPEC.md) (D-150–D-154, D-191; [ADR 0006](adr/0006-map-visual-quality.md))
 **Last updated:** 2026-09-03
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -1164,12 +1164,18 @@ Mitigation: pin versions at implementation time; review licences before any majo
 
 ### Risk 9: functional completion is mistaken for visual acceptance
 
-Status: **open; blocks Phase 3.** The Map passes its behavioural browser gate, but the reviewed
-composition does not meet the user's reference bar.
+Status: **open; blocks Phase 3 — but its first gate has passed.** The Map passes its
+behavioural browser gate, and the reviewed composition did not meet the user's reference bar.
+`T-211`'s replacement compositions were approved on 2026-09-03 (D-191); the risk stays open
+until `T-215` shows the *running* UI matching them, because approved pictures are not a
+shipped screen.
 
-Mitigation: Phase 2.1 separates visual acceptance from Phase 2 history. `T-211` requires
-approved Explore and Focus mockups before implementation, and `T-215` requires final browser
-captures plus geometry assertions. A green behavioural suite alone cannot close the risk.
+Mitigation: Phase 2.1 separates visual acceptance from Phase 2 history. `T-211` required
+approved Explore and Focus mockups before implementation — delivered — and `T-215` requires
+final browser captures plus geometry assertions against them. A green behavioural suite alone
+cannot close the risk. The mockups made that concrete: their own in-page geometry checks
+caught four defects a passing component suite would not have seen, including an RTL drawer
+covering the focused card.
 
 ### Risk 10: Focus becomes a second graph or invents meaning
 
@@ -1269,6 +1275,7 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-152 | Explore and Focus are different presentations of the same graph; Focus uses a Directional Orbit with centre, side and radius derived only from selection, direction and hop ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Global topology and local reading need different compositions, while invented importance, clusters and metrics remain forbidden |
 | D-153 | The Map is a viewport workspace with compact floating controls and bounded Search/related/Quick Read drawers, while truthful DOM order and keyboard access remain intact ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Document-flow panels currently push the core graph and reading journey below the fold |
 | D-154 | An editorial visual system plus screenshot-based browser QA is mandatory: no clipping, card overlap or labels beneath cards; relation pills stay horizontal; light/dark and English/Persian are verified ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Behavioural tests alone did not reveal the visual hierarchy, collision and polish failures seen in the reviewed screenshot |
+| D-191 | `T-211`'s Explore and Focus compositions are approved; implementation runs `T-212` → `T-213` → `T-214` → `T-215` and the committed sources in `docs/mockups/T-211/` are `T-215`'s reference, regenerated on demand ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The gate ADR 0006 clause 2 opened is closed. It settles three things for the implementation: the Map is a viewport workspace whose document does not scroll; Focus is a Directional Orbit whose radius is `hops` and whose sides are relation direction; and below the orbit's minimum width the answer is fewer cards with counted omissions, never smaller text |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
