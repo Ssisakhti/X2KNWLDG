@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import type { ProvenanceClass, RunStatus, Source } from "../api/contract";
 import { renderApp } from "../test/render";
 import {
+  KindBadge,
   PROVENANCE_GLYPH,
   PROVENANCE_LINE,
   ProvenanceBadge,
@@ -106,5 +107,40 @@ describe("run status is copied, never coerced", () => {
     const { container } = renderApp(<RunStatusPanel source={source({})} />);
     const rows = within(container).getByText("Audit attempts").parentElement;
     expect(rows?.textContent).not.toContain("0");
+  });
+});
+
+describe("a kind badge", () => {
+  it("names the kind in the record's own vocabulary, with the hue beside it", () => {
+    // Hue is the *second* signal: the word is the first, and it is the
+    // record's own token rather than a prettified phrase.
+    renderApp(<KindBadge kind="canonical_concept" />);
+    expect(screen.getByText("canonical_concept")).toBeDefined();
+    const badge = document.querySelector("[data-kind-family]");
+    expect(badge?.getAttribute("data-kind-family")).toBe("concept");
+    const swatch = badge?.querySelector(".badge__swatch");
+    expect(swatch).not.toBeNull();
+    // From the one table the legend explains and the mark is drawn with.
+    expect((swatch as HTMLElement).style.background).not.toBe("");
+    // And decoration: a screen reader hears the word, not the colour.
+    expect(swatch?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("says a kind is not stated rather than folding it into a family", () => {
+    // An absent `kind` is `unstated`, which has a hue of its own precisely so
+    // it is not silently drawn as a real family.
+    renderApp(<KindBadge kind={null} />);
+    expect(screen.getByText("not stated")).toBeDefined();
+    expect(
+      document.querySelector("[data-kind-family]")?.getAttribute("data-kind-family"),
+    ).toBe("unstated");
+  });
+
+  it("does not round a kind this build has never heard of", () => {
+    renderApp(<KindBadge kind="a_kind_from_a_later_schema" />);
+    expect(screen.getByText("a_kind_from_a_later_schema")).toBeDefined();
+    expect(
+      document.querySelector("[data-kind-family]")?.getAttribute("data-kind-family"),
+    ).toBe("unrecognised");
   });
 });

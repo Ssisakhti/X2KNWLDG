@@ -56,6 +56,12 @@ test.describe("the renderer's lifecycle", () => {
 
     // A filter change is a different question, so it is a different snapshot
     // and a new renderer (D-118). Each replacement must kill its predecessor.
+    //
+    // Opened first: `T-216` folded the filters to their trigger, because the
+    // approved capture draws that corner as a two-line chip and three open
+    // selects were 215 px of the field (D-199). The controls are the same
+    // controls, one press further in.
+    await openPanel(page, "filters");
     for (const value of ["source", "derived", ""]) {
       await page.locator('[data-map-filter="provenance_class"]').selectOption(value);
       await expect(page.locator("[data-map-nodes]")).toBeVisible();
@@ -113,6 +119,8 @@ test.describe("the renderer's lifecycle", () => {
 
     await page.goto(mapUrl());
     await expect(page.locator("[data-map-renderer-failed]")).toBeVisible();
+    // Behind its trigger since `T-216` (D-199), and reached the same way.
+    await openPanel(page, "filters");
     for (const value of ["source", "derived", "", "source", "derived", ""]) {
       await page.locator('[data-map-filter="provenance_class"]').selectOption(value);
       await expect(page.locator("[data-map-renderer-failed]")).toBeVisible();
@@ -388,12 +396,25 @@ test.describe("the numbers the stage was given by argument", () => {
     await openDrawnMap(page);
     const stage = page.locator("[data-map-stage]");
     await stage.scrollIntoViewIfNeeded();
-    const overview = await stage.screenshot();
+    /*
+     * The floating chrome is masked out of every shot (`T-212`).
+     *
+     * The stage is the whole field now and the controls float on it, so a
+     * screenshot of the stage's box also catches whatever is painted over it.
+     * That turned this comparison into a test of the chrome as well as the
+     * picture, and it failed on the truest possible difference: the reset
+     * button had been *clicked*, so it carried a focus ring in the third shot
+     * and not the first. Masking states what the assertion was always about
+     * -- the picture -- rather than widening the tolerance until a real
+     * difference could hide in it.
+     */
+    const shot = () => stage.screenshot({ mask: [page.locator("[data-map-chrome]")] });
+    const overview = await shot();
 
     await page.getByRole("button", { name: "Zoom in" }).click();
     await page.getByRole("button", { name: "Zoom in" }).click();
     await page.waitForTimeout(600);
-    const zoomed = await stage.screenshot();
+    const zoomed = await shot();
     expect(zoomed.equals(overview)).toBe(false);
 
     // Reset returns to the framed whole graph, which is where a reload
@@ -401,7 +422,7 @@ test.describe("the numbers the stage was given by argument", () => {
     // function of the seeds (D-118).
     await page.getByRole("button", { name: "Reset the view" }).click();
     await page.waitForTimeout(900);
-    const reset = await stage.screenshot();
+    const reset = await shot();
     expect(reset.equals(overview)).toBe(true);
   });
 

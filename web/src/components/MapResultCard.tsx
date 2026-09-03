@@ -40,7 +40,7 @@ import type { MapPreview } from "../map/useMapSearch";
 import type { PeekHandlers } from "../map/useMapPeek";
 import { readerPath } from "../lib/readerLink";
 import { cutToBudget, type CutText } from "../map/labelPolicy";
-import { ProvenanceBadge } from "./Provenance";
+import { KindBadge, ProvenanceBadge } from "./Provenance";
 import { Bidi, ExternalLink, Missing, Mono } from "./primitives";
 
 /**
@@ -155,7 +155,7 @@ export function MapResultCard({
             {preview.provenanceRaw}
           </span>
         )}
-        {!isCaption && <span className="badge">{preview.kind ?? t("common.notStated")}</span>}
+        {!isCaption && <KindBadge kind={preview.kind} />}
         {!isCaption && (
           <span className="faint">
             {t("reader.units.confidence")}: {confidence ?? <Missing />}

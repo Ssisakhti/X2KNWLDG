@@ -19,6 +19,7 @@ import type { MapPoint } from "../map/mapSession";
 import { App } from "../App";
 import { fakeRenderers } from "../test/mapRenderer";
 import { concept, edge, expressesConcept, unit } from "../test/graphRecords";
+import { ORBIT_TIERS } from "../map/constellation";
 import { mapStyle } from "../map/mapStyle";
 import { jsonFetch, renderApp } from "../test/render";
 // The route's server stub and its sized stage live beside the renderer fake
@@ -405,8 +406,11 @@ describe("the Map's canvas and its constellation", () => {
     renderApp(<MapView createRenderer={harness.factory} />, { route: "/map" });
     await drawn();
 
-    // Nothing selected, and the Map says so rather than showing an empty panel.
-    expect(screen.getByText("Nothing is focused, so there is no record to read.")).toBeDefined();
+    // Nothing selected, and the Map says so on the surface Explore has: the
+    // drawer is Focus's and is not mounted at all (`T-216`, D-200), so the
+    // sentence comes from the search rail's own focus row.
+    expect(document.querySelector(".map__drawer")).toBeNull();
+    expect(screen.getByText("Nothing is focused. Choose a result to focus it.")).toBeDefined();
 
     harness.latest()?.fireNode("clickNode", KU1);
 
@@ -447,22 +451,14 @@ describe("the Map's canvas and its constellation", () => {
     expect([...mapStyle.view.neighbourNodes].sort()).toEqual([C1, KU2].sort());
   });
 
-  it("places the bounded card constellation over the marks, as presentation only", async () => {
+  it("draws the Directional Orbit over the field, as presentation only", async () => {
+    // `T-213` replaced the mark-anchored constellation entirely. The marks
+    // are still there and still clickable; the *cards* are now placed by
+    // direction and hop from the field's centre, so this test no longer
+    // arranges anchors -- there is nothing for an anchor to decide.
     sizeTheStage();
     vi.stubGlobal("fetch", library());
-    // Three marks whose cards clear one another on a 900x600 stage, which is
-    // a real constraint rather than a fixture detail: the shipped cards are
-    // 416 and 320 px wide (`T-209`, D-145), a card reaches from its mark to
-    // the far edge of its box, and the policy refuses one that would cover
-    // another. Two of these are on the same side, far apart down the stage;
-    // the third opens the other way from the opposite corner.
-    const harness = recorder({
-      points: {
-        [KU1]: { x: 60, y: 60 },
-        [KU2]: { x: 60, y: 560 },
-        [C1]: { x: 860, y: 60 },
-      },
-    });
+    const harness = recorder();
     renderApp(<MapView createRenderer={harness.factory} />, { route: `/map?focus=${KU1}` });
     await drawn();
 
@@ -473,22 +469,44 @@ describe("the Map's canvas and its constellation", () => {
     // related list.
     expect(overlay.getAttribute("aria-hidden")).toBe("true");
     expect(overlay.querySelectorAll("button, a, input, select")).toHaveLength(0);
+    // A 900x600 stage is the `compact` tier, and the route says which
+    // composition it drew rather than leaving it to be counted.
+    expect(document.querySelector(".map")?.getAttribute("data-map-tier")).toBe("compact");
+    expect(overlay.getAttribute("data-map-orbit-tier")).toBe("compact");
 
     const cards = [...document.querySelectorAll("[data-map-card]")].map((node) => ({
       id: node.getAttribute("data-map-card"),
       primary: node.getAttribute("data-map-card-primary"),
+      side: node.getAttribute("data-map-card-side"),
     }));
-    expect(cards).toEqual([
-      { id: KU1, primary: "true" },
-      { id: C1, primary: "false" },
-      { id: KU2, primary: "false" },
-    ]);
-    // The primary card is anchored where the renderer says its mark is.
-    const primary = document.querySelector("[data-map-card='youtube:pqlWNihgdjI:KU-000001']");
-    expect((primary as HTMLElement).style.left).toBe("60px");
-    expect((primary as HTMLElement).style.top).toBe("60px");
-    // And the primary card shortens the statement visibly rather than silently.
-    expect(primary?.querySelector("[data-truncated]")).not.toBeNull();
+    // The focus is the centre, always: it is the one card D-132 guarantees
+    // and the composition is built around it.
+    expect(cards[0]).toEqual({ id: KU1, primary: "true", side: "centre" });
+    // Whatever else this 900x600 field could hold is a neighbour of the focus
+    // on the side its own relation runs, and *every* neighbour it could not
+    // hold is counted rather than dropped. That accounting is the clause R20
+    // rests on; the exact number of cards a 900x600 field fits is not, and
+    // asserting it here would be asserting this fixture's geometry twice.
+    for (const card of cards.slice(1)) {
+      expect([C1, KU2]).toContain(card.id);
+      expect(["incoming", "outgoing"]).toContain(card.side);
+    }
+    const counted = Number(
+      document.querySelector("[data-map-stage-omitted]")?.getAttribute("data-map-stage-omitted") ??
+        "0",
+    );
+    expect(cards.length - 1 + counted).toBe(2);
+
+    // The centre card is centred in the measured field, not anchored to a
+    // mark. The tier's own box, read from the table rather than restated, so
+    // this measures the composition and not a number typed twice.
+    const box = ORBIT_TIERS.compact.primaryBox;
+    const primary = document.querySelector(`[data-map-card='${KU1}']`) as HTMLElement;
+    expect(primary.style.left).toBe(`${(900 - box.width) / 2}px`);
+    expect(primary.style.top).toBe(`${(600 - box.height) / 2}px`);
+    expect(primary.style.inlineSize).toBe(`${box.width}px`);
+    // And it shortens the statement visibly rather than silently.
+    expect(primary.querySelector("[data-truncated]")).not.toBeNull();
   });
 
   it("brings a new focus and its drawn neighbours onto the stage (`T-209`, D-146)", async () => {
@@ -559,22 +577,27 @@ describe("the Map's canvas and its constellation", () => {
     await waitFor(() => expect(document.querySelector("[data-map-peek]")).toBeNull());
   });
 
-  it("draws no card while the camera is moving, and places them again when it stops", async () => {
-    // The same rule `hideLabelsOnMove` applies to labels: text that reflows
-    // every frame is unreadable, and re-placing per frame would re-render the
-    // related list sixty times a second.
+  it("keeps the orbit still through a camera gesture that used to erase it", async () => {
+    // The inverse of the test `T-207` wrote here, and the inversion is the
+    // point. Cards anchored to marks had to be hidden while the camera moved
+    // and placed again when it stopped, because they reflowed every frame.
+    // The orbit reads no camera at all: a frame changes nothing about it, so
+    // the composition a reader is reading stays on screen and stays put.
     sizeTheStage();
     vi.stubGlobal("fetch", library());
-    const harness = recorder({ points: { [KU1]: { x: 450, y: 300 } } });
+    const harness = recorder();
     renderApp(<MapView createRenderer={harness.factory} />, { route: `/map?focus=${KU1}` });
     await drawn();
     await waitFor(() => expect(document.querySelector("[data-map-overlay]")).not.toBeNull());
+    const before = (document.querySelector(`[data-map-card='${KU1}']`) as HTMLElement).style.left;
 
     harness.latest()?.fireRender();
-    await waitFor(() => expect(document.querySelector("[data-map-overlay]")).toBeNull());
-    await waitFor(() => expect(document.querySelector("[data-map-overlay]")).not.toBeNull(), {
-      timeout: 2000,
-    });
+    harness.latest()?.fireRender();
+
+    expect(document.querySelector("[data-map-overlay]")).not.toBeNull();
+    expect((document.querySelector(`[data-map-card='${KU1}']`) as HTMLElement).style.left).toBe(
+      before,
+    );
   });
 
   it("draws no constellation at all when the renderer could not be created", async () => {

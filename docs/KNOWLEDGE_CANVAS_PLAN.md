@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0, 1 and 2 are complete. Phase 2.1 (`T-210`) is approved and blocks Phase 3: the functional Map passed its real-browser gate, but the user rejected its composition against the approved visual references. `T-211`, high-fidelity Explore and Focus mockups with explicit approval before production UI work, is the only claimable task (D-150–D-154; [ADR 0006](adr/0006-map-visual-quality.md))
+**Current stage:** Phases 0, 1, 2 and 2.1 are complete. `T-210`'s visual-quality gate has been walked to its end: `T-211`'s compositions were approved (D-191), `T-212`–`T-214` built and dressed them (D-192–D-194), `T-215`'s real-browser gate went green and its captures were **refused** (D-195, D-196), `T-216` delivered the six remediations that refusal produced (D-197–D-201), and the user accepted the captures on 2026-09-03 (D-202). **Phase 3 is unblocked and `T-301` is the only claimable task.** The approved compositions, their specification and the record of what each task built and departed from are in [`docs/mockups/T-211/`](mockups/T-211/SPEC.md) §13–§17 (D-150–D-154, D-191–D-202; [ADR 0006](adr/0006-map-visual-quality.md))
 **Last updated:** 2026-09-03
 **Current scope:** personal, fully local execution on macOS, YouTube first
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -1007,8 +1007,14 @@ Acceptance criteria:
 - All Phase 2 behavioural, accessibility and renderer-lifecycle gates remain green, and raw,
   canonical and workspace files remain unchanged.
 
-Phase 3 is blocked until these criteria pass. The implementation units and their serial order
-are `T-211`–`T-215` in `PROJECT_MANAGEMENT.md` §5.
+**These criteria passed on 2026-09-03 (D-202) and Phase 3 is unblocked.** The implementation
+units and their serial order were `T-211`–`T-216` in `PROJECT_MANAGEMENT.md` §5 — six rather
+than the five first planned, because `T-215`'s gate was green and its captures were refused
+(D-196), which is ADR 0006 clause 5 behaving as designed. What the phase leaves standing is an
+approved reference set regenerable from committed sources, sixteen browser scenarios whose
+recorded numbers are a regression surface, a per-tier bound on the share of the field floating
+chrome may cover, and four measured differences recorded in `docs/mockups/T-211/SPEC.md` §17
+rather than remembered.
 
 ### Phase 3 — Canvas and board persistence
 
@@ -1164,12 +1170,40 @@ Mitigation: pin versions at implementation time; review licences before any majo
 
 ### Risk 9: functional completion is mistaken for visual acceptance
 
-Status: **open; blocks Phase 3.** The Map passes its behavioural browser gate, but the reviewed
-composition does not meet the user's reference bar.
+Status: **closed 2026-09-03 (D-202) — all six children done, and closed on the only evidence
+that could have closed it: a person accepting two sets of pictures.** The Map passed its
+behavioural browser gate and the reviewed composition still did not meet the user's reference
+bar, which is the whole of this risk. `T-211`'s replacement compositions were approved (D-191),
+`T-212`–`T-214` built and dressed them (D-192–D-194), and `T-215`'s gate then demonstrated the
+risk from the other side: **everything it asserts went green and the pictures still differed
+from the approved ones in three ways no assertion fired on** (`SPEC.md` §16), so the captures
+were refused (D-196) and `T-216` was opened. `T-216` demonstrated it once more and at a higher
+level — the decision D-196 had reasoned out for it was wrong about the library in both halves,
+and only reading the renderer's own sizing code and re-running the captures found that. The
+acceptance came against `T-216`'s captures, judged by `T-215`'s gate unchanged.
 
-Mitigation: Phase 2.1 separates visual acceptance from Phase 2 history. `T-211` requires
-approved Explore and Focus mockups before implementation, and `T-215` requires final browser
-captures plus geometry assertions. A green behavioural suite alone cannot close the risk.
+Mitigation: Phase 2.1 separates visual acceptance from Phase 2 history. `T-211` required
+approved Explore and Focus mockups before implementation — delivered — and `T-215` requires
+final browser captures plus geometry assertions against them. A green behavioural suite alone
+cannot close the risk, and every task in Phase 2.1 demonstrated it. The mockups'
+own in-page geometry checks caught four defects a passing component suite would not have
+seen, including an RTL drawer covering the focused card. `T-212`'s 605-test jsdom suite then
+went green while the *browser* found three more: a focused card 5 px over the field's edge
+because the drawer had been subtracted from a field too narrow to hold it, the counts surface
+and the drawer laid out as one rectangle at 1440×900, and a screenshot comparison that had
+quietly become a test of a focus ring. jsdom has no layout; every rectangle in it is zero.
+`T-213`'s 607-test suite said nothing about five more, each of which a reader would have seen
+at once — including every card on the wrong half of the field, because direction was read from
+the neighbour's end of the relation. `T-214` closed a clause that had been *stated* since
+ADR 0006 and had shipped broken through two tasks, because no test asserted it. And `T-215`
+proved the thesis from the other side: sixteen green scenarios, and three visible differences
+none of them fired on.
+
+What the closed risk leaves behind is machinery rather than a warning: an approved reference
+set regenerable from committed sources, sixteen browser scenarios whose recorded numbers are a
+regression surface, a per-tier bound on the share of the field floating chrome may cover — read
+off the reference by the instrument that measures the build — and four measured differences
+standing in `SPEC.md` §17. A later surface that repeats this mistake is caught by those.
 
 ### Risk 10: Focus becomes a second graph or invents meaning
 
@@ -1269,6 +1303,19 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-152 | Explore and Focus are different presentations of the same graph; Focus uses a Directional Orbit with centre, side and radius derived only from selection, direction and hop ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Global topology and local reading need different compositions, while invented importance, clusters and metrics remain forbidden |
 | D-153 | The Map is a viewport workspace with compact floating controls and bounded Search/related/Quick Read drawers, while truthful DOM order and keyboard access remain intact ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Document-flow panels currently push the core graph and reading journey below the fold |
 | D-154 | An editorial visual system plus screenshot-based browser QA is mandatory: no clipping, card overlap or labels beneath cards; relation pills stay horizontal; light/dark and English/Persian are verified ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Behavioural tests alone did not reveal the visual hierarchy, collision and polish failures seen in the reviewed screenshot |
+| D-191 | `T-211`'s Explore and Focus compositions are approved; implementation runs `T-212` → `T-213` → `T-214` → `T-215` and the committed sources in `docs/mockups/T-211/` are `T-215`'s reference, regenerated on demand ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The gate ADR 0006 clause 2 opened is closed. It settles three things for the implementation: the Map is a viewport workspace whose document does not scroll; Focus is a Directional Orbit whose radius is `hops` and whose sides are relation direction; and below the orbit's minimum width the answer is fewer cards with counted omissions, never smaller text |
+| D-192 | `T-212` composes the Map as a viewport workspace: `Shell` gives `/map` a `var(--bar-height) 1fr` frame, the stage is the field rather than a band on a page, every control is a bounded floating surface, and `placeConstellation` refuses a card that would be drawn under one ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | D-153 asked for the graph to occupy the usable route viewport, and the measurement is what makes this a decision rather than a restyle: at 2852×1688 the focused document was 5795 px and is now 1688 px, the viewport itself, and the stage moved from 790 px down a document to 56 px down a workspace. Four things are settled by it. **The route names the composition, not the view**: `Shell` holds the workspace path, because how tall the bar is and whether the document scrolls are facts about the frame, and a child that reported them upwards would have to do it in an effect — one render of the Map in the document composition first, which on this route means a renderer created against the wrong box. **The chrome is measured, never stated as insets**: the composition mirrors under `dir="rtl"`, and an inset per edge is the defect D-191 carries forward — so the surfaces marked `data-map-chrome` are read back with `getBoundingClientRect` in the stage's own coordinates and handed to the policy as rectangles, which is the same overlap test the crowding clause already ran. A card refused for one is `no_room`: the mark *is* on the stage, so `off_stage` would send a reader panning a camera that is not the problem. **The drawer's width comes out of the field only at SPEC §5's `full` tier**, because subtracting 560 px from a 1280 px viewport leaves a field too narrow to place the 416 px primary card beside its own centred mark — 452 px needed on one side, 344 available on either — and the card D-132 guarantees then hangs over the edge; the browser gate measured exactly that, at 5 px. **Below 48rem the route keeps its document composition**, which is a scope boundary rather than a compromise: SPEC §5's third tier is the orbit's narrowest and belongs to `T-213`. The four departures from the approved `SPEC.md` are recorded in its §13, the largest being that the camera's controls share the inline-end rail with the drawer instead of being painted over by it — a *Focus Not Obscured* failure in the approved capture itself |
+| D-193 | `T-213` makes Focus a Directional Orbit: `placeOrbit` replaces `placeConstellation` in the one module that answers "where may a card go", the composition reads no camera, direction is taken from the **focus's** end of each relation, and a mark further out is drawn from the card it is actually joined to ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | ADR 0006 clause 3 asked for it and the browser is what makes it a decision rather than a restyle: at 2852×1688 it places 7 of the 8 neighbours returned and counts 1, against 4 and 4, with zero clipped cards, zero card/card overlaps, zero cards or pills under a floating control and zero pills without a clear seat. The camera stops being an input to placement, so the per-frame subscription, the settle timer and the two refusal reasons that were facts about a camera (`not_loaded`, `off_stage`) all go, and `unanchored` replaces them. `projectNeighbourhood` records `parentId`/`toParent` deterministically, so a hop-2 edge leaves the card it is joined to rather than a phantom point on a ring. The five departures from the approved `SPEC.md` are in its §14 |
+| D-194 | `T-214` puts the editorial visual system on the composition and closes the last clause of ADR 0006 clause 5 that was still open: a node the orbit has carded loses its canvas label, and an edge whose both endpoints are carded loses its relation label ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Until now the focused node's label and up to four neighbour labels were drawn underneath the very cards carrying the same statements, in less text and without the cut marked. `MapViewState.cardedNodes` is a set of ids rather than a flag, so a neighbour the orbit only *counted* keeps its label and is still named. Kind hue becomes a stated cue — an 8 px `KIND_FAMILY_COLOUR` swatch beside the record's own kind token, never a card fill — and the focused card is the centre by four means at once while its rail stays provenance's. The clauses are asserted as stylesheet rules, including that nothing keys a size, an opacity or a colour to a `confidence`, which is ADR 0006's rejected fourth alternative checked rather than remembered |
+| D-195 | `T-215`'s real-browser visual gate asserts the geometry, accounting, direction and workspace clauses per scenario and leaves the acceptance of the pictures to the user, so the task is `PARTIAL` rather than done ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The measurement moved into `browser/composition.ts`, so `measure_orbit.ts` and the gate are one implementation; sixteen scenarios hold the recorded numbers — 7 placed / 1 counted at 2852×1688 in dark, light and Persian, 2 / 6 at 1440×900 — with zero clipped, overlapping, chrome-covered or unseated marks and the document exactly the viewport. It walks the mockups' own entity when the library holds it, because a picture of another neighbourhood cannot answer whether this build reproduces these compositions. The one clause with no DOM node — a graph label under a card — stays where it is readable, in `labelPolicy` and its unit tests, and the gate holds the pill half; saying so is the point. The comparison then found three composition differences from the approved set, none of them a geometry violation, which is why the last word is a person's (`SPEC.md` §16) |
+| D-196 | The `T-215` captures are not accepted as they stand; the three composition differences become `T-216`, a fifth child of `T-210`, and the sizing model that causes the largest of them is decided there rather than assumed ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | Explore's marks are sized in graph units and Sigma scales them with the camera, so the quiet field of the approved composition is quiet at 1440 and not at 2852, and the label grid then has room for roughly forty labels where the reference has eight. The fix is one decision, not two: `itemSizesReference: "screen"` freezes size under zoom and thereby retires D-122's `labelRenderedSizeThreshold` rule, so the sizing model and the zoom rule move together. `T-216` also carries the `compact` tier's collapsed chips, a recorded judgement on the drawer Explore mounts with nothing focused, and the re-run — and it is judged by `T-215`'s own gate, whose orbit numbers are a regression surface rather than a side effect |
+| D-197 | A Map mark's size is screen pixels scaled by the field's width, and the camera is the only other thing that changes it; D-122's zoom rule is re-expressed rather than retired ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The decision D-196 left open, and neither half of it was what D-196 assumed. `scaleSize` divides by `zoomToSizeRatioFunction(ratio)` and then, only under `"positions"`, multiplies by the framing — so clamping the ratio function could never have removed the viewport dependence, because that function never sees the field; and `"screen"` does not freeze size under zoom, because the division happens in both modes. So `labelRenderedSizeThreshold` survives as a camera rule and is re-derived at **6**, which must sit below the smallest mark any field draws at rest or it would silence a circle while a diamond in the same cell spoke — `NODE_PROVENANCE_MARK`'s four radii make four shapes read as one weight, not as a ranking. The ration moves to Sigma's grid at 560 px, measured at ten labels over 86 marks at 2852×1688 and five at 1440×900. The viewport scale itself is `SPEC.md` §3's own sentence, true of the shipped renderer for the first time |
+| D-198 | Explore's edges are drawn at `MAP_QUIET_EDGE_OPACITY`, a third level between the dimmed and the active ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | §6's `--edge-faint` has no reader on a canvas (D-194), so the number lives in the one style table. Three levels rather than two, because "nothing is focused" and "something else is focused" are different sentences. The hue survives the quiet, so nothing ADR 0005 invariant 9 requires is traded for it, and the marks are deliberately left at full strength: quieting both would be a grey picture rather than a quiet one |
+| D-199 | At the `compact` tier the Map's floating surfaces are chips — the search rail closed to its trigger, the filters and the account folded to theirs ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The three surfaces the comparison named. The route decides the rail's preference now, because SPEC §5 gives that tier a search closed to its trigger and only the route measures the field — and an unmeasured field counts as wide, or D-130's opening step would be behind a click on every first paint. Disclosures rather than bounded scrollers, because a folded panel here states what it holds. D-129 is intact and checkable: the account precedes the stage, its counts are attributes on the section a fold never hides, and it opens itself whenever the picture is not being drawn. It moved no card |
+| D-200 | Explore mounts no drawer; Quick Read and the related list appear with a focus and not before ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The judgement D-196 asked to be recorded either way. ADR 0006 clause 4 opens the drawer *on demand*, SPEC §2 gives Explore four surfaces and none is a drawer, and the sentence the panels were kept for is already said by `MapSearchRail`'s focus row — on the one surface SPEC §2 does give Explore, and the step D-130's journey is on while nothing is selected. The share D-201 measures settled it: two collapsed panels are 4.5 % of an 844 px field against 10.3 % for the whole approved composition |
+| D-201 | The browser gate bounds the share of the field floating chrome may cover, per tier, measured over both capture sets by one implementation — and at `compact` that bound is a ratchet rather than the reference's share ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The failure it catches is four honest surfaces adding up rather than one oversized panel, which is what the comparison found and what no per-surface rule reports. `coveredShare` takes the union of the rectangles clipped to the field, and `capture_mockups.ts` calls it over the mockups' own surfaces, so the bound is read off the reference by the instrument that measures the build. `full` and `stack` are asserted at that measurement; `compact` is not, because the chrome's rectangles are what the orbit refuses cards against — bounding those surfaces to 14.4 % placed three cards at 1440×900 where D-193 recorded two. The gap is a finding in `SPEC.md` §17 and the trade is stated: the reference's 10.3 % costs the recorded 2 / 6 |
+
+| D-202 | The `T-216` captures are accepted: `T-215`, `T-216` and `T-210` close, R21 closes, and Phase 3 is unblocked — and the `compact` tier's chrome bound is accepted as a ratchet rather than as the reference's own share ([ADR 0006](adr/0006-map-visual-quality.md)) | accepted | The decision the whole of Phase 2.1 existed to make possible, made the way ADR 0006 clause 5 says it must be: by a person looking at two sets of pictures. D-196 was the same clause exercised in the other direction, which is what makes this one worth recording — the gate was green both times and only one of the two answers was yes. What is accepted is the composition **and** the four differences `SPEC.md` §17 records as remaining. The first of them was a trade rather than an explanation and was taken deliberately: the chrome's rectangles are what the orbit refuses cards against, so bringing the `compact` share down to the reference's 10.3 % was measured to place three cards at 1440×900 where D-193 recorded two. The recorded numbers stand and the bound is a ratchet, so a later task may still take that trade — what it may not do is take it silently |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
@@ -1379,16 +1426,22 @@ An agent must not guess the answers to these if the decision would cause a notic
   the canvas could not reach (D-145–D-149)
 - [x] **Phase 2 complete** — every clause of the Phase 2 gate in `docs/PROJECT_MANAGEMENT.md`
   §5 is met, and met in a browser
-- [ ] **Phase 2.1 / T-210 — Map Visual Quality Pass** — approved corrective epic; preserves
-  Phase 2 functionality while replacing the weak shared composition with distinct Explore
-  and Focus presentations (D-150–D-154; [ADR 0006](adr/0006-map-visual-quality.md))
-- [ ] **T-211 — next and only claimable task:** high-fidelity Explore and Focus mockups at the
-  review viewport, followed by explicit user approval before production UI work
-- [ ] `T-212` viewport workspace shell — blocked by approval of `T-211`
-- [ ] `T-213` Directional Orbit Focus composition — blocked by `T-212`
-- [ ] `T-214` editorial visual system — blocked by `T-213`
-- [ ] `T-215` real-browser visual-quality gate — blocked by `T-212`–`T-214`
-- [ ] Canvas — Phase 3, blocked by completion of `T-210`
+- [x] **Phase 2.1 / T-210 — Map Visual Quality Pass** — the corrective epic, complete: Phase 2's
+  functionality preserved while the weak shared composition was replaced by distinct Explore
+  and Focus presentations, and the captures accepted on 2026-09-03 (D-150–D-154, D-191–D-202;
+  [ADR 0006](adr/0006-map-visual-quality.md))
+- [x] `T-211` high-fidelity Explore and Focus mockups at the review viewport, approved before
+  any production UI work (D-191)
+- [x] `T-212` viewport workspace shell (D-192)
+- [x] `T-213` Directional Orbit Focus composition (D-193)
+- [x] `T-214` editorial visual system (D-194)
+- [x] `T-215` real-browser visual-quality gate — sixteen scenarios, green, and its captures
+  refused (D-195, D-196), which is the gate working rather than failing
+- [x] `T-216` the six remediations that refusal produced: a mark sized by its field rather than
+  by the camera, a re-derived label ration, a quiet Explore field, chips at the `compact` tier,
+  no drawer in Explore, and a per-tier chrome-share bound (D-197–D-201)
+- [ ] **Canvas — Phase 3 / `T-301`: next and only claimable task**, unblocked by `T-210`'s
+  completion (D-202)
 - [ ] Pen annotations
 - [ ] Adapters for future sources
 
@@ -1396,29 +1449,30 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**Claim only `T-211`.** Phase 2 remains complete as a functional milestone, but Phase 3 is
-blocked by the approved `T-210` visual-quality epic. Production implementation must not begin
-until the user approves two screenshot-level compositions.
+**Claim only `T-301`.** Phase 2.1 closed on 2026-09-03: the user accepted the browser captures
+against the approved compositions (D-202), so `T-211`–`T-216` all pass, `T-210` is done and
+Phase 3 is unblocked. `T-301` is the Canvas epic in §16 Phase 3 — board CRUD, entities added
+from the Library, the Reader and the Map, the core custom nodes, user relations, frames,
+autosave, undo/redo, and portable persistence under `workspace/boards/`.
 
-The `T-211` session must:
+The `T-301` session must:
 
-1. Read §7.2, §16 Phase 2.1, [ADR 0006](adr/0006-map-visual-quality.md) and the detailed task
-   row in `PROJECT_MANAGEMENT.md` §5.
-2. Capture the current UI at **2852×1688** as the comparison baseline and use realistic
-   long-form knowledge in both English and Persian.
-3. Produce a high-fidelity **Explore** screenshot: full usable viewport, quiet graph, compact
-   toolbar, semantic label reveal and a Search drawer that does not push the graph down.
-4. Produce a high-fidelity **Focus / Directional Orbit** screenshot: selected Knowledge Card
-   at the centre, incoming left, outgoing right, hop rings, ports, horizontal relation pills,
-   de-emphasised background topology and a bounded Quick Read drawer.
-5. State dark/light, narrow-screen, keyboard-focus and reduced-motion behaviour, and annotate
-   how each reference influenced the result without copying its domain semantics.
-6. Present both screenshots to the user and stop for explicit approval. Do not edit production
-   Map code as part of `T-211`.
-
-After approval only, execute serially: `T-212` workspace shell → `T-213` Directional Orbit →
-`T-214` visual system → `T-215` browser visual gate. All reuse boundaries from Phase 2 remain
-binding, especially one graph store, identity, URL grammar, formatter and renderer lifecycle.
+1. Read §14 (the board model), §15's **reserved and unimplemented** board endpoints, §16
+   Phase 3's four acceptance criteria, and the task row and integration boundaries in
+   `PROJECT_MANAGEMENT.md` §5 and §8.6.
+2. Decide where a board *lives* before deciding what it looks like. D-027 freezes the v1 HTTP
+   surface at eleven `GET` endpoints, so a board is local state under `workspace/boards/` and
+   not a new endpoint. Nothing may write, move or reinterpret a file under `output/`.
+3. Keep a user relation distinguishable from a canonical one at every surface that draws both
+   — the Map already encodes vocabulary and provenance without relying on colour, and a board
+   that blurs the two would undo it.
+4. Make a partially corrupt board openable. §16's second criterion is about one bad node not
+   costing a whole board, which is a loading policy rather than a rendering detail.
+5. Leave the Map alone. `T-210` left an approved reference set, sixteen browser scenarios
+   holding recorded numbers, a per-tier chrome-share bound and four measured differences in
+   `docs/mockups/T-211/SPEC.md` §17. The Canvas is a new surface and does not touch them; a
+   task that reaches back into the Map's style table, label policy, stylesheet or route owes a
+   re-run of `visual.spec.ts` and a sentence about what moved.
 
 ## 24. Research references
 

@@ -55,6 +55,7 @@ export function MapSearchRail({
   onFocus,
   peek,
   sourceScope = null,
+  preferOpen,
 }: {
   /** The accumulated snapshot. `null` before the first page arrives. */
   graph: MapGraph | null;
@@ -68,6 +69,18 @@ export function MapSearchRail({
   peek: MapPeekBinding;
   /** The Map's source scope, so the indexed search asks the same question the graph does. */
   sourceScope?: string | null;
+  /**
+   * Whether the journey wants this rail open right now (`T-216`).
+   *
+   * The rail used to decide this itself, as `focus === null`: searching is the
+   * step D-130's journey is on while nothing is selected, so with nothing
+   * selected the rail opened. That is still the rule, and it is still a
+   * preference the reader may overrule -- what the rail cannot know is whether
+   * the *field* has room for it. SPEC §5 gives the `compact` tier a search
+   * "closed to its trigger", and only the route measures the field, so the
+   * route is where the two halves of the question are answered together.
+   */
+  preferOpen: boolean;
 }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState("");
@@ -91,9 +104,12 @@ export function MapSearchRail({
           : t("map.search.matched", { count: search.loaded.matched })
       }
       // Searching is the step D-130's journey is on while nothing is
-      // selected; once something is, Quick Read and the related list are.
-      // A preference, not a lock -- the reader may reopen it.
-      preferOpen={focus === null}
+      // selected; once something is, Quick Read and the related list are --
+      // and below the `full` tier the field has no room for an open rail
+      // either way (`T-216`). The route decides, because the route is what
+      // measures the field. A preference, not a lock: the reader may reopen
+      // it.
+      preferOpen={preferOpen}
       // Escape dismisses the Peek for the keyboard path, where there is no
       // "leave" event to end it.
       onKeyDown={(event) => {

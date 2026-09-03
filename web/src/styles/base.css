@@ -87,6 +87,62 @@ a {
   inline-size: 100%;
 }
 
+/* Workspace frame (T-212, D-153) --------------------------------------- */
+
+/*
+ * A route whose content is a workspace rather than a document.
+ *
+ * `Shell` names those routes; this is what the name does. Two rows -- the bar
+ * and everything else -- and no overflow of its own, so the graph occupies the
+ * usable route viewport instead of a 1248 px column beginning 790 px down a
+ * 5795 px document, which is what `T-211` measured and what this replaces.
+ *
+ * `min-block-size: 0` on a grid child is what lets the second row be smaller
+ * than its content; without it the row grows to fit the tallest thing in it
+ * and the workspace scrolls after all.
+ */
+.shell--workspace {
+  display: grid;
+  grid-template-rows: var(--bar-height) 1fr;
+  block-size: 100dvh;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+/*
+ * The bar's own padding no longer decides its height: the grid row does. Its
+ * inline padding stays, because that is spacing rather than size.
+ *
+ * `position: static` because there is nothing left to stick to -- the
+ * document does not scroll on this route, and a sticky element with no
+ * scroller is a stacking context for no reason.
+ */
+.shell--workspace .shell__bar {
+  padding-block: 0;
+  position: static;
+}
+
+.shell--workspace .shell__main {
+  padding: 0;
+  max-inline-size: none;
+  margin-inline: 0;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+/*
+ * SPEC §2 states this as `html, body { overflow: hidden }`. It is scoped to
+ * the route it is about rather than written globally, because three routes
+ * share this document and the other two *are* documents: the Library and the
+ * Reader must scroll. The clause itself is unchanged -- on the Map the
+ * document does not scroll -- and this is the only way to say it in one
+ * stylesheet serving all three.
+ */
+html:has(.shell--workspace),
+html:has(.shell--workspace) body {
+  overflow: hidden;
+}
+
 /* Generic atoms -------------------------------------------------------- */
 
 .stack {
@@ -219,6 +275,28 @@ input {
 
 .badge__glyph {
   font-family: var(--font-mono);
+}
+
+/*
+ * The kind's family hue, as a small cue beside the word (T-214, SPEC §6).
+ *
+ * Eight pixels, and never the card's fill: hue is the *second* signal here and
+ * the record's own vocabulary is the first. A card tinted by kind would read
+ * as a category with a status, and the only classification this project
+ * colours a whole surface with is provenance.
+ *
+ * The colour is written inline by `KindBadge` from `KIND_FAMILY_COLOUR`, which
+ * is the same table the legend explains and the mark on the stage is drawn
+ * with, so a reader can carry one to the other. The ring keeps a light hue
+ * legible on `--bg-raised` and a dark one on the dark field.
+ */
+.badge__swatch {
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+  align-self: center;
+  box-shadow: 0 0 0 1px var(--border-strong);
 }
 
 .provenance {
@@ -485,23 +563,86 @@ input {
   border-radius: var(--radius-md);
 }
 
-/* Map (T-204) ---------------------------------------------------------- */
+/* Map (T-204, recomposed as a workspace by T-212) ---------------------- */
 
 /*
- * The renderer needs a container with a real size. Sigma is created with
- * `allowInvalidContainer: false`, so a stage with no block size is a stated
- * refusal rather than a blank canvas nobody can explain -- which means the
- * size lives here, in one place, and `MapView`'s ResizeObserver hands every
- * change of it to the renderer.
+ * The field.
+ *
+ * The route's whole box, and the positioning context every floating surface
+ * below is placed against. It carries the *ground* rather than leaving it to
+ * the stage, so the field reads as continuous underneath the chrome and the
+ * drawer while the renderer's own container stops at the field's edge.
+ *
+ * `--bg` and not `--bg-sunken`: `mapStyle` calibrated every mark and edge
+ * colour against `#fbfaf8` and `#17161a`, which are this token's two values,
+ * so a sunken ground would put the marks on a background nothing was checked
+ * against.
+ */
+.map {
+  position: relative;
+  block-size: 100%;
+  overflow: hidden;
+  background: var(--bg);
+
+  /*
+   * The one primary drawer's width (SPEC §4), and how much of the field's
+   * inline end it takes.
+   *
+   * `--field-end` is the number that makes the WCAG 2.2 AA *Focus Not
+   * Obscured* clause structural rather than a check: the renderer's container,
+   * the counts, the zoom controls and the centred notices are all placed
+   * against a field that has already had the drawer subtracted, so there is no
+   * position at which any of them can be underneath it. The mockup found this
+   * defect the other way round -- a drawer over the focused card -- and it
+   * found it in Persian, where the drawer changes side.
+   */
+  --drawer-inline: 560px;
+  --field-end: 0px;
+  /* The rail's width while the drawer is closed to its trigger (SPEC §5). */
+  --rail-inline: 22rem;
+}
+
+/*
+ * A focus is what opens the drawer, so a focus is what shrinks the field --
+ * but only at the width SPEC §5 gives the open drawer.
+ *
+ * Written as a class on the field rather than as a rule per surface, because
+ * the drawer's width is one fact and five surfaces have to agree about it.
+ *
+ * The breakpoint is 2000 px, which is SPEC §5's boundary between the `full`
+ * tier and `compact`, where the drawer is "closed to its trigger". The browser
+ * gate measured why that boundary is arithmetic rather than taste: subtracting
+ * 560 px plus its margins from a 1280 px viewport leaves a 688 px field, the
+ * camera frames a focus at the middle of it, and the primary card is 416 px
+ * wide and grows *sideways* from its own mark -- so it needs 452 px of clear
+ * field on one side and has 344 px on either. No orientation fits, the card
+ * D-132 guarantees falls back to its preferred direction, and it hangs 5 px
+ * over the field's edge. Below the `full` tier the drawer therefore floats
+ * over the field instead of taking a slice out of it, and the chrome-avoiding
+ * clause in `placeConstellation` is what keeps the card out from under it.
+ */
+@media (min-width: 125rem) {
+  .map--focused {
+    --rail-inline: var(--drawer-inline);
+    --field-end: calc(var(--drawer-inline) + var(--space-4) * 2);
+  }
+}
+
+/*
+ * The renderer's container. Sigma is created with
+ * `allowInvalidContainer: false`, so a stage with no size is a stated refusal
+ * rather than a blank canvas nobody can explain -- which is why the size lives
+ * here, in one place, and `MapView`'s ResizeObserver hands every change of it
+ * to the renderer. In the workspace that size is the field less whatever the
+ * drawer has taken, so opening the drawer *is* a resize the renderer is told
+ * about, and the camera re-centres the picture in what remains.
+ *
+ * No border and no radius any more: this is not a panel on a page, it is the
+ * field. The ground is the field's.
  */
 .map__stage {
-  position: relative;
-  inline-size: 100%;
-  block-size: min(70vh, 640px);
-  min-block-size: 320px;
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-sunken);
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   /* The renderer owns pan and zoom inside the stage; the browser must not
      also scroll the page from a gesture that started on the graph. */
@@ -512,6 +653,260 @@ input {
   margin-block: 0;
 }
 
+/* Map workspace surfaces (T-212, D-153) -------------------------------- */
+
+/*
+ * A floating control surface.
+ *
+ * Bounded on both axes, and that is the load-bearing part: a float is a
+ * surface *over* the field, never a panel that grows until it is the field.
+ * Its own content scrolls, and `overscroll-behavior: contain` keeps that
+ * scroll from reaching a document that must not scroll at all.
+ */
+.map__float {
+  position: absolute;
+  z-index: 3;
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--bg-raised) 92%, transparent);
+  backdrop-filter: blur(12px);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--float-shadow);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/*
+ * Search, top start (SPEC §2). 420 px, and the block bound is a stated share
+ * of the field rather than its whole height: the legend is at the same inline
+ * side, at the other end, and two surfaces on one rail that can each grow to
+ * the full height are two surfaces that meet in the middle.
+ */
+.map__float--search {
+  inset-block-start: var(--space-4);
+  inset-inline-start: var(--space-4);
+  inline-size: 420px;
+  max-block-size: 62%;
+}
+
+/*
+ * Counts and filters, top end -- of whatever the inline-end rail leaves, so
+ * this moves inline-start rather than going underneath the drawer.
+ *
+ * Measured against the *rail* and not against `--field-end`, and the browser
+ * is what taught the difference: below the `full` tier the drawer floats over
+ * the field instead of taking a slice out of it, so `--field-end` is `0` and
+ * this surface landed at exactly the rail's own inline start -- 352 px wide
+ * at 1072 px, with a 352 px drawer at 1072 px. The counts and the drawer were
+ * one rectangle. `--rail-inline` is the fact both tiers share.
+ */
+.map__float--status {
+  inset-block-start: var(--space-4);
+  inset-inline-end: calc(var(--rail-inline) + var(--space-4) * 2);
+  inline-size: 22rem;
+  max-block-size: 62%;
+}
+
+/* The legend, bottom start. The quietest surface on the field. */
+.map__float--legend {
+  inset-block-end: var(--space-4);
+  inset-inline-start: var(--space-4);
+  max-inline-size: 460px;
+  max-block-size: 34%;
+}
+
+/*
+ * The inline-end rail: the one primary drawer, and the camera's controls
+ * under it.
+ *
+ * They share a rail rather than each owning a corner because the drawer is
+ * the only surface whose height depends on what a reader asked for, and the
+ * zoom controls are the only surface that must stay reachable whatever it
+ * does. In the approved Focus capture the drawer is full height at the inline
+ * end and the zoom float is at the bottom end underneath it, so the drawer
+ * paints over the camera controls: a reader who opens Quick Read cannot zoom
+ * the graph they are reading about. That is the same *Focus Not Obscured*
+ * failure SPEC §8 cites, one surface over. A flex column with the controls
+ * last spends about 60 px of the drawer's height and costs the reader nothing.
+ *
+ * `pointer-events: none` on the rail and `auto` on its children: the rail
+ * spans the field's whole height, and the gap above a closed drawer is field
+ * a click must reach.
+ */
+.map__endrail {
+  position: absolute;
+  z-index: 5;
+  inset-block: var(--space-4);
+  inset-inline-end: var(--space-4);
+  inline-size: var(--rail-inline);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.map__endrail > * {
+  pointer-events: auto;
+}
+
+/*
+ * The one primary drawer (ADR 0006 clause 4).
+ *
+ * Closed it is its own trigger -- two collapsed panels stating what they hold
+ * -- and it takes only the height that needs. Focused it fills the rail, and
+ * `min-block-size: 0` is what allows that: without it a flex child refuses to
+ * be shorter than its content and the rail grows past the field.
+ */
+.map__drawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 0 1 auto;
+  min-block-size: 0;
+  padding: var(--space-4);
+  background: var(--bg-raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--float-shadow);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.map--focused .map__drawer {
+  flex: 1 1 auto;
+}
+
+/*
+ * The `compact` tier's floating panels give the field back (SPEC §2, `T-213`).
+ *
+ * SPEC §2 gives Explore and Focus *different* chrome: Explore has the search
+ * rail, the counts and the legend; Focus has a focus bar, the camera's
+ * controls, an omission note and the one drawer. `T-212` kept all of it in
+ * both states, and at the `compact` tier `measure_orbit.ts` priced that: at
+ * 1440x900 the counts surface is 352x483 -- 57 % of the field's height --
+ * standing exactly where the outgoing side of the orbit is drawn. The centre
+ * card slid 192 px down the field to get out from under it, which collapsed
+ * the band it is the middle of, and one card was placed out of eight.
+ *
+ * Bounded rather than removed, which is the difference that matters: the
+ * panel keeps its heading, its counts and its own scroll, so every number
+ * D-129 requires before the picture is still there and still reachable
+ * without a pointer. It is a quarter of the field instead of well over half.
+ * The search rail already collapses to its summary when something is focused
+ * (`preferOpen={focus === null}`), so this bounds the surface it shares with
+ * the outline rather than the rail itself.
+ *
+ * Only while focused: with nothing selected there is no composition to make
+ * room for, and Explore's own chrome is the surface SPEC §2 gives it. At the
+ * `full` tier the same rule earns its place for the same reason one boundary
+ * up -- the counts surface sits at the field's own inline end, which is where
+ * the outgoing side of the orbit is drawn, and at 2852x1688 it reached 1012 px
+ * down a 1632 px field.
+ */
+.map--focused .map__float--status,
+.map--focused .map__float--search {
+  max-block-size: 26%;
+}
+
+/*
+ * The `compact` tier's drawer is closed to its trigger (SPEC §5, `T-213`).
+ *
+ * Not a style preference: a measurement. Below the `full` tier the drawer
+ * floats *over* the field instead of taking a slice out of it, so a drawer
+ * that fills the rail is a 352 px column of the field, its whole height,
+ * standing exactly where the outgoing side of the orbit is drawn -- and
+ * `placeOrbit` correctly refused every card there and counted it. At 1440x900
+ * that left one card placed and seven counted, which is the number `T-212`
+ * left to beat rather than a number to match.
+ *
+ * Bounded rather than collapsed, because the panel is still the reading
+ * surface: it keeps its heading, its content and its own scroll, and gives
+ * the upper two thirds of the rail back to the field. Above the `full`
+ * boundary the rule above stands and the drawer fills the rail, because there
+ * the field does not include it at all.
+ */
+@media (max-width: 124.99rem) {
+  .map--focused .map__drawer {
+    flex: 0 1 auto;
+    max-block-size: 38%;
+  }
+}
+
+/* The camera's controls, at the field's bottom end and never under anything. */
+.map__zoom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+/*
+ * A panel inside a float or the drawer keeps its heading, its count and its
+ * disclosure, and loses its own surface: the float is the surface. Two
+ * panels in one float read as a list of panels, which is what SPEC §7 calls
+ * the search drawer's panel list, so the second one gets a rule above it
+ * rather than a second border all round.
+ */
+.map__float > .panel,
+.map__drawer > .panel {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+.map__float > .panel ~ .panel,
+.map__drawer > .panel ~ .panel {
+  padding-block-start: var(--space-3);
+  border-block-start: var(--border-width) solid var(--border);
+}
+
+/*
+ * The honest states, centred on the field (`T-211`'s states sheet).
+ *
+ * `mapState.ts` decides *what* is said and this decides only where: a state
+ * is a notice inside the workspace rather than a line that pushes the stage
+ * down the document. Centred in the field, so the drawer never covers the
+ * sentence explaining why there is nothing to read.
+ */
+.map__notices {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inset-inline-end: var(--field-end);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  pointer-events: none;
+}
+
+.map__notices > * {
+  pointer-events: auto;
+  max-inline-size: 62ch;
+}
+
+/*
+ * The one transient Peek, at the field's block end between the legend and the
+ * controls. Centred with `margin-inline: auto` inside a zero-inset box rather
+ * than with a translate, because a translate is physical and this composition
+ * mirrors.
+ */
+.map__peek {
+  position: absolute;
+  z-index: 4;
+  inset-block-end: var(--space-4);
+  inset-inline-start: 0;
+  inset-inline-end: var(--field-end);
+  margin-inline: auto;
+  max-inline-size: 26rem;
+  box-shadow: var(--float-shadow);
+}
+
 /* Map (T-207) ---------------------------------------------------------- */
 
 /*
@@ -520,15 +915,25 @@ input {
  * container: a subtree inside it would be removed from under React the first
  * time a filter replaced the renderer.
  */
+/*
+ * `T-212`: the pair is the field less the drawer, absolutely placed, so both
+ * the renderer's container and the overlay anchored to it are measured in the
+ * same box -- and that box is what `MapView` hands to `placeConstellation`.
+ */
 .map__canvas {
-  position: relative;
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inset-inline-end: var(--field-end);
 }
 
 /*
- * D-132's bounded overlay. It is presentation over the marks: it takes no
- * pointer events, so a click reaches the node underneath and selection stays
- * one identity, and it holds no focusable element, because every card here is
- * a second view of a row in the related list.
+ * D-132's bounded overlay, now carrying the Directional Orbit (T-213).
+ *
+ * It is presentation over the marks: it takes no pointer events, so a click
+ * reaches the node underneath and selection stays one identity, and it holds
+ * no focusable element, because every card here is a second view of a row in
+ * the related list.
  */
 .map__overlay {
   position: absolute;
@@ -538,33 +943,227 @@ input {
 }
 
 /*
- * A card is placed in *physical* pixels, which is the one place in this
- * stylesheet that is deliberate rather than a lapse from the logical
- * properties D-012 requires: `left`/`top` come out of the renderer's viewport,
- * and a logical inset would mirror a card away from its own mark as soon as
- * the interface language became Persian. The card's contents are still laid
- * out logically.
+ * The scrim (ADR 0006: "fade unrelated topology without representing it as
+ * absent").
+ *
+ * One translucent layer over the whole canvas rather than a style rule that
+ * decides per node what the reader may still see: the graph keeps every mark
+ * it had, every one of them stays clickable through the overlay, and what
+ * changes is only how far the picture recedes behind the diagram drawn on it.
+ */
+.map__orbit-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--orbit-scrim);
+}
+
+/*
+ * The orbit's lines.
+ *
+ * The coordinates *inside* this element are physical, and deliberately so:
+ * `placeOrbit` has already mirrored the composition -- it takes `rtl` and
+ * swaps the sides itself -- so a logical coordinate here would mirror an
+ * already-mirrored one, which is the defect D-191 carries forward from the
+ * mockups. The element's own corner is a zero inset, where physical and
+ * logical are the same number, so it is written logically like everything
+ * else and the `viewBox` inside it does the rest. Cards and pills carry their
+ * physical `left`/`top` in the style attribute `MapOrbit` writes, which is
+ * where the exception actually lives.
+ */
+.map__orbit-lines {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  overflow: visible;
+}
+
+.map__orbit-ring {
+  stroke: var(--orbit-ring);
+  stroke-width: 1;
+  stroke-dasharray: 2 10;
+}
+
+.map__orbit-edge path {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  opacity: 0.85;
+}
+
+/* A mark further out carries a lighter line, by design (SPEC §4). */
+.map__orbit-edge--far path {
+  stroke-width: 1.2;
+  opacity: 0.5;
+}
+
+/* Visible ports: an edge lands *on* a card rather than near it. */
+.map__orbit-port {
+  r: 4;
+  fill: var(--bg);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.map__orbit-edge--far .map__orbit-port {
+  r: 3;
+  opacity: 0.6;
+}
+
+/* A lifted pill keeps a dashed leader back to its own edge. */
+.map__orbit-leader {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+/*
+ * The ring's label, at its foot on the vertical axis. At the top it shared a
+ * line with the side labels and the two ran through each other.
+ */
+.map__orbit-ringlabel {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  white-space: nowrap;
+}
+
+/* Which side is which, in words: a bare arrow states position, not direction. */
+.map__orbit-side {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+/*
+ * A card is placed at the rectangle `placeOrbit` reserved for it, written onto
+ * the element so the drawn card and the reserved box are the same rectangle.
+ * Physical `left`/`top` for the reason the lines above give.
  */
 .map__card {
   position: absolute;
-  inline-size: min(20rem, 60%);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+  box-shadow: var(--card-shadow);
   font-size: var(--text-sm);
 }
 
 /*
  * Deliberately no `max-block-size` and no `overflow` on the card itself. Its
  * text is already bounded by `MAP_STAGE_NEIGHBOUR_CHARS` /
- * `MAP_STAGE_PRIMARY_CHARS` and the cut is *visible* — a clipped card would
- * hide that marker, which is the one kind of silent truncation D-131 forbids.
- * The overlay clips at the stage edge, and `MAP_STAGE_CARD_INSET` plus the
- * align/above flip are what keep a card pointing back into the stage.
+ * `MAP_STAGE_PRIMARY_CHARS` / `MAP_STAGE_CHIP_CHARS` and the cut is *visible*
+ * — a clipped card would hide that marker, which is the one kind of silent
+ * truncation D-131 forbids. The reserved height is an upper bound over what
+ * the browser lays out, which is what keeps the two agreeing.
  */
 
+/*
+ * The focused card is the centre by four means at once (SPEC §6): size, a
+ * doubled border, an accent ring with a glow behind it, and — in light mode,
+ * where a glow reads as weaker — a tint in its own ground. Four, because any
+ * one of them alone is a cue a reader can miss: the size is lost on a reader
+ * who never sees the other cards, the border is lost in greyscale at a
+ * distance, the ring is lost against a light field, and the tint is lost on a
+ * dark one.
+ *
+ * The rail stays the *provenance* rail. The accent says "this is the one you
+ * asked for"; it never says where the statement came from, and the two must
+ * not be confused on the one card a reader is reading.
+ */
 .map__card--primary {
-  inline-size: min(26rem, 70%);
   border-width: calc(var(--border-width) * 2);
   border-inline-start-width: var(--rail-width);
+  outline: 1px solid var(--accent);
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--accent) 16%, transparent),
+    var(--card-shadow);
+}
+
+/*
+ * The tint is light-mode only, and the media query is the reason it is here
+ * rather than a token: on a dark field a 4 % accent wash over `--bg-raised` is
+ * invisible, and the glow above is what carries the same job. Stated as
+ * "light" rather than "not dark" so the default `color-scheme: light dark`
+ * still gets it.
+ */
+@media not (prefers-color-scheme: dark) {
+  .map__card--primary {
+    background: color-mix(in srgb, var(--accent) 4%, var(--bg-raised));
+  }
+}
+
+/*
+ * Three sizes of card, three sizes of type (SPEC §6's hierarchy).
+ *
+ * The focused statement is the one being read, a neighbour's is being judged,
+ * and a mark further out carries less by design — so the type follows the box
+ * rather than every card being one size in three rectangles. The scale is
+ * `tokens.css`'s and nothing new is introduced.
+ */
+.map__card--primary .statement,
+.map__card--primary > p {
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+}
+
+.map__card--chip {
+  font-size: var(--text-xs);
+  padding: var(--space-2);
+  gap: var(--space-1);
+}
+
+/*
+ * A relation's pill: horizontal, always, and never rotated onto a path.
+ *
+ * Its box is `ORBIT_PILL_BOX` and it is written on as an exact size rather
+ * than a maximum, because the seat `placeOrbit` found for it is that
+ * rectangle: a pill that outgrew its reservation would be a label over a card,
+ * which is the clause the visual gate checks. The relation name inside is cut
+ * by `MAP_EDGE_LABEL_CHARS` with the cut visible, so it can neither overflow
+ * nor shorten a name in silence.
+ */
+.map__pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: var(--space-2);
+  background: var(--bg-raised);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--float-shadow);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.map__pill--far {
+  opacity: 0.85;
+  border-color: var(--border);
+}
+
+.map__pill-body {
+  gap: var(--space-1);
+  align-items: baseline;
+  min-inline-size: 0;
+}
+
+.map__pill-name {
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.map__pill-near {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+}
+
+.map__pill-vocab {
+  color: var(--fg-faint);
 }
 
 .map__list {
@@ -632,19 +1231,118 @@ input {
  * what "a sheet without losing graph context" means here.
  */
 @media (max-width: 48rem) {
+  /*
+   * Below the orbit's minimum width the workspace goes back to being a
+   * document (T-212).
+   *
+   * Not a compromise -- a scope boundary. SPEC §5 specifies a *third*
+   * composition below 900 px: no orbit at all, the focus card and then every
+   * relation as a row with its own direction pill and hop badge, all twelve of
+   * them, none dropped. That composition is the orbit's narrowest tier and it
+   * belongs to `T-213`, which owns the orbit and every tier of it. What T-212
+   * must not do in the meantime is stack four floating surfaces and a 560 px
+   * drawer on top of one another at 390 px and call it a workspace: the
+   * document composition here is tested, its touch journey passes, and it
+   * stays until the task that replaces it arrives.
+   *
+   * Everything below undoes the workspace for this breakpoint only. The DOM is
+   * the same either way, which is the point of having composed it in CSS.
+   */
+  .shell--workspace {
+    display: flex;
+    block-size: auto;
+    min-block-size: 100%;
+    overflow: visible;
+  }
+
+  .shell--workspace .shell__bar {
+    padding-block: var(--space-3);
+    position: sticky;
+  }
+
+  .shell--workspace .shell__main {
+    padding: var(--space-5) var(--space-4);
+    overflow: visible;
+  }
+
+  html:has(.shell--workspace),
+  html:has(.shell--workspace) body {
+    overflow: visible;
+  }
+
+  .map {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    block-size: auto;
+    overflow: visible;
+    background: none;
+  }
+
+  .map__float,
+  .map__endrail,
+  .map__drawer,
+  .map__notices,
+  .map__peek {
+    position: static;
+    inset: auto;
+    inline-size: auto;
+    max-inline-size: none;
+    max-block-size: none;
+    margin-inline: 0;
+    padding: 0;
+    background: none;
+    backdrop-filter: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .map__notices,
+  .map__endrail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .map__float > .panel,
+  .map__drawer > .panel {
+    background: var(--bg-raised);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+  }
+
+  .map__float > .panel ~ .panel,
+  .map__drawer > .panel ~ .panel {
+    padding-block-start: var(--space-4);
+    border-block-start: var(--border-width) solid var(--border);
+  }
+
+  .map__canvas {
+    position: relative;
+    inset: auto;
+  }
+
   .map__stage {
+    position: relative;
     block-size: min(45vh, 360px);
     min-block-size: 240px;
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-sunken);
   }
 
-  /* A card anchored to a mark cannot be wider than the stage it points into. */
-  .map__card {
-    inline-size: min(16rem, 80%);
-  }
-
-  .map__card--primary {
-    inline-size: min(18rem, 90%);
-  }
+  /*
+   * No orbit rule here, and that is the `stack` tier rather than an omission:
+   * below `ORBIT_COMPACT_MIN_WIDTH` the field cannot hold a centre card with a
+   * card on each side, `placeOrbit` returns the `stack` tier, and `MapOrbit`
+   * draws nothing at all. What the reader gets instead is this document — the
+   * focused record, then every one of its relations as a row with its
+   * direction and its hop count, none of them dropped (SPEC §5).
+   */
 }
 
 /*

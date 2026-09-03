@@ -18,6 +18,7 @@
 
 import type { IndexedRelation, ProvenanceClass, RunStatus, Source } from "../api/contract";
 import { useI18n } from "../i18n";
+import { KIND_FAMILY_COLOUR, kindFamily } from "../map/mapStyle";
 import type { MessageKey } from "../i18n";
 import { DefinitionList, Missing, Mono } from "./primitives";
 
@@ -53,6 +54,47 @@ export function ProvenanceBadge({ provenance }: { provenance: ProvenanceClass })
         {PROVENANCE_GLYPH[provenance]}
       </span>
       <span>{t(PROVENANCE_LABEL[provenance])}</span>
+    </span>
+  );
+}
+
+/**
+ * A `kind`, with its family's hue as a small cue beside the word (`T-214`,
+ * SPEC §6).
+ *
+ * The opposite rule to the badges above, and it needs saying: **hue is never
+ * the cue here, it is a second one.** The kind is spelled out in the record's
+ * own vocabulary — `claim`, `canonical_concept`, `actionable_experiment` — and
+ * the swatch beside it is the colour that same entity's mark wears on the
+ * stage, so a reader can carry one to the other. Cropped, printed in greyscale
+ * or read by someone who cannot separate the twelve families, the word is
+ * still there and nothing has been lost.
+ *
+ * It is deliberately **not** a card fill. A card tinted by kind reads as a
+ * category with a status, and the only classification this project colours a
+ * whole surface with is provenance — which is a fact about where a statement
+ * came from, not about what sort of statement it is.
+ *
+ * The hue is `KIND_FAMILY_COLOUR`'s, which is Paul Tol's colourblind-safe
+ * qualitative set and is the same table `MapLegend` explains and `mapStyle`
+ * draws the mark with. One table, three readers.
+ *
+ * `null` is rendered as "not stated", never as a family: an absent `kind` is
+ * `unstated`, which has a hue of its own precisely so it is not silently
+ * folded into a real one.
+ */
+export function KindBadge({ kind }: { kind: string | null | undefined }) {
+  const { t } = useI18n();
+  const family = kindFamily(kind);
+  const stated = kind !== null && kind !== undefined && kind !== "";
+  return (
+    <span className="badge" data-kind={kind ?? ""} data-kind-family={family}>
+      <span
+        className="badge__swatch"
+        aria-hidden="true"
+        style={{ background: KIND_FAMILY_COLOUR[family] }}
+      />
+      {stated ? kind : <span className="missing">{t("common.notStated")}</span>}
     </span>
   );
 }

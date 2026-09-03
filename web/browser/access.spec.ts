@@ -28,14 +28,22 @@ test.describe("the keyboard, with no pointer at all", () => {
     await openDrawnMap(page);
 
     // Tab from the top of the document to the search box. Nothing is clicked,
-    // hovered or scrolled into view by hand: this is the reader's own path.
+    // hovered or scrolled into view by hand: this is the reader's own path --
+    // and since `T-216` that path includes *opening* the rail, because below
+    // the `full` tier SPEC §5 gives the search a trigger rather than an open
+    // panel and this spec's viewport is 1280x720 (D-199). So the walk presses
+    // Enter when it lands on the rail's own summary, which is exactly what a
+    // reader with no pointer does, and the claim is unchanged: the search box
+    // is reachable from the top of the document by keyboard alone.
     const order: string[] = [];
     let reachedSearch = false;
     for (let presses = 0; presses < 40 && !reachedSearch; presses += 1) {
       await page.keyboard.press("Tab");
       const active = await page.evaluate(() => {
         const element = document.activeElement as HTMLElement | null;
-        if (element === null) return { tag: "none", type: null as string | null, text: "" };
+        if (element === null) {
+          return { tag: "none", type: null as string | null, text: "", opens: null as string | null };
+        }
         return {
           tag: element.tagName.toLowerCase(),
           type: element.getAttribute("type"),
@@ -43,9 +51,21 @@ test.describe("the keyboard, with no pointer at all", () => {
             .replace(/\s+/gu, " ")
             .trim()
             .slice(0, 30),
+          // Which folded panel this control is the trigger of, if any.
+          opens:
+            element.tagName.toLowerCase() === "summary"
+              ? (element.closest("[data-map-panel]")?.getAttribute("data-map-panel") ?? null)
+              : null,
         };
       });
       order.push(`${active.tag}${active.type === null ? "" : `[${active.type}]`}`);
+      if (active.opens === "search") {
+        await page.keyboard.press("Enter");
+        await expect(page.locator('[data-map-panel="search"]')).toHaveAttribute(
+          "data-map-panel-open",
+          "true",
+        );
+      }
       reachedSearch = active.type === "search";
     }
     expect(reachedSearch, `never reached the search box; tabbed through ${order.join(" ")}`).toBe(

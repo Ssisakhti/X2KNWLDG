@@ -287,8 +287,8 @@ Two more modules, and neither of them touches the graph:
 
 | Path | Holds |
 |---|---|
-| `mapStyle.ts` | **The** style table — provenance/kind for nodes, vocabulary/provenance for edges, the four interaction states — plus `MapStyle`, the view state the reducers read |
-| `labelPolicy.ts` | D-122: display truncation, the density and zoom rule, and the Sigma settings that implement them |
+| `mapStyle.ts` | **The** style table — provenance/kind for nodes, vocabulary/provenance for edges, the four interaction states, and (`T-216`, D-197) the field's own scale, which is the only thing besides the camera that changes a mark's size — plus `MapStyle`, the view state and the field width the reducers read |
+| `labelPolicy.ts` | D-122: display truncation, the density and zoom rule, and the Sigma settings that implement them. The zoom rule was re-derived in `T-216` once a mark's size stopped depending on the framing (D-197) |
 
 `MapLegend` and `MapFilters` are in [`../components/`](../components/), and the
 legend reads the same tables the reducers draw from, so agreeing with the marks
@@ -393,14 +393,23 @@ which redraws with the positions untouched. `mapStyle.setView` returns whether
 anything actually changed, so a pointer moving inside the node it is already on
 costs nothing.
 
+`mapStyle.setField` is the second writer, and it returns the same answer for the
+same reason (`T-216`). A mark's size is a function of the field's width and of
+the camera, and of nothing else (D-197), so a resize really is a new picture --
+but a `ResizeObserver` fires on the height alone often enough that redrawing
+every mark for it would be a redraw per scrollbar. The width is kept beside the
+view state rather than in it: `MapViewState` is identity, and putting a
+measurement in it would let every reader of that interface, `labelPolicy`
+included, reach a number it has no business with.
+
 ## A selection asks two questions (`T-207`)
 
 | Path | Holds |
 |---|---|
 | `neighbourhood.ts` | One `/api/graph/neighborhood/{id}` response, projected: hops from the centre, each relation's own direction, and the complete related list in a deterministic order |
-| `constellation.ts` | D-132's stated density policy: which cards the stage may carry, and a **counted reason** for every neighbour it refuses |
+| `constellation.ts` | The Directional Orbit (`T-213`): where every card goes, and a **counted reason** for every neighbour that has none |
 | `useNeighbourhood.ts` | The two requests bound to a component — the entity and its neighbourhood, failing separately |
-| `../components/MapConstellation.tsx` | The overlay itself: presentation over the marks, and nothing else |
+| `../components/MapOrbit.tsx` | The overlay itself: presentation over the marks, and nothing else |
 | `../components/MapRelatedList.tsx` | The surface that cannot omit anything |
 | `../components/MapQuickRead.tsx` | The complete stored record, in D-131's order |
 | `../components/MapRelation.tsx` | The one place a connection is named |
@@ -453,59 +462,103 @@ the real graph's widest fan-out is eight. `VirtualList` exists and measures its
 rows; it is the Reader's tool, not this one's, and a scaffold guard fails if it
 appears here.
 
-### The density policy is five clauses, each of them counted
+### The Directional Orbit, and why it counts what it does not draw
 
-`placeConstellation` walks the related list in its own order and answers, for
-each entity: no mark on this Map (`not_loaded`), a mark outside the stage at
-this camera position (`off_stage`), a mark on the stage with no room for a
-card beside it in any of the four ways one can open (`no_room`), a card that
-would cover one already placed in every direction that does fit (`crowded`),
-or beyond the four-card budget (`budget`). The order is the order of the
-questions: no room at all is not the same answer as a neighbour already
-there, and crowding is checked *before* the budget, so the budget is spent on
-cards a reader can actually read.
+`placeOrbit` is the whole answer to "where may a card go" on this route
+(`T-213`, ADR 0006 clause 3, D-193). It replaced a policy that pinned cards to
+the marks ForceAtlas had already placed — that policy was honest and measured,
+and `T-211`'s review rejected the composition it produced: the focused card was
+not the visual centre, cards and labels and edges competed in one coordinate
+system, and the next useful entity could not be judged at a glance.
 
-`no_room` is `T-209`'s, and it came from looking at the running UI rather than
-from the gate: two cards hung 21 and 69 px out of the top of the stage with
-the first line of their statements behind the search rail. The overlay is a
-*sibling* of the renderer's container, so nothing clips a card that leaves the
-stage — and a statement whose first line is hidden is the one cut D-131
-forbids, since nothing on screen says it was cut.
+The composition is stated rather than emergent. The selected card sits at the
+centre of the field; a neighbour goes to the inline **start** when its relation
+runs into the focus and the inline **end** when it runs out of it; hop count is
+distance from the centre; each relation is drawn as a curve between two visible
+ports with a horizontal pill naming it. Nothing here reads the camera, so a pan
+or a zoom changes none of it — which is what "changing focus is stable" means,
+and it is asserted directly rather than through a canvas.
 
-The crowding clause used to be a 240 px grid cell, the same device Sigma's
-`labelDensity` uses for labels, and `T-209` measured what that cost on the real
-graph: it refused **7 of 8** neighbour cards that would have fitted *and*
-placed two that overlapped by two thirds of a card, because a grid answers
-"same cell?" when the question is "same pixels?" (D-145). It is now an overlap
-test over the card's measured footprint — 320×296 for a neighbour, 416×176 for
-the primary, which is what Chrome laid them out at, the height being the
-*tallest* card seen across eighteen focuses rather than the first one measured
-— and the rectangle it reserves is the card, its gap, **and the mark it points
-at**, because two cards
-opening in opposite directions from marks four pixels apart overlap nothing and
-still point into the same four pixels. Four orientations are tried in a stated
-order before a refusal, since a card prefers to open towards the middle of the
-stage and two marks either side of the middle would otherwise grow into each
-other.
+**Direction is the focus's, not the neighbour's.** `ActiveRelation.direction`
+is stated from the entity the relation is listed *under*, so `exemplifies`
+running `KU-000029 → KU-000028` is `outgoing` in KU-000029's own row and
+`incoming` to the focus. `fromNearEnd` inverts it once, and the side and the
+pill both read that one answer. Reading the field as-is put every card on the
+wrong half of the field, and the real graph is what showed it: five
+`exemplifies` edges pointing *at* one entity were drawn as though they left it.
 
-The card budget is four and the *forced* label budget is also four now, and the
-two remain deliberately separate numbers for different things: a label is a
-line of text beside a mark, a card is a block with a statement, a relation and
-a badge row. Twelve forced labels was the value `T-205` argued for, and the
-walk showed why it was wrong — ForceAtlas2 pulls a node's neighbours towards
-it, so a fan-out is the densest part of the picture and nine sentences landed
-in a cluster 250 px across.
+Four refusal reasons, each counted, and every one of them a fact about the
+composition rather than about a camera:
 
-None of this works at all unless the camera goes to the selection, which it did
-not until `T-209` (D-146): the camera framed the whole graph, a neighbourhood
-was about a tenth of the stage wide, and every neighbour card was refused for
-covering the focused one. `MapSession.frame` centres a new focus with its drawn
-neighbours; `MAP_FOCUS_MARGIN` is calibrated over 23 real focuses, and its
-table is in `mapSession.ts`.
+| Reason | What it means |
+|---|---|
+| `no_room` | No position the orbit allows leaves the card on the field and clear of the floating controls |
+| `crowded` | Every such position is already taken by a card placed before it |
+| `budget` | Beyond what this tier's composition places on that side, or beyond what the band holds |
+| `unanchored` | Further out than one hop with no card for the neighbour it hangs off, so no relation could be drawn without inventing one |
 
-Cards placed plus omissions counted equals the neighbours returned. That is
-tested, on fixtures and on the real fan-out, and it is the whole answer to
-"does a viewport budget become silent omission".
+`not_loaded` and `off_stage` are gone with the policy that produced them: the
+orbit never asks where a mark is, so a neighbour whose page the walk has not
+reached still has a direction and a hop count, and still gets a card. A reason
+no clause can produce is a sentence in the interface that can never be true.
+
+**Three compositions, not one scaled three ways** (SPEC §5). At `full`
+(≥ 2000 px) the whole orbit is drawn beside an open drawer; at `compact`
+(≥ 900 px) two cards a side and no marks beyond hop 1; below that there is no
+orbit at all and the route's own document carries the focused record and
+*every* one of its relations as a row, none dropped. `orbitMinimumWidth` is the
+arithmetic each tier's boxes have to satisfy at its own floor, and it is
+asserted: a tier that refuses every card it exists to place is honest and
+useless.
+
+**Two adjustments, and then a counted refusal.** A card blocked by another card
+is pushed *outward along its own arm*, which keeps its side and its band. A
+band that runs a card under floating chrome is **narrowed**, which is SPEC §4's
+own clamp — and the browser is why it is a search rather than an inset: the
+search rail at the `full` tier is 424 px tall against a 150 px inset, and
+pushing the card at the band's top edge outward walked it further under the
+rail it was escaping, then off the field. Nothing is ever nudged between bands:
+that would move a card to a hop it does not have.
+
+**The reserved box has to be an upper bound over the drawn card**, which is
+`T-209`'s discipline and `scripts/measure_orbit.ts` is how it is kept. At
+320 px wide Chrome laid a neighbour's card out at 186 px against the 148 the
+mockup drew, so the reservation was smaller than the card and a relation pill
+was seated in space the policy believed was empty. A pill is the reverse case:
+its box is computed from its own text and written onto the element, so the
+rectangle a seat was found for *is* the rectangle drawn.
+
+Cards placed plus omissions counted equals the neighbours returned.
+`orbitAccountsFor` states it beside the policy, the suite walks it across seven
+field widths and three heights, the integration test walks it against the real
+fan-out at both tiers, and `measure_orbit.ts` reads it back off a browser. It
+is the whole answer to "does a viewport budget become silent omission".
+
+Measured on the running build at the review viewport, against what `T-212`
+left: **7 of 8 neighbours placed and 1 counted at 2852×1688**, against 4 and 4;
+**2 and 6 at 1440×900**, against 1 and 8. Zero cards clipped, zero card/card
+overlaps, zero cards or pills under a floating control, zero pills without a
+clear seat.
+
+### A card and a label are the same statement, so only one is drawn
+
+`T-214` closed the clause ADR 0006 clause 5 had stated since the ADR was written and that
+shipped broken through two tasks: **a graph label may not render under a card.** It did.
+The focused node's label and up to four neighbour labels were drawn on the canvas underneath
+the very cards carrying those statements — in less text, without the cut marked, and behind
+an opaque surface.
+
+`MapViewState.cardedNodes` is the fix, and it is a *set of ids* rather than a flag on
+purpose. A node the orbit has carded loses its label; a neighbour the orbit **counted**
+rather than placed keeps it, because nothing else on screen names that one. Hiding every
+label in Focus would have taken a name away from exactly the neighbours the omission report
+exists to protect. The same clause runs on edges: a relation whose *both* endpoints are
+carded is already named by the pill the orbit seated clear of every card, so its canvas label
+goes; a relation from a carded node to a counted one keeps it.
+
+The card clause is checked **before** the interaction state, and that order is load-bearing:
+the focused node is always carded, and `"selected"` would otherwise force its label straight
+back under its own card.
 
 ### The overlay owns nothing
 
@@ -526,16 +579,23 @@ Two consequences worth knowing:
   logical properties: the coordinates come out of the renderer's viewport, and
   a logical inset would mirror a card away from its own mark in Persian.
 
-### Cards move when the camera stops
+### Cards no longer move when the camera does
 
-Anchoring is per node, and the placement feeds the omission report, so
-re-placing on every frame would re-render the related list and the search rail
-sixty times a second for one pan. `hideLabelsOnMove: true` already answers this
-question for labels; cards follow the same rule (D-138). `MAP_STAGE_SETTLE_MS`
-is the trailing delay, and the first placement does not wait for it — the draw
-effect marks the graph as placed as soon as the renderer holds it, because a
-placement computed *before* `attach` would report every neighbour as "not
-drawn", which is a true statement about the wrong situation.
+They used to. A card was anchored to a mark, so a pan moved it, and re-placing
+per frame would have re-rendered the related list and the search rail sixty
+times a second: `hideLabelsOnMove: true` answers that for labels, and cards
+followed the same rule through a trailing `MAP_STAGE_SETTLE_MS` (D-138). Every
+line of that is gone with `T-213`. The orbit is laid out from the field, the
+neighbourhood and the chrome's rectangles, and a camera gesture changes none of
+the three — so the composition a reader is reading stays on screen and stays
+put, and the route subscribes to no frame at all. `MapSession.onRender` remains
+on the renderer boundary where D-146 put it, with no caller in the route.
+
+The camera still frames a new selection (`MapSession.frame`, D-146), and it now
+does one job rather than two: the picture underneath the orbit is *context*,
+faded behind a scrim so unrelated topology stays present without competing
+(ADR 0006). `MAP_FOCUS_MARGIN` is calibrated over 23 real focuses, and its
+table is in `mapSession.ts`.
 
 ### The canvas is a third caller, not a second identity
 

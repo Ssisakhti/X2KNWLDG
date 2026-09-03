@@ -77,12 +77,13 @@
  * two routes that never draw a graph.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import { ApiFailure } from "../api/errors";
+import { Disclosure } from "../components/Disclosure";
 import { ErrorState } from "../components/ErrorState";
-import { MapConstellation } from "../components/MapConstellation";
+import { MapOrbit } from "../components/MapOrbit";
 import { MapFilters } from "../components/MapFilters";
 import { MapLegend } from "../components/MapLegend";
 import { MapOutline } from "../components/MapOutline";
@@ -93,10 +94,11 @@ import { MapSearchRail } from "../components/MapSearchRail";
 import { Bidi } from "../components/primitives";
 import { useI18n } from "../i18n";
 import {
-  MAP_STAGE_SETTLE_MS,
-  placeConstellation,
+  type OrbitPlacement,
+  orbitTier,
+  placeOrbit,
   type StageBox,
-  type StagePlacement,
+  type StageRect,
 } from "../map/constellation";
 import { GraphConflictError } from "../map/graphProjection";
 import type { GraphFilters } from "../map/graphSnapshot";
@@ -114,8 +116,33 @@ import { withFocusRescue } from "../lib/focusRescue";
 /** The typed loader over the frozen operation, built once rather than per render. */
 const loadGraphPage = apiGraphPages(api);
 
+/** One empty set, so "no cards" is the same object on every render. */
+const EMPTY_CARDED: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Whether two measured chrome lists describe the same rectangles (`T-212`).
+ *
+ * `getBoundingClientRect` returns a fresh object every call, so the measured
+ * list is a new array on every measurement and storing it unconditionally
+ * would re-place every card on every render. This is the guard that makes the
+ * layout effect idempotent.
+ */
+function sameRects(a: readonly StageRect[], b: readonly StageRect[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((rect, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      rect.left === other.left &&
+      rect.top === other.top &&
+      rect.right === other.right &&
+      rect.bottom === other.bottom
+    );
+  });
+}
+
 export function MapView({ createRenderer }: { createRenderer?: MapRendererFactory } = {}) {
-  const { t } = useI18n();
+  const { t, dir } = useI18n();
 
   // The URL is the question. `filters` is the three parameters `GET /api/graph`
   // accepts and nothing else -- `mapLink` refuses a value it cannot read rather
@@ -129,6 +156,8 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   const walk = useGraphWalk(loadGraphPage, focus.filters, [source, provenance, vocabulary]);
 
   const stage = useRef<HTMLDivElement | null>(null);
+  /** The route's own element: the field every floating surface is placed on. */
+  const root = useRef<HTMLDivElement | null>(null);
   const session = useRef<MapSession | null>(null);
   /** Which snapshot the live renderer was created for; `0` is none. */
   const attached = useRef(0);
@@ -198,47 +227,35 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
 
   /** The stage's measured box, in pixels. Zero until the container is laid out. */
   const [stageBox, setStageBox] = useState<StageBox>({ width: 0, height: 0 });
-  /** Bumped when the camera settles, which is when cards are placed again. */
-  const [placedAt, setPlacedAt] = useState(0);
+  /**
+   * Where the floating chrome is, in the stage's own pixels (`T-212`).
+   *
+   * The workspace put the controls on the field instead of above it, so
+   * "which cards may the stage carry" now has a second half: not under the
+   * search surface, the counts, the legend, the drawer or the camera's
+   * controls. They are *measured* rather than stated as insets because the
+   * whole composition mirrors under `dir="rtl"` and a hand-written inset per
+   * edge is the exact defect D-191 carries forward from the mockup.
+   */
+  const [chrome, setChrome] = useState<readonly StageRect[]>([]);
   //: Bumped to ask the draw effect to try again after a refusal (D-176).
   const [retryAt, setRetryAt] = useState(0);
   //: The stage size the last refusal was measured at, so one unusable
   //: container is refused once rather than retried on every render.
   const refusedBox = useRef("");
-  /** Whether the camera is mid-gesture, in which case no card is drawn. */
-  const [moving, setMoving] = useState(false);
-  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** The same fact, readable without a render, so a frame can check it. */
-  const isMoving = useRef(false);
-
-  /**
-   * The renderer drew a frame.
+  /*
+   * What `T-213` deleted here, and why it is a deletion rather than a move.
    *
-   * Called once per frame while the camera moves, so it must not re-render per
-   * frame: the state change is guarded by a ref, and the trailing timer is one
-   * too. Two renders per gesture -- one to hide the cards, one to place them
-   * again -- rather than sixty (`MAP_STAGE_SETTLE_MS`).
+   * A per-frame `onRender` subscription used to drive a trailing timer, so the
+   * cards were hidden while the camera moved and placed again once it stopped
+   * (`MAP_STAGE_SETTLE_MS`). Every line of it existed because a card was
+   * pinned to a mark, and the Directional Orbit is not: it is laid out from
+   * the field, the neighbourhood and the chrome's rectangles, none of which a
+   * pan or a zoom changes. So the orbit stays still and legible through a
+   * gesture that used to erase it, and the route subscribes to no frame at
+   * all. `MapSession.onRender` remains on the renderer boundary, where D-146
+   * put it, with no caller in the route.
    */
-  const onRendered = useCallback(() => {
-    if (!isMoving.current) {
-      isMoving.current = true;
-      setMoving(true);
-    }
-    if (settle.current !== null) clearTimeout(settle.current);
-    settle.current = setTimeout(() => {
-      settle.current = null;
-      isMoving.current = false;
-      setMoving(false);
-      setPlacedAt((value) => value + 1);
-    }, MAP_STAGE_SETTLE_MS);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (settle.current !== null) clearTimeout(settle.current);
-    },
-    [],
-  );
 
   // Only a selection the graph *holds* is drawn as one. `hasFocus` dims
   // everything unrelated, so a focus naming an entity these pages have not
@@ -266,13 +283,11 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     select: focus.focusEntity as (globalId: string) => void,
     enter: peek.open,
     leave: peek.close,
-    rendered: onRendered,
   });
   canvas.current = {
     select: focus.focusEntity,
     enter: peek.open,
     leave: peek.close,
-    rendered: onRendered,
   };
 
   // Always this focus's own, never a previous selection's: `useNeighbourhood`
@@ -333,16 +348,6 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawnFocus, holdingId]);
 
-  useEffect(() => {
-    const changed = mapStyle.setView({
-      selectedNode: drawnFocus,
-      hoveredNode,
-      neighbourNodes: relatedIds,
-    });
-    // `refresh`, never `update`: `update` re-settles the layout (D-128), which
-    // would make the graph jump every time the pointer crossed a result row.
-    if (changed) session.current?.refresh();
-  }, [drawnFocus, hoveredNode, relatedIds]);
 
   // One session for the life of the route. The cleanup is the only thing
   // standing between a filter/reload loop and a pile of WebGL contexts, and
@@ -359,7 +364,6 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         onSelectNode: (globalId) => canvas.current.select(globalId),
         onEnterNode: (globalId) => canvas.current.enter(globalId, "pointer"),
         onLeaveNode: (globalId) => canvas.current.leave(globalId),
-        onRender: () => canvas.current.rendered(),
       },
     });
     session.current = live;
@@ -399,14 +403,13 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         attached.current = snapshotId;
       }
       setFault(null);
+      // `T-207` bumped a placement counter here, because the overlay's cards
+      // were anchored to marks and the renderer had only just been given the
+      // graph that gives them positions. `T-213` does not: the orbit is laid
+      // out from the field and the neighbourhood, so `setHoldingId` alone --
+      // which is what turns the picture into a `drawing` -- is the whole of
+      // the first placement.
       setHoldingId(snapshotId);
-      // The renderer now holds this graph, so its marks have positions to
-      // anchor cards to (`T-207`). This is the *first* placement: without it
-      // the overlay would wait for a frame event, and the placement computed
-      // during the render that preceded this effect asked a renderer that had
-      // not been given the graph yet -- which reads as "no neighbour is
-      // drawn", which would be a report about the wrong thing.
-      setPlacedAt((value) => value + 1);
     } catch (cause) {
       // A renderer that cannot be created -- no WebGL2, or a container with no
       // size -- is a state to state, not an exception to take the route down
@@ -472,6 +475,62 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
+
+  /**
+   * Measure the floating chrome against the stage (`T-212`).
+   *
+   * One rectangle per surface marked `data-map-chrome`, in the coordinates
+   * `MapSession.nodePosition` answers in -- the renderer's own container --
+   * because that is the space a card's anchor is in and a rectangle in any
+   * other space is a policy about nothing.
+   *
+   * A zero-sized surface is skipped rather than reserved as a point: in jsdom
+   * every rectangle is zero, and a run of empty rectangles at the origin would
+   * refuse every card at the top-start corner of a stage that has no measured
+   * size either.
+   */
+  const measureChrome = useCallback(() => {
+    const container = stage.current;
+    const host = root.current;
+    if (container === null || host === null) return;
+    const base = container.getBoundingClientRect();
+    const measured: StageRect[] = [];
+    for (const element of host.querySelectorAll<HTMLElement>("[data-map-chrome]")) {
+      const box = element.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      measured.push({
+        left: box.left - base.left,
+        top: box.top - base.top,
+        right: box.right - base.left,
+        bottom: box.bottom - base.top,
+      });
+    }
+    setChrome((current) => (sameRects(current, measured) ? current : measured));
+  }, []);
+
+  /*
+   * Two triggers, because a surface moves for two different reasons.
+   *
+   * A layout effect after every render catches the ones a render causes: the
+   * drawer opening takes its width out of the field, which moves the counts
+   * and the camera's controls without either of them changing size. The
+   * observer catches the ones no render causes: a panel expanded by its own
+   * `<details>`, a font arriving, the window resized.
+   *
+   * The setter compares before it stores, so neither trigger can loop.
+   */
+  useLayoutEffect(measureChrome);
+
+  useEffect(() => {
+    const host = root.current;
+    if (host === null || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measureChrome);
+    observer.observe(host);
+    for (const element of host.querySelectorAll<HTMLElement>("[data-map-chrome]")) {
+      observer.observe(element);
+    }
+    return () => observer.disconnect();
+  }, [measureChrome]);
 
   // `MapFilters` speaks the API's parameter names and `mapLink` stores the same
   // three values, so this is a rename and not a translation. A control returning
@@ -548,188 +607,420 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
   const conflict = error instanceof GraphConflictError ? error : null;
 
   /**
-   * Which cards the stage may carry, and why the rest have none (`T-207`).
+   * The Directional Orbit over this selection (`T-213`, ADR 0006 clause 3).
    *
-   * `null` -- not "an empty placement" -- whenever there is no stage to place
-   * anything on: nothing selected, or no live renderer over a measured
+   * `null` -- not "an empty placement" -- whenever there is no field to lay
+   * anything out on: nothing selected, or no live renderer over a measured
    * container. The distinction matters because the omission report is a
-   * statement *about the stage*, and reporting every neighbour as "not drawn"
-   * when the whole canvas is missing would explain the wrong thing. The
-   * renderer's own refusal is already stated above, and the related list is
-   * complete either way.
+   * statement *about the composition*, and reporting every neighbour as "not
+   * placed" when the whole canvas is missing would explain the wrong thing.
+   * The renderer's own refusal is already stated above, and the related list
+   * is complete either way.
    *
-   * Recomputed when the selection, the neighbourhood, the graph or the stage's
-   * size changes -- and when the camera settles (`placedAt`), which is what
-   * makes a card follow its mark.
+   * Four inputs and no camera. It is recomputed when the selection, the
+   * neighbourhood, the field's size or the chrome's rectangles change --
+   * because those are the only four things the layout reads. A pan is not one
+   * of them, which is why the orbit no longer flickers through a gesture, and
+   * `snapshotId`/`pages` are no longer inputs either: a neighbour whose page
+   * the walk has not reached still has a direction and a hop count, so it
+   * still has a card.
+   *
+   * `dir` is here because incoming-first is a *reading* order (D-012): in
+   * Persian the incoming side is the right, where reading starts. The records
+   * are untouched; only which side draws them changes.
    */
-  const placement = useMemo<StagePlacement | null>(() => {
+  const placement = useMemo<OrbitPlacement | null>(() => {
     if (!drawing || focus.focus === null) return null;
-    return placeConstellation({
+    return placeOrbit({
       centreId: drawnFocus,
       related: neighbourhood?.related ?? [],
-      position: (globalId) => session.current?.nodePosition(globalId) ?? null,
-      stage: stageBox,
+      field: stageBox,
+      obstacles: chrome,
+      rtl: dir === "rtl",
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawing, focus.focus, drawnFocus, neighbourhood, stageBox, placedAt, snapshotId, pages]);
+  }, [drawing, focus.focus, drawnFocus, neighbourhood, stageBox, chrome, dir]);
+
+  /**
+   * Which of SPEC §5's three compositions this field can hold.
+   *
+   * Read from the same measured box the orbit is laid out in, so the CSS that
+   * dresses the field and the TypeScript that fills it can never disagree
+   * about which composition is on screen. Below the `compact` minimum there is
+   * no orbit at all: the route keeps its document composition, where the
+   * focused record and *every* one of its relations is a row and none is
+   * dropped (SPEC §5's `stack` tier).
+   */
+  const tier = orbitTier(stageBox.width);
+
+  /**
+   * How many of the three server-backed filters are set (`T-216`).
+   *
+   * `graphFilters` contributes no key at all for an unset control, precisely so
+   * that `Object.keys` is the honest answer to "what is this snapshot filtered
+   * by" -- which is the question the folded filter panel's summary has to
+   * answer while its controls are put away.
+   */
+  const appliedFilters = Object.keys(focus.filters).length;
+
+  /**
+   * Whether the field is wide enough to hold an open search rail (`T-216`).
+   *
+   * `tier === "full"` is the answer once the field has been measured, and an
+   * *unmeasured* field counts as wide: `stageBox.width` is `0` until the
+   * ResizeObserver has run, `orbitTier(0)` is therefore `stack`, and a rail
+   * that mounted closed on every first paint would put D-130's own opening
+   * step behind a click for a frame at every viewport -- including the ones
+   * with room for it. The narrowing is a thing the field says, so it waits
+   * until the field has said something.
+   */
+  const railHasRoom = stageBox.width === 0 || tier === "full";
+
+  /*
+   * The style table is told *after* the orbit has decided, and that ordering
+   * is the whole of it: which nodes carry cards is an output of `placeOrbit`,
+   * so the effect that hands the view state to the renderer has to sit below
+   * the memo that computes it. It used to sit beside the selection effects
+   * two hundred lines up, where `placement` does not exist yet.
+   */
+  /**
+   * Which nodes the orbit has drawn a card for (`T-214`).
+   *
+   * Handed to the style table so their canvas labels go: a card carries the
+   * statement in more of it than a label can and with the cut marked, and the
+   * label underneath it is the same sentence twice in one place (ADR 0006
+   * clause 5). A neighbour the orbit *counted* is deliberately not in here --
+   * its label is the only thing naming it.
+   */
+  const cardedIds = useMemo(() => {
+    if (placement === null) return EMPTY_CARDED;
+    const carded = new Set<string>(placement.cards.map((card) => card.globalId));
+    if (placement.centre !== null) carded.add(placement.centre.globalId);
+    return carded;
+  }, [placement]);
+
+  useEffect(() => {
+    const changed = mapStyle.setView({
+      selectedNode: drawnFocus,
+      hoveredNode,
+      neighbourNodes: relatedIds,
+      cardedNodes: cardedIds,
+    });
+    /*
+     * And how wide the field they are drawn on is (`T-216`, D-197).
+     *
+     * SPEC §3 states that a mark's size scales with the viewport and that its
+     * ratios do not, and `markFieldScale` is that scale -- so the style table
+     * needs the one number this route already measures for the orbit's tier.
+     * Written here rather than in the ResizeObserver because this is the one
+     * place that decides when the renderer redraws, and a resize that changed
+     * a mark's size while another effect asked for the redraw would be two
+     * writers of one picture.
+     */
+    const resized = mapStyle.setField(stageBox.width);
+    // `refresh`, never `update`: `update` re-settles the layout (D-128), which
+    // would make the graph jump every time the pointer crossed a result row.
+    if (changed || resized) session.current?.refresh();
+  }, [drawnFocus, hoveredNode, relatedIds, cardedIds, stageBox.width]);
 
   return (
     <div
-      className="stack map"
+      ref={root}
+      /*
+       * The field (`T-212`, D-153).
+       *
+       * `stack map` until now: a flex column of panels, which is what made the
+       * stage a 640 px band 790 px down a 5795 px document. It is a workspace
+       * now -- one positioned field with the graph in it and every control
+       * floating on top -- and `map--focused` is the one fact five surfaces
+       * have to agree about: a focus opens the drawer, and the drawer's width
+       * comes out of the field before anything is placed in it.
+       */
+      className={`map${focus.focus === null ? "" : " map--focused"}`}
       // The two readings, as one attribute each: the whole route's state in a
       // place a test can read without going looking for the sentence that
       // renders it, and `T-209`'s seam for the same states in a browser.
       data-map-reading={reading.kind}
       data-map-canvas={picture.kind}
+      // Which of SPEC §5's three compositions the measured field can hold. On
+      // the element rather than only in a memo, so the stylesheet dresses the
+      // same tier the layout used and a test can read it without inferring it
+      // from a card count.
+      data-map-tier={tier}
     >
-      <h1>{t("map.title")}</h1>
-      <p className="muted">{t("map.subtitle")}</p>
-
-      <MapFilters value={focus.filters} onChange={onFiltersChange} />
-
-      {error instanceof ApiFailure && <ErrorState error={error} onRetry={walk.reload} />}
-
-      {conflict !== null && (
-        <div className="notice notice--internal" role="alert" data-map-conflict={conflict.field}>
-          <strong>{t("map.conflict.title")}</strong>
-          <p>
-            {t("map.conflict.detail", {
-              kind: conflict.kind,
-              id: conflict.id,
-              field: conflict.field,
-            })}
-          </p>
-        </div>
-      )}
+      {/*
+        The route's name, for the document outline and for a screen reader's
+        heading list. Visually hidden because the app bar already carries it
+        and a workspace has no room for a title and a subtitle: the pixels a
+        heading would take are the pixels the graph exists in. Hidden, not
+        removed -- `visually-hidden` keeps it in the accessibility tree, which
+        is where its readers are.
+      */}
+      <h1 className="visually-hidden">{t("map.title")}</h1>
+      <p className="visually-hidden">{t("map.subtitle")}</p>
 
       {/*
-        The Map's own state, in words, before the picture (D-129).
+        Filters and counts: the field's top end (SPEC §2, §7 row 2).
 
-        `reading.counted` is the whole distinction `T-208` added here: a
-        snapshot with no page applied has nothing to count, and printing zeros
-        for it would say "your library holds no graph" on the strength of a
-        request that has not been answered. So the counts appear when there are
-        counts, and the states that precede them say what they are instead.
+        The counts still precede the stage in the DOM, which is D-129 and is
+        the reason this surface is second rather than wherever it looks
+        best: it is the text that survives when the WebGL view cannot be read
+        at all, and a Map whose only honest description came after the picture
+        would read as complete to anyone who never reaches the picture.
       */}
-      {reading.kind === "loading" && !reading.counted && (
-        <p className="muted">{t("map.reading.loading")}</p>
-      )}
-      {reading.kind === "unasked" && <p className="muted">{t("map.reading.unasked")}</p>}
+      <div className="map__float map__float--status stack" data-map-chrome>
+        {/*
+          The filters, folded to their trigger (`T-216`, D-199).
 
-      {reading.counted && snapshot !== null && (
-        <section
-          className="panel map__state"
-          aria-label={t("map.state.title")}
-          data-map-nodes={snapshot.nodes}
-          data-map-edges={snapshot.edges}
-          data-map-held={snapshot.pendingEdges}
-          data-map-complete={String(snapshot.complete)}
-          data-map-truncated={String(snapshot.lastPageTruncated)}
+          They were three labelled selects and a note standing open on the
+          field, which at 1440x900 made this float 485 px tall -- 14 % of the
+          field on its own, where the whole approved `compact` composition
+          spends 10.3 % on all four of its surfaces. SPEC §2 gives Explore
+          "counts top-end" and no filter controls on the stage at all, and both
+          approved Explore captures draw this corner as a two-line chip.
+
+          A disclosure rather than a `max-block-size` and a scrollbar, because
+          a folded panel here states what it holds: the summary says how many
+          filters are applied, so the one thing a reader must not lose -- that
+          the drawing *is* filtered -- is on screen whether the panel is open
+          or shut. Closed by preference at every tier rather than only at
+          `compact`, because that is what both approved captures show.
+        */}
+        <Disclosure
+          id="filters"
+          title={t("map.filters.group")}
+          summary={
+            appliedFilters === 0
+              ? t("map.filters.unfiltered")
+              : t("map.filters.summary", { count: appliedFilters })
+          }
+          preferOpen={false}
         >
-          <h2 className="panel__title">{t("map.state.title")}</h2>
-          <dl className="definitions">
-            <dt>{t("map.state.nodes")}</dt>
-            <dd>
-              {snapshot.knownNodeTotal === null
-                ? `${snapshot.nodes} · ${t("common.unknownTotal")}`
-                : `${snapshot.nodes} / ${snapshot.knownNodeTotal}`}
-            </dd>
-            <dt>{t("map.state.edges")}</dt>
-            <dd>{snapshot.edges}</dd>
-            <dt>{t("map.state.held")}</dt>
-            <dd>
-              {snapshot.pendingEdges}
-              {snapshot.pendingEdges > 0 && (
-                <span className="faint"> — {t("map.state.heldNote")}</span>
-              )}
-            </dd>
-            <dt>{t("map.state.pages")}</dt>
-            <dd>{snapshot.pagesApplied}</dd>
-            <dt>{t("map.state.extent")}</dt>
-            <dd>
-              {snapshot.complete ? t("map.state.complete") : t("map.state.partial")}
-              {snapshot.lastPageTruncated && (
-                <span className="faint"> — {t("map.state.truncated")}</span>
-              )}
-            </dd>
-          </dl>
-          {reading.kind === "empty" && <p className="muted">{t("map.empty")}</p>}
-          {(reading.kind === "refused" || reading.kind === "conflict") && (
-            // The pages that arrived before the failure are still drawn, and
-            // they are still true -- but they are not an answer to the
-            // question that failed, and a count sitting under an error panel
-            // reads as one.
-            <p className="faint" data-map-reading-stale>
-              {t("map.reading.stale")}
-            </p>
-          )}
-          {reading.kind === "loading" && <p className="muted">{t("map.reading.loading")}</p>}
-        </section>
-      )}
+          <MapFilters value={focus.filters} onChange={onFiltersChange} />
+        </Disclosure>
 
-      <div className="row" role="group" aria-label={t("map.controls")}>
-        <button type="button" className="button" onClick={zoomIn} disabled={!drawn}>
-          {t("map.zoomIn")}
-        </button>
-        <button type="button" className="button" onClick={zoomOut} disabled={!drawn}>
-          {t("map.zoomOut")}
-        </button>
-        <button type="button" className="button" onClick={resetView} disabled={!drawn}>
-          {t("map.resetView")}
-        </button>
-        {snapshot?.hasMore === true && (
-          <button
-            type="button"
-            className="button"
-            onClick={withFocusRescue(walk.loadMore)}
-            disabled={loadingMore}
-            data-map-load-more
+        {/*
+          `reading.counted` is the whole distinction `T-208` added here: a
+          snapshot with no page applied has nothing to count, and printing
+          zeros for it would say "your library holds no graph" on the strength
+          of a request that has not been answered. So the counts appear when
+          there are counts, and the states centred on the field say what they
+          are instead.
+        */}
+        {reading.counted && snapshot !== null && (
+          /*
+            The account, folded to its two headline numbers (`T-216`, D-199).
+
+            `T-215` found this surface "not a disclosure at all" -- a panel
+            standing open on the field where the approved capture has a chip --
+            and the fix is the rule this codebase already has for a panel that
+            competes for a screen: fold it, and make the *summary* carry what
+            it holds. So the chip reads "86 nodes · 118 edges" and the five-row
+            account of the walk is one press away, which is exactly the shape
+            the approved capture's counts chip has.
+
+            D-129 is untouched, and this is where to check that rather than
+            take it on trust. The surface still precedes the stage in the DOM;
+            the counts a test or a screen reader reads are attributes on the
+            *section*, which is the part a folded disclosure never hides; and
+            it opens itself whenever the picture is not being drawn, which is
+            the whole case D-129 exists for -- the text that survives when the
+            WebGL view cannot be read at all is on screen without a click, and
+            `MapOutline` already opens itself on the same condition.
+          */
+          <Disclosure
+            id="counts"
+            className="map__state"
+            title={t("map.state.title")}
+            summary={t("map.state.summary", {
+              nodes: snapshot.nodes,
+              edges: snapshot.edges,
+            })}
+            preferOpen={!drawing}
+            marks={{
+              "data-map-nodes": String(snapshot.nodes),
+              "data-map-edges": String(snapshot.edges),
+              "data-map-held": String(snapshot.pendingEdges),
+              "data-map-complete": String(snapshot.complete),
+              "data-map-truncated": String(snapshot.lastPageTruncated),
+            }}
           >
-            {t("map.loadMore")}
-          </button>
-        )}
-        {loadingMore && (
-          <button type="button" className="button" onClick={withFocusRescue(walk.cancel)}>
-            {t("map.stopLoading")}
-          </button>
+            <dl className="definitions">
+              <dt>{t("map.state.nodes")}</dt>
+              <dd>
+                {snapshot.knownNodeTotal === null
+                  ? `${snapshot.nodes} · ${t("common.unknownTotal")}`
+                  : `${snapshot.nodes} / ${snapshot.knownNodeTotal}`}
+              </dd>
+              <dt>{t("map.state.edges")}</dt>
+              <dd>{snapshot.edges}</dd>
+              <dt>{t("map.state.held")}</dt>
+              <dd>
+                {snapshot.pendingEdges}
+                {snapshot.pendingEdges > 0 && (
+                  <span className="faint"> — {t("map.state.heldNote")}</span>
+                )}
+              </dd>
+              <dt>{t("map.state.pages")}</dt>
+              <dd>{snapshot.pagesApplied}</dd>
+              <dt>{t("map.state.extent")}</dt>
+              <dd>
+                {snapshot.complete ? t("map.state.complete") : t("map.state.partial")}
+                {snapshot.lastPageTruncated && (
+                  <span className="faint"> — {t("map.state.truncated")}</span>
+                )}
+              </dd>
+            </dl>
+            {reading.kind === "empty" && <p className="muted">{t("map.empty")}</p>}
+            {(reading.kind === "refused" || reading.kind === "conflict") && (
+              // The pages that arrived before the failure are still drawn, and
+              // they are still true -- but they are not an answer to the
+              // question that failed, and a count sitting under an error panel
+              // reads as one.
+              <p className="faint" data-map-reading-stale>
+                {t("map.reading.stale")}
+              </p>
+            )}
+            {reading.kind === "loading" && <p className="muted">{t("map.reading.loading")}</p>}
+
+            {/*
+              Continuing the walk is about the graph's *extent*, so it belongs
+              with the counts that state that extent rather than with the
+              camera's controls, which are about the picture. `T-212` split the
+              one control row the document composition had along that line.
+            */}
+            {(snapshot.hasMore === true || loadingMore) && (
+              <div className="row">
+                {snapshot.hasMore === true && (
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={withFocusRescue(walk.loadMore)}
+                    disabled={loadingMore}
+                    data-map-load-more
+                  >
+                    {t("map.loadMore")}
+                  </button>
+                )}
+                {loadingMore && (
+                  <button type="button" className="button" onClick={withFocusRescue(walk.cancel)}>
+                    {t("map.stopLoading")}
+                  </button>
+                )}
+              </div>
+            )}
+          </Disclosure>
         )}
       </div>
 
-      <MapSearchRail
-        graph={graph}
-        revision={snapshotId + pages}
-        focus={focus.focus}
-        onFocus={focus.focusEntity}
-        peek={peek}
-        sourceScope={source}
-      />
+      {/*
+        Search, and the list the drawing is a view of: the field's top start
+        (SPEC §2, §7 rows 3 and 5).
+
+        SPEC §7 numbers the outline after the stage while placing it visually
+        "in the search drawer's panel list". Those two cannot both be true of
+        one DOM, and the visual column is the binding one -- the table's own
+        subject is that tab order must follow visual order, and a panel
+        rendered inside this surface is the only way the keyboard reaches it
+        where a reader sees it. So the outline is this drawer's second panel
+        and precedes the stage, which is also what D-129 asks for.
+      */}
+      <div className="map__float map__float--search stack" data-map-chrome>
+        <MapSearchRail
+          graph={graph}
+          revision={snapshotId + pages}
+          focus={focus.focus}
+          onFocus={focus.focusEntity}
+          peek={peek}
+          sourceScope={source}
+          // Open only where the field has room for it (`T-216`, D-199).
+          // Searching is the step D-130's journey is on while nothing is
+          // selected, and at the `full` tier the rail opens itself for that
+          // reason -- but SPEC §5 gives the `compact` tier a search "closed to
+          // its trigger", and the browser priced the difference: an open rail
+          // is 429 px of an 844 px field, so a third of the overview it sits
+          // on is gone before the graph is drawn.
+          preferOpen={focus.focus === null && railHasRoom}
+        />
+
+        {/*
+          The pointer path is an enhancement over the DOM path, and this
+          sentence is where the Map says so: the marks are one view of a list
+          that is right here, and everything a mark can do a row can do. It
+          names the panel by its title rather than by its position, which is
+          why moving the panel did not make the sentence wrong.
+        */}
+        <p className="faint" data-map-stage-companion>
+          {t("map.stage.companion")}
+        </p>
+
+        <MapOutline
+          graph={graph}
+          revision={snapshotId + pages}
+          focus={focus.focus}
+          onFocus={focus.focusEntity}
+          peek={peek}
+          // The companion opens itself whenever it is the only view of the
+          // graph: no renderer, a refused container, or nothing drawn yet.
+          preferOpen={!drawing}
+        />
+      </div>
 
       {/*
-        A browser that cannot draw at all, and a renderer that refused this
-        container, are two states with two answers (`T-208`). The first is
-        permanent for this browser and the second usually resolves on the next
-        layout, so they are not one message -- and neither of them costs the
-        reader anything but the picture: the counts above and every list below
-        are unchanged, and the outline is opened for them.
+        The honest states, centred on the field (`T-211`'s states sheet).
+
+        Before the stage in the DOM and over it on screen. `mapState.ts`
+        decides what each of these says; this decides only where, and the
+        answer is "in the workspace" rather than "on a line that pushes the
+        stage down the document". A browser that cannot draw at all and a
+        renderer that refused this container stay two states with two answers
+        (`T-208`): the first is permanent for this browser and the second
+        usually resolves on the next layout. Neither costs the reader anything
+        but the picture -- the counts and every list are unchanged, and the
+        outline is opened for them.
       */}
-      {picture.kind === "unavailable" && (
-        <div className="notice notice--unavailable" role="alert" data-map-renderer-unavailable>
-          <strong>{t("map.renderer.unavailable")}</strong>
-          <p>{t("map.renderer.unavailableNote")}</p>
-          <Bidi as="p" className="faint">
-            {picture.detail}
-          </Bidi>
-        </div>
-      )}
-      {picture.kind === "refused" && (
-        <div className="notice notice--unavailable" role="alert" data-map-renderer-failed>
-          <strong>{t("map.renderer.failed")}</strong>
-          <p>{t("map.renderer.failedNote")}</p>
-          <Bidi as="p" className="faint">
-            {picture.detail}
-          </Bidi>
-        </div>
-      )}
+      <div className="map__notices">
+        {error instanceof ApiFailure && <ErrorState error={error} onRetry={walk.reload} />}
+
+        {conflict !== null && (
+          <div className="notice notice--internal" role="alert" data-map-conflict={conflict.field}>
+            <strong>{t("map.conflict.title")}</strong>
+            <p>
+              {t("map.conflict.detail", {
+                kind: conflict.kind,
+                id: conflict.id,
+                field: conflict.field,
+              })}
+            </p>
+          </div>
+        )}
+
+        {reading.kind === "loading" && !reading.counted && (
+          <p className="notice muted">{t("map.reading.loading")}</p>
+        )}
+        {reading.kind === "unasked" && <p className="notice muted">{t("map.reading.unasked")}</p>}
+
+        {picture.kind === "unavailable" && (
+          <div className="notice notice--unavailable" role="alert" data-map-renderer-unavailable>
+            <strong>{t("map.renderer.unavailable")}</strong>
+            <p>{t("map.renderer.unavailableNote")}</p>
+            <Bidi as="p" className="faint">
+              {picture.detail}
+            </Bidi>
+          </div>
+        )}
+        {picture.kind === "refused" && (
+          <div className="notice notice--unavailable" role="alert" data-map-renderer-failed>
+            <strong>{t("map.renderer.failed")}</strong>
+            <p>{t("map.renderer.failedNote")}</p>
+            <Bidi as="p" className="faint">
+              {picture.detail}
+            </Bidi>
+          </div>
+        )}
+
+        {picture.kind === "pending" && <p className="notice muted">{t("map.canvas.pending")}</p>}
+        {picture.kind === "nothing" && <p className="notice muted">{t("map.canvas.nothing")}</p>}
+      </div>
 
       {/*
         The WebGL surface, and the overlay anchored to it.
@@ -737,7 +1028,7 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         One label, and one label is not accessibility: it describes the
         existence of a graph rather than its selectable entities, which is why
         ADR 0005 (D-120) pairs it with a DOM surface and why the counts above
-        are rendered as text. `MapOutline` below is the rest of that pairing
+        are rendered as text. `MapOutline` is the rest of that pairing
         (`T-208`), and the label is written only while there is a picture to
         label.
 
@@ -748,6 +1039,11 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         inside that container would be removed from under React the first time
         a filter changed.
 
+        The pair is the field less the drawer (`T-212`): both are absolutely
+        placed in one box, and that box is what is measured and handed to
+        `placeConstellation`, so opening the drawer is a resize the renderer is
+        told about rather than a surface laid over a picture that did not move.
+
         While the camera is moving nothing is drawn here at all -- the same
         rule `hideLabelsOnMove` applies to labels, for the same reason.
       */}
@@ -755,7 +1051,8 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         {/*
           `role="img"` only while there *is* a picture (`T-208`). An empty box
           announced as an image of the knowledge graph is a claim about content
-          that is not there, and the states below say what is there instead.
+          that is not there, and the notices centred on the field say what is
+          there instead.
         */}
         <div
           ref={stage}
@@ -765,67 +1062,108 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
           aria-hidden={drawing ? undefined : true}
           data-map-stage
         />
-        {!moving && <MapConstellation placement={placement} centre={hood.centre} />}
+        <MapOrbit placement={placement} centre={hood.centre} />
+      </div>
+
+      {/*
+        The field's inline-end rail: the one primary drawer, and the camera's
+        controls under it (SPEC §2, §7 rows 6 and 7).
+
+        ADR 0006 clause 4 allows one primary drawer to open **on demand** over
+        the workspace, and rejected a large inspector standing permanently
+        beside the graph. A focus is the demand, so a focus is what mounts it:
+        it fills the rail's height and, at the `full` tier, takes its width out
+        of the field.
+
+        Quick Read holds the focus and its active relations; the related list
+        follows *inside the same drawer*, which is SPEC §7's reading order:
+        focus, then its relations, then the wider list.
+
+        **With nothing focused there is no drawer at all** (`T-216`, D-200),
+        which reverses `T-212`'s choice here for a reason `T-215`'s comparison
+        supplied. Both panels used to stay mounted on the argument that a panel
+        which disappears cannot say that nothing is selected -- but SPEC §2
+        gives Explore four surfaces and none of them is a drawer, both approved
+        Explore captures leave this corner empty, and the sentence was never
+        this drawer's only home: `MapSearchRail`'s focus row says "Nothing is
+        focused. Choose a result to focus it." on the one surface SPEC §2 *does*
+        give Explore, which is also the step D-130's journey is on while nothing
+        is selected. What settled it is the share `T-216` made the gate measure:
+        two collapsed panels saying "nothing focused" are 4.5 % of an 844 px
+        field, and the approved `compact` composition spends 10.3 % on all of
+        its chrome together -- so the surface saying the least was the one with
+        no room.
+
+        The camera's controls are the rail's last child rather than a float in
+        the same corner. In the approved Focus capture the drawer is full
+        height at the inline end and the zoom float is at the bottom end
+        underneath it, so the drawer paints over the camera controls: a reader
+        who opens Quick Read cannot zoom the graph they are reading about, which
+        is the *Focus Not Obscured* failure SPEC §8 cites, one surface over.
+        Sharing the rail costs the drawer about 60 px and costs the reader
+        nothing.
+      */}
+      <div className="map__endrail">
+        {focus.focus !== null && (
+          <div className="map__drawer" data-map-chrome>
+            <MapQuickRead
+              focus={focus.focus}
+              entity={hood.centre}
+              error={hood.centreError}
+              onRetry={hood.reload}
+              relations={neighbourhood?.active ?? []}
+              loading={hood.status === "loading"}
+            />
+
+            <MapRelatedList
+              focus={focus.focus}
+              neighbourhood={neighbourhood}
+              status={hood.status}
+              error={hood.neighbourhoodError}
+              onRetry={hood.reload}
+              depth={hood.depth}
+              onDepthChange={hood.setDepth}
+              graph={graph}
+              onFocus={focus.focusEntity}
+              peek={peek}
+              placement={placement}
+            />
+          </div>
+        )}
+
+        <div className="map__zoom row" role="group" aria-label={t("map.controls")} data-map-chrome>
+          <button type="button" className="button" onClick={zoomIn} disabled={!drawn}>
+            {t("map.zoomIn")}
+          </button>
+          <button type="button" className="button" onClick={zoomOut} disabled={!drawn}>
+            {t("map.zoomOut")}
+          </button>
+          <button type="button" className="button" onClick={resetView} disabled={!drawn}>
+            {t("map.resetView")}
+          </button>
+        </div>
+      </div>
+
+      {/* The quietest surface on the field: the bottom start (SPEC §2, §7 row 8). */}
+      <div className="map__float map__float--legend" data-map-chrome>
+        <MapLegend />
       </div>
 
       {/*
         The one Peek, rendered in the one place (invariant 13).
 
-        It is here rather than in the search rail because `T-208` made the
-        panels foldable, and a Peek rendered inside a collapsed `<details>` is
-        a card nobody can see -- while the pointer that opened it was on the
-        canvas, which has no other way to say what a mark states. Below the
-        stage rather than above it, because a transient card that resizes the
-        container makes the renderer re-measure on every hover.
+        It is not inside any panel, because `T-208` made the panels foldable
+        and a Peek rendered inside a collapsed `<details>` is a card nobody can
+        see -- while the pointer that opened it was on the canvas, which has no
+        other way to say what a mark states. It is the route's, and it floats
+        at the field's block end rather than in the flow, because a transient
+        card that resizes anything makes the renderer re-measure on every
+        hover. It is deliberately not measured as chrome: it is the reader's
+        own momentary card, it closes on leaving the mark or on Escape, and
+        re-placing every neighbour card underneath it would make the
+        constellation flicker as the pointer crossed the stage.
       */}
       {peek.peek !== null && <MapPeekCard peek={peek.peek} onClose={() => peek.close()} />}
-
-      {picture.kind === "pending" && <p className="muted">{t("map.canvas.pending")}</p>}
-      {picture.kind === "nothing" && <p className="muted">{t("map.canvas.nothing")}</p>}
-      {/*
-        The pointer path is an enhancement over the DOM path, and this sentence
-        is where the Map says so: the marks are one view of a list that is
-        right below, and everything a mark can do a row can do.
-      */}
-      <p className="faint" data-map-stage-companion>
-        {t("map.stage.companion")}
-      </p>
-
-      <MapOutline
-        graph={graph}
-        revision={snapshotId + pages}
-        focus={focus.focus}
-        onFocus={focus.focusEntity}
-        peek={peek}
-        // The companion opens itself whenever it is the only view of the
-        // graph: no renderer, a refused container, or nothing drawn yet.
-        preferOpen={!drawing}
-      />
-
-      <MapQuickRead
-        focus={focus.focus}
-        entity={hood.centre}
-        error={hood.centreError}
-        onRetry={hood.reload}
-        relations={neighbourhood?.active ?? []}
-        loading={hood.status === "loading"}
-      />
-
-      <MapRelatedList
-        focus={focus.focus}
-        neighbourhood={neighbourhood}
-        status={hood.status}
-        error={hood.neighbourhoodError}
-        onRetry={hood.reload}
-        depth={hood.depth}
-        onDepthChange={hood.setDepth}
-        graph={graph}
-        onFocus={focus.focusEntity}
-        peek={peek}
-        placement={placement}
-      />
-
-      <MapLegend />
     </div>
   );
 }

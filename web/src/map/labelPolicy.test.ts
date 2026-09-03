@@ -24,12 +24,25 @@ import {
   nodeLabelVisibility,
   truncateForDisplay,
 } from "./labelPolicy";
-import { EMPTY_VIEW_STATE, MAP_INTERACTIONS, type MapViewState } from "./mapStyle";
+import { edge } from "../test/graphRecords";
+import {
+  EMPTY_VIEW_STATE,
+  MAP_INTERACTIONS,
+  NODE_PROVENANCE_MARK,
+  UNRECOGNISED_PROVENANCE_MARK,
+  markFieldScale,
+  type MapViewState,
+} from "./mapStyle";
+import { PROVENANCE_CLASSES } from "../api/vocabulary";
 
 /** A real knowledge-unit label: a whole sentence, which is what `library.py` stores. */
 const STATEMENT =
   "The model's autonomy loop is intent, then context, then action, then feedback, and " +
   "removing any one of the four turns the remaining three into a demo rather than a system.";
+
+/** The node under test, and the other end of an edge from it. */
+const NODE = "youtube:v:KU-000001";
+const OTHER = "youtube:v:KU-000002";
 
 function view(overrides: Partial<MapViewState> = {}): MapViewState {
   return { ...EMPTY_VIEW_STATE, ...overrides };
@@ -119,21 +132,21 @@ describe("label density", () => {
   it("draws no forced label on an unfocused overview", () => {
     // The gate's pile of 86 sentences: with nothing selected, every node is
     // `normal` and every label is left to Sigma's grid and size threshold.
-    expect(nodeLabelVisibility("normal", view())).toBe("auto");
+    expect(nodeLabelVisibility(NODE, "normal", view())).toBe("auto");
   });
 
   it("silences unrelated nodes once something is focused, without removing them", () => {
     const focused = view({ selectedNode: "youtube:v:KU-000001" });
-    expect(nodeLabelVisibility("normal", focused)).toBe("hidden");
+    expect(nodeLabelVisibility(NODE, "normal", focused)).toBe("hidden");
     // "hidden" is the *label*. The mark itself is dimmed, not removed --
     // asserted over in `mapStyle.test.ts`, where visibility lives.
   });
 
   it("always names the focus and the thing being peeked at", () => {
     const focused = view({ selectedNode: "youtube:v:KU-000001" });
-    expect(nodeLabelVisibility("selected", focused)).toBe("visible");
-    expect(nodeLabelVisibility("hovered", focused)).toBe("visible");
-    expect(nodeLabelVisibility("hovered", view())).toBe("visible");
+    expect(nodeLabelVisibility(NODE, "selected", focused)).toBe("visible");
+    expect(nodeLabelVisibility(NODE, "hovered", focused)).toBe("visible");
+    expect(nodeLabelVisibility(NODE, "hovered", view())).toBe("visible");
   });
 
   it("names the neighbours of a focus up to the stated budget, then hands them back", () => {
@@ -141,7 +154,7 @@ describe("label density", () => {
       selectedNode: "youtube:v:KU-000001",
       neighbourNodes: neighbours(MAP_LABEL_NEIGHBOUR_BUDGET),
     });
-    expect(nodeLabelVisibility("neighbour", within)).toBe("visible");
+    expect(nodeLabelVisibility(NODE, "neighbour", within)).toBe("visible");
 
     const beyond = view({
       selectedNode: "youtube:v:KU-000001",
@@ -150,7 +163,7 @@ describe("label density", () => {
     // Over budget costs legibility, never data: the labels go back to Sigma's
     // grid, and every neighbour is still a mark and still in the semantic
     // related list (ADR 0005 invariant 13).
-    expect(nodeLabelVisibility("neighbour", beyond)).toBe("auto");
+    expect(nodeLabelVisibility(NODE, "neighbour", beyond)).toBe("auto");
   });
 
   it("forces no more neighbour labels than a real fan-out can show (D-145)", () => {
@@ -164,23 +177,82 @@ describe("label density", () => {
     expect(MAP_LABEL_NEIGHBOUR_BUDGET).toBeLessThanOrEqual(4);
   });
 
+  it("draws no label for a node the orbit has given a card (`T-214`)", () => {
+    // The same statement twice in the same place, the lower copy under the
+    // upper one, is the "no graph label under a card" clause ADR 0006 states.
+    // The focused node is *always* carded, so this has to beat `selected`.
+    const carded = view({
+      selectedNode: NODE,
+      neighbourNodes: neighbours(2),
+      cardedNodes: new Set([NODE, "youtube:v:KU-0"]),
+    });
+    expect(nodeLabelVisibility(NODE, "selected", carded)).toBe("hidden");
+    expect(nodeLabelVisibility("youtube:v:KU-0", "neighbour", carded)).toBe("hidden");
+    // And a neighbour the orbit *counted* rather than placed keeps its label,
+    // because nothing else on screen names that one.
+    expect(nodeLabelVisibility("youtube:v:KU-1", "neighbour", carded)).toBe("visible");
+  });
+
   it("names a relation only on an active path", () => {
-    expect(edgeLabelVisibility("selected")).toBe("visible");
-    expect(edgeLabelVisibility("hovered")).toBe("visible");
-    expect(edgeLabelVisibility("neighbour")).toBe("hidden");
-    expect(edgeLabelVisibility("normal")).toBe("hidden");
+    expect(edgeLabelVisibility(edge(NODE, OTHER), "selected", view())).toBe("visible");
+    expect(edgeLabelVisibility(edge(NODE, OTHER), "hovered", view())).toBe("visible");
+    expect(edgeLabelVisibility(edge(NODE, OTHER), "neighbour", view())).toBe("hidden");
+    expect(edgeLabelVisibility(edge(NODE, OTHER), "normal", view())).toBe("hidden");
+  });
+
+  it("leaves a relation to its pill once both its endpoints are carded (`T-214`)", () => {
+    const carded = view({ selectedNode: NODE, cardedNodes: new Set([NODE, OTHER]) });
+    expect(edgeLabelVisibility(edge(NODE, OTHER), "selected", carded)).toBe("hidden");
+    // One endpoint carded is not enough: the other end has no card naming it,
+    // so the canvas label is still the only place that relation appears.
+    const half = view({ selectedNode: NODE, cardedNodes: new Set([NODE]) });
+    expect(edgeLabelVisibility(edge(NODE, OTHER), "selected", half)).toBe("visible");
   });
 
   it("states the zoom and density rule as settings rather than leaving it to a default", () => {
     // D-122: "the Map must have a stated policy rather than inherit whatever a
-    // default draws". `T-209` measured all four in a browser and kept them.
+    // default draws". `T-209` measured all four in a browser and `T-216`
+    // re-measured them there after the sizing model changed under them.
     expect(MAP_LABEL_SETTINGS.renderLabels).toBe(true);
     expect(MAP_LABEL_SETTINGS.renderEdgeLabels).toBe(true);
     expect(MAP_LABEL_SETTINGS.labelDensity).toBeGreaterThan(0);
-    // Sigma's defaults are a 100 px grid cell and a 6 px size threshold, which
-    // are numbers for dots with short words beside them.
+    // Sigma's default cell is 100 px, which is a number for dots with short
+    // words beside them rather than for sentences.
     expect(MAP_LABEL_SETTINGS.labelGridCellSize).toBeGreaterThan(100);
-    expect(MAP_LABEL_SETTINGS.labelRenderedSizeThreshold).toBeGreaterThan(6);
+  });
+
+  it("rations the overview by density and never by provenance (`T-216`)", () => {
+    /*
+     * D-197 changed what `labelRenderedSizeThreshold` can mean, and this is
+     * the clause that keeps the new meaning honest.
+     *
+     * A mark's drawn size used to be a function of the *framing*, so 14 px
+     * was crossed by widening the window as readily as by zooming in -- which
+     * is how the overview came to draw forty labels at 2852 and eight at
+     * 1440. A mark is now sized in screen pixels from the field's own width,
+     * and `NODE_PROVENANCE_MARK` gives its four shapes four different radii on
+     * purpose: each shape encloses a different area, so the radii are what
+     * make the four read as the same weight (ADR 0005 invariant 15 -- the
+     * sizes are not a ranking).
+     *
+     * A threshold above the smallest of them would therefore silence a
+     * *circle* while a diamond in the same cell spoke, and the overview's
+     * label ration would have become a statement about provenance that no
+     * field makes. So the threshold has to sit below the smallest mark any
+     * field draws at rest, and the rationing is left to the grid.
+     */
+    const smallest = Math.min(
+      ...PROVENANCE_CLASSES.map((provenance) => NODE_PROVENANCE_MARK[provenance].size),
+      UNRECOGNISED_PROVENANCE_MARK.size,
+    );
+    // `markFieldScale` floors at the reference width, so the narrowest field
+    // there is draws the smallest mark there is.
+    expect(MAP_LABEL_SETTINGS.labelRenderedSizeThreshold).toBeLessThan(
+      smallest * markFieldScale(0),
+    );
+    // And it is above zero, because it still has a job: two presses of
+    // zoom-out take every mark under it and the field goes silent.
+    expect(MAP_LABEL_SETTINGS.labelRenderedSizeThreshold).toBeGreaterThan(0);
   });
 
   it("keeps a relation name short enough to sit on a line", () => {

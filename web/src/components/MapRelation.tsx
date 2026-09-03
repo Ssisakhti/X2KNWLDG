@@ -28,7 +28,8 @@
  * to find out which way the relation runs.
  */
 
-import type { ActiveRelation } from "../map/neighbourhood";
+import { MAP_EDGE_LABEL_CHARS, cutToBudget } from "../map/labelPolicy";
+import type { ActiveRelation, RelationDirection } from "../map/neighbourhood";
 import { useI18n } from "../i18n";
 import { formatConfidence } from "../lib/format";
 import { ProvenanceBadge, VocabularyBadge } from "./Provenance";
@@ -76,6 +77,78 @@ export function RelationCue({
           {t("reader.relations.confidence")}: {formatConfidence(record.confidence) ?? <Missing />}
         </span>
       )}
+    </span>
+  );
+}
+
+/**
+ * The same connection as a horizontal pill, for the Directional Orbit
+ * (`T-213`, SPEC §4).
+ *
+ * Here rather than in a second module, because this file is *the* place a
+ * relation is named: a pill that glossed or ordered the vocabulary differently
+ * from `RelationCue` would describe one edge two ways on one screen. What it
+ * changes is only what a diagram can carry -- the endpoint nearer the centre
+ * is a word or a `local_id` instead of a full identifier, and the badges are
+ * one glyph instead of two labels.
+ *
+ * **Direction is spelled out, not implied by side.** A bare arrow is the same
+ * glyph on both sides -- the relation flows towards the reading end *into* the
+ * focus on one side and *out of* it on the other -- so an arrow alone states
+ * position, not direction. The pill reads `exemplifies -> focus` or
+ * `focus -> supports`, and the order mirrors with the script because the
+ * elements are laid out logically.
+ *
+ * **The near end of a hop-2 relation is its parent, not the focus.** `nearId`
+ * carries that name; naming the focus there would state a relation the records
+ * do not contain.
+ */
+export function RelationPill({
+  relation,
+  direction,
+  vocabulary,
+  nearId,
+}: {
+  /** The relation as the record spells it. Never prettified. */
+  relation: string;
+  direction: RelationDirection;
+  vocabulary: string | null;
+  /** The endpoint nearer the centre: a `local_id`, or `null` for the focus. */
+  nearId: string | null;
+}) {
+  const { t } = useI18n();
+  const cut = cutToBudget(relation, MAP_EDGE_LABEL_CHARS);
+  const name = (
+    <strong className="map__pill-name">
+      {cut.shown ?? relation}
+      {cut.truncated && <span aria-hidden="true">…</span>}
+    </strong>
+  );
+  const near = (
+    <span className="map__pill-near">
+      {nearId === null ? t("map.orbit.focus") : nearId}
+    </span>
+  );
+  const arrow = <span aria-hidden="true">→</span>;
+
+  return (
+    <span className="row map__pill-body" data-relation-direction={direction}>
+      {direction === "incoming" ? (
+        <>
+          {name}
+          {arrow}
+          {near}
+        </>
+      ) : (
+        <>
+          {near}
+          {arrow}
+          {name}
+        </>
+      )}
+      <span className="map__pill-vocab" aria-hidden="true">
+        {vocabulary === "canonical" ? "◆" : "◇"}
+      </span>
     </span>
   );
 }

@@ -20,9 +20,9 @@
  * 2. **Density is a rule, not a hope.** A label is drawn when the policy names
  *    a reason to draw it, and the reasons are: it is the focus, it is the node
  *    under the pointer or the keyboard, it is one of a *bounded* number of
- *    neighbours of the focus, or -- with nothing focused -- the camera has
- *    zoomed in far enough that Sigma's own label grid can place it without
- *    collisions. The overview never attempts 86 sentences again.
+ *    neighbours of the focus, or -- with nothing focused -- Sigma's own label
+ *    grid has room for it in its cell, which the camera coming in makes more
+ *    of. The overview never attempts 86 sentences again.
  *
  * The mechanism for the second half is Sigma's, deliberately: `labelVisibility`
  * per item decides *whether the policy forces a label*, and the three settings
@@ -36,6 +36,7 @@
  * edges would be the same mistake with smaller words.
  */
 
+import type { IndexedRelation } from "../api/contract";
 import type { MapInteraction, MapViewState } from "./mapStyle";
 
 /** What Sigma may do with a label the policy has not forced. */
@@ -89,16 +90,20 @@ export const MAP_EDGE_LABEL_CHARS = 32;
  * drew nine sentences into a cluster about 250 px across -- ForceAtlas2 pulls
  * a node's neighbours *towards* it, so a fan-out is the densest part of the
  * picture, which is the worst place to bypass Sigma's label grid. Sigma's own
- * budget for that area, at `labelGridCellSize: 180`, is one or two labels.
+ * budget for that area was one or two labels at the `labelGridCellSize: 180`
+ * of the day, and is one at the 560 `T-216` measured.
  *
  * Four is the largest fan-out that stayed readable. Above it the neighbours
  * keep their marks, their emphasis and their place in the semantic related
  * list, and their labels go back to `"auto"` so the grid decides which ones
  * fit. A budget that is exceeded therefore costs legibility, never data.
  *
- * It is deliberately the same number as `MAP_STAGE_CARD_BUDGET` and for the
- * same measured reason, but it stays a separate constant: they bound
- * different things, and one of them will move without the other.
+ * It used to be deliberately the same number as `MAP_STAGE_CARD_BUDGET`, for
+ * the same measured reason, while remaining a separate constant. `T-213`
+ * retired that one: the Directional Orbit places cards by direction and hop
+ * rather than by what fits around a mark, so the number of *cards* is now a
+ * property of the field's tier and this stays the only label budget. The two
+ * bounded different things, which is why one could go without the other.
  */
 export const MAP_LABEL_NEIGHBOUR_BUDGET = 4;
 
@@ -113,32 +118,54 @@ export const MAP_LABEL_NEIGHBOUR_BUDGET = 4;
  * - `edgeLabelAnchors: "nodeLabels"` keeps an edge label tied to a node that
  *   already has one, which is Sigma's own way of saying the same thing the
  *   edge policy says.
- * - `labelDensity: 1` with `labelGridCellSize: 180` is the overview budget: at
- *   most one automatic label per 180x180 px cell of the viewport. On a stage
- *   around 900x600 that is roughly fifteen labels rather than eighty-six.
- * - `labelRenderedSizeThreshold: 14` is the zoom rule. A node must be drawn at
- *   least 14 px across before it may claim an automatic label, and node size
- *   grows with the camera, so the overview is quiet and zooming in is what
- *   makes it speak. Raised from Sigma's 6 because 6 is a threshold for dots
- *   with words beside them, not for sentences.
+ * - `labelDensity: 1` with `labelGridCellSize: 560` is the overview budget: at
+ *   most one automatic label per 560x560 px cell of the viewport, and the
+ *   biggest mark in a cell is the one that gets it. On the review field that
+ *   is **ten labels over 86 marks**, and five at 1440x900 -- against the eight
+ *   and the five the approved composition draws (`SPEC.md` §3, §17).
+ * - `labelRenderedSizeThreshold: 6` is the zoom rule, re-expressed rather than
+ *   retired (`T-216`, D-197). A node must still be drawn at least this many
+ *   pixels across before it may claim an automatic label. What changed is what
+ *   moves that number: until `T-216` a mark's drawn size was a function of the
+ *   *framing*, so 14 was crossed by making the window wider as readily as by
+ *   zooming in -- which is exactly how the overview came to draw forty labels
+ *   at the review viewport and eight at 1440. A mark is now sized in screen
+ *   pixels from the field's own width (`MAP_SIZE_SETTINGS`,
+ *   `markFieldScale`), and the camera is the only thing left that changes it:
+ *   Sigma divides every size by `zoomToSizeRatioFunction(ratio)`, so a mark
+ *   grows as `1 / sqrt(ratio)` coming in and shrinks going out.
+ *
+ *   The value has to sit **below the smallest mark any field draws at rest**,
+ *   and that is why it is 6 rather than 14. `NODE_PROVENANCE_MARK`'s smallest
+ *   is 9, `markFieldScale` floors at 0.675, so the smallest mark at rest is
+ *   6.1 px on any field -- and a threshold above it would silence a *circle*
+ *   while a diamond in the same cell spoke, turning a density rule into a
+ *   statement about provenance that no field makes (ADR 0005 invariant 15).
+ *   Below 6.1 the rule bites on the camera alone, which is what it is for: two
+ *   zoom-outs take every mark under it and the field goes silent.
+ *
+ *   The other half of "zoom in and it speaks" was always Sigma's own and is
+ *   untouched: the grid hands out `ceil(labelDensity / ratio^2)` labels per
+ *   cell, so one press of zoom-in raises the budget from one per cell to
+ *   three while the viewport culls the cells that left the screen.
  * - `hideLabelsOnMove: true` drops labels while the camera is panning or
  *   zooming. Text that reflows every frame is unreadable anyway, and the
  *   labels return the moment the camera stops.
  *
- * `T-209` measured these four on the real graph in Chrome and kept all four:
- * the framed overview draws **8 labels over 86 marks**, and two zoom presses
- * make about twelve speak in the visible area, which is exactly the "quiet
- * until you look closer" D-122 asked for. They are stated here, once, so that
- * re-measuring means editing a value rather than finding where the behaviour
- * came from.
+ * `T-209` measured these four on the real graph in Chrome, and `T-216`
+ * re-measured them there after the sizing model changed under them: the
+ * framed overview draws **ten labels over 86 marks** at 2852x1688 and five at
+ * 1440x900, which is the "quiet until you look closer" D-122 asked for at both
+ * ends rather than at one. They are stated here, once, so that re-measuring
+ * means editing a value rather than finding where the behaviour came from.
  */
 export const MAP_LABEL_SETTINGS = {
   renderLabels: true,
   renderEdgeLabels: true,
   edgeLabelAnchors: "nodeLabels",
   labelDensity: 1,
-  labelGridCellSize: 180,
-  labelRenderedSizeThreshold: 14,
+  labelGridCellSize: 560,
+  labelRenderedSizeThreshold: 6,
   hideLabelsOnMove: true,
 } as const;
 
@@ -213,17 +240,32 @@ export function isTruncated(displayed: string | null): boolean {
  * Whether the policy forces this node's label, leaves it to Sigma, or refuses
  * it.
  *
- * `"hidden"` appears in exactly one case, and it is not a way of removing a
- * node: with a focus on stage, an unrelated node keeps its mark and its
- * position and loses only its *label*, because a screen carrying a focused
- * statement plus eighty ambient sentences is the pile D-122 exists to prevent.
- * The mark stays drawn and dimmed -- de-emphasised, never represented as
- * absent (§5 `T-205`).
+ * `"hidden"` appears in two cases, and neither is a way of removing a node.
+ *
+ * With a focus on stage, an unrelated node keeps its mark and its position and
+ * loses only its *label*, because a screen carrying a focused statement plus
+ * eighty ambient sentences is the pile D-122 exists to prevent. The mark stays
+ * drawn and dimmed -- de-emphasised, never represented as absent (§5 `T-205`).
+ *
+ * The second is `T-214`'s, and it is the same argument at a different scale: a
+ * node the Directional Orbit has given a **card** already has its statement on
+ * screen, in more of it than a label can carry and with the cut marked. Drawing
+ * the label as well puts the same sentence twice in the same place, the lower
+ * copy underneath the upper one -- which is exactly the "no graph label under a
+ * card" clause ADR 0006 clause 5 states. A carded node loses its label; a
+ * neighbour the orbit counted rather than placed keeps it, so every neighbour
+ * is still named one way or the other.
+ *
+ * Note the order: the card clause is checked *before* the interaction, because
+ * the focused node is always carded and `"selected"` would otherwise force its
+ * label straight back under its own card.
  */
 export function nodeLabelVisibility(
+  key: string,
   interaction: MapInteraction,
   view: MapViewState,
 ): MapLabelVisibility {
+  if (view.cardedNodes.has(key)) return "hidden";
   if (interaction === "selected" || interaction === "hovered") return "visible";
   if (interaction === "neighbour") {
     return view.neighbourNodes.size <= MAP_LABEL_NEIGHBOUR_BUDGET ? "visible" : "auto";
@@ -238,7 +280,20 @@ export function nodeLabelVisibility(
  * whatever is under the pointer or the keyboard. Everything else is `"hidden"`,
  * which is why turning `renderEdgeLabels` on does not put 118 words on the
  * overview.
+ *
+ * `T-214` adds the clause the node rule gained: an edge whose **both**
+ * endpoints carry orbit cards is already named, horizontally and in full, by
+ * the relation pill the orbit seated clear of every card. Drawing the canvas
+ * label as well writes the relation twice in one place, the lower copy under a
+ * card -- which is the clause ADR 0006 clause 5 states. An edge running from a
+ * carded node to a neighbour the orbit only *counted* keeps its label, because
+ * nothing else on screen names that one.
  */
-export function edgeLabelVisibility(interaction: MapInteraction): MapLabelVisibility {
+export function edgeLabelVisibility(
+  record: IndexedRelation,
+  interaction: MapInteraction,
+  view: MapViewState,
+): MapLabelVisibility {
+  if (view.cardedNodes.has(record.from_id) && view.cardedNodes.has(record.to_id)) return "hidden";
   return interaction === "selected" || interaction === "hovered" ? "visible" : "hidden";
 }

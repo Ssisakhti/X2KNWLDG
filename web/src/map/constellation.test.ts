@@ -1,554 +1,600 @@
 /**
- * The on-stage density policy (`T-207`, D-132, risk R20).
+ * The Directional Orbit (`T-213`, ADR 0006 clause 3, D-152, risk R20).
  *
- * The failure this policy exists to prevent is an HTML card per node -- a
- * "graph" that is a pile of cards with no topology under it, which is exactly
- * what the `T-202` gate observed when it drew every label at once. The failure
- * it must not *cause* is a neighbour that has no card and no other trace, so
- * every clause here returns a counted reason and the counts are what the
- * related list states.
+ * Two failures bracket this composition, and both have happened on this route.
+ * The one it exists to prevent is a Focus that cannot be read: cards pinned to
+ * ForceAtlas marks, competing with labels and edges in one coordinate system,
+ * with no visual centre -- the screen `T-211`'s review rejected. The one it
+ * must not *cause* is a neighbour that has no card and no other trace, so
+ * every refusal below returns a counted reason and `orbitAccountsFor` is
+ * asserted at every tier.
  *
- * Tested against a stub position lookup rather than a renderer: the policy is
- * arithmetic over anchors and a box, and asserting it through a canvas would
- * be asserting Sigma's camera instead.
+ * Tested as arithmetic, because that is what it is: given a field, a
+ * neighbourhood and the chrome's rectangles it returns coordinates, and
+ * asserting them through a canvas would be asserting Sigma's camera instead.
+ * That is also the property the acceptance criterion "changing focus is
+ * stable" rests on, and it is checked here directly.
  */
 
 import { describe, expect, it } from "vitest";
 
-import type { EntityRef } from "../api/contract";
-import { concept, unit } from "../test/graphRecords";
+import type { EntityRef, IndexedRelation } from "../api/contract";
+import { edge, expressesConcept, unit } from "../test/graphRecords";
 import {
-  MAP_STAGE_CARD_BOX,
-  MAP_STAGE_CARD_BUDGET,
-  MAP_STAGE_CARD_GAP,
-  MAP_STAGE_CARD_INSET,
-  MAP_STAGE_NEIGHBOUR_CHARS,
-  MAP_STAGE_PRIMARY_BOX,
-  MAP_STAGE_PRIMARY_CHARS,
+  ORBIT_COMPACT_MIN_WIDTH,
+  ORBIT_FULL_MIN_WIDTH,
+  ORBIT_PILL_MIN_WIDTH,
+  ORBIT_TIERS,
   STAGE_OMISSIONS,
-  placeConstellation,
-  stageCardRect,
+  orbitAccountsFor,
+  orbitMinimumWidth,
+  orbitTier,
+  placeOrbit,
   stageCardsOverlap,
+  type OrbitPlacement,
+  type OrbitSide,
   type StageOmission,
-  type StagePlacement,
+  type StageRect,
 } from "./constellation";
-import type { MapPoint } from "./mapSession";
-import type { RelatedEntity } from "./neighbourhood";
+import type { ActiveRelation, RelatedEntity, RelationDirection } from "./neighbourhood";
 
-const STAGE = { width: 900, height: 600 };
+/** The review viewport's field: 2852 less the drawer, as `T-212` measured it. */
+const FULL = { width: 2260, height: 1632 };
+/** A 1440x900 field, which is the tier boundary the browser gate walks. */
+const COMPACT = { width: 1440, height: 844 };
 
-/**
- * A roomier stage and a small card, for the tests about the *clauses*.
- *
- * The policy's clause order and its accounting are arithmetic over anchors and
- * a box; asserting them with the shipped 320x248 card would mean hand-placing
- * eight anchors that provably miss each other on one stage, and the test would
- * then be about that arrangement. The shipped boxes have tests of their own
- * below -- both of them regressions from what `T-209` measured in a browser.
- */
-const STAGE_WIDE = { width: 1600, height: 1200 };
-const TEST_BOX = { width: 120, height: 80 };
+const CENTRE = "youtube:pqlWNihgdjI:KU-000001";
 
-/** A related entity, reduced to what the policy reads: its identity. */
-function related(record: EntityRef, hops = 1): RelatedEntity {
-  return { globalId: record.global_id, record, hops, toCentre: [], relations: [] };
+function active(
+  record: IndexedRelation,
+  direction: RelationDirection,
+  otherId: string,
+): ActiveRelation {
+  return { record, direction, otherId };
 }
 
-function neighbours(count: number): RelatedEntity[] {
+/**
+ * One neighbour, stated the way the projection states it.
+ *
+ * `on` is the side of the *focus* the neighbour belongs to, which is the
+ * composition's own vocabulary -- and the record is built to match, which is
+ * the inversion this suite exists partly to pin down. `ActiveRelation`'s
+ * direction is stated from the entity it is listed under, so a relation
+ * running *into* the focus is `outgoing` in the neighbour's own row. Reading
+ * that field as the side put every card on the wrong half of the field, and
+ * the real graph is what showed it: five `exemplifies` edges pointing at one
+ * entity were drawn as though they left it.
+ *
+ * `parentId` / `toParent` carry what a mark further out hangs off -- the other
+ * field `T-213` needed and `projectNeighbourhood` now records.
+ */
+function related(
+  record: EntityRef,
+  {
+    hops = 1,
+    on = "incoming" as OrbitSide,
+    parentId = CENTRE,
+    relation,
+  }: {
+    hops?: number;
+    on?: OrbitSide;
+    parentId?: string | null;
+    relation?: IndexedRelation;
+  } = {},
+): RelatedEntity {
+  const id = record.global_id;
+  const near = parentId ?? CENTRE;
+  // Into the focus means the neighbour is the record's `from_id`, which its
+  // own row calls `outgoing`.
+  const line = relation ?? (on === "incoming" ? edge(id, near) : edge(near, id));
+  const direction: RelationDirection = on === "incoming" ? "outgoing" : "incoming";
+  const cue = active(line, direction, near);
+  const toCentre = hops === 1 ? [cue] : [];
+  return {
+    globalId: id,
+    record,
+    hops,
+    toCentre,
+    relations: [cue],
+    parentId,
+    toParent: parentId === null ? [] : [cue],
+  };
+}
+
+/** `count` neighbours on one side of the focus, in the list's own order. */
+function side(on: OrbitSide, count: number, from = 100): RelatedEntity[] {
   return Array.from({ length: count }, (_value, index) =>
-    related(unit(`KU-10000${index}`)),
+    related(unit(`KU-${from + index}`), { on }),
   );
 }
 
-/** Anchors by id, and `null` for anything unlisted -- which is "not loaded". */
-function positions(points: Record<string, MapPoint>) {
-  return (globalId: string) => points[globalId] ?? null;
+function rectOf(placement: OrbitPlacement, globalId: string): StageRect {
+  const card = [placement.centre, ...placement.cards].find(
+    (candidate) => candidate?.globalId === globalId,
+  );
+  if (card === undefined || card === null) throw new Error(`no card for ${globalId}`);
+  return card.rect;
 }
 
-/**
- * Anchors whose `TEST_BOX` cards provably miss each other, on `STAGE_WIDE`.
- *
- * All of them sit in one quadrant, so every card opens the same way and the
- * spacing argument is one subtraction: 200 px apart, a 120x80 card and a
- * 12 px gap, so consecutive cards are 68 px clear horizontally and 108 px
- * clear vertically. Anchors either side of the stage's midpoint would flip
- * `align`/`above` and could then collide while being 200 px apart, which is
- * the kind of arrangement a test should not have to reason about.
- */
-function spread(entities: readonly RelatedEntity[], from = 0): Record<string, MapPoint> {
-  const points: Record<string, MapPoint> = {};
-  entities.forEach((entity, index) => {
-    points[entity.globalId] = {
-      x: 100 + ((index + from) % 4) * 200,
-      y: 100 + Math.floor((index + from) / 4) * 200,
-    };
-  });
-  return points;
+/** Every rectangle the composition draws: cards and pills alike. */
+function drawnRects(placement: OrbitPlacement): { id: string; rect: StageRect }[] {
+  const cards = [placement.centre, ...placement.cards]
+    .filter((card): card is NonNullable<typeof card> => card !== null)
+    .map((card) => ({ id: card.globalId, rect: card.rect }));
+  const pills = placement.edges.map((line) => ({
+    id: `pill:${line.key}`,
+    rect: line.pill.rect,
+  }));
+  return [...cards, ...pills];
 }
 
-/** `placeConstellation` over `spread`'s anchors: the wide stage, the small card. */
-function placeSpread(
-  input: Omit<Parameters<typeof placeConstellation>[0], "stage" | "box" | "primaryBox">,
-) {
-  return placeConstellation({
-    ...input,
-    stage: STAGE_WIDE,
-    box: TEST_BOX,
-    primaryBox: TEST_BOX,
-  });
-}
-
-describe("the stage card policy", () => {
-  it("states its own budgets rather than hiding them in a component", () => {
-    expect(MAP_STAGE_CARD_BUDGET).toBeGreaterThan(0);
-    // A card is a block of text, and how much room it takes is measured
-    // rather than argued: `T-209` laid the real route out in Chrome and these
-    // are the boxes it got back (D-145).
-    expect(MAP_STAGE_CARD_BOX.width).toBeGreaterThan(0);
-    expect(MAP_STAGE_CARD_BOX.height).toBeGreaterThan(0);
-    expect(MAP_STAGE_PRIMARY_BOX.width).toBeGreaterThan(MAP_STAGE_CARD_BOX.width);
-    expect(MAP_STAGE_CARD_GAP).toBeGreaterThan(0);
-    expect(MAP_STAGE_PRIMARY_CHARS).toBeGreaterThan(MAP_STAGE_NEIGHBOUR_CHARS);
+describe("which composition a field can hold", () => {
+  it("names the three tiers at their stated boundaries", () => {
+    expect(orbitTier(ORBIT_FULL_MIN_WIDTH)).toBe("full");
+    expect(orbitTier(ORBIT_FULL_MIN_WIDTH - 1)).toBe("compact");
+    expect(orbitTier(ORBIT_COMPACT_MIN_WIDTH)).toBe("compact");
+    expect(orbitTier(ORBIT_COMPACT_MIN_WIDTH - 1)).toBe("stack");
+    expect(orbitTier(0)).toBe("stack");
   });
 
-  it("places the selected card and the neighbours that fit", () => {
-    const centre = unit("KU-000001");
-    const rows = neighbours(2);
-    const placement = placeSpread({
-      centreId: centre.global_id,
-      related: rows,
-      position: positions({
-        // The far corner, so the primary card is nowhere near the grid.
-        [centre.global_id]: { x: 1400, y: 1000 },
-        ...spread(rows),
-      }),
+  it("places nothing and counts nothing at the stack tier", () => {
+    // SPEC §5's third composition is not a smaller orbit: it is the route's
+    // own document, where every relation is a row and *none* is dropped. So
+    // the honest omission count here is zero, not twelve.
+    const neighbours = [...side("incoming", 4), ...side("outgoing", 4, 200)];
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: neighbours,
+      field: { width: 390, height: 844 },
     });
-    expect(placement.primary?.globalId).toBe(centre.global_id);
-    expect(placement.cards.map((card) => card.globalId)).toEqual(
-      rows.map((row) => row.globalId),
-    );
+    expect(placement.tier).toBe("stack");
+    expect(placement.centre).toBeNull();
+    expect(placement.cards).toEqual([]);
     expect(placement.omittedTotal).toBe(0);
-    // Every neighbour card carries the entity it is a card *for*, so the view
-    // never has to look a record up by id and cannot look up the wrong one.
-    expect(placement.cards[0]?.related?.globalId).toBe(rows[0]?.globalId);
+    expect(orbitAccountsFor(placement, neighbours)).toBe(true);
   });
 
-  it("opens a card away from the edge it is nearest", () => {
-    // Logical alignment, computed from the anchor rather than from the
-    // language: the card grows towards the middle of the stage in both.
-    const centre = unit("KU-000001");
-    const near = placeConstellation({
-      centreId: centre.global_id,
-      related: [],
-      position: positions({ [centre.global_id]: { x: 100, y: 100 } }),
-      stage: STAGE,
+  it("places nothing on a field that has not been measured yet", () => {
+    // The container is sized in CSS and measured after layout, so a zero box
+    // is the first render rather than an error -- and placing everything at
+    // the origin would be a picture of nothing.
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: side("outgoing", 3),
+      field: { width: 0, height: 0 },
+      tier: "full",
     });
-    const far = placeConstellation({
-      centreId: centre.global_id,
-      related: [],
-      position: positions({ [centre.global_id]: { x: 800, y: 500 } }),
-      stage: STAGE,
-    });
-    expect(near.primary?.align).toBe("start");
-    expect(near.primary?.above).toBe(false);
-    expect(far.primary?.align).toBe("end");
-    expect(far.primary?.above).toBe(true);
+    expect(placement.centre).toBeNull();
+    expect(placement.cards).toEqual([]);
   });
 
-  it("refuses a card for a neighbour the Map has not drawn, and says which clause", () => {
-    const rows = neighbours(3);
-    const placement = placeSpread({
-      centreId: null,
-      related: rows,
-      // Only the first has a mark. The other two are entities the pages have
-      // not reached, so there is nothing to anchor to.
-      position: positions(spread(rows.slice(0, 1))),
+  it("places nothing with no selection", () => {
+    const placement = placeOrbit({ centreId: null, related: [], field: FULL });
+    expect(placement.centre).toBeNull();
+  });
+});
+
+describe("each tier's boxes fit the field its own boundary promises", () => {
+  // Arithmetic rather than taste, and the reason the `compact` boxes are
+  // smaller than the mockup drew at 1440: SPEC §5 puts that tier's floor at
+  // 900 px, so its centre card and one card a side have to fit in 900. A tier
+  // that refuses every card it exists to place would be honest and useless.
+  it.each([
+    ["full", ORBIT_FULL_MIN_WIDTH],
+    ["compact", ORBIT_COMPACT_MIN_WIDTH],
+  ] as const)("%s holds a centre card and a card a side at its own minimum", (tier, width) => {
+    expect(orbitMinimumWidth(ORBIT_TIERS[tier])).toBeLessThanOrEqual(width);
+    const neighbours = [...side("incoming", 1), ...side("outgoing", 1, 200)];
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: neighbours,
+      field: { width, height: 640 },
     });
-    expect(placement.cards).toHaveLength(1);
-    expect(placement.omitted.not_loaded).toBe(2);
-    expect(placement.omittedTotal).toBe(2);
+    expect(placement.tier).toBe(tier);
+    expect(placement.cards).toHaveLength(2);
+    expect(placement.omittedTotal).toBe(0);
+  });
+});
+
+describe("the composition itself", () => {
+  it("puts the focused card at the centre of the field", () => {
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: [...side("incoming", 3), ...side("outgoing", 3, 200)],
+      field: FULL,
+    });
+    const centre = placement.centre;
+    expect(centre).not.toBeNull();
+    const rect = centre?.rect as StageRect;
+    expect((rect.left + rect.right) / 2).toBeCloseTo(FULL.width / 2, 6);
+    expect((rect.top + rect.bottom) / 2).toBeCloseTo(FULL.height / 2, 6);
+    // Bigger than any neighbour's, which is one of the four means SPEC §6
+    // uses to make it the unmistakable centre.
+    const primary = ORBIT_TIERS.full.primaryBox;
+    expect(rect.right - rect.left).toBe(primary.width);
+    for (const card of placement.cards) {
+      expect(card.rect.right - card.rect.left).toBeLessThan(primary.width);
+    }
   });
 
-  it("refuses a card for a mark the camera has moved off the stage", () => {
-    const rows = neighbours(2);
-    const placement = placeConstellation({
-      centreId: null,
-      related: rows,
-      position: positions({
-        // A `y` with room for a card below it: the fit clause needs
-        // `height + gap + inset` of clear stage on one side of the mark.
-        [rows[0]!.globalId]: { x: 400, y: 150 },
-        // Beyond the inset, so its card would be clipped -- and a clipped card
-        // hides the very truncation marker that makes a cut visible.
-        [rows[1]!.globalId]: { x: STAGE.width - MAP_STAGE_CARD_INSET + 1, y: 150 },
-      }),
-      stage: STAGE,
+  it("puts incoming relations at the inline start and outgoing at the inline end", () => {
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: [...side("incoming", 3), ...side("outgoing", 3, 200)],
+      field: FULL,
     });
-    expect(placement.cards.map((card) => card.globalId)).toEqual([rows[0]?.globalId]);
-    expect(placement.omitted.off_stage).toBe(1);
+    const middle = FULL.width / 2;
+    for (const card of placement.cards) {
+      if (card.side === "incoming") expect(card.port.x).toBeLessThan(middle);
+      else expect(card.port.x).toBeGreaterThan(middle);
+    }
+    expect(placement.cards.some((card) => card.side === "incoming")).toBe(true);
+    expect(placement.cards.some((card) => card.side === "outgoing")).toBe(true);
   });
 
-  it("refuses a card that would cover one already placed, instead of stacking it", () => {
-    const rows = neighbours(2);
-    const placement = placeConstellation({
-      centreId: null,
-      related: rows,
-      position: positions({
-        [rows[0]!.globalId]: { x: 400, y: 150 },
-        [rows[1]!.globalId]: { x: 404, y: 152 },
-      }),
-      stage: STAGE,
-    });
-    expect(placement.cards).toHaveLength(1);
-    expect(placement.omitted.crowded).toBe(1);
-  });
-
-  it("gives the selected card its own rectangle, so a neighbour never lands on top of it", () => {
-    const centre = unit("KU-000001");
-    const rows = neighbours(1);
-    const placement = placeConstellation({
-      centreId: centre.global_id,
-      related: rows,
-      position: positions({
-        [centre.global_id]: { x: 400, y: 150 },
-        [rows[0]!.globalId]: { x: 410, y: 155 },
-      }),
-      stage: STAGE,
-    });
-    expect(placement.primary).not.toBeNull();
-    expect(placement.cards).toHaveLength(0);
-    expect(placement.omitted.crowded).toBe(1);
-  });
-
-  it("caps the neighbour cards at the stated budget, and the primary is not one of them", () => {
-    const centre = unit("KU-000001");
-    const rows = neighbours(MAP_STAGE_CARD_BUDGET + 3);
-    const placement = placeSpread({
-      centreId: centre.global_id,
-      related: rows,
-      position: positions({
-        [centre.global_id]: { x: 1500, y: 1100 },
-        ...spread(rows),
-      }),
-    });
-    expect(placement.cards).toHaveLength(MAP_STAGE_CARD_BUDGET);
-    expect(placement.primary).not.toBeNull();
-    expect(placement.omitted.budget).toBe(3);
-    // The cards kept are the first of the list's own deterministic order, so
-    // which cards appear is reproducible rather than a race with the layout.
-    expect(placement.cards.map((card) => card.globalId)).toEqual(
-      rows.slice(0, MAP_STAGE_CARD_BUDGET).map((row) => row.globalId),
+  it("mirrors the sides under a right-to-left script, and only the sides", () => {
+    // Incoming-first is a *reading* order (D-012): in Persian the incoming
+    // side is the right, where reading starts. The records are untouched --
+    // the same relation, the same direction, the other half of the field.
+    const neighbours = [...side("incoming", 3), ...side("outgoing", 3, 200)];
+    const ltr = placeOrbit({ centreId: CENTRE, related: neighbours, field: FULL });
+    const rtl = placeOrbit({ centreId: CENTRE, related: neighbours, field: FULL, rtl: true });
+    const middle = FULL.width / 2;
+    for (const card of rtl.cards) {
+      if (card.side === "incoming") expect(card.port.x).toBeGreaterThan(middle);
+      else expect(card.port.x).toBeLessThan(middle);
+    }
+    expect(rtl.cards.map((card) => card.globalId).sort()).toEqual(
+      ltr.cards.map((card) => card.globalId).sort(),
     );
+    for (const line of rtl.edges) {
+      const same = ltr.edges.find((other) => other.key === line.key);
+      expect(same?.relation).toBe(line.relation);
+      expect(same?.direction).toBe(line.direction);
+    }
   });
 
-  it("spends the budget on cards a reader can read, not on ones it refused", () => {
-    // A crowded card costs nothing: crowding is checked before the budget, so
-    // an overlapping anchor does not use up a slot a later neighbour could.
-    const rows = neighbours(MAP_STAGE_CARD_BUDGET + 1);
-    const points = spread(rows.slice(1));
-    // The first neighbour lands on the second's anchor.
-    points[rows[0]!.globalId] = { ...points[rows[1]!.globalId]! };
-    const placement = placeSpread({
-      centreId: null,
-      related: rows,
-      position: positions(points),
+  it("reads hop count as distance from the centre", () => {
+    const near = related(unit("KU-100"), { on: "outgoing" });
+    const far = related(unit("KU-200"), {
+      hops: 2,
+      on: "outgoing",
+      parentId: near.globalId,
     });
-    expect(placement.cards).toHaveLength(MAP_STAGE_CARD_BUDGET);
-    expect(placement.omitted.crowded).toBe(1);
-    expect(placement.omitted.budget).toBe(0);
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: [near, far],
+      field: FULL,
+    });
+    const nearCard = placement.cards.find((card) => card.hops === 1);
+    const farCard = placement.cards.find((card) => card.hops === 2);
+    expect(nearCard).toBeDefined();
+    expect(farCard).toBeDefined();
+    const middle = FULL.width / 2;
+    expect(Math.abs((farCard?.port.x ?? 0) - middle)).toBeGreaterThan(
+      Math.abs((nearCard?.port.x ?? 0) - middle),
+    );
+    // And it takes its parent's side, because it has no relation to the
+    // centre to take a direction from.
+    expect(farCard?.side).toBe(nearCard?.side);
   });
 
-  it("every refused neighbour is counted exactly once, under one reason", () => {
-    const rows = neighbours(MAP_STAGE_CARD_BUDGET + 4);
-    const points = spread(rows.slice(0, MAP_STAGE_CARD_BUDGET + 1));
-    // One off the stage, one crowded, one unplaced for want of a mark, and the
-    // rest over budget.
-    points[rows[0]!.globalId] = { x: -50, y: 300 };
-    points[rows[1]!.globalId] = { ...points[rows[2]!.globalId]! };
-    delete points[rows[3]!.globalId];
-    const placement = placeSpread({
-      centreId: null,
-      related: rows,
-      position: positions(points),
+  it("draws a mark further out from the card it is actually joined to", () => {
+    // SPEC §4: "a hop-2 edge leaves the hop-1 card it is actually joined to,
+    // never a phantom point on the ring". Drawing it from the centre would
+    // put a relation on screen that the records do not contain.
+    const near = related(unit("KU-100"), { on: "outgoing" });
+    const far = related(unit("KU-200"), {
+      hops: 2,
+      on: "outgoing",
+      parentId: near.globalId,
+    });
+    const placement = placeOrbit({ centreId: CENTRE, related: [near, far], field: FULL });
+    const nearCard = placement.cards.find((card) => card.globalId === near.globalId);
+    const farEdge = placement.edges.find((line) => line.globalId === far.globalId);
+    expect(farEdge?.from).toEqual(nearCard?.port);
+    // And the pill names that parent rather than the focus.
+    expect(farEdge?.nearId).toBe(near.record.local_id);
+    const nearEdge = placement.edges.find((line) => line.globalId === near.globalId);
+    expect(nearEdge?.nearId).toBeNull();
+  });
+
+  it("withdraws and counts a mark whose nearer neighbour has no card", () => {
+    // Its parent was refused, so there is no honest starting point for the
+    // edge. Both the card and the relation come off the field together: a
+    // mark whose place states a hop and a side with nothing joining it to
+    // anything is the phantom the clause above forbids.
+    const orphan = related(unit("KU-300"), {
+      hops: 2,
+      on: "outgoing",
+      parentId: "youtube:pqlWNihgdjI:KU-999",
+    });
+    const placement = placeOrbit({ centreId: CENTRE, related: [orphan], field: FULL });
+    expect(placement.cards).toEqual([]);
+    expect(placement.edges).toEqual([]);
+    expect(placement.omitted.unanchored).toBe(1);
+    expect(orbitAccountsFor(placement, [orphan])).toBe(true);
+  });
+
+  it("counts a neighbour whose records state no direction to place it by", () => {
+    // A relation with no direction is not placed on a side and no side is
+    // invented for it (SPEC §4). It keeps its row in the related list.
+    const loop = unit("KU-400");
+    const line = edge(loop.global_id, loop.global_id, "refines");
+    const odd: RelatedEntity = {
+      globalId: loop.global_id,
+      record: loop,
+      hops: 1,
+      toCentre: [active(line, "self", loop.global_id)],
+      relations: [active(line, "self", loop.global_id)],
+      parentId: null,
+      toParent: [],
+    };
+    const placement = placeOrbit({ centreId: CENTRE, related: [odd], field: FULL });
+    expect(placement.cards).toEqual([]);
+    expect(placement.omitted.unanchored).toBe(1);
+    expect(orbitAccountsFor(placement, [odd])).toBe(true);
+  });
+
+  it("draws one ring per hop it actually placed, and none for a hop it did not", () => {
+    const near = related(unit("KU-100"), { on: "outgoing" });
+    const placement = placeOrbit({ centreId: CENTRE, related: [near], field: FULL });
+    expect(placement.rings.map((ring) => ring.hop)).toEqual([1]);
+  });
+
+  it("labels only the sides it drew something on", () => {
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: side("outgoing", 2),
+      field: FULL,
+    });
+    expect(placement.sides.map((label) => label.side)).toEqual(["outgoing"]);
+  });
+
+  it("reads direction from the focus's end of the relation, not the neighbour's", () => {
+    // The defect the real graph found. `exemplifies` running
+    // `KU-000029 -> KU-000028` is `outgoing` in KU-000029's own row and
+    // `incoming` to the focus, and the composition is about the focus: the
+    // card belongs at the inline start and its pill must read
+    // `exemplifies -> focus` rather than `focus -> exemplifies`.
+    const neighbour = unit("KU-100");
+    const into: RelatedEntity = {
+      globalId: neighbour.global_id,
+      record: neighbour,
+      hops: 1,
+      toCentre: [active(edge(neighbour.global_id, CENTRE, "exemplifies"), "outgoing", CENTRE)],
+      relations: [],
+      parentId: CENTRE,
+      toParent: [],
+    };
+    const placement = placeOrbit({ centreId: CENTRE, related: [into], field: FULL });
+    expect(placement.cards[0]?.side).toBe("incoming");
+    expect(placement.cards[0]?.port.x).toBeLessThan(FULL.width / 2);
+    expect(placement.edges[0]?.direction).toBe("incoming");
+    expect(placement.edges[0]?.nearId).toBeNull();
+  });
+});
+
+describe("nothing is drawn over anything", () => {
+  it("keeps every card and every pill inside the field", () => {
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: [...side("incoming", 4), ...side("outgoing", 4, 200)],
+      field: FULL,
+    });
+    for (const { id, rect } of drawnRects(placement)) {
+      expect(`${id}:${rect.left >= 0}`).toBe(`${id}:true`);
+      expect(`${id}:${rect.top >= 0}`).toBe(`${id}:true`);
+      expect(`${id}:${rect.right <= FULL.width}`).toBe(`${id}:true`);
+      expect(`${id}:${rect.bottom <= FULL.height}`).toBe(`${id}:true`);
+    }
+  });
+
+  it("overlaps no card with another card, and no pill with any card", () => {
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: [...side("incoming", 4), ...side("outgoing", 4, 200)],
+      field: FULL,
+    });
+    const rects = drawnRects(placement);
+    const hits: string[] = [];
+    for (let i = 0; i < rects.length; i += 1) {
+      for (let j = i + 1; j < rects.length; j += 1) {
+        const a = rects[i];
+        const b = rects[j];
+        if (a === undefined || b === undefined) continue;
+        if (stageCardsOverlap(a.rect, b.rect)) hits.push(`${a.id} over ${b.id}`);
+      }
+    }
+    expect(hits).toEqual([]);
+  });
+
+  it("refuses a card that would be drawn under a floating control, and counts it", () => {
+    // The workspace put the controls *on* the field (`T-212`), and a card
+    // under one shows its first two words and hides the visible truncation
+    // marker -- the one silent cut D-131 forbids, arriving from a new
+    // direction. The rectangles are the route's own measurements.
+    const neighbours = side("outgoing", 3);
+    const open = placeOrbit({ centreId: CENTRE, related: neighbours, field: FULL });
+    const covered = open.cards.map((card) => card.rect);
+    const blocked = placeOrbit({
+      centreId: CENTRE,
+      related: neighbours,
+      field: FULL,
+      // A control laid exactly over every card the open field placed.
+      obstacles: covered,
+    });
+    for (const card of blocked.cards) {
+      for (const chrome of covered) {
+        expect(stageCardsOverlap(card.rect, chrome)).toBe(false);
+      }
+    }
+    expect(orbitAccountsFor(blocked, neighbours)).toBe(true);
+  });
+
+  it("seats a pill off its own path rather than over a card, and says so with a leader", () => {
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: [...side("incoming", 4), ...side("outgoing", 4, 200)],
+      field: FULL,
+    });
+    expect(placement.edges.length).toBeGreaterThan(0);
+    for (const line of placement.edges) {
+      // Every pill is the reserved box, exactly: a pill that outgrew its
+      // seat would be a label over a card with nothing to notice it. The box
+      // is its own text's, bounded at both ends.
+      expect(line.pill.box.width).toBeGreaterThanOrEqual(ORBIT_PILL_MIN_WIDTH);
+      expect(line.pill.rect.right - line.pill.rect.left).toBeGreaterThanOrEqual(
+        line.pill.box.width,
+      );
+      // A lifted pill keeps a dashed leader back to its edge; one on the path
+      // does not need one.
+      if (line.pill.leader !== null) {
+        expect(line.pill.leader.from).not.toEqual(line.pill.leader.to);
+      }
+    }
+  });
+
+  it("keeps a crowded pill on its path and reports it rather than dropping the relation", () => {
+    // Every seat taken is a real outcome, and the two wrong answers are
+    // dropping the relation -- the one thing SPEC §4 insists a reader can
+    // judge before opening a card -- and moving it somewhere arbitrary
+    // without saying so.
+    const neighbours = side("outgoing", 2);
+    const open = placeOrbit({ centreId: CENTRE, related: neighbours, field: FULL });
+    const everywhere: StageRect[] = [
+      { left: 0, top: 0, right: FULL.width, bottom: FULL.height },
+    ];
+    const packed = placeOrbit({
+      centreId: CENTRE,
+      related: neighbours,
+      field: FULL,
+      obstacles: everywhere,
+    });
+    // With the whole field covered no card is placed at all, so there is no
+    // pill to crowd: the assertion is that the refusal is counted, not that a
+    // pill was drawn anyway.
+    expect(packed.cards).toEqual([]);
+    expect(packed.omitted.no_room).toBe(neighbours.length);
+    expect(open.cards.length).toBeGreaterThan(0);
+  });
+});
+
+describe("the accounting, at every tier", () => {
+  it("places two cards a side at the compact tier and counts the rest", () => {
+    // SPEC §5's `compact` tier, and the number `T-212` left to beat: framing
+    // by camera ratio placed one card at 1440x900 and counted eight.
+    const neighbours = [...side("incoming", 4), ...side("outgoing", 4, 200)];
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: neighbours,
+      field: COMPACT,
+    });
+    expect(placement.tier).toBe("compact");
+    expect(placement.cards.filter((card) => card.side === "incoming")).toHaveLength(2);
+    expect(placement.cards.filter((card) => card.side === "outgoing")).toHaveLength(2);
+    expect(placement.omitted.budget).toBe(4);
+    expect(orbitAccountsFor(placement, neighbours)).toBe(true);
+  });
+
+  it("draws no mark beyond hop 1 at the compact tier, and counts every one", () => {
+    const near = related(unit("KU-100"), { on: "outgoing" });
+    const far = [1, 2].map((index) =>
+      related(unit(`KU-20${index}`), {
+        hops: 2,
+        on: "outgoing",
+        parentId: near.globalId,
+      }),
+    );
+    const neighbours = [near, ...far];
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: neighbours,
+      field: COMPACT,
+    });
+    expect(placement.cards.every((card) => card.hops === 1)).toBe(true);
+    expect(placement.omitted.no_room).toBe(2);
+    expect(orbitAccountsFor(placement, neighbours)).toBe(true);
+  });
+
+  it("accounts for every neighbour returned, whatever the field", () => {
+    // The invariant R20 rests on: placed plus counted equals returned. Walked
+    // over a range of fields rather than asserted at one, because the clause
+    // has to hold at the boundary widths as well as the comfortable ones.
+    const neighbours = [
+      ...side("incoming", 5),
+      ...side("outgoing", 5, 200),
+      related(unit("KU-300"), {
+        hops: 2,
+        on: "outgoing",
+        parentId: "youtube:pqlWNihgdjI:KU-200",
+      }),
+    ];
+    for (const width of [900, 1024, 1440, 1999, 2000, 2260, 2852]) {
+      for (const height of [640, 844, 1632]) {
+        const placement = placeOrbit({
+          centreId: CENTRE,
+          related: neighbours,
+          field: { width, height },
+        });
+        expect(`${width}x${height}: ${orbitAccountsFor(placement, neighbours)}`).toBe(
+          `${width}x${height}: true`,
+        );
+      }
+    }
+  });
+
+  it("counts every refusal under one of the stated reasons", () => {
+    const neighbours = [...side("incoming", 6), ...side("outgoing", 6, 200)];
+    const placement = placeOrbit({
+      centreId: CENTRE,
+      related: neighbours,
+      field: COMPACT,
     });
     const counted = STAGE_OMISSIONS.reduce(
-      (sum: number, reason: StageOmission) => sum + placement.omitted[reason],
+      (sum, reason: StageOmission) => sum + placement.omitted[reason],
       0,
     );
-    expect(placement.omittedTotal).toBe(counted);
-    // The accounting is total: a returned neighbour is either on the stage or
-    // counted as absent from it, and never neither.
-    expect(placement.cards.length + placement.omittedTotal).toBe(rows.length);
+    expect(counted).toBe(placement.omittedTotal);
+    expect(placement.omittedTotal).toBeGreaterThan(0);
+  });
+});
+
+describe("the composition is stable", () => {
+  it("returns the same picture for the same inputs", () => {
+    // "Changing focus is stable and Back restores the prior focus" is the
+    // acceptance criterion, and this is the half of it the layout owns: the
+    // orbit reads no camera and no clock, so two runs agree exactly.
+    const neighbours = [...side("incoming", 3), ...side("outgoing", 3, 200)];
+    const once = placeOrbit({ centreId: CENTRE, related: neighbours, field: FULL });
+    const twice = placeOrbit({ centreId: CENTRE, related: neighbours, field: FULL });
+    expect(twice).toEqual(once);
   });
 
-  it("places nothing at all before the stage has been measured", () => {
-    // The container is sized in CSS and measured after layout, so the first
-    // render has a zero box. Placing everything at the origin would put a pile
-    // of cards in one corner and call it a constellation.
-    const rows = neighbours(2);
-    const placement = placeConstellation({
-      centreId: null,
-      related: rows,
-      position: positions(spread(rows)),
-      stage: { width: 0, height: 0 },
-      box: TEST_BOX,
-      primaryBox: TEST_BOX,
+  it("does not move a card when a neighbour it does not place is added", () => {
+    // A composition whose every card shifts when one more arrives is one a
+    // reader cannot follow between selections.
+    const base = side("outgoing", 2);
+    const before = placeOrbit({ centreId: CENTRE, related: base, field: COMPACT });
+    const after = placeOrbit({
+      centreId: CENTRE,
+      related: [...base, ...side("outgoing", 2, 300)],
+      field: COMPACT,
     });
-    expect(placement.cards).toHaveLength(0);
-    expect(placement.omitted.off_stage).toBe(2);
-  });
-
-  /*
-   * The two halves of what `T-209` measured, as regressions.
-   *
-   * The policy used to ask "is another card in this 240 px cell?", and on the
-   * real route that answered the wrong question twice. Both cases below are
-   * the numbers the browser actually produced on the busiest entity of the
-   * real 86/118 graph at a 1216x630 stage, with the shipped card boxes.
-   */
-  describe("the crowding clause, as measured in a browser (D-145)", () => {
-    /*
-     * Everything here comes from what `T-209` found on the real route, and
-     * the fix has two halves because the grid got both halves wrong.
-     *
-     * A 240 px cell answered "is another card in this cell?", which is not
-     * the question: two anchors either side of a cell boundary can be one
-     * pixel apart, and two in one cell can be 300 apart. So a neighbour card
-     * covered two thirds of the focused statement -- its identifier and the
-     * marker that says its text was cut -- while seven neighbours whose cards
-     * would have fitted were refused.
-     *
-     * And once overlap *was* the test, a second finding surfaced: a card
-     * opens towards the middle of the stage so it is not clipped, so two
-     * marks either side of the middle grow towards each other and meet. In a
-     * twenty-focus sample of the real graph that placed the focused card and
-     * not one neighbour's, at every degree. Hence the four orientations.
-     */
-    const REAL_STAGE = { width: 1216, height: 630 };
-
-    /** Every placed card's drawn rectangle, primary included. */
-    function rects(placement: StagePlacement) {
-      const boxes = placement.cards.map((card) => stageCardRect(card, MAP_STAGE_CARD_BOX));
-      return placement.primary === null
-        ? boxes
-        : [stageCardRect(placement.primary, MAP_STAGE_PRIMARY_BOX), ...boxes];
+    for (const card of before.cards) {
+      expect(rectOf(after, card.globalId)).toEqual(card.rect);
     }
-
-    /** The invariant, stated once: no two drawn cards share a pixel. */
-    function expectNoOverlap(placement: StagePlacement) {
-      const boxes = rects(placement);
-      for (let left = 0; left < boxes.length; left += 1) {
-        for (let right = left + 1; right < boxes.length; right += 1) {
-          expect(
-            stageCardsOverlap(boxes[left] as never, boxes[right] as never),
-            `cards ${left} and ${right} overlap`,
-          ).toBe(false);
-        }
-      }
-    }
-
-    it("never draws two cards over the same pixels", () => {
-      // The two anchors Chrome actually reported for the focus and its first
-      // neighbour: 77 px apart horizontally, 12 apart vertically.
-      const centre = unit("KU-000001");
-      const rows = neighbours(1);
-      const placement = placeConstellation({
-        centreId: centre.global_id,
-        related: rows,
-        position: positions({
-          [centre.global_id]: { x: 679.86, y: 70.17 },
-          [rows[0]!.globalId]: { x: 756.83, y: 82.33 },
-        }),
-        stage: REAL_STAGE,
-      });
-      expect(placement.primary).not.toBeNull();
-      expectNoOverlap(placement);
-      // Whatever the policy did with the neighbour, it accounted for it.
-      expect(placement.cards.length + placement.omittedTotal).toBe(rows.length);
-    });
-
-    it("opens a card the other way rather than covering one already placed", () => {
-      // Two marks either side of the middle, far enough apart that a card
-      // fits between them -- and the preferred orientations still collide,
-      // because both prefer to open *inwards*. This is the shape of every
-      // focus in the twenty-entity sample: the second card flips outwards
-      // instead of being refused.
-      const rows = neighbours(2);
-      const placement = placeConstellation({
-        centreId: null,
-        related: rows,
-        position: positions({
-          [rows[0]!.globalId]: { x: 300, y: 200 },
-          [rows[1]!.globalId]: { x: 700, y: 200 },
-        }),
-        stage: REAL_STAGE,
-      });
-      expect(placement.cards).toHaveLength(2);
-      expect(placement.omittedTotal).toBe(0);
-      // The second opens away from the middle: `end` was preferred and would
-      // have covered the first.
-      expect(placement.cards.map((card) => card.align)).toEqual(["start", "start"]);
-      expectNoOverlap(placement);
-    });
-
-    it("refuses a neighbour whose card fits in none of its four directions", () => {
-      // Four pixels from a card already placed: every orientation's rectangle
-      // still contains an anchor inside the other card, because a card and
-      // the pointer back to its mark are one object.
-      const rows = neighbours(2);
-      const placement = placeConstellation({
-        centreId: null,
-        related: rows,
-        position: positions({
-          [rows[0]!.globalId]: { x: 400, y: 200 },
-          [rows[1]!.globalId]: { x: 404, y: 202 },
-        }),
-        stage: REAL_STAGE,
-      });
-      expect(placement.cards).toHaveLength(1);
-      expect(placement.omitted.crowded).toBe(1);
-    });
-
-    it("refuses a card the stage has no room for, and says that rather than crowded", () => {
-      // What the shipped UI actually did before this clause existed: two cards
-      // anchored either side of the stage's middle opened *upwards*, spilled
-      // out of the top of the stage — the overlay is a sibling of the
-      // container, so nothing clips it — and had the first line of their
-      // statements covered by the panel above. A statement whose first line is
-      // hidden is the *silent* cut D-131 forbids, because nothing says it was
-      // cut: it was not, it was hidden.
-      //
-      // A card needs `height + gap + inset` of clear stage on one side of its
-      // mark, so on a 630 px stage a 296 px card leaves a band around the
-      // middle where no direction works. A mark in it keeps its emphasis, its
-      // label and its row; it gets no card, and the reason is its own.
-      const rows = neighbours(1);
-      const placement = placeConstellation({
-        centreId: null,
-        related: rows,
-        position: positions({ [rows[0]!.globalId]: { x: 600, y: 315 } }),
-        stage: REAL_STAGE,
-      });
-      expect(placement.cards).toHaveLength(0);
-      expect(placement.omitted.no_room).toBe(1);
-      // Not the reason for a mark the camera has moved away, and not the
-      // reason for a neighbour already there. Both would send a reader to fix
-      // the wrong thing.
-      expect(placement.omitted.off_stage).toBe(0);
-      expect(placement.omitted.crowded).toBe(0);
-      expect(placement.omittedTotal).toBe(1);
-    });
-
-    it("keeps every card it does place wholly on the stage", () => {
-      // The property, over the whole stage rather than one anchor: whatever
-      // the policy places is inside the container, at every position a mark
-      // could take.
-      const rows = neighbours(1);
-      for (let y = MAP_STAGE_CARD_INSET; y < REAL_STAGE.height; y += 17) {
-        for (let x = MAP_STAGE_CARD_INSET; x < REAL_STAGE.width; x += 37) {
-          const placement = placeConstellation({
-            centreId: null,
-            related: rows,
-            position: positions({ [rows[0]!.globalId]: { x, y } }),
-            stage: REAL_STAGE,
-          });
-          for (const card of placement.cards) {
-            const rect = stageCardRect(card, MAP_STAGE_CARD_BOX);
-            expect(rect.left, `card left of the stage at ${x},${y}`).toBeGreaterThanOrEqual(0);
-            expect(rect.top, `card above the stage at ${x},${y}`).toBeGreaterThanOrEqual(0);
-            expect(rect.right, `card right of the stage at ${x},${y}`).toBeLessThanOrEqual(
-              REAL_STAGE.width,
-            );
-            expect(rect.bottom, `card below the stage at ${x},${y}`).toBeLessThanOrEqual(
-              REAL_STAGE.height,
-            );
-          }
-        }
-      }
-    });
-
-    it("still guarantees the selected card, even where no direction fits", () => {
-      // D-132 guarantees *one* primary card, so it is the one card that falls
-      // back to its preferred direction rather than being dropped: a
-      // selection with nothing on screen is worse than a card partly over the
-      // edge, and the counts and Quick Read say the same thing in words
-      // either way.
-      const centre = unit("KU-000001");
-      const placement = placeConstellation({
-        centreId: centre.global_id,
-        related: [],
-        // On the stage — the inset clause is satisfied — but with no room for
-        // a 176 px card on either side of it.
-        position: positions({ [centre.global_id]: { x: 600, y: 150 } }),
-        stage: { width: 1216, height: 300 },
-      });
-      expect(placement.primary).not.toBeNull();
-      expect(placement.primary?.globalId).toBe(centre.global_id);
-    });
-
-    it("reserves the rectangle the card is actually drawn in, mark included", () => {
-      // The reserved rectangle *is* the drawn one, and it includes the mark:
-      // one computed anywhere else is a policy about nothing, and one that
-      // stopped at the card's own edge let two cards point into the same
-      // four pixels from opposite directions.
-      const card = {
-        globalId: "youtube:pqlWNihgdjI:KU-000001",
-        related: null,
-        point: { x: 500, y: 400 },
-        align: "start" as const,
-        above: false,
-      };
-      const box = { width: 200, height: 100 };
-      const gap = MAP_STAGE_CARD_GAP;
-      expect(stageCardRect(card, box)).toEqual({
-        left: 500 - gap,
-        top: 400 - gap,
-        right: 500 + gap + box.width,
-        bottom: 400 + gap + box.height,
-      });
-      // And the other way, which is the same rectangle mirrored about the mark.
-      expect(stageCardRect({ ...card, align: "end", above: true }, box)).toEqual({
-        left: 500 - gap - box.width,
-        top: 400 - gap - box.height,
-        right: 500 + gap,
-        bottom: 400 + gap,
-      });
-    });
-
-    it("places a second card once its mark is a card's width away", () => {
-      // Same side of the stage, so both prefer the same direction and only
-      // real clearance can place the second one.
-      const rows = neighbours(2);
-      const at = (gap: number) =>
-        placeConstellation({
-          centreId: null,
-          related: rows,
-          position: positions({
-            [rows[0]!.globalId]: { x: 100, y: 100 },
-            [rows[1]!.globalId]: { x: 100 + gap, y: 100 },
-          }),
-          stage: REAL_STAGE,
-        });
-      // A card reaches from its mark to the far edge of its box: the gap,
-      // then the box, and the mark's own square on the other side.
-      const clear = MAP_STAGE_CARD_BOX.width + MAP_STAGE_CARD_GAP * 2;
-      expect(at(40).cards).toHaveLength(1);
-      expect(at(clear).cards).toHaveLength(2);
-      expectNoOverlap(at(clear));
-    });
   });
 
-  it("places no primary card for a selection with no mark", () => {
-    // A focus the loaded pages do not hold is not drawn as one anywhere else
-    // either, and a card pinned to a node that is not on screen would point at
-    // nothing.
-    const placement = placeConstellation({
-      centreId: null,
-      related: [related(concept("C-000001"))],
-      position: positions({}),
-      stage: STAGE,
+  it("keeps a library-synthetic relation distinguishable on its own edge", () => {
+    // 62 of the real graph's 118 edges are synthetic, and at this scale an
+    // arrow head is two pixels: the vocabulary has to survive as data on the
+    // edge, which is what `MapOrbit` dashes it from (ADR 0005 invariant 9).
+    const synthetic = related(unit("KU-100"), {
+      on: "outgoing",
+      relation: expressesConcept(CENTRE, "youtube:pqlWNihgdjI:KU-100"),
     });
-    expect(placement.primary).toBeNull();
-    expect(placement.omitted.not_loaded).toBe(1);
+    const placement = placeOrbit({ centreId: CENTRE, related: [synthetic], field: FULL });
+    expect(placement.edges[0]?.vocabulary).toBe("library_synthetic");
   });
 });

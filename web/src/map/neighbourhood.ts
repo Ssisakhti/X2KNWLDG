@@ -119,6 +119,31 @@ export interface RelatedEntity {
   toCentre: readonly ActiveRelation[];
   /** Every relation this entity has *inside the returned neighbourhood*. */
   relations: readonly ActiveRelation[];
+  /**
+   * The neighbour one hop closer to the centre, on the path this walk found.
+   *
+   * `T-213` needs it, and needs it to be a *record* rather than an assumption.
+   * The Directional Orbit draws a hop-2 mark's edge from the hop-1 card it is
+   * actually joined to; drawing it as a spoke from the centre would put a
+   * relation on screen that the response does not contain, which is the one
+   * thing this Map does not do. For a hop-1 neighbour it is the centre's own
+   * id, and for the centre's own row -- which does not exist -- it would be
+   * `null`; `null` here means a returned node with no path to the centre over
+   * the returned edges, the case `unreachable` counts.
+   *
+   * Deterministic, and by the same rule the list's order uses: among the
+   * neighbours one hop closer, the smallest `global_id`. A breadth-first walk
+   * would otherwise hand back whichever predecessor the adjacency happened to
+   * visit first, and two runs over one response would draw two pictures.
+   */
+  parentId: string | null;
+  /**
+   * The relations joining this entity to `parentId`, in the list's order.
+   *
+   * Identical to `toCentre` for a hop-1 neighbour, because its parent *is* the
+   * centre. Empty when `parentId` is `null`.
+   */
+  toParent: readonly ActiveRelation[];
 }
 
 /**
@@ -253,6 +278,35 @@ function hopsFrom(graph: MapGraph, centreId: string): Map<string, number> {
 }
 
 /**
+ * Which neighbour a node hangs off, one hop closer to the centre (`T-213`).
+ *
+ * Read off the walk rather than carried through it, and that is the whole
+ * point: the breadth-first frontier reaches a node from whichever predecessor
+ * the adjacency list happened to offer first, so recording *that* one would
+ * make the picture depend on insertion order. Here the candidates are every
+ * neighbour a hop closer -- all of them equally true paths -- and the smallest
+ * `global_id` is chosen, which is the same tie-break the related list's own
+ * order ends on (D-133). Two runs over one response draw one picture.
+ *
+ * `null` for the centre itself and for a node the walk never reached, which is
+ * the `unreachable` case: a node with no path has no parent to name, and
+ * naming one would be the invented edge D-059 taught this Map to refuse.
+ */
+function parentsFrom(graph: MapGraph, hops: Map<string, number>): Map<string, string> {
+  const parents = new Map<string, string>();
+  for (const [globalId, distance] of hops) {
+    if (distance === 0) continue;
+    let best: string | null = null;
+    graph.forEachNeighbor(globalId, (neighbour: string) => {
+      if (hops.get(neighbour) !== distance - 1) return;
+      if (best === null || neighbour < best) best = neighbour;
+    });
+    if (best !== null) parents.set(globalId, best);
+  }
+  return parents;
+}
+
+/**
  * Project one neighbourhood response.
  *
  * Checked whole before anything is built, like a graph page: a conflicting
@@ -298,6 +352,7 @@ export function projectNeighbourhood(payload: NeighborhoodPayload): Neighbourhoo
   const centreId = payload.center_id;
   const centre = graph.hasNode(centreId) ? graph.getNodeAttribute(centreId, "record") : null;
   const hops = hopsFrom(graph, centreId);
+  const parents = parentsFrom(graph, hops);
 
   const related: RelatedEntity[] = [];
   let unreachable = 0;
@@ -305,12 +360,15 @@ export function projectNeighbourhood(payload: NeighborhoodPayload): Neighbourhoo
     if (globalId === centreId) return;
     const distance = hops.get(globalId);
     if (distance === undefined) unreachable += 1;
+    const parentId = parents.get(globalId) ?? null;
     related.push({
       globalId,
       record: attributes.record,
       hops: distance ?? 0,
       toCentre: relationsOf(graph, globalId, centreId),
       relations: relationsOf(graph, globalId),
+      parentId,
+      toParent: parentId === null ? [] : relationsOf(graph, globalId, parentId),
     });
   });
 

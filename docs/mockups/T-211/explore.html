@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>T-211 — Explore</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="workspace">
+  <header class="bar">
+    <span class="bar__brand" data-i18n="app.title"></span>
+    <nav class="bar__nav">
+      <button class="pill" data-i18n="nav.library"></button>
+      <button class="pill pill--on" data-i18n="nav.map"></button>
+    </nav>
+    <span class="bar__spacer"></span>
+    <span class="mono" id="route"></span>
+  </header>
+
+  <main class="stage" id="stage">
+    <svg class="stage__svg" id="svg"></svg>
+    <div class="stage__overlay" id="overlay"></div>
+
+    <!-- Search: a closed drawer's trigger. Opening it overlays the stage; it
+         never pushes it down the document (D-153). -->
+    <div class="float float--search">
+      <label class="searchbox">
+        <span aria-hidden="true">⌕</span>
+        <input placeholder="" id="searchinput" readonly>
+        <span class="kbd">/</span>
+      </label>
+    </div>
+
+    <div class="float float--status">
+      <div class="float__row">
+        <span class="float__num" id="ncount"></span>
+        <span class="float__label" data-i18n="map.state.nodes"></span>
+        <span class="float__sep">·</span>
+        <span class="float__num" id="ecount"></span>
+        <span class="float__label" data-i18n="map.state.edges"></span>
+      </div>
+      <div class="float__row" style="margin-block-start:var(--space-1)">
+        <span class="float__label" data-i18n="map.state.extent"></span>
+        <span id="extent" style="color:var(--fg-muted)"></span>
+      </div>
+    </div>
+
+    <div class="float float--zoom">
+      <button class="iconbtn" title="Zoom out">−</button>
+      <button class="iconbtn" title="Reset the view">⤢</button>
+      <button class="iconbtn" title="Zoom in">+</button>
+    </div>
+
+    <div class="float float--legend">
+      <div class="float__label" data-i18n="map.legend.title" style="margin-block-end:var(--space-2)"></div>
+      <div class="legend__grid" id="legend"></div>
+      <p class="legend__note" id="legendnote"></p>
+    </div>
+  </main>
+</div>
+
+<script type="module">
+import { DATA, t, LOCALE, RTL, statement, kindColour, el, svg, markPath,
+         NODE_PROVENANCE_MARK, EDGE_VOCABULARY_MARK, PROVENANCE_GLYPH,
+         MAP_LABEL_CHARS, cutToBudget, bdi } from "./render.js";
+
+document.documentElement.lang = LOCALE;
+document.body.dir = RTL ? "rtl" : "ltr";
+for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
+document.getElementById("searchinput").placeholder = t("map.search.title");
+document.getElementById("route").textContent = "#/map";
+document.getElementById("ncount").textContent = DATA.counts.nodes;
+document.getElementById("ecount").textContent = DATA.counts.edges;
+document.getElementById("extent").textContent = t("map.state.complete");
+
+const stage = document.getElementById("stage");
+const W = stage.clientWidth, H = stage.clientHeight;
+// Insets keep the field clear of the floating controls rather than centring it
+// in a column: the stage is the workspace now, not a band inside a document.
+const PAD_X = Math.round(W * 0.055), PAD_TOP = 128, PAD_BOTTOM = 150;
+const px = (n) => PAD_X + n.x * (W - PAD_X * 2);
+const py = (n) => PAD_TOP + n.y * (H - PAD_TOP - PAD_BOTTOM);
+// A mark sized for a 1280px stage disappears on a 2852px one. The ratios in
+// NODE_PROVENANCE_MARK are preserved; only the scale is viewport-derived.
+const MARK = Math.max(1, W / 1280) * 1.35;
+
+const s = document.getElementById("svg");
+s.setAttribute("viewBox", `0 0 ${W} ${H}`);
+const byId = new Map(DATA.nodes.map((n) => [n.global_id, n]));
+
+// ---- edges. Quiet: thin, low contrast, no labels at rest (labelPolicy says
+// an edge label is "hidden" unless its edge is selected or hovered).
+const gEdges = svg("g");
+for (const e of DATA.edges) {
+  const a = byId.get(e.from_id), b = byId.get(e.to_id);
+  if (!a || !b) continue;
+  const mark = EDGE_VOCABULARY_MARK[e.relation_vocabulary] ?? { size: 1.4 };
+  gEdges.appendChild(svg("line", {
+    x1: px(a), y1: py(a), x2: px(b), y2: py(b),
+    stroke: "var(--edge-faint)",
+    "stroke-width": mark.size * 0.62 * Math.max(1, MARK * 0.55),
+    "stroke-linecap": "round",
+    // A library-synthetic edge is dashed as well as diamond-headed, so the
+    // vocabulary distinction survives at overview scale where a head is a
+    // couple of pixels.
+    "stroke-dasharray": e.relation_vocabulary === "library_synthetic"
+      ? `${2.5 * MARK} ${3 * MARK}` : "",
+  }));
+}
+s.appendChild(gEdges);
+
+// ---- nodes: shape by provenance, hue by kind. Both channels, never one.
+const gNodes = svg("g");
+for (const n of DATA.nodes) {
+  const mark = NODE_PROVENANCE_MARK[n.provenance_class] ?? { shape: "triangle", size: 10 };
+  const colour = kindColour(n.kind);
+  const x = px(n), y = py(n), r = mark.size * 0.5 * MARK;
+  let shape;
+  if (mark.shape === "circle") shape = svg("circle", { cx: x, cy: y, r });
+  else shape = svg("path", { d: markPath(mark.shape, r), transform: `translate(${x},${y})` });
+  shape.setAttribute("fill", colour);
+  shape.setAttribute("fill-opacity", "0.92");
+  shape.setAttribute("stroke", "var(--stage-ground)");
+  shape.setAttribute("stroke-width", String(1.6 * Math.max(1, MARK * 0.6)));
+  gNodes.appendChild(shape);
+}
+s.appendChild(gNodes);
+
+// ---- labels. The measured Explore density is 8 labels over 86 marks: a label
+// appears by semantic zoom, hover or focus, never as a standing card field.
+// Two rules decide which: one label per grid cell, as labelGridCellSize does,
+// and then a real overlap test -- a label that would sit under another is not
+// drawn at all. "No text collision" is an acceptance clause, not a hope.
+const overlay = document.getElementById("overlay");
+const CELL = 300;
+const LABEL_W = 300, LABEL_H = 34, LABEL_GAP = 14;
+const busiest = new Map();
+for (const e of DATA.edges) {
+  busiest.set(e.from_id, (busiest.get(e.from_id) ?? 0) + 1);
+  busiest.set(e.to_id, (busiest.get(e.to_id) ?? 0) + 1);
+}
+const boxes = [];
+const overlaps = (a) => boxes.some((b) =>
+  a.left < b.right + LABEL_GAP && b.left - LABEL_GAP < a.right &&
+  a.top < b.bottom + LABEL_GAP && b.top - LABEL_GAP < a.bottom);
+
+const cells = new Set();
+// Densest first, so the label budget is spent on the nodes worth naming.
+const candidates = [...DATA.nodes].sort(
+  (a, b) => (busiest.get(b.global_id) ?? 0) - (busiest.get(a.global_id) ?? 0));
+
+let drawn = 0;
+for (const n of candidates) {
+  if (drawn >= 8) break;
+  const x = px(n), y = py(n);
+  const cell = `${Math.round(x / CELL)}:${Math.round(y / CELL)}`;
+  if (cells.has(cell)) continue;
+  const box = {
+    left: x - LABEL_W / 2, right: x + LABEL_W / 2,
+    top: y + 12 * MARK, bottom: y + 12 * MARK + LABEL_H,
+  };
+  if (box.left < 24 || box.right > W - 24 || box.bottom > H - 24) continue;
+  if (overlaps(box)) continue;
+  // A label may not sit on a mark either. Text over a node reads as a label
+  // for the wrong node, and the acceptance clause is "no text collision", not
+  // "no text-on-text collision".
+  const onMark = DATA.nodes.some((m) => {
+    const mx = px(m), my = py(m), pad = 9 * MARK;
+    return mx > box.left - pad && mx < box.right + pad
+        && my > box.top - pad && my < box.bottom + pad;
+  });
+  if (onMark) continue;
+  cells.add(cell);
+  boxes.push(box);
+  drawn += 1;
+
+  const { shown, truncated } = cutToBudget(statement(n), MAP_LABEL_CHARS.normal);
+  const tag = el("div", "");
+  tag.appendChild(bdi(shown + (truncated ? "…" : "")));
+  Object.assign(tag.style, {
+    position: "absolute", insetInlineStart: `${x}px`, insetBlockStart: `${box.top}px`,
+    transform: "translateX(-50%)", inlineSize: `${LABEL_W}px`, textAlign: "center",
+    fontSize: "var(--text-sm)", lineHeight: "1.35", color: "var(--fg-muted)",
+    textShadow: "0 0 8px var(--stage-ground), 0 0 16px var(--stage-ground), 0 0 24px var(--stage-ground)",
+  });
+  overlay.appendChild(tag);
+}
+
+// ---- legend: shape + border + glyph + word, so provenance survives greyscale.
+const legend = document.getElementById("legend");
+for (const [cls, shapeKey] of [["source", "circle"], ["derived", "diamond"], ["user", "square"]]) {
+  const row = el("div", "legend__item");
+  const mark = NODE_PROVENANCE_MARK[cls];
+  const mini = svg("svg", { width: 16, height: 16, viewBox: "0 0 16 16" });
+  const r = 6;
+  const sh = mark.shape === "circle"
+    ? svg("circle", { cx: 8, cy: 8, r })
+    : svg("path", { d: markPath(mark.shape, r), transform: "translate(8,8)" });
+  sh.setAttribute("fill", "none");
+  sh.setAttribute("stroke", "currentColor");
+  sh.setAttribute("stroke-width", "1.6");
+  mini.appendChild(sh);
+  row.appendChild(mini);
+  row.appendChild(el("span", "badge__glyph", PROVENANCE_GLYPH[cls]));
+  row.appendChild(el("span", "", `${t("provenance." + cls)} · ${t("map.legend.shape." + shapeKey)}`));
+  legend.appendChild(row);
+}
+const families = [...new Set(DATA.nodes.map((n) => n.kind))].slice(0, 3);
+for (const kind of families) {
+  const row = el("div", "legend__item");
+  const sw = el("span", "kindswatch");
+  sw.style.background = kindColour(kind);
+  row.appendChild(sw);
+  row.appendChild(el("span", "", kind));
+  legend.appendChild(row);
+}
+document.getElementById("legendnote").textContent = RTL
+  ? "شکل و حاشیه، خاستگاه را می‌گویند؛ رنگ تنها گونه را یادآوری می‌کند. نقطهٔ پایانی گراف صافیِ گونه ندارد، پس این راهنما رنگ را توضیح می‌دهد، نه آنکه بر پایهٔ آن صافی کند."
+  : "Shape and border state provenance; hue only reinforces kind. /api/graph takes no kind filter, so the legend explains the hue rather than filtering by it.";
+</script>
+</body>
+</html>

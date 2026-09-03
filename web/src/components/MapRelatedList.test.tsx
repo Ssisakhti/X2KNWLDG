@@ -21,7 +21,7 @@ import { ApiFailure } from "../api/errors";
 import { concept, edge, expressesConcept, unit } from "../test/graphRecords";
 import { renderApp } from "../test/render";
 import { createMapGraph, nodeAttributes } from "../map/graphProjection";
-import { MAP_STAGE_CARD_BUDGET, placeConstellation } from "../map/constellation";
+import { ORBIT_TIERS, placeOrbit } from "../map/constellation";
 import { projectNeighbourhood, type Neighbourhood } from "../map/neighbourhood";
 import type { MapPeekBinding } from "../map/useMapPeek";
 import { MapRelatedList } from "./MapRelatedList";
@@ -108,10 +108,10 @@ describe("the related list", () => {
     );
   });
 
-  it("lists a neighbour whose card the stage could not place, and says why", () => {
-    // The whole of R20's mitigation in one assertion: more neighbours than the
-    // budget allows, every one of them still a row.
-    const many = Array.from({ length: MAP_STAGE_CARD_BUDGET + 3 }, (_value, index) =>
+  it("lists a neighbour whose card the orbit could not place, and says why", () => {
+    // The whole of R20's mitigation in one assertion: more neighbours than
+    // the compact tier places a side, every one of them still a row.
+    const many = Array.from({ length: ORBIT_TIERS.compact.perSide + 3 }, (_value, index) =>
       unit(`KU-20000${index}`),
     );
     const neighbourhood = projectNeighbourhood({
@@ -121,14 +121,12 @@ describe("the related list", () => {
       edges: many.map((record) => edge(KU1, record.global_id, "supports")),
       truncated: false,
     });
-    const placement = placeConstellation({
+    // A compact field, where the tier places two cards a side and counts the
+    // rest against its own composition rather than against a camera.
+    const placement = placeOrbit({
       centreId: KU1,
       related: neighbourhood.related,
-      // Every mark on one point, so the policy has to refuse all but the
-      // first. The `y` is one with room for a card below it: the fit clause
-      // needs `height + gap + inset` of clear stage on one side (D-145).
-      position: () => ({ x: 400, y: 150 }),
-      stage: { width: 900, height: 600 },
+      field: { width: 1440, height: 844 },
     });
 
     list({ neighbourhood, graph: graphOf([unit("KU-000001"), ...many]), placement });
@@ -138,23 +136,24 @@ describe("the related list", () => {
     expect(
       document.querySelector("[data-map-stage-omitted]")?.getAttribute("data-map-stage-omitted"),
     ).toBe(String(placement.omittedTotal));
-    expect(document.querySelector("[data-map-stage-omission='crowded']")).not.toBeNull();
+    expect(document.querySelector("[data-map-stage-omission='budget']")).not.toBeNull();
   });
 
-  it("marks the rows whose cards *are* on the stage", () => {
+  it("marks the rows whose cards *are* on the field", () => {
     const neighbourhood = twoNeighbours();
-    const placement = placeConstellation({
+    const placement = placeOrbit({
       centreId: KU1,
       related: neighbourhood.related,
-      position: (globalId) => (globalId === KU2 ? { x: 400, y: 150 } : null),
-      stage: { width: 900, height: 600 },
+      field: { width: 2260, height: 1632 },
     });
     list({ neighbourhood, placement });
     const marked = [...document.querySelectorAll("[data-map-related-on-stage]")];
-    expect(marked).toHaveLength(1);
-    expect(marked[0]?.closest("[data-map-related-entity]")?.getAttribute(
-      "data-map-related-entity",
-    )).toBe(KU2);
+    expect(marked).toHaveLength(placement.cards.length);
+    expect(
+      marked.map((node) =>
+        node.closest("[data-map-related-entity]")?.getAttribute("data-map-related-entity"),
+      ),
+    ).toEqual(placement.cards.map((card) => card.globalId));
   });
 
   it("distinguishes a neighbour the Map has drawn from one it has not loaded", () => {

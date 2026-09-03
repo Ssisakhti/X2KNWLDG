@@ -108,6 +108,10 @@ test.describe("the states of the graph", () => {
     const first = await counts(page);
     expect(first.nodes).toBeGreaterThan(0);
 
+    // Opened first: `T-216` folded the account to its two headline numbers,
+    // because the approved capture draws that corner as a chip (D-199). The
+    // walk's own button is inside it, with the extent it continues.
+    await openPanel(page, "counts");
     await page.locator("[data-map-load-more]").click();
     await expect(page.locator(".map")).toHaveAttribute("data-map-reading", "refused");
     // The error is stated as an error, the counts survive, and they are
@@ -185,16 +189,21 @@ test.describe("the states of the picture", () => {
     // nearly-collapsed stage is accepted and reported as a picture. Nothing
     // but the stylesheet's own minimum stands between a small window and a
     // two-pixel graph labelled "drawn".
+    //
+    // The two pixels are stated by this test rather than left over from the
+    // stage's border (`T-212`): in the workspace the stage *is* the field and
+    // has no border, so `block-size: 0` collapses it to a genuine zero, which
+    // the renderer refuses -- the other state, and the subject of the two
+    // tests above. What this one is about is the height the renderer accepts.
     await withStageStyle(
       page,
-      ".map__stage{block-size:0px !important;min-block-size:0px !important}",
+      ".map__stage{block-size:2px !important;min-block-size:0px !important}",
     );
     await page.goto(mapUrl());
     await expect(page.locator('.map[data-map-canvas="drawing"]')).toBeVisible();
     const height = await page
       .locator("[data-map-stage]")
       .evaluate((element) => element.getBoundingClientRect().height);
-    // The border is all that is left of it.
     expect(height).toBeGreaterThan(0);
     expect(height).toBeLessThan(8);
     await expect(page.locator("[data-map-renderer-failed]")).toHaveCount(0);
