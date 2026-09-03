@@ -706,20 +706,31 @@ def _assemble(
                 "basis": "root_reached",
                 "single_author": single_author,
             }
-        downward = {
-            "status": "unprovable",
-            "reason": (
+        # The reason is conditioned on the *upward* claim as well as the anchor's
+        # role. Measured live on a real crossed-author chain: keyed on `role`
+        # alone, a terminal anchor whose walk never reached a root still said
+        # "complete to root", two fields away from an `upward.status` of
+        # `incomplete` that says it did not. One record, two contradictory
+        # statements, and the schema cannot compare them.
+        if role != "thread_terminal":
+            downward_reason = (
+                "anchored at the root: x thread and x replies return the anchor alone at "
+                "every credential-free tier, and a 250-post author archive held 3 of the 10 "
+                "known members"
+            )
+        elif upward["status"] == "complete":
+            downward_reason = (
                 "complete to root from a user-asserted terminal anchor; no credential-free "
                 "route can enumerate descendants to confirm the anchor is the thread's last "
                 "post"
             )
-            if role == "thread_terminal"
-            else (
-                "anchored at the root: x thread and x replies return the anchor alone at "
-                "every credential-free tier, and a 250-post author archive held 3 of the 10 "
-                "known members"
-            ),
-        }
+        else:
+            downward_reason = (
+                "the chain above this anchor is not proven complete to a root, and no "
+                "credential-free route can enumerate descendants to confirm the anchor is "
+                "the thread's last post; neither direction is established"
+            )
+        downward = {"status": "unprovable", "reason": downward_reason}
 
     included = [item["post_id"] for item in items]
     status = "PASS" if not omitted else "PARTIAL"

@@ -70,6 +70,11 @@ def test_there_is_a_fixture_for_every_measured_state() -> None:
     # honestly reach PASS, and both must exist as fixtures or the UI and the
     # validators have nothing to be tested against (the T-006 lesson).
     assert "partial-thread-root-anchor" in names
+    # The chain that dangles, measured live rather than constructed (D-221). It
+    # is the only fixture that reaches the conditional branch of
+    # `test_thread_order_is_root_first_and_parent_consistent`, so losing it
+    # makes that branch dead again without any test failing.
+    assert "partial-thread-dangling-chain" in names
     assert "partial-tier0-truncated-text" in names
     assert "fail-unavailable-post" in names
     statuses = {load(n)["coverage"]["status"] for n in names}
@@ -171,6 +176,28 @@ def test_thread_order_is_root_first_and_parent_consistent(path: Path) -> None:
         )
 
 
+def test_some_fixture_exercises_the_dangling_chain_branch() -> None:
+    """At least one capture must reach the ``else`` in the root-first test.
+
+    That test's conditional branch — the chain that honestly does not begin at a
+    root — was unreachable for the whole fixture set: it returns early unless
+    ``order.basis`` is ``parent_links`` with two or more items, and the only
+    capture meeting that was ``upward: complete``. The branch was dead and no
+    failure said so, which is what this test exists to prevent recurring.
+    """
+    reaching = [
+        name
+        for name in (p.stem for p in fixture_paths())
+        if (c := load(name))["order"]["basis"] == "parent_links"
+        and len(c["items"]) >= 2
+        and c["completeness"]["upward"]["status"] != "complete"
+    ]
+    assert reaching, (
+        "no fixture reaches the dangling-chain branch of "
+        "test_thread_order_is_root_first_and_parent_consistent"
+    )
+
+
 @pytest.mark.parametrize("path", fixture_paths(), ids=lambda p: p.stem)
 def test_coverage_accounts_for_every_expected_item(path: Path) -> None:
     """PASS is impossible while an expected item is unaccounted for."""
@@ -196,6 +223,31 @@ def test_downward_completeness_is_never_claimed(path: Path) -> None:
     """No credential-free route can enumerate descendants, so nothing may say it did."""
     capture = json.loads(path.read_text("utf-8"))
     assert capture["completeness"]["downward"]["status"] in {"unprovable", "not_applicable"}
+
+
+@pytest.mark.parametrize("path", fixture_paths(), ids=lambda p: p.stem)
+def test_no_completeness_prose_claims_what_its_own_status_denies(path: Path) -> None:
+    """The two completeness blocks are one claim and must not contradict each other.
+
+    Found by measuring a real crossed-author chain. ``downward.reason`` was
+    keyed on the anchor's *role* alone, so a terminal anchor whose upward walk
+    stopped at another author's post still read "complete to root" — two fields
+    away from an ``upward.status`` of ``incomplete``. Both halves validated:
+    ``reason`` is a free-text string and JSON Schema compares no two fields, so
+    only a cross-field check can see it. Phrase-level rather than semantic on
+    purpose: the prose that asserts a root was reached is a closed set here, and
+    a new spelling of it should have to pass this test to enter the record.
+    """
+    capture = json.loads(path.read_text("utf-8"))
+    completeness = capture["completeness"]
+    upward = completeness["upward"]
+    reason = completeness["downward"]["reason"].casefold()
+    if upward["status"] != "complete":
+        for phrase in ("complete to root", "root reached", "reached the root"):
+            assert phrase not in reason, (
+                f"{path.name}: downward.reason claims {phrase!r} while upward.status "
+                f"is {upward['status']!r} ({upward['basis']!r})"
+            )
 
 
 @pytest.mark.parametrize("path", fixture_paths(), ids=lambda p: p.stem)

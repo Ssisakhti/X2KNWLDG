@@ -218,6 +218,134 @@ def thread_capture() -> dict[str, Any]:
     }
 
 
+#: The dangling chain was acquired live over the tunnel on 2026-09-03, and this
+#: is the timestamp that acquisition recorded. Carried rather than replaced with
+#: ``REQUESTED_AT`` so the fixture is the capture the seam produced rather than a
+#: near-copy of it. Verified at build time by comparing the two documents field
+#: by field: they are equal apart from ``raw_evidence[].path``, which has to
+#: differ because the run directory is gitignored. No test can re-check that —
+#: the live run is not in the repository — so it is recorded here and in D-221
+#: rather than claimed as an assertion.
+DANGLING_REQUESTED_AT = "2026-09-03T21:51:25Z"
+
+#: Root-first, and the third id is the one the chain dangles at — a post by
+#: another author, which is why it is named and not included.
+DANGLING_CHAIN = ("1795265406191735191", "1795393908886712425")
+DANGLING_PARENT = "1795231379619274846"
+
+#: Latencies as measured on the live acquisition, in read order.
+DANGLING_LATENCY_MS = (1915, 3074, 2169)
+
+
+def local_evidence_for(post_id: str) -> dict[str, Any]:
+    """One preserved response committed under ``raw/``, digested from disk.
+
+    Nothing in these two files was sanitized — the acquisition recorded
+    ``sanitization_removed: []`` for both — so the raw and sanitized digests are
+    genuinely equal here, and both recompute from the committed bytes.
+    """
+    path = RAW / f"ylecun_convnets_{post_id}.json"
+    text = path.read_text(encoding="utf-8")
+    return {
+        "route": "xcli_guest",
+        "path": f"tests/fixtures/captures/raw/{path.name}",
+        "sha256_raw": digest(text),
+        "sha256_sanitized": digest(text),
+        "sanitization_removed": [],
+    }
+
+
+def dangling_chain_capture() -> dict[str, Any]:
+    """The PARTIAL that D-217's own test had no fixture for: a chain that dangles.
+
+    Measured live over the tunnel rather than constructed, because the shape is
+    a *claim about a provider* and constructing it would have meant recording a
+    post as unavailable that measurement says is fine (D-221). Two `ylecun`
+    posts walked from the last one; the walk stops because the parent above them
+    is by another author, which ADR 0007 puts outside the MVP. So the first item
+    keeps the ``parent_post_id`` that ``upward.unresolved_at`` names, and the
+    root-first invariant's conditional branch finally has something to run on.
+
+    The crossed parent's **bytes are never preserved** — ``_walk_upward`` stops
+    before appending it, so it is not among the records ``_preserve_reads``
+    walks. Only its id appears, in ``unresolved_at`` and in the omission's
+    reason. The other author's content is not in this repository.
+    """
+    items = []
+    evidence = []
+    for post_id in DANGLING_CHAIN:
+        record = json.loads(
+            (RAW / f"ylecun_convnets_{post_id}.json").read_text(encoding="utf-8")
+        )[0]
+        items.append(post_from(record, GUEST, dict(UNVERIFIED)))
+        evidence.append(local_evidence_for(post_id))
+    # Read order is anchor first, then upward: the reverse of item order.
+    read_order = (*reversed(DANGLING_CHAIN), DANGLING_PARENT)
+    reads = [
+        {
+            **GUEST,
+            "outcome": "ok",
+            "request_shape": f"x tweet {post_id} --tier guest --no-cache -o json",
+            "latency_ms": latency,
+            "exit_code": 0,
+        }
+        for post_id, latency in zip(read_order, DANGLING_LATENCY_MS, strict=True)
+    ]
+    return {
+        "schema_version": "1.0",
+        "acquisition": {
+            "provider": PROVIDER,
+            "requested_at": DANGLING_REQUESTED_AT,
+            "routes_read": reads,
+            "network": NETWORK,
+        },
+        "raw_evidence": evidence,
+        "anchor": {
+            "post_id": DANGLING_CHAIN[-1],
+            "role": "thread_terminal",
+            "terminal_claim": "user_asserted",
+        },
+        "items": items,
+        "order": {
+            "basis": "parent_links",
+            "note": "ordered by parent links, never by arrival order; the first item's "
+                    "parent is unresolved, so this chain does not begin at a root",
+        },
+        "completeness": {
+            "upward": {
+                "status": "incomplete",
+                "basis": "unresolved_hop",
+                "single_author": True,
+                "unresolved_at": DANGLING_PARENT,
+            },
+            # Neither direction is established, and the reason may not say
+            # otherwise: keyed on the anchor's role alone this read "complete to
+            # root" beside an `incomplete` status, which is what the live
+            # measurement caught.
+            "downward": {
+                "status": "unprovable",
+                "reason": "the chain above this anchor is not proven complete to a root, "
+                          "and no credential-free route can enumerate descendants to "
+                          "confirm the anchor is the thread's last post; neither direction "
+                          "is established",
+            },
+        },
+        "coverage": {
+            "status": "PARTIAL",
+            "expected_item_count": len(items) + 1,
+            "included_post_ids": list(DANGLING_CHAIN),
+            "omitted_items": [
+                {
+                    "post_id": DANGLING_PARENT,
+                    "reason": "the parent is by another author; third-party replies are "
+                              "outside the MVP scope (ADR 0007), so the walk stopped at "
+                              "the self-thread's first post",
+                }
+            ],
+        },
+    }
+
+
 def root_anchored_capture() -> dict[str, Any]:
     """The honest PARTIAL: anchored at a root, descendants unenumerable."""
     manifest = json.loads((RAW / "MANIFEST.json").read_text(encoding="utf-8"))
@@ -402,6 +530,7 @@ FIXTURES = {
         ["photo_with_alt__fxtwitter"],
     ),
     "pass-thread-terminal-anchor": thread_capture,
+    "partial-thread-dangling-chain": dangling_chain_capture,
     "partial-thread-root-anchor": root_anchored_capture,
     "partial-tier0-truncated-text": truncated_capture,
     "fail-unavailable-post": unavailable_capture,
