@@ -106,6 +106,16 @@
       ]
     },
     {
+      "id": "long_note_post_xl",
+      "ref": "2085840209841697126",
+      "why": "A 2967-character note post, ~6x the next longest case. Included because the 521-character case left the truncation ceiling unmeasured.",
+      "expect": [
+        "text",
+        "author",
+        "full_text_2967"
+      ]
+    },
+    {
       "id": "photo_with_alt",
       "ref": "2095206153277862026",
       "why": "Photo carrying author-written alt text.",

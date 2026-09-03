@@ -36,10 +36,10 @@
       "verified": true,
       "verified_type": "government",
       "metrics": {
-        "followers": 92383318,
+        "followers": 92383557,
         "following": 117,
         "tweets": 74269,
-        "listed": 96946,
+        "listed": 96945,
         "likes": 16982,
         "media": 28135
       },
@@ -58,7 +58,7 @@
       "likes": 3175,
       "quotes": 32,
       "bookmarks": 192,
-      "impressions": 477058
+      "impressions": 477059
     },
     "entities": {},
     "media": [

@@ -68,7 +68,7 @@ reproduced.
 
 That pattern is worth keeping in mind for `T-223`: the first version of the
 stripper matched `?token=` and `&token=` and reported a clean sweep across all
-48 cells, while ten fixtures carried the token in x-cli's JSON, where the
+52 cells, while ten fixtures carried the token in x-cli's JSON, where the
 ampersand arrives JSON-escaped as `\u0026`. The scan is only as good as the encodings it
 knows about, which is why it now runs as a separate enforced pass rather than
 trusting the redaction step's own report.

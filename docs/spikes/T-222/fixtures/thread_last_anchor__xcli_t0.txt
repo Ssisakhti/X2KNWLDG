@@ -50,10 +50,10 @@
     "metrics": {
       "replies": 84,
       "retweets": 232,
-      "likes": 1822,
+      "likes": 1823,
       "quotes": 60,
       "bookmarks": 405,
-      "impressions": 253197
+      "impressions": 253300
     },
     "entities": {
       "urls": [

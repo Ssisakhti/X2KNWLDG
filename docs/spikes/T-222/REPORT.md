@@ -18,7 +18,7 @@
 **GO, with one scope correction that needs a decision.**
 
 A no-payment, credential-free path works from this environment and is good
-enough to build Phase 2.2 on. Every Tier 0 surface answered; 48 matrix cells
+enough to build Phase 2.2 on. Every Tier 0 surface answered; 52 matrix cells
 were measured with **zero `FAIL`**.
 
 But the phase MVP as written in `PROJECT_MANAGEMENT.md` §5 is *"public single
@@ -78,16 +78,17 @@ never rounded up.
 | Self-thread, last anchor | `PASS` | `PASS` | `PASS` | `PARTIAL` |
 | Quote post | `PASS` | `PASS` | `PASS` | `PARTIAL` |
 | Long / note post (521 chars) | **`PARTIAL`** | `PASS` | `PASS` | `PARTIAL` |
+| Long / note post (**2967 chars**) | **`PARTIAL`** | `PASS` | `PASS` | `PARTIAL` |
 | Photo with alt text | `PASS` | `PASS` | `PASS` | `PARTIAL` |
 | Video, Persian | `PASS` | `PASS` | `PASS` | `PARTIAL` |
 | Animated GIF | `PASS` | `PASS` | `PASS` | `PARTIAL` |
 | Unavailable post | `PASS` | `PASS` | `PASS` | `PASS` |
 | Malformed reference | `PASS` | `PASS` | **`PARTIAL`** | `PASS` |
 
-Totals — Tier 0: 11 `PASS` / 1 `PARTIAL`. Guest: **12 `PASS` / 0 `PARTIAL`**.
-FxTwitter: 11 / 1. oEmbed: 2 `PASS` / 10 `PARTIAL`. No `FAIL` anywhere.
+Totals — Tier 0: 11 `PASS` / 2 `PARTIAL`. Guest: **13 `PASS` / 0 `PARTIAL`**.
+FxTwitter: 12 / 1. oEmbed: 2 `PASS` / 11 `PARTIAL`. No `FAIL` anywhere.
 
-The rows a matrix like this exists to catch are the two bold cells, and §4–§6
+The rows a matrix like this exists to catch are the bold cells, and §4–§6
 are about them.
 
 ## 4. Threads: request success is not completeness
@@ -126,21 +127,31 @@ named. Post order is derived from the parent chain, never from arrival order.
 
 ## 5. Tier 0 truncates long posts, and does not say so
 
-The sharpest single-post finding, on a real 521-character note post:
+The sharpest single-post finding, measured on two real note posts:
 
-| Route | Characters | Announces truncation? |
-|---|---|---|
-| x-cli Tier 0 (syndication) | **304** | **No** |
-| x-cli Tier 1 (guest) | 521 | n/a — complete |
-| FxTwitter | 521 | yes — `is_note_tweet: true` |
+| Route | 521-char post | 2967-char post | Announces truncation? |
+|---|---|---|---|
+| x-cli Tier 0 (syndication) | **304** | **280** | **No** |
+| x-cli Tier 1 (guest) | 521 | 2967 | n/a — complete |
+| FxTwitter | 521 | 2967 | yes — `is_note_tweet: true` |
 
-Tier 0 returned 58% of the text, ending in a `t.co` link, and carried **no
-field** signalling that anything was cut — no `is_note_tweet`, no `truncated`,
-no `note_tweet`. A trailing `t.co` link cannot be used to detect it either,
-because ordinary complete posts end that way too.
+Tier 0 carries **no field** signalling that anything was cut — no `is_note_tweet`,
+no `truncated`, no `note_tweet`. On the longer post it returned **280 characters
+of 2967 — 9% of the content** — cut mid-sentence at the classic tweet limit
+("…2027 will be the warmest year in recorded"), with no ellipsis and no error.
 
-This is the one place where the most conservative route is the *least* honest,
-and it is why the recommendation below is not "Tier 0 for everything".
+The 521-char case alone would have understated this badly: 304 of 521 looks like
+a margin problem, and its tail happened to end in a `t.co` link, which invites
+exactly the wrong heuristic. It is not a margin problem and the link is not a
+marker — Tier 0 returns the first 280 characters and stops. A consumer cannot
+detect the loss from the response, because a complete short post is
+indistinguishable from a truncated long one.
+
+**This is the one place where the most conservative route is the least honest**,
+and it is why the recommendation below is not "Tier 0 for everything". It is also
+the strongest argument for keeping a second route: Tier 1 and FxTwitter agreed
+character-for-character at both 521 and 2967, so cross-route agreement is a real
+verification mechanism where no in-band completeness signal exists.
 
 ## 6. Failure semantics are clean and distinguishable
 
@@ -200,7 +211,7 @@ Audited after the run, with the guest tier exercised:
   to no account) and `minted_at`. A grep for `cookie|auth_token|ct0|bearer|
   password|session` across the data and config directories produced one hit:
   `"session_id":""`, an empty field inside X's own embed payload.
-- **The fixtures are clean.** All 48 were redacted and then re-scanned; the
+- **The fixtures are clean.** All 52 were redacted and then re-scanned; the
   scan passes. The only request material found was the syndication `token`
   parameter, stripped from ten fixtures — and the first version of that
   stripper missed it, which is recorded in [`README.md`](README.md) because it
@@ -259,7 +270,7 @@ minted material, and the ADR did not name it. §11 puts this to the user.
    the thread parent-walk, which is where it is strongest. Never for a post
    that might be long, unless a Tier 1 or FxTwitter read confirms the length.
 2. **FxTwitter**, explicit opt-in per ADR 0007 §3 (`T-225`). It agreed with the
-   guest tier on **every** MVP cell including the full 521-character text, so it
+   guest tier on **every** MVP cell, character-for-character at both 521 and 2967, so it
    is a real cross-check rather than a second guess — at the cost of disclosing
    the post id. Reviewed origin `api.fxtwitter.com`; treat `200` as meaningless
    without a `tweet` object.
@@ -305,5 +316,15 @@ Carried forward as contract requirements, each traceable to a measurement above:
 - `alt_text` is real and worth carrying — 62 of 108 media objects had it (§7).
 - Raw evidence keeps its **pre-sanitization digest** alongside the sanitized
   one, and sanitization records what it removed (§8).
+- **Text completeness has no in-band signal**, so it is not assertable from one
+  route. A capture records the surface that supplied the text and, where a
+  second route was read, whether the two agreed. Tier 1 and FxTwitter matched
+  character-for-character at 521 and 2967 (§5); that agreement is the only
+  available check, and it is corroboration, not proof.
+- **A terminal anchor is an assertion, not an observation.** The parent walk
+  proves a chain is whole *from its anchor to the root*; nothing credential-free
+  proves the anchor is the thread's last post. If the product asks the user for
+  the last post, the capture must record completeness as *"complete to root from
+  a user-asserted terminal anchor"* and never as an observed fact (§4).
 
 No production integration was written in this task, as `T-222` requires.

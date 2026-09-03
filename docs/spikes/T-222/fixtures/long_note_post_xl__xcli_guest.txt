@@ -1,0 +1,66 @@
+[
+  {
+    "kind": "tweet",
+    "id": "2085840209841697126",
+    "uri": "x://tweet/2085840209841697126",
+    "url": "https://x.com/SenSanders/status/2085840209841697126",
+    "tier": 1,
+    "surfaces": [
+      "s4"
+    ],
+    "sources": [
+      "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222085840209841697126%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+    ],
+    "text": "WE MUST ADDRESS THE CLIMATE CRISIS\n\nThe last 11 years have been the hottest 11 years on record. The last three years have been the hottest three years on record. 2026 will be one of the warmest years on record, and most scientists believe 2027 will be the warmest year in recorded history.\n\nThis past year, Europe has seen four major heat waves, including the continent’s worst heat wave ever that killed more than 10,000 people. In the United States, three extreme heat waves exposed hundreds of millions of people to dangerous levels of heat. Drought is causing some of the lowest water levels ever seen for reservoirs along the Colorado River, threatening the drinking water of 40 million people. Puerto Ricans are being forced to ration water because of extreme drought. In Europe, some of the continent’s dryest conditions have caused major rivers to run so low that ships are running aground, nuclear power plants are shutting down, and historical artifacts that were previously submerged are being revealed. South Korea is in the midst of a record heat wave — with temperatures reaching 108.5° Fahrenheit, the highest temperature in the country’s history. China, India, Pakistan and Afghanistan are all experiencing torrential rain and flooding.\n\nAs a result of rising heat levels, we are seeing massive wildfires across the world, including Oregon’s worst wildfire season and fires in Washington state that have forced nearly 65,000 families to evacuate. Europe, France and Spain are experiencing destructive wildfire seasons that have forced more than 330,000 people to evacuate their homes. Portugal, Greece, Italy, Albania, Turkey, Canada, Morocco and Algeria are also experiencing destructive wildfire seasons.\n\nThis summer alone,Alaska, Louisiana, New York, New Jersey, Ohio, Oklahoma, Pennsylvania and West Virginia have all seen record rainfall events. We’ve seen 1,000-year floods in Texas, Missouri and New York. Once rare, dangerous flash flooding emergencies are now a regular part of summer for tens of millions of Americans.\n\nOne might think that, in the midst of all of this, there would be major discussions in Congress as to how best to go forward in addressing this existential crisis. Not the case. Insanely, the president of the United States continues to believe that climate change is a “hoax,” and Republican members of Congress are following their “Great Leader” over the cliff. Sadly, too many Democrats think that speaking out on climate change is “bad politics” and have remained far too silent.\n\nThat has got to change. The simple truth is that we must forcefully take on the greed of the fossil fuel industry and the stupidity of Trump.\n\nThe simple truth is that we can create millions of good-paying union jobs transforming our energy systems away from fossil fuels and into energy efficiency and sustainable energy.\n\nFor the sake of our kids, future generations and the habitability of the planet,that is exactly what we must do.",
+    "created_at": "2026-08-07T21:27:13Z",
+    "lang": "en",
+    "author": {
+      "kind": "user",
+      "id": "sensanders",
+      "uri": "x://user/sensanders",
+      "url": "https://x.com/sensanders",
+      "tier": 1,
+      "surfaces": [
+        "s4"
+      ],
+      "sources": [
+        "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222085840209841697126%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+      ],
+      "username": "SenSanders",
+      "rest_id": "29442313",
+      "name": "Sen. Bernie Sanders",
+      "created_at": "2009-04-07T13:02:35Z",
+      "description": "Sen. Sanders of Vermont, Ranking Member of U.S. Senate Committee on Health, Education, Labor \u0026 Pensions, longest-serving independent in congressional history.",
+      "location": "Vermont/DC",
+      "website": "http://www.sanders.senate.gov/",
+      "verified": true,
+      "verified_type": "government",
+      "metrics": {
+        "followers": 11576179,
+        "following": 2218,
+        "tweets": 25664,
+        "listed": 25589,
+        "likes": 353,
+        "media": 5530
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1975584474306899969/yXWzHBnK_normal.jpg",
+      "profile_banner": "https://pbs.twimg.com/profile_banners/29442313/1681315650",
+      "entities": {
+        "urls": [
+          "http://www.sanders.senate.gov/"
+        ]
+      }
+    },
+    "conversation_id": "2085840209841697126",
+    "metrics": {
+      "replies": 2460,
+      "retweets": 2238,
+      "likes": 9291,
+      "quotes": 197,
+      "bookmarks": 325,
+      "impressions": 991571
+    },
+    "entities": {},
+    "source": "Twitter Web App"
+  }
+]

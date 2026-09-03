@@ -45,7 +45,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 3261,
+        "latency_ms": 2945,
         "stderr": ""
       },
       "observed": [
@@ -64,8 +64,8 @@
       "evidence": {
         "fixture": "single_post_en__xcli_t0.txt",
         "bytes": 1594,
-        "sha256_sanitized": "cec351959e743dd3a9ed13225296f97ed7e0ac8aa23b13e2dd2a79bff61b58ea",
-        "sha256_raw_before_sanitization": "71badaa84db2b62cfec8613cf606bebc4e54691faf03f5883dc811eab175e6f7",
+        "sha256_sanitized": "452f3072cdcc3531d3e38d48515ac686a04dc7e4c469278b45e0274dd99e6032",
+        "sha256_raw_before_sanitization": "b287c7de1429fc9ea0497f177bfd9d8a0c7a03692a75de950e2f7597a1225a8d",
         "sanitization_removed": [
           "syndication request token in url x2"
         ],
@@ -90,7 +90,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 1982,
+        "latency_ms": 2348,
         "stderr": ""
       },
       "observed": [
@@ -109,8 +109,8 @@
       "evidence": {
         "fixture": "single_post_en__xcli_guest.txt",
         "bytes": 1932,
-        "sha256_sanitized": "96771edd906b25ac8e7b8045b859e346c623bb9f090988cf534db690220cace3",
-        "sha256_raw_before_sanitization": "96771edd906b25ac8e7b8045b859e346c623bb9f090988cf534db690220cace3",
+        "sha256_sanitized": "ad1c59d65e8b71a56ee5f2eace1ea8cb849c28e00e56fd38dc33eeac4b2f3b65",
+        "sha256_raw_before_sanitization": "ad1c59d65e8b71a56ee5f2eace1ea8cb849c28e00e56fd38dc33eeac4b2f3b65",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -128,7 +128,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/20",
         "cross_origin_redirect": false,
-        "latency_ms": 949,
+        "latency_ms": 916,
         "stderr": "",
         "exit": 0
       },
@@ -148,8 +148,8 @@
       "evidence": {
         "fixture": "single_post_en__fxtwitter.txt",
         "bytes": 1246,
-        "sha256_sanitized": "97318cd22e2a788e6730b7507c66ba3c6ed2dc8ba6b3a838dc8a5d9cfdd14342",
-        "sha256_raw_before_sanitization": "97318cd22e2a788e6730b7507c66ba3c6ed2dc8ba6b3a838dc8a5d9cfdd14342",
+        "sha256_sanitized": "4bc754100bc550b14d716c2f7b303c4aec0d488d267b0be519df341d6f1ca63d",
+        "sha256_raw_before_sanitization": "4bc754100bc550b14d716c2f7b303c4aec0d488d267b0be519df341d6f1ca63d",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -167,7 +167,7 @@
         "http_status": 200,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/20",
         "cross_origin_redirect": false,
-        "latency_ms": 1266,
+        "latency_ms": 1046,
         "stderr": "",
         "exit": 0
       },
@@ -211,7 +211,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 2892,
+        "latency_ms": 3159,
         "stderr": ""
       },
       "observed": [
@@ -233,8 +233,8 @@
       "evidence": {
         "fixture": "single_post_fa__xcli_t0.txt",
         "bytes": 2361,
-        "sha256_sanitized": "76d141e241603bcef72489868d03faabec99782d1ed1261b05e025ee1efa8e16",
-        "sha256_raw_before_sanitization": "56a1c78e2e62c502880e9be435dabc3f56b2318c621ca4c45338c9db299344aa",
+        "sha256_sanitized": "706a9f0f14a82b47c1051d2d6f258da4b6dc364df1bfcc8d01669395611c2e16",
+        "sha256_raw_before_sanitization": "ca134ce50abc394b4989c3eb5b806f3e9a33fe0627c5d82bb840dcf0db723331",
         "sanitization_removed": [
           "syndication request token in url x2"
         ],
@@ -259,7 +259,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 1875,
+        "latency_ms": 2154,
         "stderr": ""
       },
       "observed": [
@@ -281,8 +281,8 @@
       "evidence": {
         "fixture": "single_post_fa__xcli_guest.txt",
         "bytes": 2947,
-        "sha256_sanitized": "cf2cc5a47ed897c2e3aa93061eeb0dca21149e23f98fde66fdb67b7865ff9afd",
-        "sha256_raw_before_sanitization": "cf2cc5a47ed897c2e3aa93061eeb0dca21149e23f98fde66fdb67b7865ff9afd",
+        "sha256_sanitized": "9314be2a1d52e745a69ce6e06c9de30a2c19e99ddf617d19c51c1e558c74df04",
+        "sha256_raw_before_sanitization": "9314be2a1d52e745a69ce6e06c9de30a2c19e99ddf617d19c51c1e558c74df04",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -300,7 +300,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/2027781710667010262",
         "cross_origin_redirect": false,
-        "latency_ms": 980,
+        "latency_ms": 828,
         "stderr": "",
         "exit": 0
       },
@@ -323,8 +323,8 @@
       "evidence": {
         "fixture": "single_post_fa__fxtwitter.txt",
         "bytes": 2954,
-        "sha256_sanitized": "9e8f0e87fd9281fe5f42e43129278787a9c76d5ba1efda9453ca280c4c5f5d7c",
-        "sha256_raw_before_sanitization": "9e8f0e87fd9281fe5f42e43129278787a9c76d5ba1efda9453ca280c4c5f5d7c",
+        "sha256_sanitized": "50a95cf45d1a2c7dd17d3336f4c94d5e280f24b62e21cb2d5ee2f0063acce124",
+        "sha256_raw_before_sanitization": "50a95cf45d1a2c7dd17d3336f4c94d5e280f24b62e21cb2d5ee2f0063acce124",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -342,7 +342,7 @@
         "http_status": 200,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2027781710667010262",
         "cross_origin_redirect": false,
-        "latency_ms": 696,
+        "latency_ms": 685,
         "stderr": "",
         "exit": 0
       },
@@ -389,7 +389,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 3309,
+        "latency_ms": 3252,
         "stderr": ""
       },
       "observed": [
@@ -407,8 +407,8 @@
       "evidence": {
         "fixture": "thread_root_anchor__xcli_t0.txt",
         "bytes": 2128,
-        "sha256_sanitized": "e2be989acdd4012f5846886472b98a38e06e2b5e78947a6eccbe963bdde4fa49",
-        "sha256_raw_before_sanitization": "8dfe24244252f18b46b0e04b8ab17e3a13e406460cf3e640699cb7a0525cafec",
+        "sha256_sanitized": "353578c30bb146099b62ab8a23096a472a1d539ed92bb8b1de3d24f126fdb34e",
+        "sha256_raw_before_sanitization": "ccbad3259159773a88298ce3d1915510f9ebc4099511c70241616871f68b02c2",
         "sanitization_removed": [
           "syndication request token in url x2"
         ],
@@ -433,7 +433,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 1840,
+        "latency_ms": 1827,
         "stderr": ""
       },
       "observed": [
@@ -451,8 +451,8 @@
       "evidence": {
         "fixture": "thread_root_anchor__xcli_guest.txt",
         "bytes": 2423,
-        "sha256_sanitized": "5edbcb01631fabb10cf78ac557c54dc90463b282a6bbeb34a912ab02dc38c7ee",
-        "sha256_raw_before_sanitization": "5edbcb01631fabb10cf78ac557c54dc90463b282a6bbeb34a912ab02dc38c7ee",
+        "sha256_sanitized": "1b2eb72466020d6dd1564d714b502af126cad632204f61956fd6d4cfa56c0d57",
+        "sha256_raw_before_sanitization": "1b2eb72466020d6dd1564d714b502af126cad632204f61956fd6d4cfa56c0d57",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -470,7 +470,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/2094007256576565379",
         "cross_origin_redirect": false,
-        "latency_ms": 914,
+        "latency_ms": 875,
         "stderr": "",
         "exit": 0
       },
@@ -489,8 +489,8 @@
       "evidence": {
         "fixture": "thread_root_anchor__fxtwitter.txt",
         "bytes": 2043,
-        "sha256_sanitized": "b8737971ee55232ae60ff6dc4be95aa0235b84badf7a42c0c6f0fa3079ea3b87",
-        "sha256_raw_before_sanitization": "b8737971ee55232ae60ff6dc4be95aa0235b84badf7a42c0c6f0fa3079ea3b87",
+        "sha256_sanitized": "6009ba32b0da5fc7f357aca1b89a6700bc5e2a20798b074bf3c04ee0cf66da1b",
+        "sha256_raw_before_sanitization": "6009ba32b0da5fc7f357aca1b89a6700bc5e2a20798b074bf3c04ee0cf66da1b",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -508,7 +508,7 @@
         "http_status": 200,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2094007256576565379",
         "cross_origin_redirect": false,
-        "latency_ms": 700,
+        "latency_ms": 712,
         "stderr": "",
         "exit": 0
       },
@@ -551,7 +551,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 3499,
+        "latency_ms": 3157,
         "stderr": ""
       },
       "observed": [
@@ -571,8 +571,8 @@
       "evidence": {
         "fixture": "thread_middle_anchor__xcli_t0.txt",
         "bytes": 3438,
-        "sha256_sanitized": "78b1375716b534f6c82395b297a02a04cfafff604edbf0c4e4f76bac7f6f145c",
-        "sha256_raw_before_sanitization": "39215c7cd41eb8119c02da6e013569d0719ba9877bf6857c04e02808b8bf8b92",
+        "sha256_sanitized": "c3f64c819d903c765552f23b4e09e1dd300449d87f290ee31a89209d78daa027",
+        "sha256_raw_before_sanitization": "9c74a34f89779841a4ab04b8a0327245e87e5bff5aa6a306dc8a0b8f59513981",
         "sanitization_removed": [
           "syndication request token in url x2"
         ],
@@ -597,7 +597,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 1882,
+        "latency_ms": 2012,
         "stderr": ""
       },
       "observed": [
@@ -617,8 +617,8 @@
       "evidence": {
         "fixture": "thread_middle_anchor__xcli_guest.txt",
         "bytes": 4105,
-        "sha256_sanitized": "4cf5f801e38116a664c8899e5c74efb6a259fdb7c9516333042803c12b98145e",
-        "sha256_raw_before_sanitization": "4cf5f801e38116a664c8899e5c74efb6a259fdb7c9516333042803c12b98145e",
+        "sha256_sanitized": "4f4b17e2a94c6afba474deaa9f2d094fc3ad223765e32e6a0745c335523a9691",
+        "sha256_raw_before_sanitization": "4f4b17e2a94c6afba474deaa9f2d094fc3ad223765e32e6a0745c335523a9691",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -636,7 +636,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/2094033367767339277",
         "cross_origin_redirect": false,
-        "latency_ms": 825,
+        "latency_ms": 861,
         "stderr": "",
         "exit": 0
       },
@@ -657,8 +657,8 @@
       "evidence": {
         "fixture": "thread_middle_anchor__fxtwitter.txt",
         "bytes": 6685,
-        "sha256_sanitized": "b8163f3706136d24aa0793ddec8c8b0d3cd0ff3de2d5982011356cff3091b0ab",
-        "sha256_raw_before_sanitization": "b8163f3706136d24aa0793ddec8c8b0d3cd0ff3de2d5982011356cff3091b0ab",
+        "sha256_sanitized": "c9cf0e97f3ac9d88bb372224db590797023fd8dd48b3cdc5e05778684fa59866",
+        "sha256_raw_before_sanitization": "c9cf0e97f3ac9d88bb372224db590797023fd8dd48b3cdc5e05778684fa59866",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -676,7 +676,7 @@
         "http_status": 200,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2094033367767339277",
         "cross_origin_redirect": false,
-        "latency_ms": 687,
+        "latency_ms": 759,
         "stderr": "",
         "exit": 0
       },
@@ -719,7 +719,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 2915,
+        "latency_ms": 3061,
         "stderr": ""
       },
       "observed": [
@@ -737,8 +737,8 @@
       "evidence": {
         "fixture": "thread_last_anchor__xcli_t0.txt",
         "bytes": 1833,
-        "sha256_sanitized": "f6199412fed662020a9d5f108c41d6d92f7f499c2b32d5625e4e6eac864cbada",
-        "sha256_raw_before_sanitization": "bfa75c21a4b968e423827947dd4c6aea57f77423018814829e650d43403ddf1a",
+        "sha256_sanitized": "1c9479f69a352895ef51cb1cc25e0400363ca1c9197efdc45bf654b9b418b965",
+        "sha256_raw_before_sanitization": "e751ebcaf8a5f631b8fd86bf6caf682c8fb50d63e1c3bdcf8d5bac8f4256286b",
         "sanitization_removed": [
           "syndication request token in url x2"
         ],
@@ -763,7 +763,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 1816,
+        "latency_ms": 2055,
         "stderr": ""
       },
       "observed": [
@@ -781,8 +781,8 @@
       "evidence": {
         "fixture": "thread_last_anchor__xcli_guest.txt",
         "bytes": 2412,
-        "sha256_sanitized": "cf5a960e92867682031c2e82f6add5d883eb02fed18f54d7b27f23ea8d8290d5",
-        "sha256_raw_before_sanitization": "cf5a960e92867682031c2e82f6add5d883eb02fed18f54d7b27f23ea8d8290d5",
+        "sha256_sanitized": "c7cf9f64b3c7be962b1008edc727e1f8fea0e3973836e36ec18802da9016bdef",
+        "sha256_raw_before_sanitization": "c7cf9f64b3c7be962b1008edc727e1f8fea0e3973836e36ec18802da9016bdef",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -800,7 +800,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/2094037638856454625",
         "cross_origin_redirect": false,
-        "latency_ms": 913,
+        "latency_ms": 773,
         "stderr": "",
         "exit": 0
       },
@@ -818,9 +818,9 @@
       ],
       "evidence": {
         "fixture": "thread_last_anchor__fxtwitter.txt",
-        "bytes": 2329,
-        "sha256_sanitized": "51eedc94316365421c78306542d90f9f9a28318962bc52898eed843e0c07765d",
-        "sha256_raw_before_sanitization": "51eedc94316365421c78306542d90f9f9a28318962bc52898eed843e0c07765d",
+        "bytes": 1888,
+        "sha256_sanitized": "8b30351ca59818e030f628e240ed69fbda6971c7bad406a26aba8b7f44b24497",
+        "sha256_raw_before_sanitization": "8b30351ca59818e030f628e240ed69fbda6971c7bad406a26aba8b7f44b24497",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -838,7 +838,7 @@
         "http_status": 200,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2094037638856454625",
         "cross_origin_redirect": false,
-        "latency_ms": 817,
+        "latency_ms": 760,
         "stderr": "",
         "exit": 0
       },
@@ -881,7 +881,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 3088,
+        "latency_ms": 2948,
         "stderr": ""
       },
       "observed": [
@@ -902,8 +902,8 @@
       "evidence": {
         "fixture": "quote_post__xcli_t0.txt",
         "bytes": 3560,
-        "sha256_sanitized": "0028f5b869128c082af82c6a90509f4050f15e6d2794c8cd63f5656b707cf6fd",
-        "sha256_raw_before_sanitization": "3549f99d1f110e1533846f20f2a3123e75b5e0135758b90ab435b46e6b60f7c6",
+        "sha256_sanitized": "9cc6f54bcafba80e3007ab6c26ddc132ea2039afad7788512eb2dfeae7f083c8",
+        "sha256_raw_before_sanitization": "1bf7465534394988a99cd807faec614fcf2072c9a2ed6e0973792cad7c24df34",
         "sanitization_removed": [
           "syndication request token in url x4"
         ],
@@ -928,7 +928,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 2069,
+        "latency_ms": 1963,
         "stderr": ""
       },
       "observed": [
@@ -949,8 +949,8 @@
       "evidence": {
         "fixture": "quote_post__xcli_guest.txt",
         "bytes": 4923,
-        "sha256_sanitized": "3944dee82ba9b62181769d1cce1f06492bc7fde15d9f1c997d455cada035e49d",
-        "sha256_raw_before_sanitization": "3944dee82ba9b62181769d1cce1f06492bc7fde15d9f1c997d455cada035e49d",
+        "sha256_sanitized": "8404265234cc2cf25df588684e726d26453b6a50c403224235668cccafcecec9",
+        "sha256_raw_before_sanitization": "8404265234cc2cf25df588684e726d26453b6a50c403224235668cccafcecec9",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -968,7 +968,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/2094039408081068233",
         "cross_origin_redirect": false,
-        "latency_ms": 778,
+        "latency_ms": 795,
         "stderr": "",
         "exit": 0
       },
@@ -990,8 +990,8 @@
       "evidence": {
         "fixture": "quote_post__fxtwitter.txt",
         "bytes": 3787,
-        "sha256_sanitized": "4015a871ef041fafd34167e045157d1929eaab1dd24737e1cf31e6e443c80516",
-        "sha256_raw_before_sanitization": "4015a871ef041fafd34167e045157d1929eaab1dd24737e1cf31e6e443c80516",
+        "sha256_sanitized": "583fa2ccd4db4ad9f8739a2aa6227d18651da402fc198b82f19c9b5ccd3aafc6",
+        "sha256_raw_before_sanitization": "583fa2ccd4db4ad9f8739a2aa6227d18651da402fc198b82f19c9b5ccd3aafc6",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -1009,7 +1009,7 @@
         "http_status": 200,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2094039408081068233",
         "cross_origin_redirect": false,
-        "latency_ms": 915,
+        "latency_ms": 895,
         "stderr": "",
         "exit": 0
       },
@@ -1053,7 +1053,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 3621,
+        "latency_ms": 3221,
         "stderr": ""
       },
       "observed": [
@@ -1073,8 +1073,8 @@
       "evidence": {
         "fixture": "long_note_post__xcli_t0.txt",
         "bytes": 3197,
-        "sha256_sanitized": "538a8a38d3f20a8760992bd10d613e3a778cf701d56de11fe7a708d79656ae05",
-        "sha256_raw_before_sanitization": "249eba36b8a0e82a52c04dbd80ce269919bca2c2dbf1e82ee174b7cd889156ed",
+        "sha256_sanitized": "f9833f5d8f37cb52100411eeefad9013a0bde57a55f3fa71e0df9656bd155f05",
+        "sha256_raw_before_sanitization": "36e9b548b278b6bbe20bcfa1de915f7ab5869fe12b02fa740638472eef381809",
         "sanitization_removed": [
           "syndication request token in url x2"
         ],
@@ -1099,7 +1099,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 1872,
+        "latency_ms": 2353,
         "stderr": ""
       },
       "observed": [
@@ -1120,8 +1120,8 @@
       "evidence": {
         "fixture": "long_note_post__xcli_guest.txt",
         "bytes": 3745,
-        "sha256_sanitized": "abf735ce6960a7e9ce8433de6a27510704ef96a6080e097a7dc20939a0ab1d48",
-        "sha256_raw_before_sanitization": "abf735ce6960a7e9ce8433de6a27510704ef96a6080e097a7dc20939a0ab1d48",
+        "sha256_sanitized": "862cfc48e5c31d9dbf62354774372b8b144ae5a94c35423532a6e227f4a78d83",
+        "sha256_raw_before_sanitization": "862cfc48e5c31d9dbf62354774372b8b144ae5a94c35423532a6e227f4a78d83",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -1139,7 +1139,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/2072326243085582573",
         "cross_origin_redirect": false,
-        "latency_ms": 792,
+        "latency_ms": 802,
         "stderr": "",
         "exit": 0
       },
@@ -1161,8 +1161,8 @@
       "evidence": {
         "fixture": "long_note_post__fxtwitter.txt",
         "bytes": 5836,
-        "sha256_sanitized": "ca9e0c8aaab9f1bc5f38e6169da4356fab3da21350e5f61cf6ec44d6a0a656e9",
-        "sha256_raw_before_sanitization": "ca9e0c8aaab9f1bc5f38e6169da4356fab3da21350e5f61cf6ec44d6a0a656e9",
+        "sha256_sanitized": "d0f56fe28688714bccd7af15ed8b150b72dae22038fe24ae87c57944dc2a0768",
+        "sha256_raw_before_sanitization": "d0f56fe28688714bccd7af15ed8b150b72dae22038fe24ae87c57944dc2a0768",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -1180,7 +1180,7 @@
         "http_status": 200,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2072326243085582573",
         "cross_origin_redirect": false,
-        "latency_ms": 703,
+        "latency_ms": 698,
         "stderr": "",
         "exit": 0
       },
@@ -1206,6 +1206,172 @@
       }
     },
     {
+      "case": "long_note_post_xl",
+      "ref": "2085840209841697126",
+      "route": "xcli_t0",
+      "verdict": "PARTIAL",
+      "reason": "answered but missing full_text_2967",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2085840209841697126",
+          "--tier",
+          "0",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 2943,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "is_root",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "full_text_2967"
+      ],
+      "evidence": {
+        "fixture": "long_note_post_xl__xcli_t0.txt",
+        "bytes": 2210,
+        "sha256_sanitized": "3d90a9b1edc168429a20710162a9417f0a511d78487a0b4112171eb122bb569a",
+        "sha256_raw_before_sanitization": "3211e0b6f120b1b275047e7332e8e38a061b140b946cc4915674abac3fa3438a",
+        "sanitization_removed": [
+          "syndication request token in url x2"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "long_note_post_xl",
+      "ref": "2085840209841697126",
+      "route": "xcli_guest",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": [
+          "x",
+          "tweet",
+          "2085840209841697126",
+          "--tier",
+          "guest",
+          "--no-cache",
+          "-o",
+          "json"
+        ],
+        "exit": 0,
+        "latency_ms": 4680,
+        "stderr": ""
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "full_text_2967",
+        "full_text_521",
+        "is_root",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "full_text_2967"
+      ],
+      "evidence": {
+        "fixture": "long_note_post_xl__xcli_guest.txt",
+        "bytes": 5240,
+        "sha256_sanitized": "151a09607f5ca21926be4d1c816f35968d4c04865b17a781bd6b8231e9847a3e",
+        "sha256_raw_before_sanitization": "151a09607f5ca21926be4d1c816f35968d4c04865b17a781bd6b8231e9847a3e",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "long_note_post_xl",
+      "ref": "2085840209841697126",
+      "route": "fxtwitter",
+      "verdict": "PASS",
+      "reason": "answered and carried all 3 expected fields",
+      "request": {
+        "command": "https://api.fxtwitter.com/i/status/2085840209841697126",
+        "http_status": 200,
+        "final_url": "https://api.fxtwitter.com/i/status/2085840209841697126",
+        "cross_origin_redirect": false,
+        "latency_ms": 842,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "created_at",
+        "full_text_2967",
+        "full_text_521",
+        "is_root",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "full_text_2967"
+      ],
+      "evidence": {
+        "fixture": "long_note_post_xl__fxtwitter.txt",
+        "bytes": 7571,
+        "sha256_sanitized": "61efd224ce826215ef37d5c6ceb932e19aa004f771fa07456973e5ccddc0ff6c",
+        "sha256_raw_before_sanitization": "61efd224ce826215ef37d5c6ceb932e19aa004f771fa07456973e5ccddc0ff6c",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
+      "case": "long_note_post_xl",
+      "ref": "2085840209841697126",
+      "route": "oembed",
+      "verdict": "PARTIAL",
+      "reason": "corroborates author/text; cannot carry full_text_2967",
+      "request": {
+        "command": "https://publish.x.com/oembed?url=https://x.com/i/status/2085840209841697126",
+        "http_status": 200,
+        "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2085840209841697126",
+        "cross_origin_redirect": false,
+        "latency_ms": 945,
+        "stderr": "",
+        "exit": 0
+      },
+      "observed": [
+        "author",
+        "lang",
+        "text"
+      ],
+      "expected": [
+        "text",
+        "author",
+        "full_text_2967"
+      ],
+      "evidence": {
+        "fixture": "long_note_post_xl__oembed.txt",
+        "bytes": 1003,
+        "sha256_sanitized": "55343d5d3ff78f90ac738679556122c0a567c6729adbeb8f270cc4206f963558",
+        "sha256_raw_before_sanitization": "55343d5d3ff78f90ac738679556122c0a567c6729adbeb8f270cc4206f963558",
+        "sanitization_removed": [
+          "nothing matched"
+        ],
+        "credential_scan": "clean"
+      }
+    },
+    {
       "case": "photo_with_alt",
       "ref": "2095206153277862026",
       "route": "xcli_t0",
@@ -1223,7 +1389,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 2685,
+        "latency_ms": 2986,
         "stderr": ""
       },
       "observed": [
@@ -1244,8 +1410,8 @@
       "evidence": {
         "fixture": "photo_with_alt__xcli_t0.txt",
         "bytes": 2637,
-        "sha256_sanitized": "c5b0cbe967a254645a28bd1da78c1470ab65bba538f6967ce49ee22e704b989d",
-        "sha256_raw_before_sanitization": "ab3fba94f66b45d23f0c8a9f958a3e3fcba4158cfbc82bc1a010194f1047dda1",
+        "sha256_sanitized": "f02df3769d6872339d9eb5d09dff755d49835b141fa5ce115115f96e938bec27",
+        "sha256_raw_before_sanitization": "877041e757fbc972d566409f06508e1587286b580bb299c7e3ae14e247c888f8",
         "sanitization_removed": [
           "syndication request token in url x2"
         ],
@@ -1270,7 +1436,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 1807,
+        "latency_ms": 1865,
         "stderr": ""
       },
       "observed": [
@@ -1291,8 +1457,8 @@
       "evidence": {
         "fixture": "photo_with_alt__xcli_guest.txt",
         "bytes": 2960,
-        "sha256_sanitized": "9486bef891b3b7e42a523adcba6dc794dd7a820d7468dfa223eabc4d192d5a37",
-        "sha256_raw_before_sanitization": "9486bef891b3b7e42a523adcba6dc794dd7a820d7468dfa223eabc4d192d5a37",
+        "sha256_sanitized": "5b976ccc23afe285a21b76902c7c3262b73418419b10dd85f7ecdbff62a33b74",
+        "sha256_raw_before_sanitization": "5b976ccc23afe285a21b76902c7c3262b73418419b10dd85f7ecdbff62a33b74",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -1310,7 +1476,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/2095206153277862026",
         "cross_origin_redirect": false,
-        "latency_ms": 729,
+        "latency_ms": 804,
         "stderr": "",
         "exit": 0
       },
@@ -1332,8 +1498,8 @@
       "evidence": {
         "fixture": "photo_with_alt__fxtwitter.txt",
         "bytes": 3195,
-        "sha256_sanitized": "445f2cf487baa6bc4dc122f1dbf5167f8a7aed79269d1a3d814a67a6e2825fb3",
-        "sha256_raw_before_sanitization": "445f2cf487baa6bc4dc122f1dbf5167f8a7aed79269d1a3d814a67a6e2825fb3",
+        "sha256_sanitized": "5726740683b03608773b5c34cc4c7bd5af7a92f4ac17357e42485be0824420f1",
+        "sha256_raw_before_sanitization": "5726740683b03608773b5c34cc4c7bd5af7a92f4ac17357e42485be0824420f1",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -1351,7 +1517,7 @@
         "http_status": 200,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/2095206153277862026",
         "cross_origin_redirect": false,
-        "latency_ms": 733,
+        "latency_ms": 762,
         "stderr": "",
         "exit": 0
       },
@@ -1395,7 +1561,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 3010,
+        "latency_ms": 2979,
         "stderr": ""
       },
       "observed": [
@@ -1418,8 +1584,8 @@
       "evidence": {
         "fixture": "video_post_fa__xcli_t0.txt",
         "bytes": 3462,
-        "sha256_sanitized": "839ab43c00aa6a91294aac0f4a00f36e0f4645d7a65d5d12e52bfcf0479c5c47",
-        "sha256_raw_before_sanitization": "f1876ddab5f6523135ccd17d1ae36aad29a09a63f477d9efb9f01e71fc90b8f5",
+        "sha256_sanitized": "90e535fc900325d2888777fbf15d4b6c4f203f9bdc16bead03158be1fe49cc33",
+        "sha256_raw_before_sanitization": "3f6d5b83ad04aa2c953d9a525fdc9b3677d73ab8c75fc5350a9db0abd3744798",
         "sanitization_removed": [
           "syndication request token in url x2"
         ],
@@ -1444,7 +1610,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 1827,
+        "latency_ms": 1864,
         "stderr": ""
       },
       "observed": [
@@ -1467,8 +1633,8 @@
       "evidence": {
         "fixture": "video_post_fa__xcli_guest.txt",
         "bytes": 3856,
-        "sha256_sanitized": "51e9e7007615995c5ecdeaa2805ca38aff099aefc83a356336af6b292ccc6f3b",
-        "sha256_raw_before_sanitization": "51e9e7007615995c5ecdeaa2805ca38aff099aefc83a356336af6b292ccc6f3b",
+        "sha256_sanitized": "2ca94c18722bc91dd3d220e8673d47eeeb2628c5de7e7da7a60caaf4ddf78091",
+        "sha256_raw_before_sanitization": "2ca94c18722bc91dd3d220e8673d47eeeb2628c5de7e7da7a60caaf4ddf78091",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -1486,7 +1652,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/1580541310636883972",
         "cross_origin_redirect": false,
-        "latency_ms": 786,
+        "latency_ms": 914,
         "stderr": "",
         "exit": 0
       },
@@ -1510,8 +1676,8 @@
       "evidence": {
         "fixture": "video_post_fa__fxtwitter.txt",
         "bytes": 5832,
-        "sha256_sanitized": "633555b526e35f91d0ac09a80f475800be483b52295909d85ea1dd015e721f91",
-        "sha256_raw_before_sanitization": "633555b526e35f91d0ac09a80f475800be483b52295909d85ea1dd015e721f91",
+        "sha256_sanitized": "1323825b52d4d61f1aa041ccef41344b8bf0174bc7af69ed0aa01edb65795d68",
+        "sha256_raw_before_sanitization": "1323825b52d4d61f1aa041ccef41344b8bf0174bc7af69ed0aa01edb65795d68",
         "sanitization_removed": [
           "nothing matched"
         ],
@@ -1529,7 +1695,7 @@
         "http_status": 200,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/1580541310636883972",
         "cross_origin_redirect": false,
-        "latency_ms": 731,
+        "latency_ms": 812,
         "stderr": "",
         "exit": 0
       },
@@ -1575,7 +1741,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 2896,
+        "latency_ms": 2981,
         "stderr": ""
       },
       "observed": [
@@ -1621,7 +1787,7 @@
           "json"
         ],
         "exit": 0,
-        "latency_ms": 1941,
+        "latency_ms": 1869,
         "stderr": ""
       },
       "observed": [
@@ -1660,7 +1826,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/1117281960387334147",
         "cross_origin_redirect": false,
-        "latency_ms": 950,
+        "latency_ms": 815,
         "stderr": "",
         "exit": 0
       },
@@ -1700,7 +1866,7 @@
         "http_status": 200,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/1117281960387334147",
         "cross_origin_redirect": false,
-        "latency_ms": 756,
+        "latency_ms": 820,
         "stderr": "",
         "exit": 0
       },
@@ -1743,7 +1909,7 @@
           "json"
         ],
         "exit": 6,
-        "latency_ms": 2308,
+        "latency_ms": 2014,
         "stderr": "ERROR  \n          \n  Tweet not found: 999999999999999999 (deleted, suspended, or protected)."
       },
       "observed": [],
@@ -1777,7 +1943,7 @@
           "json"
         ],
         "exit": 6,
-        "latency_ms": 1759,
+        "latency_ms": 1868,
         "stderr": "ERROR  \n          \n  Tweet not found: 999999999999999999 (deleted, suspended, or protected)."
       },
       "observed": [],
@@ -1804,7 +1970,7 @@
         "http_status": 404,
         "final_url": "https://api.fxtwitter.com/i/status/999999999999999999",
         "cross_origin_redirect": false,
-        "latency_ms": 1961,
+        "latency_ms": 1724,
         "stderr": "",
         "exit": 1
       },
@@ -1832,7 +1998,7 @@
         "http_status": 404,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/999999999999999999",
         "cross_origin_redirect": false,
-        "latency_ms": 742,
+        "latency_ms": 719,
         "stderr": "",
         "exit": 1
       },
@@ -1867,7 +2033,7 @@
           "json"
         ],
         "exit": 1,
-        "latency_ms": 27,
+        "latency_ms": 20,
         "stderr": "ERROR  \n          \n  Not a tweet id or status URL: \"not-a-ref\"."
       },
       "observed": [],
@@ -1901,7 +2067,7 @@
           "json"
         ],
         "exit": 1,
-        "latency_ms": 27,
+        "latency_ms": 17,
         "stderr": "ERROR  \n          \n  Not a tweet id or status URL: \"not-a-ref\"."
       },
       "observed": [],
@@ -1928,7 +2094,7 @@
         "http_status": 200,
         "final_url": "https://api.fxtwitter.com/i/status/not-a-ref",
         "cross_origin_redirect": false,
-        "latency_ms": 667,
+        "latency_ms": 715,
         "stderr": "",
         "exit": 0
       },
@@ -1956,7 +2122,7 @@
         "http_status": 404,
         "final_url": "https://publish.x.com/oembed?url=https://x.com/i/status/not-a-ref",
         "cross_origin_redirect": false,
-        "latency_ms": 741,
+        "latency_ms": 715,
         "stderr": "",
         "exit": 1
       },

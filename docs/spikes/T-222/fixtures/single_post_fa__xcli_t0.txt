@@ -49,9 +49,9 @@
       "verified": true,
       "verified_type": "blue",
       "metrics": {
-        "followers": 2414955,
+        "followers": 2414953,
         "following": 14,
-        "tweets": 269995
+        "tweets": 269996
       },
       "profile_image": "https://pbs.twimg.com/profile_images/1624045000009871361/GjpClh1Z_normal.jpg",
       "entities": {}
@@ -62,7 +62,7 @@
       "likes": 138,
       "quotes": 7,
       "bookmarks": 24,
-      "impressions": 466181
+      "impressions": 466215
     },
     "entities": {}
   }

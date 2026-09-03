@@ -184,6 +184,8 @@ def observe_xcli(post: dict[str, Any] | None) -> set[str]:
         seen.add("quoted_author")
     if len(text) >= 521:
         seen.add("full_text_521")
+    if len(text) >= 2967:
+        seen.add("full_text_2967")
     for medium in post.get("media") or []:
         kind = medium.get("type")
         if kind == "photo":
@@ -231,6 +233,8 @@ def observe_fx(raw: str) -> set[str]:
         seen.add("quoted_author")
     if len(text) >= 521:
         seen.add("full_text_521")
+    if len(text) >= 2967:
+        seen.add("full_text_2967")
     media = post.get("media") or {}
     for medium in media.get("all") or []:
         kind = medium.get("type")

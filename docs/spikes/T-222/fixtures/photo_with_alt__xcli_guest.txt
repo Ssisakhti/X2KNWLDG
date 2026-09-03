@@ -36,10 +36,10 @@
       "verified": true,
       "verified_type": "government",
       "metrics": {
-        "followers": 92383317,
+        "followers": 92383559,
         "following": 117,
         "tweets": 74269,
-        "listed": 96946,
+        "listed": 96945,
         "likes": 16982,
         "media": 28135
       },
@@ -54,11 +54,11 @@
     "conversation_id": "2095206153277862026",
     "metrics": {
       "replies": 86,
-      "retweets": 176,
-      "likes": 1596,
+      "retweets": 177,
+      "likes": 1611,
       "quotes": 5,
       "bookmarks": 37,
-      "impressions": 683329
+      "impressions": 694532
     },
     "entities": {
       "urls": [

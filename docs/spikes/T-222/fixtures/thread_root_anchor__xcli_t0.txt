@@ -49,7 +49,7 @@
       "verified": true,
       "verified_type": "blue",
       "metrics": {
-        "followers": 92383314,
+        "followers": 92383554,
         "following": 117,
         "tweets": 74269
       },
@@ -59,10 +59,10 @@
     "metrics": {
       "replies": 202,
       "retweets": 952,
-      "likes": 4078,
+      "likes": 4079,
       "quotes": 154,
       "bookmarks": 249,
-      "impressions": 1755568
+      "impressions": 1756618
     },
     "entities": {
       "mentions": [

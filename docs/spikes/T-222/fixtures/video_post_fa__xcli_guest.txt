@@ -36,12 +36,12 @@
       "verified": true,
       "verified_type": "blue",
       "metrics": {
-        "followers": 2414955,
+        "followers": 2414953,
         "following": 14,
-        "tweets": 269995,
+        "tweets": 269996,
         "listed": 3528,
         "likes": 8,
-        "media": 83961
+        "media": 83962
       },
       "profile_image": "https://pbs.twimg.com/profile_images/1624045000009871361/GjpClh1Z_normal.jpg",
       "profile_banner": "https://pbs.twimg.com/profile_banners/790728/1613405351",

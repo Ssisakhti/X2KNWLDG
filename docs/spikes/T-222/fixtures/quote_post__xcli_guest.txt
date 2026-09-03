@@ -36,10 +36,10 @@
       "verified": true,
       "verified_type": "government",
       "metrics": {
-        "followers": 92383314,
+        "followers": 92383557,
         "following": 117,
         "tweets": 74269,
-        "listed": 96946,
+        "listed": 96945,
         "likes": 16982,
         "media": 28135
       },
@@ -88,11 +88,11 @@
         "verified": true,
         "verified_type": "government",
         "metrics": {
-          "followers": 205780,
+          "followers": 205787,
           "following": 93,
           "tweets": 1452,
           "listed": 768,
-          "likes": 4140,
+          "likes": 4141,
           "media": 306
         },
         "profile_image": "https://pbs.twimg.com/profile_images/2001755387486232576/mf5hRS_U_normal.jpg",
@@ -111,7 +111,7 @@
         "likes": 15955,
         "quotes": 177,
         "bookmarks": 552,
-        "impressions": 1775914
+        "impressions": 1776261
       },
       "entities": {},
       "media": [
@@ -127,11 +127,11 @@
     },
     "metrics": {
       "replies": 97,
-      "retweets": 576,
-      "likes": 5341,
+      "retweets": 577,
+      "likes": 5342,
       "quotes": 39,
       "bookmarks": 133,
-      "impressions": 1138539
+      "impressions": 1138782
     },
     "entities": {
       "mentions": [
