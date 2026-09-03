@@ -1,7 +1,7 @@
 # X2KNWLDG Knowledge Canvas — Project Management
 
 **Status:** active execution tracker
-**Last updated:** 2026-09-03 · **Phases 0, 1, 2 and 2.1 are complete.** `T-201` remains the completed functional Knowledge Map epic and `T-210` is now the completed visual-quality one: the user accepted the browser captures against the approved compositions on 2026-09-03 (D-202), so `T-211`–`T-216` all pass, R21 is closed, and **Phase 3 is unblocked — `T-301` (Canvas: board CRUD and portable `workspace/boards/` persistence) is the only claimable task.** The Map's two gates both stand: **47 browser specs** over the recomposed route against the real library and the committed fixtures, and **sixteen visual scenarios** whose recorded numbers are a regression surface — 7 / 1 at 2852×1688, 2 / 6 at 1440×900, 1 / 7 at 1280×720, every geometry clause zero, and floating chrome inside its per-tier bound. What the acceptance knowingly took with it is recorded rather than closed over: at the `compact` tier the chrome bound is a ratchet above this build's own worst rather than the reference's 10.3 %, because the chrome's rectangles are what the orbit refuses cards against and the reference's share costs the recorded 2 / 6 (`SPEC.md` §17, D-201, D-202) (D-150–D-154, D-191–D-202; [ADR 0006](adr/0006-map-visual-quality.md))
+**Last updated:** 2026-09-03 · **Phases 0, 1, 2 and 2.1 are complete.** The user has reprioritized Twitter/X ahead of Canvas, so **Phase 2.2 / `T-220` is now active and `T-222` is the only claimable task.** `T-221` is complete: [ADR 0007](adr/0007-twitter-acquisition-boundary.md) records the approved acquisition boundary — qualify `x-cli` first from the real Iran environment; keep FxTwitter/FxEmbed explicit opt-in, official oEmbed corroborative, and Firefox capture passive and credential-free; do not transplant Treasury/twscrape account-pool or evasion patterns. Canvas remains technically unblocked but deliberately deferred until the Twitter phase gate closes. The Map's accepted regression surface remains unchanged (D-202), and D-204 records this roadmap decision.
 **Language:** English only — see the language rule in §2
 **Architecture reference:** [`KNOWLEDGE_CANVAS_PLAN.md`](KNOWLEDGE_CANVAS_PLAN.md) — *that* document is the design authority
 **Pipeline reference:** [`X2KNWLDG_build_spec.md`](X2KNWLDG_build_spec.md)
@@ -101,10 +101,11 @@ Exit criteria live in canvas plan §16; this table tracks state only.
 | **1** | Read-only Library & Reader | ✅ `done` — four tracks + `T-116`; §7.4 scenarios 1–3 walked and passing | — | Search works; status honest; rebuild is equivalent |
 | **2** | Knowledge Map | ✅ `complete` — `T-202`–`T-209` delivered and browser-verified the renderer, progressive graph, visual grammar, URL/search/focus journey, Quick Read, semantic DOM path, honest states, touch, bidi and lifecycle guarantees (D-117–D-149) | Closed; Phase 2.1 is next | ✅ functional gate met in a browser: provenance distinguishable without colour; empty/partial/refused graphs honest; selection reaches evidence |
 | **2.1** | Map visual-quality remediation · `T-210` | ✅ `done` — `T-211` approved (D-191); `T-212` (D-192), `T-213` (D-193) and `T-214` (D-194) delivered; `T-215`'s gate green (D-195); `T-216`'s six remediations delivered over it (D-197–D-201); **the user accepted the captures on 2026-09-03 (D-202)** | ❌ Serial; implementation sequence in §8.7 | Approved Explore and Focus compositions reproduced in the real browser with no clipping, overlap or page-scroll dependency — **met** |
-| **3** | Canvas & board persistence | 🟢 `unblocked, not started` — `T-210` closed on 2026-09-03 (D-202); `T-301` is claimable | ⚠️ Sequential with Phase 4 | Layout survives restart; partial corruption tolerated |
+| **2.2** | Twitter/X source foundation · `T-220` | 🟠 `in planning` — acquisition boundary accepted; `T-222` is the only claimable task | ❌ Spike and contract first; then bounded provider fan-out (§8.8) | One measured no-payment path works from Iran; canonical capture, provenance, honest coverage and YouTube coexistence pass |
+| **3** | Canvas & board persistence | 🟡 `unblocked, deliberately deferred` — technically ready after D-202; resumes after the Phase 2.2 gate | ⚠️ Sequential with Phase 4 | Layout survives restart; partial corruption tolerated |
 | **4** | Pen & annotation | `not started` | ⚠️ Sequential with Phase 3 | Strokes stable under zoom/pan; no canonical leakage |
 | **5** | Richer media & documents | `not started` | ✅ Per-format | Scoped only once real files are in use |
-| **6** | New sources (Twitter/X, Medium) | `not started` | ✅ Per-adapter | Multi-source coexistence tested |
+| **6** | Additional sources (Medium, web pages, others) | `not started` | ✅ Per-adapter | Multi-source coexistence tested |
 | **7** | Desktop packaging (conditional) | `not started` | — | Only on proven web-app limitation |
 
 ---
@@ -244,7 +245,40 @@ centre; truthful direction and hop are legible; cards and labels do not collide 
 Search, Focus and Quick Read work without document scrolling; unrelated topology recedes; and
 all Phase 2 truth, accessibility, history and lifecycle guarantees remain intact.
 
-### Phases 3–7 — epics only
+### Phase 2.2 — Twitter/X source foundation · `T-220` epic
+
+The user approved the acquisition boundary on 2026-09-03 (D-204; [ADR 0007](adr/0007-twitter-acquisition-boundary.md)).
+This phase is deliberately qualification-first. Documentation is evidence about a candidate,
+not evidence that it works from Iran today. `T-222` must therefore measure the real routes
+before any provider is integrated or any canonical schema is frozen.
+
+**MVP scope:** public single posts and provable same-author self-threads. A quoted post is a
+separate cited source. Replies from other accounts, private/bookmarked/account-only material,
+engagement history and recursive fetching of linked pages are outside the phase. Rich media is
+metadata, stable URLs and stated alt text; downloading media is not implied. Long posts, X
+Articles, polls, edited posts and tombstones are included only to the extent the spike proves
+their fields can be acquired and represented honestly.
+
+| ID | Task | Flag | Depends on | Acceptance |
+|---|---|---|---|---|
+| ~~`T-221`~~ | ✅ **done (D-204). Acquisition, privacy and risk boundary.** Accepted [ADR 0007](adr/0007-twitter-acquisition-boundary.md): `x-cli` is the primary candidate but not yet a dependency; FxTwitter/FxEmbed is explicit opt-in fallback; official X oEmbed is single-post corroboration; Firefox is passive capture only. Credentials, account pools, session exports, proxy/account rotation, automated interaction and stealth/evasion are excluded. The ADR also fixes MVP scope, raw-evidence immutability, provider-neutral normalization and honest completeness | `S` | `T-220` | Met: the user approved the boundary on 2026-09-03; rejected alternatives and X Terms risk are recorded; no runtime or canonical file changed |
+| **`T-222`** | **Claimable now — empirical acquisition qualification from the real Iran environment.** Pin and record the tested `x-cli` release; test it unauthenticated first and do not provide an X session. Compare `x-cli`, FxTwitter/FxEmbed and official oEmbed over one recorded matrix: public single post; Persian/RTL; self-thread from root and middle anchors; reply and quote; long post/note; X Article; image/video/GIF plus alt text; poll; edited post; deleted/private/suspended/unavailable cases; provider outage, malformed response and rate-limit behaviour. Record raw bytes or a sanitized response fixture, command/URL shape, exit/error, latency, returned ids/fields, ordering, omissions, provider/release version and SHA-256. Never commit a cookie, token, account identifier or private post. Conclude with a go/no-go and exact supported-capability table; `x-cli` becomes primary only if it succeeds on the MVP cases without credentials. If it fails, choose between opt-in FxTwitter and passive capture from evidence, not preference | `S` | `T-221` | A reproducible spike report and sanitized immutable fixtures exist; every matrix cell is `PASS`, `PARTIAL`, `FAIL` or `NOT_SUPPORTED` with a reason; thread completeness and post ordering are measured separately from request success; the chosen default, fallback order, pin/licence boundary and unsupported scope are explicit. No production integration is written in this task |
+| `T-223` | **Provider-neutral Twitter capture contract.** Define the canonical raw/capture schema and fixture set only after `T-222` settles observable fields. Keep post/conversation/user/media ids as strings. Model post order, author, created time, edited/tombstone/unavailable state, reply/quote references, text entities, media metadata/alt text, poll snapshot and optional article body without guessing absent fields. Record acquisition provider/version/time, request surface, raw digest and omissions. Define locators as post id plus an exact text span/excerpt; define item-based coverage for every expected/included post and a reason for every omission | `S` | `T-222` | Schema-valid `PASS`/`PARTIAL`/`FAIL` fixtures cover the measured matrix; a capture can be revalidated from raw evidence; no provider response shape leaks into extraction or UI; no fake timestamp, count, author, order or completeness claim is possible |
+| `T-224` | **Qualified local provider (`x-cli` if the spike passes).** Integrate the exact tested public, credential-free command behind an optional acquisition seam. Preserve stdout/stderr, exit status, tool version and raw bytes before normalization. Pass a post URL/id as data, never a shell fragment; enforce timeout/output limits; reject unexpected files and paths. Keep the Python core zero-dependency. Record the AGPL-3.0 decision: invoke a separately installed/pinned tool by default unless a later legal/maintenance review explicitly approves another boundary | `S` | `T-223` | The tested MVP fixture matrix produces canonical captures on the target machine; missing tool/version mismatch/timeouts/malformed output have deterministic nonzero outcomes and do not modify an earlier capture; no X credential or browser state is read; raw digests validate; a bare core install remains unchanged |
+| `T-225` | **Explicit opt-in network fallback and corroboration.** Add FxTwitter/FxEmbed only behind a user-visible opt-in that states that the post id and normal network metadata leave the machine. Allow only the reviewed HTTPS origin, reject cross-origin redirects, send no X cookie/token and apply bounded timeout/size/retry rules. Save and hash the raw response. Add official X oEmbed as a corroboration signal for one public anchor, sanitize its HTML as inert evidence, and never infer a complete thread from it | `P` | `T-223`, `T-222` qualification | Default operation sends nothing to FxTwitter; consent is explicit and testable; provider outage or disagreement yields a named `PARTIAL`/`FAIL`, never a silent provider switch; oEmbed is labelled corroborative and cannot raise completeness; fixtures exercise redirect, oversized response, HTML/script content and provider drift |
+| `T-226` | **Firefox passive-capture fallback/importer.** Adapt the useful Treasury/xTap pattern narrowly: a user starts capture, browses normally, and exports only already-observed X response bodies plus minimal request identifiers. The companion sends no additional X request, performs no scroll/click/navigation, stores no cookie/header/token/profile/session and contains no stealth or anti-detection logic. Import happens locally through the `T-223` contract. Duplicate observations deduplicate by post id and exact content digest; conflicts are stated | `P` | `T-223`, `T-222` qualification | A browser-session audit finds no credential/session material in export, logs or errors; disabling capture leaves browsing unchanged; an observed subset is `PARTIAL` unless an independently checkable boundary proves completeness; malformed/conflicting exports are refused without changing prior evidence |
+| `T-227` | **Twitter extraction, segmentation, provenance and coverage.** Transform the canonical capture—not provider JSON—into the existing source-grounded/derived pipeline. Preserve per-post boundaries and root-first self-thread order. A source claim cites a post id and exact text span/excerpt; a quote remains a separate source relation; excluded third-party replies and unavailable items are named. Define item-based coverage and validators so every included post is covered, omitted with a reason or unresolved. Metrics are absent unless represented as an explicitly time-stamped observation; linked pages are not fetched | `S` | `T-223`, at least one passing acquisition task | Deterministic canonical outputs and prompts exist for Persian/RTL, single-post, complete self-thread, partial thread, edit/tombstone and quote cases; raw evidence stays byte-identical; validators recompute digests and enforce locators/order/coverage; `PASS` is impossible while any expected item is unaccounted for |
+| `T-228` | **Source-neutral integration and product coexistence.** Register the Twitter adapter, project it into Source/Artifact/Locator/Entity records, rebuild the SQLite cache and expose it through the existing frozen read surfaces. Add Reader/Library/Search/Map presentation only where the generic renderer cannot already represent it. Preserve existing YouTube ids, files, results and status; do not make provider names part of the UI contract and do not embed executable post HTML by default | `S` | `T-227` | One YouTube and one Twitter run coexist through adapter, index, API, search, Reader and Map; deleting/rebuilding the cache is equivalent; Persian bidi and post/thread locators render; no frontend core rewrite or legacy-id migration; `output/<youtube-id>/raw/` and all prior canonical samples are unchanged |
+| `T-229` | **Phase gate, operating documentation and failure rehearsal.** Walk acquisition → immutable evidence → extraction → validation → library/index → Reader/Map with the target environment. Exercise the approved provider order, offline/cache behaviour, provider removal, partial thread, tombstone and corrupted raw evidence. Update `WORKFLOW.md`, CLI/help, privacy disclosure and troubleshooting only to behaviour now implemented. Record the exact supported/unsupported capability table and the manual steps Claude Code must verify | `S` | `T-224` or approved fallback, `T-225`/`T-226` as selected, `T-227`, `T-228` | All relevant validators and core/frontend/browser regressions pass; the no-dependency installation still passes; provider failure cannot erase or rewrite a prior raw capture; a real public Persian case and a sanitized committed fixture complete the journey; documentation never promises a capability the matrix did not pass. Only then may Phase 3 become next |
+
+**Phase 2.2 gate:** at least one approved no-payment path works from the user's actual Iran
+environment for the stated MVP; credentials and browser sessions never enter the project;
+raw evidence and provider provenance are reproducible; every missing item is visible through
+honest coverage; YouTube and Twitter coexist without a UI-core rewrite; and the full regression
+set plus the Twitter failure rehearsal passes. A successful HTTP/CLI call by itself does not
+meet this gate.
+
+### Phases 3–7 — remaining epics
 
 Deliberately not broken down. Expand each at its phase start, after the preceding phase has
 made its contracts concrete.
@@ -254,7 +288,7 @@ made its contracts concrete.
 | `T-301` | Canvas: board CRUD, entity insertion, custom nodes, user relations, frames, autosave, undo/redo, portable `workspace/boards/` persistence | 3 |
 | `T-401` | Pen: pointer events + `perfect-freehand`, world-coordinate strokes, eraser, layer toggle, mouse fallback | 4 |
 | `T-501` | Rich media: PDF.js + page locators, image viewer, audio, anchored annotations | 5 |
-| `T-601` | New source adapters (Twitter/X, Medium) + coexistence tests | 6 |
+| `T-601` | Additional source adapters (Medium, web pages and later approved types) + coexistence tests | 6 |
 | `T-701` | Conditional Tauri spike — only on proven limitation | 7 |
 
 ---
@@ -487,6 +521,8 @@ A future session must not consolidate these into one form without also updating 
 | D-203 | **A green suite is evidence about what it looks at.** Seventy-one findings from a six-reader cross-cutting audit of a tree whose every gate was already passing — 2,533 Python tests, 707 frontend tests, ruff, mypy and `tsc --strict` all clean — are closed here, and the shape they share is the decision worth recording rather than any one of them | accepted | Every guard that missed one of these was real, and every one was pointed at the half of its problem that was already known. The stylesheet suite asserted that the reduced-motion block exists and that every box property is logical, and never computed a **number** — so two tokens sat below WCAG AA while 707 tests stayed green. `validate_coverage` measured a window against a bound the *audited document* supplied, so a bundle could name the ruler it was measured against and claim `PASS` over 29 of 30 unaudited minutes. The `ui` extra was checked against the packages it **declares**, so an undeclared `starlette` import was invisible to the one job built to catch exactly that. `params.py` asserted in prose that `tests/test_api_contract` compares the served document against the frozen one; no such comparison existed, and writing it found a second one — a closed vocabulary the route took as a bare string. Six of sixteen visual scenarios asserted their acceptance numbers only on a machine holding the private library. `mapStyle.clear()` was called only in test setup, by the four suites that need it *because* the singleton carries state across mounts. And the map README stated three retired numbers a reader would have taken from the spec.
 
 So the fixes are guards at the level the misses happened, not repairs: 53 contrast assertions over both palettes; a frontend **lint gate** (D-114's asymmetry, mirrored — nine `react-hooks/exhaustive-deps` suppressions were suppressing nothing) and a **type-check program for the capture scripts** (D-156's defect, reopened by the files added after it, and it found an unhandled rejection on its first run), both CI steps; a parameter-by-parameter drift comparison between the served and frozen documents; a `PagedList` that is the one place the error/loading/empty/total/items/More ladder is decided, because five copies were five copies of every bug in it; `import.meta.glob` guards that read *every* component rather than a list, because a list is what went stale; and citation guards over the numbers prose quotes. **One finding's answer was found by measuring it rather than by reading it**: the card reservations were reported as never enforced, and enforcing them was tried and reverted — over all 86 centres of the real library, 63 lay a card out taller than its reservation and *none* of them overlaps, so the box is a seating input and the sentence calling it an upper bound over the drawn card was the actual defect. True upper bounds cost a recorded card (7 / 1 becomes 6 / 2) to buy nothing a reader sees, so the numbers stand, the claim is corrected where it was written, and the gate asserts the invariant a reader would notice — no two cards over the same pixels — over ten centres rather than two. Two defects were found by the new tests rather than by the audit: an infinite loop in the markdown parser on a line that starts like a fence and is not one, and a fourth unmirrored `→`. Every CI action is pinned to a commit with the version beside it, and `THIRD_PARTY_NOTICES.md` is walked from the lockfile's production closure rather than from a list. **What is not fixed is named**: SPEC §5's `stack` tier turned out to be *delivered* and the stylesheet to contradict itself about who owed it, and the recorded acceptance numbers still cannot be asserted without the private library — that skip is now stated in the report and `X2KNWLDG_BROWSER_REQUIRE_RECORDED=1` makes it a failure where the library serves the mockups' own centre |
+
+| D-204 | Insert Phase 2.2 / `T-220` before Canvas and qualify a no-payment Twitter/X acquisition path on the user's real Iran environment before integration ([ADR 0007](adr/0007-twitter-acquisition-boundary.md)) | accepted | The user cannot currently pay for the official API and explicitly chose the Treasury-style/local problem to solve. `x-cli` remains the primary candidate because it is local and emits structured public data, but it is young, AGPL-3.0 and not yet proved in-region, so `T-222` measures it before dependency or implementation. FxTwitter/FxEmbed is explicit opt-in fallback because the post id and request metadata leave the machine; official oEmbed is corroboration only; Firefox fallback passively imports responses normal browsing already received and never stores a session. Treasury/twscrape account pools, passwords, rotation, browser automation and evasion are excluded. Every route ends at one provider-neutral immutable capture with honest completeness. Canvas is technically unblocked but deliberately deferred until this phase gate closes |
 
 ---
 
@@ -830,6 +866,27 @@ badge component and rules in `base.css`. `T-215` added no application surface at
 `T-209`, the gate lives outside `web/src` and imports nothing from it, and `git diff` over
 `web/src/` and `output/` is empty for it.
 
+### 8.8 Phase 2.2 starts serially, then fans out only at the provider boundary
+
+`T-221` is complete. **Only `T-222` is claimable.** It owns the qualification matrix and
+report and changes no production integration. Do not begin schemas or adapters while its
+field observations are still unknown: freezing a provider's advertised response instead of
+the response available from the target environment would manufacture a contract.
+
+After `T-222` records a go/no-go, `T-223` is the next serialization point and owns the one
+canonical Twitter capture contract. Only after that contract is accepted may provider work
+fan out:
+
+- `T-224` owns the qualified local provider seam (`x-cli` only if the spike passes).
+- `T-225` owns the opt-in FxTwitter fallback and official oEmbed corroboration.
+- `T-226` owns passive Firefox capture and its local importer.
+
+Those three tasks may run in parallel only if their files and fixtures are disjoint and every
+one writes the `T-223` contract rather than extending it privately. `T-227` then serializes
+extraction, provenance and coverage; `T-228` serializes adapter/index/UI coexistence; `T-229`
+is the full phase gate and runs alone. Provider credentials, browser sessions, `output/` raw
+evidence and the existing YouTube sample are never shared scratch space.
+
 ---
 
 ## 9. Risks — delta from canvas plan §18
@@ -849,6 +906,10 @@ badge component and rules in `base.css`. `T-215` added no application surface at
 | **R20** Readable cards obscure the topology or recreate an HTML node renderer at graph scale | 🟢 **Mitigated — the policy is code and the completeness path is tested** | D-132 permits one primary selected card, one transient Peek and only density-budgeted neighbour previews on the stage; WebGL keeps every loaded entity as a mark, and the semantic related list exposes every neighbour returned by the bounded API even when its card cannot fit. `T-205` stated the label density policy; `T-207` made the *card* policy a function — [`placeConstellation`](../web/src/map/constellation.ts), four clauses each returning a counted reason — and proved the accounting is total: cards placed plus omissions counted equals the neighbours returned, on the real fan-out as well as on fixtures. The overlay holds no control and no focusable element (D-137), so it cannot become the node renderer this risk names, and cards are not re-placed per frame (D-138). `T-209` measured it on the real route and the policy needed correcting in the *other* direction: the grid refused 7 of 8 cards that would have fitted while placing two that overlapped, so the clause is now an overlap test over the card's measured footprint in four orientations (D-145), and a selection frames its own neighbourhood so the cards have room to be placed at all (D-146). The accounting is asserted in the browser as well as in the suite — cards placed plus omissions counted equals the neighbours the server returned — and no two drawn cards share a pixel |
 | **R21** Functional completion is mistaken for visual acceptance | ✅ **Resolved 2026-09-03 (D-202)** — six children delivered, the gate green over all of them, and the acceptance given by a person rather than inferred from a suite | `T-210` is a separate release-quality epic. `T-211` delivered the approved compositions (D-191), `T-212` built the workspace (D-192), `T-213` built the Focus composition inside it (D-193) and `T-214` dressed it (D-194) — and every one of them showed the risk behaving exactly as predicted. The mockups' own geometry checks caught four defects a passing component suite would not have seen; `T-212`'s green jsdom suite said nothing about the three the browser found; `T-213`'s green 607-test suite said nothing about **five** more, each of which a reader would have seen immediately — a reserved card box smaller than the card Chrome drew, the focused card sliding under the counts float, a tier whose boxes did not fit its own minimum width, a relation pill wider than the run it had to sit in, and every card on the wrong half of the field because direction was read from the neighbour's end of the relation; and `T-214` closed a clause that had been *stated* since ADR 0006 and shipped broken through two tasks, because no test asserted it. All of it came from looking at a running build. `T-215` then built the gate — sixteen scenarios, the recorded numbers held, every geometry clause zero (D-195) — and proved the risk's own thesis a fifth time from the other side: **everything it asserts is green, and the pictures still differ from the approved ones in three ways no assertion fires on** (`SPEC.md` §16). Explore's marks scale with the camera, so the quiet field of the reference is quiet only at 1440; the `compact` tier's floats are panels where the reference has chips; both drawer panels are mounted with nothing focused. The risk closes when the user accepts the captures — or when a remediation task makes them acceptable and this gate re-runs green over it. A green suite, including this one, cannot close it. The user opened `T-216` rather than accepting, which is the risk working as designed: the gate said green, a person said not yet, and the difference between those two sentences is what R21 has always been about. **`T-216` has now run, and it is the sixth demonstration and the sharpest.** Its largest clause came with a decision D-196 had already reasoned out — move to `"screen"` sizes, and D-122's zoom rule retires with them — and *both halves of that reasoning were wrong about the library*: the ratio function it proposed clamping instead cannot see the field at all, so that alternative could never have worked, and `"screen"` does not freeze size under zoom, so the rule it was going to retire is still standing. Only reading `scaleSize` and re-running the captures found either, which is this risk's own lesson one level up — at a decision rather than at a defect. R21 closed on 2026-09-03 when the user accepted the captures (D-202) — and it closed on the only evidence that could ever have closed it. What it leaves behind is the machinery it forced into existence: an approved reference set that is regenerable from committed sources, sixteen scenarios whose recorded numbers are a regression surface, a chrome-share bound read off the reference by the instrument that measures the build, and four measured differences standing in `SPEC.md` §17 — six since D-203, which added two of its own there rather than remembered. A later surface that repeats this mistake will be caught by those and not by this row |
 | **R22** A Focus layout becomes a second graph/data truth | 🟡 **Mitigated by design; verify in implementation** | D-152 limits Directional Orbit to presentation derived from the existing `GraphSnapshot`, selection and neighbourhood. It may position records differently, but may not mint identities, merge neighbourhood data into the snapshot, add an endpoint or store a second graph; returning to Explore is deterministic |
+| **R23** `x-cli` or another public surface fails from Iran or changes without notice | 🔴 **Open — blocks integration** | `T-222` tests the exact pinned release and alternatives from the target environment, records raw evidence and failure modes, and produces a capability table. No candidate becomes a dependency from documentation alone |
+| **R24** A provider succeeds but returns an incomplete or misordered thread | 🔴 **Open — contract risk** | Provider success and completeness are separate fields. `T-223` models omissions/tombstones and item-based coverage; `T-227` makes `PASS` impossible while an expected item is unaccounted for. Passive capture is `PARTIAL` unless a boundary is proved |
+| **R25** X credentials/session material leak or a fallback silently discloses requested posts | 🟢 **Mitigated by boundary; verify in spike and implementation** | No password, cookie, token, profile or session export is accepted. FxTwitter is explicit opt-in with fixed origin; Firefox capture strips session data and sends no extra request. Security fixtures and logs are audited before the phase gate |
+| **R26** Unofficial-service, X Terms or AGPL obligations are obscured by a working demo | 🟡 **Accepted/contained** | ADR 0007 states that unofficial paths are not represented as X-approved. `x-cli` remains an external optional tool until its licence boundary is explicitly settled; third-party network use is disclosed; Treasury/twscrape automation and account-pool patterns are out of scope |
 
 Risks 1–6 and 8 from canvas plan §18 remain as written.
 
@@ -923,38 +984,30 @@ Risks 1–6 and 8 from canvas plan §18 remain as written.
 
 ## 11. Next step
 
-**Claim `T-301`.** Phase 2.1 closed on 2026-09-03: the user accepted the browser captures
-against the approved compositions (D-202), so `T-211`–`T-216` all pass, `T-210` is done, R21 is
-resolved and Phase 3 is unblocked. `T-301` is the Canvas epic — board CRUD, entity insertion
-from the Library, the Reader and the Map, the core custom nodes, user relations, frames,
-autosave, undo/redo, and portable persistence under `workspace/boards/` (§5, canvas plan §16
-Phase 3).
+**Claim only `T-222`.** `T-221` closed when the user accepted the acquisition boundary on
+2026-09-03 (D-204; [ADR 0007](adr/0007-twitter-acquisition-boundary.md)). Phase 2.2 now precedes
+Canvas. Its first deliverable is evidence, not integration: determine which no-payment route
+actually works from the user's real Iran environment and exactly what it can and cannot return.
 
-**Read first:** canvas plan **§14** (the board model), **§15**'s reserved board endpoints and
-**§16 Phase 3**'s four acceptance criteria — layout survives a restart, one corrupt node does
-not make a board unopenable, a user relation is distinguishable from a canonical one, and
-deleting a board is confirmed and preferably recoverable. Then §8.6's integration boundaries
-and D-027 below.
+The `T-222` session must:
 
-**The two things Phase 3 inherits, and neither is negotiable.**
+1. Read ADR 0007 and the complete Phase 2.2 task table in §5. Do not implement an adapter,
+   schema or UI and do not edit `WORKFLOW.md`; those depend on the measurements.
+2. Test a pinned `x-cli` release first, unauthenticated and without reading Firefox state.
+   Preserve the command shape, version, raw output, stderr, exit status, elapsed time and
+   digest. A successful command is not proof of a complete thread.
+3. Test the same public fixture matrix through FxTwitter/FxEmbed and official oEmbed. Do not
+   send an X cookie/token to either. Record the third-party disclosure and treat oEmbed as a
+   single-post corroboration signal only.
+4. Run from the target network/environment. Sanitize committed fixtures, but keep ids and
+   field shapes needed to reproduce the conclusion; record exactly what was removed. Never
+   commit a private post, account identifier, cookie, header, browser profile or session.
+5. End with a capability table and one decision: qualified `x-cli`; explicit FxTwitter
+   fallback; passive Firefox capture required; or no viable route. Every matrix cell has a
+   reasoned `PASS`, `PARTIAL`, `FAIL` or `NOT_SUPPORTED`, including long posts, media/alt text,
+   polls, edits, tombstones and root/middle self-thread anchors.
 
-1. **The frozen contract is read-only.** D-027: the v1 HTTP surface is eleven `GET` endpoints,
-   and the board endpoints of canvas plan §15 are **reserved and unimplemented**. A board is
-   local state under `workspace/boards/`, so the first design question of `T-301` is where
-   persistence lives, not which endpoint to add. Nothing the Canvas does may write, move or
-   reinterpret a file under `output/`, which is the invariant `git diff --stat -- output/`
-   has guarded on every task so far and must keep guarding.
-2. **The Map's composition is now a regression surface.** `T-210` left an approved reference
-   set regenerable from committed sources, sixteen scenarios holding recorded numbers — 7 / 1
-   at 2852×1688, 2 / 6 at 1440×900, 1 / 7 at 1280×720, every geometry clause zero, floating
-   chrome inside its per-tier bound — and four measured differences in `SPEC.md` §17, where D-203's two now stand beside them. The
-   Canvas is a *new surface*, so it does not touch them; a task that reaches back into
-   `mapStyle.ts`, `labelPolicy.ts`, `base.css` or `MapView`'s return does, and owes a re-run
-   of `visual.spec.ts` and a sentence about what moved.
-
-**What Phase 2.1 leaves open on purpose.** `SPEC.md` §17's first difference is a trade rather
-than an explanation, and the acceptance took it knowingly (D-202): the `compact` tier's chrome
-bound is a ratchet above this build's own worst rather than the reference's 10.3 %, because
-bringing it down was measured to place three cards at 1440×900 where D-193 recorded two. It is
-not a defect and it is not scheduled. A later task may still take that trade — D-201 asserts
-the bound and D-193's numbers are what it would move, so what it cannot do is take it quietly.
+**Do not claim `T-223` yet.** It freezes the canonical capture around observed data, not a
+provider's documentation. Canvas (`T-301`) remains technically unblocked and intentionally
+deferred; it resumes only after `T-229` closes the Twitter phase or a later user decision
+reorders the roadmap again.

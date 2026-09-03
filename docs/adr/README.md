@@ -60,3 +60,4 @@ When the replacement covers only **part** of an ADR — one invariant, say, whil
 | [0004](0004-graph-membership-and-search-corpus.md) | One membership rule for a source's graph, and a corpus the index owns | Accepted |
 | [0005](0005-knowledge-map-client.md) | A progressive, addressable and accessible Sigma v4 Knowledge Map | Accepted |
 | [0006](0006-map-visual-quality.md) | Separate Explore and Focus compositions for Map visual quality | Accepted |
+| [0007](0007-twitter-acquisition-boundary.md) | Qualify local Twitter/X acquisition before integration | Accepted |
