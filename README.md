@@ -1,5 +1,7 @@
 # X2KNWLDG
 
+![X2KNWLDG — Turn anything into knowledge](assets/readme/x2knwldg-hero-dark-v3.png)
+
 X2KNWLDG turns timestamped YouTube transcripts into auditable, reusable knowledge. It extracts structured knowledge first and only summarizes later.
 
 ## Origin and attribution
