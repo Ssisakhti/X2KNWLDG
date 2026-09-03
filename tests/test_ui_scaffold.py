@@ -1311,6 +1311,41 @@ def test_ci_lints_and_type_checks_the_frontend() -> None:
         }, f"{path.name} is reachable by no npm script"
 
 
+def test_no_gated_job_name_has_drifted_from_the_ruleset() -> None:
+    """D-203: renaming a gated job silently removes a required gate.
+
+    ``main`` is protected by a ruleset that requires status checks *by name*,
+    so a job whose ``name:`` changes stops reporting the check the rule waits
+    for — and a pull request then blocks for ever with every job green. This
+    happened: adding the lint step renamed
+    ``web (typecheck, test, build)`` to ``web (lint, typecheck, test, build)``
+    and the ruleset was the only thing that noticed.
+
+    The names are listed here rather than fetched, because a test that asked
+    GitHub would skip on every machine without a token — including the one
+    that matters, a contributor's. What it protects against is the rename, and
+    a rename is visible in the diff of *this* file beside the workflow's.
+    """
+    gated = {
+        "tests (python ${{ matrix.python-version }}, ${{ matrix.os }})",
+        "core package without extras",
+        "extra installs (${{ matrix.extra }})",
+        "run fixtures are reproducible",
+        "web (typecheck, test, build)",
+        "lint and types",
+        "frontend against the real API",
+        "the Map in a browser",
+        "requirements.txt installs",
+    }
+    declared = set(re.findall(r"^\s+name: (.+)$", _workflow(), re.MULTILINE))
+    missing = sorted(name for name in gated if name not in declared)
+    assert not missing, (
+        "these job names are required by the `main is gated by CI` ruleset and no "
+        f"longer exist in ci.yml, so the checks they name will never report: {missing}. "
+        "Rename them back, or change the ruleset in the same breath."
+    )
+
+
 def test_every_ci_action_is_pinned_to_a_commit() -> None:
     """D-203: every ``uses:`` was a mutable major tag.
 

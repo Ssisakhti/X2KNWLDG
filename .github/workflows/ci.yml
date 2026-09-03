@@ -226,7 +226,14 @@ jobs:
     # web/tsconfig.json sets skipLibCheck: false and lists the declarations as a
     # root file on purpose. With the default skipLibCheck, tsc would skip the one
     # file this job exists to check and pass without looking.
-    name: web (lint, typecheck, test, build)
+    # The name is a *contract with branch protection*, not a description: the
+    # `main is gated by CI` ruleset requires a check called exactly
+    # `web (typecheck, test, build)`, so renaming this job silently removes a
+    # required gate — the check it names stops reporting and the pull request
+    # blocks for ever with every job green. D-203 did precisely that when it
+    # added the lint step, and the ruleset caught it. Add steps here freely;
+    # change this line only together with the ruleset.
+    name: web (typecheck, test, build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
