@@ -10,6 +10,24 @@ and arbitrary web pages are roadmap items only. Do not ingest them until they ha
 capture contract, extraction rules, an adapter, a row in `artifacts.MEDIUM_PROFILES`,
 fixtures, and validators.
 
+## Permanent output-language policy
+
+This policy applies to every model pass, supported source type, report, graph label,
+and vault note. It is part of the canonical workflow, not a per-run preference:
+
+- Write `content`, `normalized_statement`, summaries, analysis, `derivation_note`, and
+  human-readable coverage notes in **Persian**.
+- Express technical terms in Persian and include the English term in parentheses when
+  it materially improves precision or recognition. Do not add an English equivalent
+  mechanically when it adds no value.
+- Preserve every `evidence_excerpt` exactly in the source language. Never translate,
+  normalize, or rewrite evidence.
+- Preserve source titles and acquisition metadata in their original form. Do not
+  translate a title, author/channel name, URL, language tag, or other source fact.
+- Keep schema keys, IDs, enum values, relationship types, omission codes, and status
+  values in their canonical machine-readable form. The Persian rule governs narrative
+  knowledge, not the wire format.
+
 ## 1. Acquire the transcript
 
 Preferred order:

@@ -4,6 +4,11 @@ Input: one coverage window, its caption text, and all knowledge units mapped to 
 
 Audit semantic coverage. Account for every meaningful item in the window.
 
+Write every human-readable coverage note, explanation, missing-unit candidate, summary,
+and analysis in Persian. Use Persian technical terms with the English term in parentheses
+when useful. Keep controlled omission labels, statuses, IDs, and schema keys in their
+canonical machine-readable form. Never translate an evidence excerpt or source metadata.
+
 - If meaningful content is represented, mark the window `covered`.
 - If meaningful content is missing, mark it `uncovered` and return missing source-unit candidates.
 - If content is intentionally omitted, use only an allowed omission label from `src/x2knwldg/constants.py`.
@@ -48,7 +53,7 @@ stated nowhere this prompt sends you, and `apply-bundle` rejects an entry that u
 ```json
 {
   "type": "sponsor",
-  "note": "A sponsor read; nothing in it to extract."
+  "note": "بخش معرفی حامی مالی است و محتوای دانشی قابل استخراجی ندارد."
 }
 ```
 
@@ -58,4 +63,3 @@ stated nowhere this prompt sends you, and `apply-bundle` rejects an entry that u
 - `note` — free text. **Required when `type` is `other_explained`**, and rejected as
   `missing_other_explanation` without it. Write one for every omission anyway: the note is what
   makes an omission auditable rather than merely declared.
-

@@ -8,6 +8,11 @@ gap to walk: the capture *enumerates* which posts it included, so the audit is a
 set comparison and it is exact. Every included post is covered, omitted with a
 reason, or unresolved.
 
+Write every human-readable coverage note, explanation, missing-unit candidate, summary,
+and analysis in Persian. Use Persian technical terms with the English term in parentheses
+when useful. Keep controlled omission labels, statuses, IDs, and schema keys in their
+canonical machine-readable form. Never translate an evidence excerpt or source metadata.
+
 - If the post's meaningful content is represented, mark the entry `covered`.
 - If meaningful content is missing, mark it `uncovered` and return the missing
   source-unit candidates.

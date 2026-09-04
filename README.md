@@ -10,6 +10,12 @@ The current release supports timestamped YouTube content and public X/Twitter po
 or same-author self-threads. The pipeline is designed to accept more source adapters,
 but Medium, arbitrary web pages, books, PDFs, and EPUBs are **not implemented yet**.
 
+Narrative knowledge is produced in Persian by project policy: knowledge-unit content,
+normalization, summaries, analysis, derivation notes, and human-readable coverage notes.
+Technical terms include their English equivalent when useful. Evidence excerpts always
+remain verbatim in the source language, while source titles and acquisition metadata stay
+in their original form. Machine-readable keys and controlled values are not translated.
+
 > **Project status:** active development (`0.1.0`). Canonical formats and the read-only
 > API are tested, but backward compatibility is not yet promised across minor releases.
 

@@ -29,6 +29,16 @@ ingestion, extraction, validation, or finalization task. Canonical files under
 - Never invent timestamps, spans, excerpts, quotes, evidence, coverage, completeness,
   or source support.
 
+## Permanent output-language policy
+
+- Write narrative knowledge in Persian: `content`, `normalized_statement`, summaries,
+  analysis, `derivation_note`, and human-readable coverage notes.
+- Use Persian technical terminology, adding the English term in parentheses when it
+  helps precision or recognition.
+- Keep `evidence_excerpt` verbatim in the source language; never translate or normalize it.
+- Keep source titles and acquisition metadata in their original form.
+- Do not translate schema keys, IDs, enum values, relation types, omission codes, or statuses.
+
 ## Workflow and completion
 
 - Use the medium-specific prompt sequence in `WORKFLOW.md`; store intermediate work in
