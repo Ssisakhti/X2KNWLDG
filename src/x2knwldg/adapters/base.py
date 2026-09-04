@@ -136,6 +136,11 @@ MAX_EDGE_ID_LENGTH = 1300  # indexed_relation.id
 # trailing newline, and Python's does.
 _ISO_TIMESTAMP_RE = re.compile(f"^{ISO_TIMESTAMP_PATTERN}\\Z")
 
+#: The fractional-second digits, for :func:`_parseable`. Not part of the
+#: accepted shape — the pattern above already decides that — only of rewriting a
+#: valid timestamp into the spelling the floor interpreter can parse.
+_FRACTION_RE = re.compile(r"\.(\d+)")
+
 
 class AdapterError(RuntimeError):
     """A run cannot be mapped onto the index model without guessing.
@@ -377,6 +382,31 @@ def copied_choice(
     return value
 
 
+def _parseable(text: str) -> str:
+    """*text* in the narrower spelling ``datetime.fromisoformat`` accepts on 3.10.
+
+    ``requires-python`` declares 3.10 as the floor, and on 3.10 that constructor
+    parses only what ``isoformat()`` emits: no ``Z`` designator — it landed in
+    3.11 — and fractional seconds of exactly three or six digits. Both are
+    perfectly good RFC 3339, both are accepted by
+    ``common.schema.json#/$defs/isoTimestamp``, and every Twitter capture uses
+    the first one: `acquisition.requested_at` is written as `...:00Z`, so
+    projecting an acquired post raised `ValueError: Invalid isoformat string` on
+    the floor interpreter and nowhere else.
+
+    Rewritten for the **parse only**. What the caller returns is the model's own
+    text, verbatim, because a copied field that quietly changed spelling would
+    be a record stating something the canonical file does not.
+    """
+    if text[-1] in "Zz":
+        text = f"{text[:-1]}+00:00"
+    fraction = _FRACTION_RE.search(text)
+    if fraction and len(fraction.group(1)) not in (3, 6):
+        digits = fraction.group(1)[:6].ljust(6, "0")
+        text = f"{text[: fraction.start(1)]}{digits}{text[fraction.end(1) :]}"
+    return text
+
+
 def copied_timestamp(value: Any, *, owner: str, field: str) -> str | None:
     """An RFC 3339 timestamp, verbatim, or ``None`` when there is none.
 
@@ -390,7 +420,7 @@ def copied_timestamp(value: Any, *, owner: str, field: str) -> str | None:
     if not _ISO_TIMESTAMP_RE.match(text):
         refuse(owner, field, value, "carries an RFC 3339 timestamp with an offset there")
     try:
-        datetime.fromisoformat(text)
+        datetime.fromisoformat(_parseable(text))
     except ValueError:
         refuse(owner, field, value, "carries a real date and time there")
     return text

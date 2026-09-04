@@ -33,6 +33,7 @@ import json
 import re
 import shutil
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -250,6 +251,44 @@ def test_every_timestamp_in_the_frozen_documents_carries_the_pattern() -> None:
         "these fields assert a timestamp shape no validator in this repo checks; "
         f"refer to common.schema.json#/$defs/isoTimestamp instead: {unchecked}"
     )
+
+
+@pytest.mark.parametrize(
+    "stated, parsed",
+    [
+        # Every Twitter capture: `acquisition.requested_at` is written with a
+        # `Z`, and `_metadata` copies it to `metadata.acquired_at`.
+        ("2026-09-03T20:36:00Z", "2026-09-03T20:36:00+00:00"),
+        ("2026-09-03T20:36:00z", "2026-09-03T20:36:00+00:00"),
+        # Fractional seconds of any length are in the pattern; 3.10 parses
+        # exactly three or six digits.
+        ("2026-09-03T20:36:00.5Z", "2026-09-03T20:36:00.500000+00:00"),
+        ("2026-09-03T20:36:00.1234+03:30", "2026-09-03T20:36:00.123400+03:30"),
+        # Already in the narrow spelling: rewritten to itself.
+        ("2026-09-03T20:36:00.123+00:00", "2026-09-03T20:36:00.123+00:00"),
+        ("2026-09-03T20:36:00-05:00", "2026-09-03T20:36:00-05:00"),
+    ],
+)
+def test_a_timestamp_the_floor_interpreter_cannot_parse_is_still_a_timestamp(
+    stated: str, parsed: str
+) -> None:
+    """`requires-python` says 3.10, and 3.10's parser is narrower than RFC 3339.
+
+    `datetime.fromisoformat` accepted a `Z` designator only from 3.11, and
+    parses fractional seconds of exactly three or six digits — while
+    `common.schema.json#/$defs/isoTimestamp` accepts both spellings and
+    `ISO_TIMESTAMP_PATTERN` mirrors it. So projecting an acquired Twitter post
+    raised `ValueError: Invalid isoformat string` on the floor interpreter and
+    on no other, which is a defect the local suite could not see.
+
+    Asserted on the rewritten string rather than on "it parses here", because
+    on 3.11 and later both forms parse and the test would prove nothing.
+    """
+    assert base._parseable(stated) == parsed
+    datetime.fromisoformat(base._parseable(stated))
+    # And the copied field is still the model's own text, unchanged: the
+    # rewrite is for the parse, never for the record.
+    assert base.copied_timestamp(stated, owner="source:x", field="acquired_at") == stated
 
 
 def test_a_status_timestamp_that_is_not_a_timestamp_is_refused() -> None:
