@@ -89,6 +89,23 @@ def _require_mapping(value: Any, label: str) -> Mapping[str, Any]:
     return value
 
 
+def _require_offset(value: Any, label: str) -> int:
+    """Return *value* as a codepoint offset, or raise ``IdError``.
+
+    A half-open character range is indexed with integers, so unlike
+    ``_require_seconds`` this refuses a float outright rather than widening to
+    one: ``text[0:2.0]`` is a ``TypeError``, and an offset that cannot slice
+    the text it addresses is not an offset. ``bool`` is excluded for the reason
+    it is excluded there — it is an ``int`` in Python and ``True`` is not a
+    position.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise IdError(f"{label} must be an integer, got {type(value).__name__}")
+    if value < 0:
+        raise IdError(f"{label} must not be negative, got {value}")
+    return value
+
+
 def _require_seconds(value: Any, label: str) -> float:
     """Return *value* as a timestamp in seconds, or raise ``IdError``.
 
@@ -420,7 +437,7 @@ def check_source_ids(record: Mapping[str, Any]) -> None:
 
 
 def check_locator(locator: Mapping[str, Any]) -> None:
-    """Invariant 3 — a ``time_range`` locator has ``end_sec >= start_sec``.
+    """Invariant 3 — a locator's range does not end before it starts.
 
     Any ``artifact_id`` present must also be a well-formed global id.
 
@@ -430,19 +447,49 @@ def check_locator(locator: Mapping[str, Any]) -> None:
     second passed the ordering test or crashed out of it with a bare
     ``TypeError``/``KeyError``, neither of which a caller catching ``IdError``
     could see. Every failure here is an ``IdError``.
+
+    A ``text_span`` is the same invariant over a different coordinate, and it
+    is checked for the same reason rather than by analogy: ``T-228`` projects
+    every source claim in a non-time-based medium through this branch (D-233),
+    so from here on it carries real traffic. The schema requires the branch's
+    four fields and bounds each at zero, but JSON Schema compares no two
+    fields, so a span ending before it starts is schema-valid — and a locator
+    the index cannot order is exactly what invariant 3 exists to refuse. The
+    excerpt is deliberately **not** measured against ``end_char - start_char``:
+    the two agree only under the medium's own definition of a character, and
+    ``twitter.extract`` already compares an excerpt with its own slice
+    verbatim, where the capture's text is in hand. Re-deriving that here from
+    a length would be a second, weaker answer to a question already settled.
     """
     _require_mapping(locator, "locator")
     artifact_id = locator.get("artifact_id")
     if artifact_id is not None:
         parse_global_id(artifact_id)
-    if locator.get("type") != "time_range":
+    kind = locator.get("type")
+    if kind == "time_range":
+        for field in ("start_sec", "end_sec"):
+            if field not in locator:
+                raise IdError(f"time_range locator is missing {field}")
+        start_sec = _require_seconds(locator["start_sec"], "start_sec")
+        end_sec = _require_seconds(locator["end_sec"], "end_sec")
+        if end_sec < start_sec:
+            raise IdError(
+                f"time_range locator ends at {end_sec} before it starts at {start_sec}"
+            )
         return
-    for field in ("start_sec", "end_sec"):
-        if field not in locator:
-            raise IdError(f"time_range locator is missing {field}")
-    start_sec = _require_seconds(locator["start_sec"], "start_sec")
-    end_sec = _require_seconds(locator["end_sec"], "end_sec")
-    if end_sec < start_sec:
-        raise IdError(
-            f"time_range locator ends at {end_sec} before it starts at {start_sec}"
-        )
+    if kind == "text_span":
+        # The schema makes artifact_id required on this branch alone, because a
+        # character offset into an unnamed artifact addresses nothing. The
+        # check above only runs when one is *present*, so its absence is caught
+        # here rather than passing as "no artifact_id to validate".
+        if artifact_id is None:
+            raise IdError("text_span locator is missing artifact_id")
+        for field in ("start_char", "end_char"):
+            if field not in locator:
+                raise IdError(f"text_span locator is missing {field}")
+        start_char = _require_offset(locator["start_char"], "start_char")
+        end_char = _require_offset(locator["end_char"], "end_char")
+        if end_char < start_char:
+            raise IdError(
+                f"text_span locator ends at {end_char} before it starts at {start_char}"
+            )

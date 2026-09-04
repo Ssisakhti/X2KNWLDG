@@ -75,6 +75,19 @@ SOURCE_TYPE = "twitter"
 
 CAPTURE_FILENAME = "capture.json"
 
+
+def post_url(post_id: str) -> str:
+    """The canonical URL of one post.
+
+    The ``/i/status/`` form on purpose: it needs no author handle, so it is
+    the one spelling that works for every item a capture holds — including a
+    post whose author is not recorded because it is unavailable. One
+    implementation because ``T-228`` addresses each item as an artifact of its
+    own and needs the same URL this module already writes into
+    ``metadata.source_url``.
+    """
+    return f"https://x.com/i/status/{post_id}"
+
 #: The capture is the one canonical document extraction reads, so it is the one
 #: a digest is recorded over (D-163's rule, applied to this medium). Unlike
 #: ``segments.json`` it is not re-derivable from anything the pipeline holds —
@@ -309,7 +322,7 @@ def _metadata(capture: dict[str, Any], canonical_hashes: dict[str, str]) -> dict
         # renaming this field is not T-227's to do.
         "video_id": source_id,
         "source_type": SOURCE_TYPE,
-        "source_url": f"https://x.com/i/status/{source_id}",
+        "source_url": post_url(source_id),
         "author_username": author.get("username"),
         "title": _title(capture),
         "channel": author.get("username") or "Unknown author",

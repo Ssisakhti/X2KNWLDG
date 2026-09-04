@@ -1609,20 +1609,21 @@ An agent must not guess the answers to these if the decision would cause a notic
   `text.canonical`, coverage is item-based, and the apply gate refuses a bundle rather than
   writing a run its own validators reject. Eight run fixtures built by driving that code
   (D-220, D-225–D-231)
-- [ ] **Phase 2.2 / `T-228`: claimed and in progress** — source-neutral integration and product
-  coexistence: the `post_id`-with-a-span locator widening D-212 handed it, entities and
-  artifacts over a run whose evidence is a capture rather than a transcript, the SQLite rebuild,
-  and presentation only where the generic renderer cannot already represent a post
+- [x] Phase 2.2 / `T-228` — source-neutral integration and product coexistence: a Twitter run
+  reaches the index, the API, search, the Reader and the Map beside a YouTube one, on the eleven
+  frozen operations with no new endpoint, field or query parameter. No locator branch was
+  widened — a claim is a `text_span` into a per-item artifact (D-233) — and most of the
+  projection moved to `SourceAdapter` so the media that follow inherit it (D-235–D-239)
 - [ ] Phase 2.2 / `T-229`: the full phase gate, the operating documentation and the failure
   rehearsal. `T-225` (opt-in network fallback and corroboration) and `T-226` (passive browser
   capture) are genuine fallbacks rather than the way forward — `T-225` is what adds URL entity
   spans and corroborated text, additively (D-218, D-220) — and `T-229`'s capability table may
   not promise a route that was never built, so the selection between them has to be recorded
   before it runs
-- [ ] Phase 2.2 / `T-230`: medium-dispatched finalize and a vault a second medium can reach.
-  Runs between `T-228` and `T-229`, and is sized for all four media rather than for Twitter,
-  because `finalize_run` and `_obsidian_files` are YouTube-shaped and every medium hits the
-  same four places (D-234)
+- [ ] **Phase 2.2 / `T-230`: next** — medium-dispatched finalize and a vault a second medium can
+  reach. Runs between `T-228` and `T-229`, and is sized for all four media rather than for
+  Twitter, because `finalize_run` and `_obsidian_files` are YouTube-shaped and every medium hits
+  the same four places (D-234)
 - [ ] Canvas — Phase 3 / `T-301`: technically unblocked by `T-210`, deliberately deferred
   until the Twitter phase gate closes (D-204)
 - [ ] Pen annotations
@@ -1633,52 +1634,44 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**`T-228` is claimed — source-neutral integration and product coexistence.** The whole default
-path now exists up to `validation.json`: the boundary was accepted (D-204), the qualification
-returned a `GO` (D-205), the capture contract is frozen (D-212), the qualified local provider
-seam writes it and was verified live on the target machine over the tunnel (D-213–D-219), and
-`T-227` turns a capture into canonical outputs the existing source-grounded / derived pipeline
-validates, including the apply gate a model's extraction goes through (D-225–D-231).
+**`T-230` is next — medium-dispatched finalize, and a vault a second medium can reach.** With
+`T-228` done, a Twitter run is a first-class citizen of the index, the API, search, the Reader
+and the Map: it projects artifacts, entities, `text_span` locators and relations, it coexists
+with the YouTube sample without moving a single one of its ids, and rebuilding the SQLite cache
+from scratch loses nothing (D-235–D-239).
 
-What is left is the half that makes any of it visible. A Twitter run is **discoverable** today —
-`io.run_dirs` globs `output/*/metadata.json` — and `TwitterAdapter` registers the source type so
-one acquired post cannot refuse the whole project's projection, but it projects a single `Source`
-record and nothing else, on purpose: an `Entity` carries a `Locator`, and no locator branch can
-carry a post id and a span together (D-212, D-227). So `T-228` mints the entities, artifacts and
-relations, forces the re-index its `0.1` adapter version exists to force, and adds presentation
-only where the generic renderer cannot already represent a post — but it **widens no locator
-branch**: D-233 projects a claim as a per-item artifact addressed by the generic `text_span`
-branch, so the artifact id is what identifies the post and one locator type serves an article,
-a book chapter and a web page too. That is the shape four media get, not one.
+What it still cannot do is *finish*. `artifacts.finalize_run` requires `metadata['video_url']`,
+`metadata['channel']` and `metadata['transcript_hash']`, and `_obsidian_files` writes
+`vault/videos/<id>.md` with `type: video` frontmatter — so a Twitter run stops at
+`validation.json` with no `graph.json`, no `report.md`, no vault note, and nothing for
+`rebuild-library` to merge. That wall is **YouTube-shaped rather than Twitter-shaped**, which is
+why D-234 makes it one task sized for four media: Medium, books and website links all hit the
+same four places.
 
-What `T-227` handed forward, so this task does not have to guess:
+What `T-228` established, so `T-230` inherits rather than re-decides:
 
-1. **The provenance shape is already exact.** A unit's `source` block carries `post_id`,
-   `start_char`, `end_char` and `evidence_excerpt`, and the excerpt **is** that slice of
-   `text.canonical` compared verbatim — no normalization, because normalizing would discard the
-   ZWNJ, NBSP and Persian digits a Persian post is made of. The widened locator branch is that
-   block, field for field.
-2. **The evidence artifact is `capture.json`, not a transcript.** It holds the exact codepoint
-   text a claim slices, which is the same reason a YouTube locator addresses the segments file
-   rather than the transcript. A Twitter run has no `transcript.json`, `segments.json`,
-   `graph.json` or `report.md`.
-3. **A run ends at `validation.json`, and closing that is `T-230`'s (D-234).**
-   `artifacts.finalize_run` reads a transcript and segments and requires
-   `metadata['video_url']`, `metadata['channel']` and `metadata['transcript_hash']`, while
-   `_obsidian_files` writes `vault/videos/<id>.md` with `type: video` frontmatter — a Twitter
-   `metadata.json` carries `source_url` and `canonical_hashes` instead. The wall is
-   **YouTube-shaped, not Twitter-shaped**, so Medium, books and website links all hit the same
-   four places and the generalization is one task sized for four media, running between `T-228`
-   and `T-229`.
-4. **Nothing is reachable from the CLI but `capture`.** Initializing, applying and validating a
-   Twitter run is library-only, and `WORKFLOW.md` still correctly describes only the YouTube
-   workflow. `T-229` owns the CLI help, the documentation and the failure rehearsal — do not
-   update `WORKFLOW.md` before it.
+1. **One projection, one implementation.** `_knowledge_entities`, `_derived_refs`,
+   `_canonical_relations`, `_derived_from_relations` and `_file_artifact` are
+   `SourceAdapter`'s, with `_locator` the single overridable hook (D-235). A finalize path that
+   dispatches per medium belongs in the same shape — inside one implementation, not beside a
+   second one.
+2. **A claim's location is medium-neutral already.** Every source claim carries a locator with
+   an `artifact_id` and an excerpt, whether its coordinate is seconds or characters, so a report
+   or a vault note can cite provenance without asking which medium it is reading.
+3. **What a medium *is* lives in one field.** `metadata.source_type` is what every validator and
+   both adapters dispatch on. A vault note's identity, frontmatter and provenance line follow
+   from it, and nothing needs to sniff a file layout to work out which kind of run it has.
+4. **The two refusals that already guard finalize stay.** A `FAIL` run is refused before the
+   first write, because `graph.json` and `report.md` are overwritten in place and
+   `rebuild_library` merges the result into the cumulative graph; a `PARTIAL` still finalizes,
+   because an honestly incomplete run is a real deliverable.
 
-The Phase 2.2 gate is **not** met and must not be reported as met. One measured no-payment path
-produces canonical captures *and* canonical runs, which is one clause of six, and the runs that
-exist are committed test fixtures: nothing has been ingested into `output/`, and no Twitter run
-reaches the library, the Reader or the Map.
+The Phase 2.2 gate is **not** met and must not be reported as met. Two of six clauses now hold —
+one measured no-payment path produces canonical captures and canonical runs, and those runs
+coexist with YouTube through the product — but nothing has been ingested into `output/`, no
+Twitter run has a vault note or a report, and no Twitter command but `capture` exists.
+`WORKFLOW.md` still correctly describes only the YouTube workflow; `T-229` owns updating it, and
+not before.
 
 
 ## 24. Research references

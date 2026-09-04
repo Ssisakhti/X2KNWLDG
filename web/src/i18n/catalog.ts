@@ -382,6 +382,7 @@ export const en = {
   "reader.units.confidence": "Confidence",
   "reader.units.locator": "Locator",
   "reader.units.locatorNone": "No locator is recorded for this unit.",
+  "reader.units.locatorPost": "Post",
   "reader.units.derivedFrom": "Derived from",
   "reader.units.derivationNote": "Derivation note",
   "reader.units.libraryId": "Library id",
@@ -416,6 +417,7 @@ export const en = {
 
   "time.at": "at {time}",
   "time.range": "{start} – {end}",
+  "text.range": "characters {start}–{end}",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -782,6 +784,7 @@ export const fa: Messages = {
   "reader.units.confidence": "اطمینان",
   "reader.units.locator": "مکان‌یاب",
   "reader.units.locatorNone": "برای این واحد مکان‌یابی ثبت نشده است.",
+  "reader.units.locatorPost": "پست",
   "reader.units.derivedFrom": "برگرفته از",
   "reader.units.derivationNote": "یادداشت استنتاج",
   "reader.units.libraryId": "شناسهٔ کتابخانه",
@@ -816,6 +819,7 @@ export const fa: Messages = {
 
   "time.at": "در {time}",
   "time.range": "{start} – {end}",
+  "text.range": "نویسه‌های {start}–{end}",
 };
 
 export const CATALOGS: Record<Locale, Messages> = { en, fa };
