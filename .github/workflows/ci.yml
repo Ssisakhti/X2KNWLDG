@@ -209,14 +209,28 @@ jobs:
         # `git status --porcelain`, not `git diff`: a generator that starts
         # writing an extra artifact leaves it *untracked*, and `git diff` is
         # blind to that, so the check passed while the fixtures had changed.
+        #
+        # All three builders, because all three make the same promise and only
+        # one of them was ever checked here: the capture fixtures (T-223) and
+        # the Twitter run fixtures (T-227) are regenerated from committed bytes
+        # exactly as the YouTube runs are, and §7.2 of docs/PROJECT_MANAGEMENT.md
+        # already listed all three as the regression baseline.
         run: |
-          python tests/fixtures/runs/build_fixtures.py
-          git status --porcelain -- tests/fixtures/runs/
-          if [ -n "$(git status --porcelain -- tests/fixtures/runs/)" ]; then
-            echo "Regenerating the fixtures changed them; commit the result." >&2
-            git diff -- tests/fixtures/runs/ | head -100
-            exit 1
-          fi
+          set -e
+          for builder in \
+            tests/fixtures/runs/build_fixtures.py \
+            tests/fixtures/captures/build_captures.py \
+            tests/fixtures/twitter-runs/build_fixtures.py
+          do
+            directory="$(dirname "$builder")/"
+            python "$builder"
+            git status --porcelain -- "$directory"
+            if [ -n "$(git status --porcelain -- "$directory")" ]; then
+              echo "Regenerating $directory changed it; commit the result." >&2
+              git diff -- "$directory" | head -100
+              exit 1
+            fi
+          done
 
   web-typecheck:
     # Risk R17: tests/test_api_types.py proves the committed types.d.ts matches
