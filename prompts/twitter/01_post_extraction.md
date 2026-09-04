@@ -15,13 +15,17 @@ direction.
 Rules:
 
 - This pass creates `source` units only.
+- Write `content` and `normalized_statement` in Persian. Use Persian technical terms and
+  add the English term in parentheses when it materially improves precision or recognition.
 - Do not infer beyond this item's `text.canonical` and the adjacent items
   supplied as context.
 - Every unit cites **one post id and one codepoint span** into that post's
   `text.canonical`, plus the excerpt.
 - `evidence_excerpt` must equal `text.canonical[start_char:end_char]`
   **exactly** — byte for byte, character for character. Not a paraphrase, not a
-  trimmed version, not a normalized one. The validator compares them verbatim.
+  trimmed version, not a normalized one, and not a translation. It stays in the
+  original source language. The validator compares it verbatim.
+- Preserve the source title and all acquisition metadata in their original form.
 - `start_char`/`end_char` are **codepoint** offsets, which is what Python string
   indexing natively is. They are not UTF-16 code units: a post containing an
   emoji outside the BMP will slice wrongly under that reading, and D-211

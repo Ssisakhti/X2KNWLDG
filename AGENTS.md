@@ -28,6 +28,16 @@ source of truth; do not infer support from roadmap text.
 - Never invent timestamps, character spans, excerpts, quotes, evidence, coverage,
   source completeness, or support for a source type.
 
+## Permanent output-language policy
+
+- Write narrative knowledge in Persian: `content`, `normalized_statement`, summaries,
+  analysis, `derivation_note`, and human-readable coverage notes.
+- Use Persian technical terminology, adding the English term in parentheses when it
+  helps precision or recognition.
+- Keep `evidence_excerpt` verbatim in the source language; never translate or normalize it.
+- Keep source titles and acquisition metadata in their original form.
+- Do not translate schema keys, IDs, enum values, relation types, omission codes, or statuses.
+
 ## Required completion discipline
 
 - Use the medium-specific prompt sequence in `WORKFLOW.md` and keep intermediate work

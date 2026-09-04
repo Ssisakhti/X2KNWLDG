@@ -4,6 +4,10 @@ Input: validated, deduplicated source-grounded units.
 
 Create directed edges only when supported by the units. Use only the allowed relation types in `src/x2knwldg/constants.py`. Edges must reference knowledge-unit IDs, not free text.
 
+Relationship types, IDs, schema keys, and enum values remain in their canonical
+machine-readable form; do not translate them. Narrative knowledge supplied to or produced
+around this pass remains Persian under `WORKFLOW.md`'s permanent output-language policy.
+
 For inferred edges, set `source_class` to `derived`. Never reverse a causal direction. Do not create vague `related_to` edges when a more precise relation is supported.
 
 Return JSON only:
@@ -21,4 +25,3 @@ Return JSON only:
   ]
 }
 ```
-

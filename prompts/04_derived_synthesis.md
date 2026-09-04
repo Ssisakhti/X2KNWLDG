@@ -7,6 +7,8 @@ Using only those inputs, derive useful implications, generalized rules, mental m
 Rules:
 
 - Every item must have `source_class: derived`.
+- Write `content` and `derivation_note` in Persian. Use Persian technical terms and add
+  the English term in parentheses when it materially improves precision or recognition.
 - Every item must list valid source-unit IDs under `derived_from`.
 - Every item must include a concise `derivation_note`.
 - Never phrase derived content as if the speaker explicitly said it.
@@ -28,10 +30,9 @@ refused as `kind_source_class_mismatch`.
   "content": "...",
   "confidence": 0.7,
   "derived_from": ["KU-000001", "KU-000002"],
-  "derivation_note": "Why these units support this, in one sentence."
+  "derivation_note": "این واحدها چگونه از این نتیجه پشتیبانی می‌کنند، در یک جمله."
 }
 ```
 
 A derived unit carries **no** `source` block: it cites units, not the transcript. Adding one
 is how a synthesis comes to look like a quotation.
-

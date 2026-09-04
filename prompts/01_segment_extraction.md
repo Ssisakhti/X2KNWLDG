@@ -7,10 +7,14 @@ Extract every meaningful knowledge unit. Do not optimize for novelty, brevity, o
 Rules:
 
 - This pass creates `source` units only.
+- Write `content` and `normalized_statement` in Persian. Use Persian technical terms and
+  add the English term in parentheses when it materially improves precision or recognition.
 - Do not infer beyond the supplied transcript.
 - Keep distinct claims and experiments separate.
 - Every unit must use an exact source span within this segment.
-- `evidence_excerpt` must be copied from the transcript; never invent a quote.
+- `evidence_excerpt` must be copied from the transcript in its original source language; never
+  translate, normalize, rewrite, or invent a quote.
+- Preserve the source title and all supplied source metadata in their original form.
 - Captions marked `"non_speech": true` carry `"text": ""` and exist to hold their timing. They are data, not a gap: never quote one, never extract a unit from one, and never treat the empty text as a transcription failure to work around.
 - Use `evidence_status: unsupported_in_video` when an asserted claim has no support in the segment or adjacent supplied context.
 - Return JSON only: `{ "knowledge_units": [...] }`.
@@ -39,4 +43,3 @@ Required unit fields:
   }
 }
 ```
-
