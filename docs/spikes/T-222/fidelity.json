@@ -1,0 +1,220 @@
+{
+  "task": "T-222",
+  "addendum": "Persian/RTL text fidelity across routes",
+  "generated_by": "docs/spikes/T-222/fidelity.py",
+  "why": "A locator cites an exact text span. If two routes disagree about the characters, a span recorded from one silently misresolves against the other. Measured rather than assumed.",
+  "comparisons": [
+    {
+      "case": "fa_text_only_zwnj_digits",
+      "ref": "2027781710667010262",
+      "why": "Persian prose carrying ZWNJ, Persian digits, keheh and ye; no media.",
+      "verdict": "PASS",
+      "reason": "the two independent routes returned identical characters; Tier 0 returned 273 of 418 characters",
+      "lengths": {
+        "tier0": 273,
+        "guest": 418,
+        "fxtwitter_authored": 418,
+        "fxtwitter_rendered": 418
+      },
+      "authored_vs_rendered_differ": false,
+      "entity_span_basis": {
+        "astral_characters": [],
+        "facets": [],
+        "basis": "not_exercised"
+      },
+      "identical_raw": {
+        "guest_vs_fx": true,
+        "tier0_vs_guest": false
+      },
+      "identical_url_normalized": {
+        "guest_vs_fx": true
+      },
+      "codepoints_present": [
+        "ZWNJ U+200C",
+        "persian_digits U+06F0-9",
+        "persian_keheh U+06A9",
+        "persian_ye U+06CC"
+      ],
+      "codepoints_agree_guest_vs_fx": true,
+      "codepoints_agree_url_normalized": true,
+      "first_difference_guest_vs_fx": null,
+      "tier0_truncated": true
+    },
+    {
+      "case": "fa_trailing_media_link",
+      "ref": "1580541310636883972",
+      "why": "Persian post whose authored text ends in a media t.co link.",
+      "verdict": "PASS",
+      "reason": "the two independent routes returned identical characters",
+      "lengths": {
+        "tier0": 285,
+        "guest": 285,
+        "fxtwitter_authored": 285,
+        "fxtwitter_rendered": 261
+      },
+      "authored_vs_rendered_differ": true,
+      "entity_span_basis": {
+        "astral_characters": [],
+        "facets": [
+          {
+            "type": "media",
+            "indices": [
+              262,
+              285
+            ],
+            "codepoint_aligned": true,
+            "utf16_aligned": true
+          }
+        ],
+        "basis": "codepoints"
+      },
+      "identical_raw": {
+        "guest_vs_fx": true,
+        "tier0_vs_guest": true
+      },
+      "identical_url_normalized": {
+        "guest_vs_fx": true
+      },
+      "codepoints_present": [
+        "ZWNJ U+200C",
+        "ascii_digits",
+        "persian_keheh U+06A9",
+        "persian_ye U+06CC"
+      ],
+      "codepoints_agree_guest_vs_fx": true,
+      "codepoints_agree_url_normalized": true,
+      "first_difference_guest_vs_fx": null,
+      "tier0_truncated": false
+    },
+    {
+      "case": "fa_expandable_link",
+      "ref": "2095494053508874355",
+      "why": "Persian post with a non-media t.co link that expands to an x.com URL.",
+      "verdict": "PASS",
+      "reason": "the two independent routes returned identical characters",
+      "lengths": {
+        "tier0": 60,
+        "guest": 60,
+        "fxtwitter_authored": 60,
+        "fxtwitter_rendered": 77
+      },
+      "authored_vs_rendered_differ": true,
+      "entity_span_basis": {
+        "astral_characters": [
+          "📡",
+          "📺"
+        ],
+        "facets": [
+          {
+            "type": "url",
+            "indices": [
+              37,
+              60
+            ],
+            "codepoint_aligned": true,
+            "utf16_aligned": false
+          }
+        ],
+        "basis": "codepoints"
+      },
+      "identical_raw": {
+        "guest_vs_fx": true,
+        "tier0_vs_guest": true
+      },
+      "identical_url_normalized": {
+        "guest_vs_fx": true
+      },
+      "codepoints_present": [
+        "ascii_digits",
+        "persian_ye U+06CC"
+      ],
+      "codepoints_agree_guest_vs_fx": true,
+      "codepoints_agree_url_normalized": true,
+      "first_difference_guest_vs_fx": null,
+      "tier0_truncated": false
+    },
+    {
+      "case": "fa_persian_digits_manoto",
+      "ref": "1889360640810295387",
+      "why": "A second Persian source, to keep the finding off one account.",
+      "verdict": "PASS",
+      "reason": "the two independent routes returned identical characters",
+      "lengths": {
+        "tier0": 142,
+        "guest": 142,
+        "fxtwitter_authored": 142,
+        "fxtwitter_rendered": 135
+      },
+      "authored_vs_rendered_differ": true,
+      "entity_span_basis": {
+        "astral_characters": [],
+        "facets": [
+          {
+            "type": "url",
+            "indices": [
+              95,
+              118
+            ],
+            "codepoint_aligned": true,
+            "utf16_aligned": true
+          },
+          {
+            "type": "media",
+            "indices": [
+              119,
+              142
+            ],
+            "codepoint_aligned": true,
+            "utf16_aligned": true
+          }
+        ],
+        "basis": "codepoints"
+      },
+      "identical_raw": {
+        "guest_vs_fx": true,
+        "tier0_vs_guest": true
+      },
+      "identical_url_normalized": {
+        "guest_vs_fx": true
+      },
+      "codepoints_present": [
+        "ZWNJ U+200C",
+        "ascii_digits",
+        "persian_keheh U+06A9",
+        "persian_ye U+06CC"
+      ],
+      "codepoints_agree_guest_vs_fx": true,
+      "codepoints_agree_url_normalized": true,
+      "first_difference_guest_vs_fx": null,
+      "tier0_truncated": false
+    }
+  ],
+  "summary": {
+    "codepoint_classes_exercised": [
+      "ZWNJ U+200C",
+      "ascii_digits",
+      "persian_digits U+06F0-9",
+      "persian_keheh U+06A9",
+      "persian_ye U+06CC"
+    ],
+    "cases_with_real_codepoint_damage": [],
+    "cases_whose_inventory_gap_is_only_a_stripped_url": [],
+    "url_representation_differs": [],
+    "authored_text_identical_across_routes": [
+      "fa_text_only_zwnj_digits",
+      "fa_trailing_media_link",
+      "fa_expandable_link",
+      "fa_persian_digits_manoto"
+    ],
+    "entity_span_basis": [
+      "codepoints",
+      "not_exercised"
+    ],
+    "cases_with_astral_characters": [
+      "fa_expandable_link"
+    ],
+    "tier0_truncated": [
+      "fa_text_only_zwnj_digits"
+    ]
+  }
+}

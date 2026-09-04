@@ -41,7 +41,7 @@
           ]
         },
         "audit_attempts": {
-          "$comment": "minimum 0, not 1: coverage.create_pending_coverage writes 0 into every fresh run, WORKFLOW.md §4.4 and prompts/05 both describe 0 as the honest never-audited state, and validators.validate_coverage accepts 0 while refusing it alongside a PASS claim (unaudited_coverage_pass). The schema was the one artifact of the four that rejected the document the pipeline actually produces. maximum is constants.MAX_AUDIT_ATTEMPTS, asserted against it in tests/test_index_schemas.py.",
+          "$comment": "minimum 0, not 1: coverage.create_pending_coverage writes 0 into every fresh run, WORKFLOW.md \u00a74.4 and prompts/05 both describe 0 as the honest never-audited state, and validators.validate_coverage accepts 0 while refusing it alongside a PASS claim (unaudited_coverage_pass). The schema was the one artifact of the four that rejected the document the pipeline actually produces. maximum is constants.MAX_AUDIT_ATTEMPTS, asserted against it in tests/test_index_schemas.py.",
           "type": "integer",
           "minimum": 0,
           "maximum": 3
@@ -102,13 +102,15 @@
                         "housekeeping",
                         "intro_noninformational",
                         "off_topic",
+                        "source_unavailable",
                         "other_explained",
                         "repetition",
                         "small_talk",
                         "sponsor",
                         "transition",
                         "unintelligible"
-                      ]
+                      ],
+                      "$comment": "The controlled vocabulary is constants.OMISSION_REASONS and tests/test_index_schemas.py asserts this enum equals it. `source_unavailable` joined for T-227 (D-225): an included post that was never observed has no content to audit, and the omission is minted by the pipeline rather than chosen by an auditor, so it is a named reason and not `other_explained`."
                     },
                     "note": {
                       "type": "string"
@@ -173,7 +175,7 @@
           "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$"
         },
         "kind": {
-          "$comment": "constants.KNOWLEDGE_KINDS, drift-tested in tests/test_index_schemas.py. `canonical_concept` is deliberately absent: library.py mints it for a concept node and no bundle carries one. This used to be `type: string, minLength: 1`, so a model that validated its output against the published schema still got `invalid_kind` out of validators.py — the schema blessed a bundle apply-bundle then rejected.",
+          "$comment": "constants.KNOWLEDGE_KINDS, drift-tested in tests/test_index_schemas.py. `canonical_concept` is deliberately absent: library.py mints it for a concept node and no bundle carries one. This used to be `type: string, minLength: 1`, so a model that validated its output against the published schema still got `invalid_kind` out of validators.py \u2014 the schema blessed a bundle apply-bundle then rejected.",
           "enum": [
             "actionable_experiment",
             "analogy",

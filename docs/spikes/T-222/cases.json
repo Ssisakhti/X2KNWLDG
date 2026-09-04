@@ -1,0 +1,209 @@
+{
+  "$comment": [
+    "T-222 acquisition qualification matrix. Every ref below was located from the",
+    "target environment during the spike itself, credential-free. Refs are public",
+    "posts by institutional accounts, chosen so the fixture stays reproducible.",
+    "`expect` is what a route must observe for the cell to PASS; a route that",
+    "answers the request but misses an expectation is PARTIAL, never PASS."
+  ],
+  "mvp_cases": [
+    {
+      "id": "single_post_en",
+      "ref": "20",
+      "why": "The oldest public post on the platform; stable and short.",
+      "expect": [
+        "text",
+        "created_at",
+        "author",
+        "lang"
+      ]
+    },
+    {
+      "id": "single_post_fa",
+      "ref": "2027781710667010262",
+      "why": "Persian text-only post; exercises RTL without media confounds.",
+      "expect": [
+        "text",
+        "created_at",
+        "author",
+        "lang_is_fa",
+        "rtl_text"
+      ]
+    },
+    {
+      "id": "thread_root_anchor",
+      "ref": "2094007256576565379",
+      "why": "Root of a real 10-post same-author self-thread.",
+      "expect": [
+        "text",
+        "author",
+        "is_root"
+      ],
+      "thread": {
+        "role": "root",
+        "expected_chain_length": 10,
+        "author": "NASA",
+        "key": "nasa_roman_live",
+        "deepest_known_anchor": false,
+        "full_thread_length": 10
+      }
+    },
+    {
+      "id": "thread_middle_anchor",
+      "ref": "2094033367767339277",
+      "why": "Middle of the same self-thread; tests the upward walk.",
+      "expect": [
+        "text",
+        "author",
+        "parent_ref"
+      ],
+      "thread": {
+        "role": "middle",
+        "expected_chain_length": 8,
+        "author": "NASA",
+        "key": "nasa_roman_live",
+        "deepest_known_anchor": false,
+        "full_thread_length": 10
+      }
+    },
+    {
+      "id": "thread_last_anchor",
+      "ref": "2094037638856454625",
+      "why": "Deepest known post of the same self-thread.",
+      "expect": [
+        "text",
+        "author",
+        "parent_ref"
+      ],
+      "thread": {
+        "role": "last",
+        "expected_chain_length": 10,
+        "author": "NASA",
+        "key": "nasa_roman_live",
+        "deepest_known_anchor": true,
+        "full_thread_length": 10
+      }
+    },
+    {
+      "id": "quote_post",
+      "ref": "2094039408081068233",
+      "why": "Quotes a different account; the quoted post is a separate source.",
+      "expect": [
+        "text",
+        "author",
+        "quoted_ref",
+        "quoted_author"
+      ]
+    },
+    {
+      "id": "long_note_post",
+      "ref": "2072326243085582573",
+      "why": "A genuine long/note post of 521 characters.",
+      "expect": [
+        "text",
+        "author",
+        "full_text_521"
+      ]
+    },
+    {
+      "id": "long_note_post_xl",
+      "ref": "2085840209841697126",
+      "why": "A 2967-character note post, ~6x the next longest case. Included because the 521-character case left the truncation ceiling unmeasured.",
+      "expect": [
+        "text",
+        "author",
+        "full_text_2967"
+      ]
+    },
+    {
+      "id": "photo_with_alt",
+      "ref": "2095206153277862026",
+      "why": "Photo carrying author-written alt text.",
+      "expect": [
+        "text",
+        "author",
+        "media_photo",
+        "media_alt_text"
+      ]
+    },
+    {
+      "id": "video_post_fa",
+      "ref": "1580541310636883972",
+      "why": "Persian post with video; exercises variants and duration.",
+      "expect": [
+        "text",
+        "author",
+        "media_video",
+        "media_variants"
+      ]
+    },
+    {
+      "id": "animated_gif",
+      "ref": "1117281960387334147",
+      "why": "An animated GIF, which X models as a variant-bearing video.",
+      "expect": [
+        "text",
+        "author",
+        "media_gif"
+      ]
+    }
+  ],
+  "failure_cases": [
+    {
+      "id": "unavailable_post",
+      "ref": "999999999999999999",
+      "why": "Well-formed id that resolves to nothing; a tombstone stand-in.",
+      "expect_failure": "must report unavailability without fabricating a record"
+    },
+    {
+      "id": "malformed_ref",
+      "ref": "not-a-ref",
+      "why": "Rejected before any request leaves the machine.",
+      "expect_failure": "must refuse offline, with a distinct outcome"
+    }
+  ],
+  "not_located": [
+    {
+      "id": "poll_post",
+      "why": "No public poll located in 610 credential-free posts; search is Tier 2.",
+      "structural_evidence": "`x fields tweet` declares `poll` with no surface at any tier."
+    },
+    {
+      "id": "edited_post",
+      "why": "No public edited post located in 610 credential-free posts.",
+      "structural_evidence": "`x fields tweet` declares `edits` with no surface at any tier."
+    },
+    {
+      "id": "x_article",
+      "why": "No public X Article located; the tool models no Article record.",
+      "structural_evidence": "`x fields <kind>` offers only `tweet` and `user`."
+    },
+    {
+      "id": "protected_or_suspended",
+      "why": "Not separable from a deleted post at any credential-free tier.",
+      "structural_evidence": "Tier 0 collapses all three into one message; `x routes` puts distinguishable errors at Tier 2."
+    }
+  ],
+  "text_fidelity_cases": [
+    {
+      "id": "fa_text_only_zwnj_digits",
+      "ref": "2027781710667010262",
+      "why": "Persian prose carrying ZWNJ, Persian digits, keheh and ye; no media."
+    },
+    {
+      "id": "fa_trailing_media_link",
+      "ref": "1580541310636883972",
+      "why": "Persian post whose authored text ends in a media t.co link."
+    },
+    {
+      "id": "fa_expandable_link",
+      "ref": "2095494053508874355",
+      "why": "Persian post with a non-media t.co link that expands to an x.com URL."
+    },
+    {
+      "id": "fa_persian_digits_manoto",
+      "ref": "1889360640810295387",
+      "why": "A second Persian source, to keep the finding off one account."
+    }
+  ]
+}

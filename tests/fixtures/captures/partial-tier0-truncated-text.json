@@ -1,0 +1,104 @@
+{
+  "schema_version": "1.0",
+  "acquisition": {
+    "provider": {
+      "tool": "tamnd/x-cli",
+      "version": "0.5.0",
+      "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+      "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+      "licence": "AGPL-3.0"
+    },
+    "requested_at": "2026-09-03T20:36:00Z",
+    "routes_read": [
+      {
+        "route": "xcli_tier0",
+        "tier": 0,
+        "surface": "syndication_tweet",
+        "outcome": "ok",
+        "request_shape": "x tweet 2085840209841697126 --tier 0 -o json"
+      }
+    ],
+    "network": {
+      "via_tunnel": true,
+      "note": "always-on tunnel; named Phase 2.2 dependency (D-209)"
+    }
+  },
+  "raw_evidence": [
+    {
+      "route": "xcli_tier0",
+      "path": "docs/spikes/T-222/fixtures/long_note_post_xl__xcli_t0.txt",
+      "sha256_raw": "3d90a9b1edc168429a20710162a9417f0a511d78487a0b4112171eb122bb569a",
+      "sha256_sanitized": "3d90a9b1edc168429a20710162a9417f0a511d78487a0b4112171eb122bb569a",
+      "sanitization_removed": [
+        "syndication request token in url"
+      ]
+    }
+  ],
+  "anchor": {
+    "post_id": "2085840209841697126",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "items": [
+    {
+      "post_id": "2085840209841697126",
+      "author": {
+        "username": "SenSanders",
+        "rest_id": "29442313",
+        "display_name": "Sen. Bernie Sanders"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "created_at": "2026-08-07T21:27:13Z",
+      "lang": "en",
+      "text": {
+        "canonical": "WE MUST ADDRESS THE CLIMATE CRISIS\n\nThe last 11 years have been the hottest 11 years on record. The last three years have been the hottest three years on record. 2026 will be one of the warmest years on record, and most scientists believe 2027 will be the warmest year in recorded",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_tier0",
+          "tier": 0,
+          "surface": "syndication_tweet"
+        },
+        "completeness": {
+          "status": "known_truncated",
+          "corroborated_by": [
+            {
+              "route": "xcli_guest",
+              "tier": 1,
+              "surface": "guest_graphql"
+            }
+          ],
+          "agreement": "disagree",
+          "note": "Tier 0 returned 280 of 2967 characters and carried no is_note_tweet, truncated or note_tweet field; the loss is not detectable from this response alone"
+        }
+      }
+    }
+  ],
+  "order": {
+    "basis": "single_item"
+  },
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "single_item"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "a single post makes no claim about a conversation"
+    }
+  },
+  "coverage": {
+    "status": "PARTIAL",
+    "expected_item_count": 1,
+    "included_post_ids": [
+      "2085840209841697126"
+    ],
+    "omitted_items": [
+      {
+        "post_id": "2085840209841697126",
+        "reason": "text truncated by the acquiring surface: 280 of 2967 characters"
+      }
+    ]
+  }
+}

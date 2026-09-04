@@ -1,0 +1,146 @@
+{
+  "schema_version": "1.0",
+  "acquisition": {
+    "provider": {
+      "tool": "tamnd/x-cli",
+      "version": "0.5.0",
+      "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+      "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+      "licence": "AGPL-3.0"
+    },
+    "requested_at": "2026-09-03T20:36:00Z",
+    "routes_read": [
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 1580541310636883972 --tier guest -o json"
+      }
+    ],
+    "network": {
+      "via_tunnel": true,
+      "note": "always-on tunnel; named Phase 2.2 dependency (D-209)"
+    }
+  },
+  "raw_evidence": [
+    {
+      "route": "xcli_guest",
+      "path": "docs/spikes/T-222/fixtures/video_post_fa__xcli_guest.txt",
+      "sha256_raw": "2ca94c18722bc91dd3d220e8673d47eeeb2628c5de7e7da7a60caaf4ddf78091",
+      "sha256_sanitized": "2ca94c18722bc91dd3d220e8673d47eeeb2628c5de7e7da7a60caaf4ddf78091",
+      "sanitization_removed": []
+    },
+    {
+      "route": "fxtwitter",
+      "path": "docs/spikes/T-222/fixtures/video_post_fa__fxtwitter.txt",
+      "sha256_raw": "1323825b52d4d61f1aa041ccef41344b8bf0174bc7af69ed0aa01edb65795d68",
+      "sha256_sanitized": "1323825b52d4d61f1aa041ccef41344b8bf0174bc7af69ed0aa01edb65795d68",
+      "sanitization_removed": []
+    }
+  ],
+  "anchor": {
+    "post_id": "1580541310636883972",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "items": [
+    {
+      "post_id": "1580541310636883972",
+      "author": {
+        "username": "bbcpersian",
+        "rest_id": "790728",
+        "display_name": "BBC NEWS فارسی"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "1580541310636883972",
+      "created_at": "2022-10-13T12:49:48Z",
+      "lang": "fa",
+      "text": {
+        "canonical": "ویدیوی منتشرشده در شبکه‌های اجتماعی، تعرض نیروهای امنیتی به یک زن جوان و رفتار تحقیرآمیز فیزیکی نسبت به او را نشان می‌دهد.\n\nفردی که این ویدیو را ثبت می‌کند از دیدن این صحنه شوکه شده است و در حالی که زن جوان از کادر ویدیو بیرون رفته به خنده ماموران اشاره می‌کند. https://t.co/WlXNDbE5I2",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "corroborated",
+          "corroborated_by": [
+            {
+              "route": "fxtwitter",
+              "tier": 0,
+              "surface": "fxtwitter"
+            }
+          ],
+          "agreement": "identical",
+          "note": "Persian prose ending in an LTR t.co link; identical on both routes, and the URL span comes from the corroborating route (D-218)"
+        },
+        "entities": [
+          {
+            "kind": "url",
+            "start_char": 262,
+            "end_char": 285,
+            "shortened": "https://t.co/WlXNDbE5I2",
+            "expanded": "https://x.com/bbcpersian/status/1580541310636883972/video/1"
+          }
+        ]
+      },
+      "media": [
+        {
+          "type": "video",
+          "url": "https://pbs.twimg.com/amplify_video_thumb/1580540806242394112/img/ivuGi7xKi5RCPNfI.jpg",
+          "key": "13_1580540806242394112",
+          "width": 1080,
+          "height": 1920,
+          "duration_ms": 76240,
+          "variants": [
+            {
+              "url": "https://video.twimg.com/amplify_video/1580540806242394112/pl/hSd34pffNT5H-EHy.m3u8?tag=14&v=867",
+              "content_type": "application/x-mpegURL",
+              "bitrate": 0
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/1580540806242394112/vid/320x568/Lo07PSKbaSrybuAU.mp4?tag=14",
+              "content_type": "video/mp4",
+              "bitrate": 632000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/1580540806242394112/vid/480x852/LiwlV670bK4dUTbc.mp4?tag=14",
+              "content_type": "video/mp4",
+              "bitrate": 950000
+            },
+            {
+              "url": "https://video.twimg.com/amplify_video/1580540806242394112/vid/720x1280/E3_P3vXD2emEBlfO.mp4?tag=14",
+              "content_type": "video/mp4",
+              "bitrate": 2176000
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "order": {
+    "basis": "single_item"
+  },
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "single_item"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "a single post makes no claim about a conversation"
+    }
+  },
+  "coverage": {
+    "status": "PASS",
+    "expected_item_count": 1,
+    "included_post_ids": [
+      "1580541310636883972"
+    ],
+    "omitted_items": []
+  }
+}

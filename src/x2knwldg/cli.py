@@ -34,13 +34,33 @@ Code   Meaning
        server is ready, but ``web/dist`` holds no built frontend
        to serve. Distinct from ``1`` so a wrapper can run the
        build rather than report a broken install.
+``7``  ``PROVIDER_UNAVAILABLE`` — ``capture``'s pinned provider is
+       not installed, or the binary at the pinned path is not the
+       pinned build. Nothing was run and nothing was written; the
+       answer is an install or a deliberate re-pin (D-208).
+``8``  ``PROVIDER_UNREACHABLE`` — the read could not be completed
+       for a reason that says nothing about the provider or the
+       post: the tunnel this path depends on (D-209) is down, the
+       request timed out, or X rate-limited the read. Nothing was
+       written; the stderr envelope names which. Retry later —
+       and note that this is **not** ``9``.
+``9``  ``PROVIDER_DRIFT`` — the provider answered and the answer
+       could not be used: not JSON, not a ``tweet`` record, or
+       missing a field the capture contract requires. Distinct
+       from ``8`` because D-209 requires that a routine network
+       drop never read as the provider having changed.
 =====  ==========================================================
+
+``capture`` reports its coverage verdict through the same ``0``/``3``/``4`` the
+rest of the pipeline uses, so a ``PARTIAL`` thread cannot be mistaken for a
+whole one.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -87,6 +107,9 @@ EXIT_PARTIAL = 3
 EXIT_FAIL = 4
 EXIT_TRANSCRIPT_REQUIRED = 5
 EXIT_UI_NOT_BUILT = 6
+EXIT_PROVIDER_UNAVAILABLE = 7
+EXIT_PROVIDER_UNREACHABLE = 8
+EXIT_PROVIDER_DRIFT = 9
 
 #: One mapping, so `validate`, `apply-bundle` and `finalize` cannot drift into
 #: disagreeing about what a verdict is worth.
@@ -166,6 +189,14 @@ exit codes:
   6  UI_NOT_BUILT         `ui` accepted its arguments and the server is
                           ready, but web/dist holds no built frontend to
                           serve. Build it: cd web && npm ci && npm run build
+  7  PROVIDER_UNAVAILABLE `capture`: the pinned acquisition provider is not
+                          installed, or the binary at the pinned path is not
+                          the pinned build. Nothing was run
+  8  PROVIDER_UNREACHABLE `capture`: the read could not be completed and
+                          nothing was learned — the tunnel is down, the request
+                          timed out, or X rate-limited it. Retry later
+  9  PROVIDER_DRIFT       `capture`: the provider answered and the answer was
+                          unusable. Never reported for a network failure
 
 Completion may be claimed only on 0."""
 
@@ -241,6 +272,69 @@ def build_parser() -> argparse.ArgumentParser:
         "rebuild-library", help="Rebuild the cumulative cross-video graph and concept registry"
     )
     library_parser.add_argument("--output", type=Path, default=Path("output"))
+
+    capture_parser = commands.add_parser(
+        "capture",
+        help="Acquire one public X post, or a self-thread from its last post",
+        description=(
+            "Acquire one public X post, or one same-author self-thread, through the "
+            "pinned local provider and write it as a schemas/capture/v1/ capture beside "
+            "its immutable raw evidence. Credential-free: no X account, cookie, token or "
+            "browser profile is used, needed, or read."
+        ),
+    )
+    capture_parser.add_argument("reference", help="A post id, or an https://x.com/<user>/status/<id> URL")
+    capture_parser.add_argument(
+        "--thread",
+        action="store_true",
+        help=(
+            "Walk the self-thread upward from this post to its root. Give the thread's "
+            "LAST post: descendants cannot be enumerated credential-free (D-206), so a "
+            "root anchor is reported PARTIAL"
+        ),
+    )
+    capture_parser.add_argument(
+        "--tier",
+        choices=["guest", "0"],
+        default="guest",
+        help=(
+            "Read tier. 'guest' (Tier 1) is the default and the qualified read; Tier 0 "
+            "was measured truncating long posts silently (D-207)"
+        ),
+    )
+    capture_parser.add_argument("--output", type=Path, default=Path("output"))
+    capture_parser.add_argument(
+        "--xcli",
+        type=Path,
+        help=(
+            "Path to the pinned x-cli binary. Defaults to $X2KNWLDG_XCLI, then "
+            "~/.local/bin/x. PATH is never searched, and the digest must match the pin"
+        ),
+    )
+    capture_parser.add_argument("--timeout", type=float, default=30.0)
+    capture_parser.add_argument(
+        "--max-bytes",
+        type=int,
+        default=1_048_576,
+        help="Refuse a response larger than this, rather than truncating it",
+    )
+    tunnel = capture_parser.add_mutually_exclusive_group()
+    tunnel.add_argument(
+        "--via-tunnel",
+        dest="via_tunnel",
+        action="store_true",
+        default=None,
+        help=(
+            "State that this acquisition runs over the tunnel Phase 2.2 depends on "
+            "(D-209). Required, as --via-tunnel or --no-tunnel, or via "
+            "$X2KNWLDG_VIA_TUNNEL: the capture records it and this command cannot "
+            "measure it"
+        ),
+    )
+    tunnel.add_argument("--no-tunnel", dest="via_tunnel", action="store_false", default=None)
+    capture_parser.add_argument(
+        "--tunnel-note", help="Free text recorded beside via_tunnel, e.g. the egress it uses"
+    )
 
     ui_parser = commands.add_parser(
         "ui", help="Serve the local Knowledge Canvas on loopback"
@@ -411,6 +505,120 @@ def _run_status(output: Path) -> int:
         )
     )
     return EXIT_OK
+
+
+#: Truthy spellings of ``X2KNWLDG_VIA_TUNNEL``. An operator's standing
+#: statement about this machine, set once in a shell profile, so the flag is not
+#: retyped on every acquisition. Anything else — including an unset variable —
+#: is not a statement, and :func:`_run_capture` refuses rather than assuming.
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+_FALSY = frozenset({"0", "false", "no", "off"})
+
+
+def _via_tunnel(explicit: bool | None) -> bool:
+    """Whether this acquisition runs over the tunnel — stated, never inferred.
+
+    D-209 is on the record because an environment premise was *taken* rather
+    than established: the measurements were described as coming from Iran when
+    they came through an always-on tunnel, and only an after-the-fact check
+    found it. The capture schema requires ``via_tunnel`` and offers no "unknown",
+    and this command genuinely cannot measure it — a ``utun`` interface existing
+    is not proof that traffic routes through it, and asking a third party for
+    the egress address would be a network request made to describe a network
+    request. So the operator states it, and the capture records what was stated.
+    """
+    if explicit is not None:
+        return explicit
+    stated = os.environ.get("X2KNWLDG_VIA_TUNNEL", "").strip().lower()
+    if stated in _TRUTHY:
+        return True
+    if stated in _FALSY:
+        return False
+    raise PipelineError(
+        "Say whether this acquisition runs over the tunnel Phase 2.2 depends on: pass "
+        "--via-tunnel or --no-tunnel, or set X2KNWLDG_VIA_TUNNEL=1/0. The capture records "
+        "it (D-209) and this command cannot measure it, so it will not guess."
+    )
+
+
+def _run_capture(args: argparse.Namespace) -> int:
+    """Acquire one post or self-thread. See this module's docstring for the codes."""
+    from .twitter.acquire import (
+        AcquisitionError,
+        ProviderDrift,
+        RateLimited,
+        TransientFailure,
+        acquire,
+    )
+    from .twitter.provider import TIERS, ProviderRefusal, verify
+
+    # Stated before anything is spawned: a refusal to guess must not cost a
+    # request, and `capture` is the only command in this CLI that reaches the
+    # network on the user's behalf.
+    via_tunnel = _via_tunnel(args.via_tunnel)
+
+    try:
+        provider = verify(args.xcli)
+    except ProviderRefusal as exc:
+        _fail("PROVIDER_UNAVAILABLE", str(exc), reason=exc.reason)
+        return EXIT_PROVIDER_UNAVAILABLE
+
+    try:
+        result = acquire(
+            args.reference,
+            provider=provider,
+            output_root=args.output,
+            via_tunnel=via_tunnel,
+            tunnel_note=args.tunnel_note,
+            tier=TIERS[args.tier],
+            thread=args.thread,
+            timeout=args.timeout,
+            max_bytes=args.max_bytes,
+        )
+    except TransientFailure as exc:
+        # Nothing was learned and nothing was written, so the answer is to retry
+        # later. The envelope names which of the two it was; the exit code says
+        # only what a wrapper has to act on.
+        status = "PROVIDER_RATE_LIMITED" if isinstance(exc, RateLimited) else (
+            "PROVIDER_UNREACHABLE"
+        )
+        _fail(status, str(exc))
+        return EXIT_PROVIDER_UNREACHABLE
+    except ProviderDrift as exc:
+        _fail("PROVIDER_DRIFT", str(exc))
+        return EXIT_PROVIDER_DRIFT
+    except ProviderRefusal as exc:
+        # A verified provider can still refuse mid-run: an id that never went
+        # through `parse_reference`, or a subcommand outside the allowlist. Both
+        # are this package's fault rather than the user's, and neither is a
+        # statement about the post.
+        _fail("PROVIDER_UNAVAILABLE", str(exc), reason=exc.reason)
+        return EXIT_PROVIDER_UNAVAILABLE
+    except AcquisitionError as exc:
+        _fail("ERROR", str(exc), error=type(exc).__name__)
+        return EXIT_ERROR
+
+    # Warnings go to stderr, so stdout stays one JSON document a caller can
+    # pipe. A root anchor's warning is the one D-206 requires: the capture is
+    # honest, and it is not what the user probably wanted.
+    for warning in result.warnings:
+        print(json.dumps({"status": "WARNING", "message": warning}, ensure_ascii=False),
+              file=sys.stderr)
+    print(
+        json.dumps(
+            {
+                "status": result.coverage_status,
+                "capture": str(result.capture_path),
+                "run_dir": str(result.run_dir),
+                "items": len(result.capture["items"]),
+                "raw_evidence": [str(path) for path in result.evidence_paths],
+                "routes_read": len(result.capture["acquisition"]["routes_read"]),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return verdict_exit_code(result.coverage_status)
 
 
 def _missing_ui_dependencies() -> list[str]:
@@ -592,6 +800,8 @@ def main(argv: list[str] | None = None) -> int:
 
             print(json.dumps(rebuild_library(args.output), ensure_ascii=False, indent=2))
             return EXIT_OK
+        if args.command == "capture":
+            return _run_capture(args)
         if args.command == "ui":
             return _run_ui(args)
     except VerdictRefusal as exc:

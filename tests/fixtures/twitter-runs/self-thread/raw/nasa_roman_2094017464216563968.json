@@ -1,0 +1,116 @@
+[
+  {
+    "kind": "tweet",
+    "id": "2094017464216563968",
+    "uri": "x://tweet/2094017464216563968",
+    "url": "https://x.com/NASA/status/2094017464216563968",
+    "tier": 1,
+    "surfaces": [
+      "s4"
+    ],
+    "sources": [
+      "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222094017464216563968%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+    ],
+    "text": "\"This mission could change our fundamental understanding of the universe: dark matter, dark energy, maybe 100,000 more exoplanets. This is a really exciting time.\" @NASAAdmin previews what we'll learn from the @NASARoman Space Telescope. https://t.co/OT8XRSQFZ3",
+    "created_at": "2026-08-30T11:00:43Z",
+    "lang": "en",
+    "author": {
+      "kind": "user",
+      "id": "nasa",
+      "uri": "x://user/nasa",
+      "url": "https://x.com/nasa",
+      "tier": 1,
+      "surfaces": [
+        "s4"
+      ],
+      "sources": [
+        "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222094017464216563968%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+      ],
+      "username": "NASA",
+      "rest_id": "11348282",
+      "name": "NASA",
+      "created_at": "2007-12-19T20:20:32Z",
+      "description": "Making the seemingly impossible, possible. ✨",
+      "location": "Pale Blue Dot",
+      "website": "http://www.nasa.gov/",
+      "verified": true,
+      "verified_type": "government",
+      "metrics": {
+        "followers": 92383833,
+        "following": 117,
+        "tweets": 74271,
+        "listed": 96944,
+        "likes": 16982,
+        "media": 28136
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1321163587679784960/0ZxKlEKB_normal.jpg",
+      "profile_banner": "https://pbs.twimg.com/profile_banners/11348282/1775567134",
+      "entities": {
+        "urls": [
+          "http://www.nasa.gov/"
+        ]
+      }
+    },
+    "conversation_id": "2094007256576565379",
+    "reply_to": "2094007256576565379",
+    "reply_to_user": "NASA",
+    "metrics": {
+      "replies": 25,
+      "retweets": 108,
+      "likes": 746,
+      "quotes": 8,
+      "bookmarks": 28,
+      "impressions": 132566
+    },
+    "entities": {
+      "mentions": [
+        "NASAAdmin",
+        "NASARoman"
+      ]
+    },
+    "media": [
+      {
+        "key": "13_2094015688759255040",
+        "type": "video",
+        "url": "https://pbs.twimg.com/amplify_video_thumb/2094015688759255040/img/6wxcpiTH9CXQkCYT.jpg",
+        "width": 3840,
+        "height": 2160,
+        "duration_ms": 29013,
+        "variants": [
+          {
+            "bitrate": 0,
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/amplify_video/2094015688759255040/pl/rU-C0vqzctZL5ocd.m3u8?tag=29\u0026v=f10"
+          },
+          {
+            "bitrate": 256000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094015688759255040/vid/avc1/480x270/gWUKiGispfzF2ihM.mp4?tag=29"
+          },
+          {
+            "bitrate": 832000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094015688759255040/vid/avc1/640x360/HpxCe-he_FhdpehN.mp4?tag=29"
+          },
+          {
+            "bitrate": 2176000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094015688759255040/vid/avc1/1280x720/_y-WsFqqkKZ3E_o_.mp4?tag=29"
+          },
+          {
+            "bitrate": 10368000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094015688759255040/vid/avc1/1920x1080/c-vtQSHujwV2GzgC.mp4?tag=29"
+          },
+          {
+            "bitrate": 25128000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094015688759255040/vid/avc1/3840x2160/_gWoJ2XzNDBjwI8w.mp4?tag=29"
+          }
+        ]
+      }
+    ],
+    "source": "Twitter Web App",
+    "is_reply": true
+  }
+]

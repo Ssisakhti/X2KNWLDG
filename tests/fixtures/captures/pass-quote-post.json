@@ -1,0 +1,122 @@
+{
+  "schema_version": "1.0",
+  "acquisition": {
+    "provider": {
+      "tool": "tamnd/x-cli",
+      "version": "0.5.0",
+      "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+      "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+      "licence": "AGPL-3.0"
+    },
+    "requested_at": "2026-09-03T20:36:00Z",
+    "routes_read": [
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094039408081068233 --tier guest -o json"
+      }
+    ],
+    "network": {
+      "via_tunnel": true,
+      "note": "always-on tunnel; named Phase 2.2 dependency (D-209)"
+    }
+  },
+  "raw_evidence": [
+    {
+      "route": "xcli_guest",
+      "path": "docs/spikes/T-222/fixtures/quote_post__xcli_guest.txt",
+      "sha256_raw": "8404265234cc2cf25df588684e726d26453b6a50c403224235668cccafcecec9",
+      "sha256_sanitized": "8404265234cc2cf25df588684e726d26453b6a50c403224235668cccafcecec9",
+      "sanitization_removed": []
+    },
+    {
+      "route": "fxtwitter",
+      "path": "docs/spikes/T-222/fixtures/quote_post__fxtwitter.txt",
+      "sha256_raw": "583fa2ccd4db4ad9f8739a2aa6227d18651da402fc198b82f19c9b5ccd3aafc6",
+      "sha256_sanitized": "583fa2ccd4db4ad9f8739a2aa6227d18651da402fc198b82f19c9b5ccd3aafc6",
+      "sanitization_removed": []
+    }
+  ],
+  "anchor": {
+    "post_id": "2094039408081068233",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "items": [
+    {
+      "post_id": "2094039408081068233",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094039408081068233",
+      "created_at": "2026-08-30T12:27:54Z",
+      "lang": "en",
+      "text": {
+        "canonical": "It's a great day to be a space fan! @NASARoman lifted off on its journey of discovery at 7:26am ET (1126 UTC) from @NASAKennedy.",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "corroborated",
+          "corroborated_by": [
+            {
+              "route": "fxtwitter",
+              "tier": 0,
+              "surface": "fxtwitter"
+            }
+          ],
+          "agreement": "identical_url_normalized"
+        },
+        "entities": [
+          {
+            "kind": "mention",
+            "start_char": 36,
+            "end_char": 46,
+            "handle": "NASARoman"
+          },
+          {
+            "kind": "mention",
+            "start_char": 115,
+            "end_char": 127,
+            "handle": "NASAKennedy"
+          }
+        ]
+      },
+      "quote": {
+        "quoted_post_id": "2094032273658057093",
+        "quoted_author_username": "NASAAdmin"
+      }
+    }
+  ],
+  "order": {
+    "basis": "single_item"
+  },
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "single_item"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "a single post makes no claim about a conversation"
+    }
+  },
+  "coverage": {
+    "status": "PASS",
+    "expected_item_count": 1,
+    "included_post_ids": [
+      "2094039408081068233"
+    ],
+    "omitted_items": []
+  }
+}

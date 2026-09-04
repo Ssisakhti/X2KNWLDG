@@ -49,12 +49,19 @@ from .base import (
     read_status,
     refuse,
 )
+from .twitter import TwitterAdapter
 from .youtube import LIBRARY_DIR_NAME, YouTubeAdapter, adapt_library
 
 #: Every adapter, by the source type it maps. The key is the first part of
 #: every id the adapter produces.
 ADAPTERS: dict[str, type[SourceAdapter]] = {
     YouTubeAdapter.source_type: YouTubeAdapter,
+    # T-227 registers Twitter with a source-only projection, because making a
+    # post discoverable without registering it meant one acquired post refused
+    # the whole project (D-227). The refusal itself is untouched: it is what
+    # `strict=True` reproduces for T-104's equivalence proof, and what keeps a
+    # run from claiming the reserved `library` namespace.
+    TwitterAdapter.source_type: TwitterAdapter,
 }
 
 __all__ = [
@@ -69,6 +76,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "UNKNOWN_STATUS",
     "AdapterError",
+    "TwitterAdapter",
     "IndexRecords",
     "SourceAdapter",
     "YouTubeAdapter",

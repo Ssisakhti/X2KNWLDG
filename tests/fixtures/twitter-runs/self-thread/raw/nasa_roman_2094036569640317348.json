@@ -1,0 +1,115 @@
+[
+  {
+    "kind": "tweet",
+    "id": "2094036569640317348",
+    "uri": "x://tweet/2094036569640317348",
+    "url": "https://x.com/NASA/status/2094036569640317348",
+    "tier": 1,
+    "surfaces": [
+      "s4"
+    ],
+    "sources": [
+      "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222094036569640317348%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+    ],
+    "text": "The spacecraft is power positive: solar arrays are actively providing electricity to @NASARoman. https://t.co/4X1BG0FtDS",
+    "created_at": "2026-08-30T12:16:38Z",
+    "lang": "en",
+    "author": {
+      "kind": "user",
+      "id": "nasa",
+      "uri": "x://user/nasa",
+      "url": "https://x.com/nasa",
+      "tier": 1,
+      "surfaces": [
+        "s4"
+      ],
+      "sources": [
+        "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222094036569640317348%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+      ],
+      "username": "NASA",
+      "rest_id": "11348282",
+      "name": "NASA",
+      "created_at": "2007-12-19T20:20:32Z",
+      "description": "Making the seemingly impossible, possible. ✨",
+      "location": "Pale Blue Dot",
+      "website": "http://www.nasa.gov/",
+      "verified": true,
+      "verified_type": "government",
+      "metrics": {
+        "followers": 92383834,
+        "following": 117,
+        "tweets": 74271,
+        "listed": 96944,
+        "likes": 16982,
+        "media": 28136
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1321163587679784960/0ZxKlEKB_normal.jpg",
+      "profile_banner": "https://pbs.twimg.com/profile_banners/11348282/1775567134",
+      "entities": {
+        "urls": [
+          "http://www.nasa.gov/"
+        ]
+      }
+    },
+    "conversation_id": "2094007256576565379",
+    "reply_to": "2094033367767339277",
+    "reply_to_user": "NASA",
+    "metrics": {
+      "replies": 9,
+      "retweets": 118,
+      "likes": 1030,
+      "quotes": 5,
+      "bookmarks": 32,
+      "impressions": 201571
+    },
+    "entities": {
+      "mentions": [
+        "NASARoman"
+      ]
+    },
+    "media": [
+      {
+        "key": "13_2094036340354453504",
+        "type": "video",
+        "url": "https://pbs.twimg.com/amplify_video_thumb/2094036340354453504/img/I70Qlq6vFiMaJ66c.jpg",
+        "width": 3840,
+        "height": 2160,
+        "duration_ms": 30741,
+        "variants": [
+          {
+            "bitrate": 0,
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/amplify_video/2094036340354453504/pl/xzZVekJYJ4JoUM6r.m3u8?tag=29\u0026v=d5e"
+          },
+          {
+            "bitrate": 256000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094036340354453504/vid/avc1/480x270/lJfJXK6g0s6A33jT.mp4?tag=29"
+          },
+          {
+            "bitrate": 832000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094036340354453504/vid/avc1/640x360/zhVIecvjTb6Z7Nw1.mp4?tag=29"
+          },
+          {
+            "bitrate": 2176000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094036340354453504/vid/avc1/1280x720/_d5w0FCTgKWqMHMt.mp4?tag=29"
+          },
+          {
+            "bitrate": 10368000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094036340354453504/vid/avc1/1920x1080/PllGtJGI9uWVeTct.mp4?tag=29"
+          },
+          {
+            "bitrate": 25128000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2094036340354453504/vid/avc1/3840x2160/J9PUSh6DDpB6O6yh.mp4?tag=29"
+          }
+        ]
+      }
+    ],
+    "source": "Twitter Web App",
+    "is_reply": true
+  }
+]

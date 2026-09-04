@@ -1,0 +1,67 @@
+[
+  {
+    "kind": "tweet",
+    "id": "2027781710667010262",
+    "uri": "x://tweet/2027781710667010262",
+    "url": "https://x.com/bbcpersian/status/2027781710667010262",
+    "tier": 1,
+    "surfaces": [
+      "s4"
+    ],
+    "sources": [
+      "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222027781710667010262%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+    ],
+    "text": "برنامه‌های بی‌بی‌سی فارسی را از رادیو بشنوید:\n\nاز ساعت ۷ تا ۸ صبح به‌وقت تهران روی موج کوتاه ۱۲۰۶۵ کیلوهرتز\n\nاز ساعت ۸ تا ۸:۳۰ شب به‌وقت تهران روی موج متوسط ۷۰۲ کیلوهرتز و موج کوتاه ۹۷۷۰ کیلوهرتز\n\nاز ساعت ۱۰ تا ۱۱ شب به‌وقت تهران روی موج متوسط ۷۰۲ کیلوهرتز و موج کوتاه ۶۱۳۰ کیلوهرتز\n\nاز ساعت ۱۱ تا ۱۱:۳۰ شب به‌وقت تهران روی موج متوسط ۷۰۲ کیلوهرتز\n\nاز ساعت ۱۲ شب تا ۰۰:۳۰ بامداد به‌وقت تهران روی موج متوسط ۱۳۹۵ کیلوهرتز",
+    "created_at": "2026-02-28T16:23:28Z",
+    "lang": "fa",
+    "author": {
+      "kind": "user",
+      "id": "bbcpersian",
+      "uri": "x://user/bbcpersian",
+      "url": "https://x.com/bbcpersian",
+      "tier": 1,
+      "surfaces": [
+        "s4"
+      ],
+      "sources": [
+        "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222027781710667010262%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+      ],
+      "username": "bbcpersian",
+      "rest_id": "790728",
+      "name": "BBC NEWS فارسی",
+      "created_at": "2007-02-23T12:54:09Z",
+      "description": "Latest local and global news in Persian\nحساب رسمی بخش فارسی بی‌بی‌سی\n#BBCPersian",
+      "location": "London, UK",
+      "website": "http://bbcpersian.com",
+      "verified": true,
+      "verified_type": "blue",
+      "metrics": {
+        "followers": 2414953,
+        "following": 14,
+        "tweets": 269996,
+        "listed": 3528,
+        "likes": 8,
+        "media": 83962
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1624045000009871361/GjpClh1Z_normal.jpg",
+      "profile_banner": "https://pbs.twimg.com/profile_banners/790728/1613405351",
+      "pinned_tweet": "2027781710667010262",
+      "entities": {
+        "urls": [
+          "http://bbcpersian.com"
+        ]
+      }
+    },
+    "conversation_id": "2027781710667010262",
+    "metrics": {
+      "replies": 288,
+      "retweets": 12,
+      "likes": 138,
+      "quotes": 7,
+      "bookmarks": 24,
+      "impressions": 466215
+    },
+    "entities": {},
+    "source": "Twitter Web App"
+  }
+]

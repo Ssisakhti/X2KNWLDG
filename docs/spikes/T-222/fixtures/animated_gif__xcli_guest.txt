@@ -1,0 +1,89 @@
+[
+  {
+    "kind": "tweet",
+    "id": "1117281960387334147",
+    "uri": "x://tweet/1117281960387334147",
+    "url": "https://x.com/GIPHY/status/1117281960387334147",
+    "tier": 1,
+    "surfaces": [
+      "s4"
+    ],
+    "sources": [
+      "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%221117281960387334147%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+    ],
+    "text": "choreography: 💯💯💯💯💯💯\n\n#BTSxSNL @BTS_twt @nbcsnl https://t.co/DSixyEySv1",
+    "created_at": "2019-04-14T04:22:32Z",
+    "lang": "en",
+    "author": {
+      "kind": "user",
+      "id": "giphy",
+      "uri": "x://user/giphy",
+      "url": "https://x.com/giphy",
+      "tier": 1,
+      "surfaces": [
+        "s4"
+      ],
+      "sources": [
+        "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%221117281960387334147%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+      ],
+      "username": "GIPHY",
+      "rest_id": "1020383864",
+      "name": "GIPHY",
+      "created_at": "2012-12-18T18:33:45Z",
+      "description": "Be Animated.",
+      "location": "New York, NY",
+      "website": "https://giphy.com",
+      "verified": true,
+      "verified_type": "blue",
+      "metrics": {
+        "followers": 227110,
+        "following": 1066,
+        "tweets": 34256,
+        "listed": 1109,
+        "likes": 35205,
+        "media": 12948
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1356405232243269636/7wtRQyr2_normal.jpg",
+      "profile_banner": "https://pbs.twimg.com/profile_banners/1020383864/1614878714",
+      "entities": {
+        "urls": [
+          "https://giphy.com"
+        ]
+      }
+    },
+    "conversation_id": "1117281960387334147",
+    "metrics": {
+      "replies": 194,
+      "retweets": 24231,
+      "likes": 62788,
+      "quotes": 233,
+      "bookmarks": 601
+    },
+    "entities": {
+      "hashtags": [
+        "BTSxSNL"
+      ],
+      "mentions": [
+        "BTS_twt",
+        "nbcsnl"
+      ]
+    },
+    "media": [
+      {
+        "key": "16_1117281877214269440",
+        "type": "animated_gif",
+        "url": "https://pbs.twimg.com/tweet_video_thumb/D4Fh8p1WkAAKFt1.jpg",
+        "width": 480,
+        "height": 266,
+        "variants": [
+          {
+            "bitrate": 0,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/tweet_video/D4Fh8p1WkAAKFt1.mp4"
+          }
+        ]
+      }
+    ],
+    "source": "Twitter Web Client"
+  }
+]

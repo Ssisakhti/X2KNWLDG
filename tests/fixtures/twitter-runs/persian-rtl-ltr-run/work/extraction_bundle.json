@@ -1,0 +1,64 @@
+{
+  "extraction_metadata": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "knowledge_units": [
+    {
+      "id": "KU-000001",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "ویدیوی منتشرشده در شبکه‌های اجتماعی، تعرض نیروهای امنیتی به یک زن جوان و رفتار تحقیرآمیز فیزیکی نسبت به او را نشان می‌دهد.",
+      "normalized_statement": "ویدیوی منتشرشده در شبکه‌های اجتماعی، تعرض نیروهای امنیتی به یک زن جوان و رفتار تحقیرآمیز فیزیکی نسبت به او را نشان می‌دهد.",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "1580541310636883972",
+        "start_char": 0,
+        "end_char": 122,
+        "evidence_excerpt": "ویدیوی منتشرشده در شبکه‌های اجتماعی، تعرض نیروهای امنیتی به یک زن جوان و رفتار تحقیرآمیز فیزیکی نسبت به او را نشان می‌دهد."
+      },
+      "attribution": {
+        "speaker": "bbcpersian",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-D-0001",
+      "kind": "synthesis",
+      "source_class": "derived",
+      "content": "This run quotes 1 post(s) captured from 1580541310636883972.",
+      "normalized_statement": "This run quotes 1 post(s) captured from 1580541310636883972.",
+      "confidence": 0.7,
+      "derived_from": [
+        "KU-000001"
+      ],
+      "derivation_note": "Counts the source units this fixture's extraction produced."
+    }
+  ],
+  "relationships": [
+    {
+      "from": "KU-000001",
+      "to": "KU-D-0001",
+      "relation": "supports",
+      "confidence": 0.8,
+      "source_class": "derived"
+    }
+  ],
+  "coverage": {
+    "status": "PASS",
+    "audit_attempts": 1,
+    "items": [
+      {
+        "item_id": "CI-0001",
+        "post_id": "1580541310636883972",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000001"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      }
+    ]
+  }
+}

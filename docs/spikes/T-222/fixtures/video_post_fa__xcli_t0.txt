@@ -1,0 +1,98 @@
+[
+  {
+    "kind": "tweet",
+    "id": "1580541310636883972",
+    "uri": "x://tweet/1580541310636883972",
+    "url": "https://x.com/bbcpersian/status/1580541310636883972",
+    "tier": 0,
+    "surfaces": [
+      "s1",
+      "s8"
+    ],
+    "sources": [
+      "https://cdn.syndication.twimg.com/tweet-result?id=1580541310636883972\u0026token=<STRIPPED>\u0026lang=en",
+      "https://x.com/i/status/1580541310636883972"
+    ],
+    "via": {
+      "bookmarks": "s8",
+      "quotes": "s8",
+      "retweets": "s8"
+    },
+    "text": "ویدیوی منتشرشده در شبکه‌های اجتماعی، تعرض نیروهای امنیتی به یک زن جوان و رفتار تحقیرآمیز فیزیکی نسبت به او را نشان می‌دهد.\n\nفردی که این ویدیو را ثبت می‌کند از دیدن این صحنه شوکه شده است و در حالی که زن جوان از کادر ویدیو بیرون رفته به خنده ماموران اشاره می‌کند. https://t.co/WlXNDbE5I2",
+    "created_at": "2022-10-13T12:49:48Z",
+    "lang": "fa",
+    "author": {
+      "kind": "user",
+      "id": "bbcpersian",
+      "uri": "x://user/bbcpersian",
+      "url": "https://x.com/bbcpersian",
+      "tier": 0,
+      "surfaces": [
+        "s1",
+        "s8"
+      ],
+      "sources": [
+        "https://cdn.syndication.twimg.com/tweet-result?id=1580541310636883972\u0026token=<STRIPPED>\u0026lang=en",
+        "https://x.com/i/status/1580541310636883972"
+      ],
+      "via": {
+        "description": "s8",
+        "followers": "s8",
+        "following": "s8",
+        "tweets": "s8"
+      },
+      "username": "bbcpersian",
+      "rest_id": "790728",
+      "name": "BBC NEWS فارسی",
+      "description": "Latest local and global news in Persian\nحساب رسمی بخش فارسی بی‌بی‌سی\n#BBCPersian",
+      "verified": true,
+      "verified_type": "blue",
+      "metrics": {
+        "followers": 2414953,
+        "following": 14,
+        "tweets": 269996
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1624045000009871361/GjpClh1Z_normal.jpg",
+      "entities": {}
+    },
+    "metrics": {
+      "replies": 766,
+      "retweets": 1847,
+      "likes": 5971,
+      "quotes": 917,
+      "bookmarks": 468
+    },
+    "entities": {},
+    "media": [
+      {
+        "type": "video",
+        "url": "https://pbs.twimg.com/amplify_video_thumb/1580540806242394112/img/ivuGi7xKi5RCPNfI.jpg",
+        "width": 1080,
+        "height": 1920,
+        "duration_ms": 76240,
+        "variants": [
+          {
+            "bitrate": 0,
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/amplify_video/1580540806242394112/pl/hSd34pffNT5H-EHy.m3u8?tag=14\u0026v=867"
+          },
+          {
+            "bitrate": 632000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/1580540806242394112/vid/320x568/Lo07PSKbaSrybuAU.mp4?tag=14"
+          },
+          {
+            "bitrate": 950000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/1580540806242394112/vid/480x852/LiwlV670bK4dUTbc.mp4?tag=14"
+          },
+          {
+            "bitrate": 2176000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/1580540806242394112/vid/720x1280/E3_P3vXD2emEBlfO.mp4?tag=14"
+          }
+        ]
+      }
+    ]
+  }
+]

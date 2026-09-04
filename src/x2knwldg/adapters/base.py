@@ -136,6 +136,11 @@ MAX_EDGE_ID_LENGTH = 1300  # indexed_relation.id
 # trailing newline, and Python's does.
 _ISO_TIMESTAMP_RE = re.compile(f"^{ISO_TIMESTAMP_PATTERN}\\Z")
 
+#: The fractional-second digits, for :func:`_parseable`. Not part of the
+#: accepted shape — the pattern above already decides that — only of rewriting a
+#: valid timestamp into the spelling the floor interpreter can parse.
+_FRACTION_RE = re.compile(r"\.(\d+)")
+
 
 class AdapterError(RuntimeError):
     """A run cannot be mapped onto the index model without guessing.
@@ -377,6 +382,31 @@ def copied_choice(
     return value
 
 
+def _parseable(text: str) -> str:
+    """*text* in the narrower spelling ``datetime.fromisoformat`` accepts on 3.10.
+
+    ``requires-python`` declares 3.10 as the floor, and on 3.10 that constructor
+    parses only what ``isoformat()`` emits: no ``Z`` designator — it landed in
+    3.11 — and fractional seconds of exactly three or six digits. Both are
+    perfectly good RFC 3339, both are accepted by
+    ``common.schema.json#/$defs/isoTimestamp``, and every Twitter capture uses
+    the first one: `acquisition.requested_at` is written as `...:00Z`, so
+    projecting an acquired post raised `ValueError: Invalid isoformat string` on
+    the floor interpreter and nowhere else.
+
+    Rewritten for the **parse only**. What the caller returns is the model's own
+    text, verbatim, because a copied field that quietly changed spelling would
+    be a record stating something the canonical file does not.
+    """
+    if text[-1] in "Zz":
+        text = f"{text[:-1]}+00:00"
+    fraction = _FRACTION_RE.search(text)
+    if fraction and len(fraction.group(1)) not in (3, 6):
+        digits = fraction.group(1)[:6].ljust(6, "0")
+        text = f"{text[: fraction.start(1)]}{digits}{text[fraction.end(1) :]}"
+    return text
+
+
 def copied_timestamp(value: Any, *, owner: str, field: str) -> str | None:
     """An RFC 3339 timestamp, verbatim, or ``None`` when there is none.
 
@@ -390,7 +420,7 @@ def copied_timestamp(value: Any, *, owner: str, field: str) -> str | None:
     if not _ISO_TIMESTAMP_RE.match(text):
         refuse(owner, field, value, "carries an RFC 3339 timestamp with an offset there")
     try:
-        datetime.fromisoformat(text)
+        datetime.fromisoformat(_parseable(text))
     except ValueError:
         refuse(owner, field, value, "carries a real date and time there")
     return text
@@ -617,6 +647,70 @@ class SourceAdapter(ABC):
 
     def relative(self, path: Path) -> str:
         return project_relative(path, self.project_root)
+
+    def read_canonical(self, path: Path, damaged: list[dict[str, str]]) -> Any | None:
+        """A canonical file, or ``None``. Override to report *why* it was None.
+
+        The base behaviour is the plain tolerant read: an absent or unreadable
+        file is an absence. ``YouTubeAdapter`` overrides it to append to
+        *damaged*, because a file that is present and unreadable is damage and
+        only one of "missing count" and "broken file" is actionable.
+        """
+        return read_optional_json(path)
+
+    def _status(self, run_dir: Path, damaged: list[dict[str, str]]) -> dict[str, Any]:
+        """Copy the run status out of the two validator files.
+
+        ``overall`` is ``validation.json``'s top-level status, which already
+        aggregates all five sections including coverage. Recomputing it here
+        would be a second opinion, and the UI is forbidden one (ADR 0001
+        invariant 2).
+
+        On the **base class** since ``T-227``, because a second source type
+        arrived and this is not a YouTube rule: what a ``status`` record *is* —
+        the three verbatim copies, the two paths, the bounded `audit_attempts` —
+        is the same question whatever medium a run came from, and the schema
+        holds every adapter to one answer. It lived on ``YouTubeAdapter``, and
+        the Twitter adapter's first version wrote ``read_status(validation)``
+        straight into the field: a bare string where the model requires an
+        object, schema-invalid, and caught by nothing until a test validated the
+        projection. The same schema's own ``audit_attempts`` comment records the
+        previous instance of that exact gap.
+
+        Subclasses supply :meth:`read_canonical`, because *how* a damaged file
+        is reported is the adapter's business; what the status says is not.
+        """
+        validation_path = run_dir / "validation.json"
+        coverage_path = run_dir / "coverage.json"
+        validation = self.read_canonical(validation_path, damaged)
+        coverage = self.read_canonical(coverage_path, damaged)
+
+        status: dict[str, Any] = {
+            "validation": read_status(validation),
+            "coverage": read_status(coverage),
+            "overall": read_status(validation),
+            "validation_path": self.relative(validation_path) if validation is not None else None,
+            "coverage_path": self.relative(coverage_path) if coverage is not None else None,
+        }
+        # Copied verbatim inside the bounds the record can carry. A count above
+        # the WORKFLOW.md cap of three means the run broke the repair rule, and
+        # a count that is not a whole number means the file is damaged: both are
+        # refused here, loudly and by name. Clamping would hide the first and
+        # nulling would restate the second as 'no file', which is a different
+        # claim. ``0`` is the honest never-audited state ``coverage.py`` writes
+        # and is carried through as stated.
+        if isinstance(coverage, Mapping) and "audit_attempts" in coverage:
+            status["audit_attempts"] = copied_number(
+                coverage.get("audit_attempts"),
+                owner=self.relative(coverage_path),
+                field="audit_attempts",
+                minimum=0,
+                maximum=constants.MAX_AUDIT_ATTEMPTS,
+                integer=True,
+            )
+        else:
+            status["audit_attempts"] = None
+        return status
 
     @abstractmethod
     def detect(self, run_dir: Path) -> bool:

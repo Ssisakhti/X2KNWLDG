@@ -2,8 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-03
-- **Decision ledger:** D-204 (`KNOWLEDGE_CANVAS_PLAN.md` §19 and
-  `PROJECT_MANAGEMENT.md` §6)
+- **Decision ledger:** D-204, and the qualification it required is recorded as
+  D-205–D-211 (`KNOWLEDGE_CANVAS_PLAN.md` §19 and `PROJECT_MANAGEMENT.md` §6).
+  See the [`T-222` spike report](../spikes/T-222/REPORT.md) for the measurements
 - **Supersedes:** none
 - **Superseded by:** none
 
@@ -79,7 +80,7 @@ not a legal conclusion.
 
 | Alternative | Why rejected |
 |---|---|
-| Official paid X API as the required path | The user cannot currently pay; making it mandatory would make the phase unusable. No payment or regional restriction is to be circumvented. |
+| Official paid X API as the required path | The user cannot currently pay; making it mandatory would make the phase unusable. No payment or regional restriction is to be circumvented. **Clarified 2026-09-03 (D-209):** this concerns X's own payment and access controls. It does not speak to how the user's traffic reaches the network — the qualified path is used over an always-on tunnel, which is a named environment dependency of Phase 2.2 and not an evasion of anything X operates. |
 | Adopt `x-cli` immediately | Its current behaviour, regional reach, completeness, maintenance risk and AGPL boundary must be measured before it enters the product or build. |
 | FxTwitter as the silent/default provider | It transfers requested post ids to a third party, adds availability risk, and cannot be assumed to satisfy X policy. It remains explicit opt-in fallback. |
 | Treasury or twscrape as the default | Their account/session and rotation patterns create unnecessary credential, account-ban and maintenance risk for this product. Treasury remains research input, not an implementation to transplant. |

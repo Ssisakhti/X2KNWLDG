@@ -1,0 +1,33 @@
+{
+  "capture": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "evidence": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "knowledge_units": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "provenance": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "relationships": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "coverage": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "status": "PASS"
+}

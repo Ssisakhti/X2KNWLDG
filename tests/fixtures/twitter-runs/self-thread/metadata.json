@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "pipeline_version": "0.1.0",
+  "video_id": "2094037638856454625",
+  "source_type": "twitter",
+  "source_url": "https://x.com/i/status/2094037638856454625",
+  "author_username": "NASA",
+  "title": "LIVE: Today’s the day!",
+  "channel": "NASA",
+  "languages": [
+    "en"
+  ],
+  "language": "en",
+  "anchor": {
+    "post_id": "2094037638856454625",
+    "role": "thread_terminal",
+    "terminal_claim": "user_asserted"
+  },
+  "item_count": 10,
+  "available_item_count": 10,
+  "order_basis": "parent_links",
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "root_reached",
+      "single_author": true
+    },
+    "downward": {
+      "status": "unprovable",
+      "reason": "complete to root from a user-asserted terminal anchor; no credential-free route can enumerate descendants to confirm the anchor is the thread's last post"
+    }
+  },
+  "capture_coverage_status": "PASS",
+  "external_references": [],
+  "acquired_at": "2026-09-03T20:36:00Z",
+  "imported_at": "2026-01-01T00:00:00+00:00",
+  "canonical_hashes": {
+    "capture.json": "c9ac80e9b1c1e776c421c2c4791586186fa79c91ab045c66835a7ca41c6c5390"
+  },
+  "extraction": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "extracted_at": "2026-01-01T00:00:00+00:00",
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — the capture and its raw evidence are real measured bytes, the knowledge units are mechanical quotations built for this file. Regenerate with tests/fixtures/twitter-runs/build_fixtures.py."
+}

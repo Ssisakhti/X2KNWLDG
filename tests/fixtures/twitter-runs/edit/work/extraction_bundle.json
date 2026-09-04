@@ -1,0 +1,64 @@
+{
+  "extraction_metadata": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "knowledge_units": [
+    {
+      "id": "KU-000001",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "just setting up my twttr",
+      "normalized_statement": "just setting up my twttr",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "20",
+        "start_char": 0,
+        "end_char": 24,
+        "evidence_excerpt": "just setting up my twttr"
+      },
+      "attribution": {
+        "speaker": "jack",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-D-0001",
+      "kind": "synthesis",
+      "source_class": "derived",
+      "content": "This run quotes 1 post(s) captured from 20.",
+      "normalized_statement": "This run quotes 1 post(s) captured from 20.",
+      "confidence": 0.7,
+      "derived_from": [
+        "KU-000001"
+      ],
+      "derivation_note": "Counts the source units this fixture's extraction produced."
+    }
+  ],
+  "relationships": [
+    {
+      "from": "KU-000001",
+      "to": "KU-D-0001",
+      "relation": "supports",
+      "confidence": 0.8,
+      "source_class": "derived"
+    }
+  ],
+  "coverage": {
+    "status": "PASS",
+    "audit_attempts": 1,
+    "items": [
+      {
+        "item_id": "CI-0001",
+        "post_id": "20",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000001"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      }
+    ]
+  }
+}

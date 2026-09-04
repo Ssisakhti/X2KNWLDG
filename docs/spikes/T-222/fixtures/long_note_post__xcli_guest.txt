@@ -1,0 +1,98 @@
+[
+  {
+    "kind": "tweet",
+    "id": "2072326243085582573",
+    "uri": "x://tweet/2072326243085582573",
+    "url": "https://x.com/NASA/status/2072326243085582573",
+    "tier": 1,
+    "surfaces": [
+      "s4"
+    ],
+    "sources": [
+      "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222072326243085582573%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+    ],
+    "text": "For 250 years, America has pushed the boundaries of what’s possible. From the invention of the airplane to the first steps on the Moon and the missions shaping tomorrow, NASA embodies the fearless spirit of discovery that defines our Nation. \n\nAs we celebrate America's 250th with @Freedom250, we honor the innovation, courage, and scientific leadership that have propelled America forward. NASA continues to expand the frontier for the next generation. \n\n🚀 The countdown to America’s 250th starts now. Just 3 days to go.",
+    "created_at": "2026-07-01T14:27:32Z",
+    "lang": "en",
+    "author": {
+      "kind": "user",
+      "id": "nasa",
+      "uri": "x://user/nasa",
+      "url": "https://x.com/nasa",
+      "tier": 1,
+      "surfaces": [
+        "s4"
+      ],
+      "sources": [
+        "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%222072326243085582573%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+      ],
+      "username": "NASA",
+      "rest_id": "11348282",
+      "name": "NASA",
+      "created_at": "2007-12-19T20:20:32Z",
+      "description": "Making the seemingly impossible, possible. ✨",
+      "location": "Pale Blue Dot",
+      "website": "http://www.nasa.gov/",
+      "verified": true,
+      "verified_type": "government",
+      "metrics": {
+        "followers": 92383557,
+        "following": 117,
+        "tweets": 74269,
+        "listed": 96945,
+        "likes": 16982,
+        "media": 28135
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1321163587679784960/0ZxKlEKB_normal.jpg",
+      "profile_banner": "https://pbs.twimg.com/profile_banners/11348282/1775567134",
+      "entities": {
+        "urls": [
+          "http://www.nasa.gov/"
+        ]
+      }
+    },
+    "conversation_id": "2072326243085582573",
+    "metrics": {
+      "replies": 210,
+      "retweets": 610,
+      "likes": 3175,
+      "quotes": 32,
+      "bookmarks": 192,
+      "impressions": 477059
+    },
+    "entities": {},
+    "media": [
+      {
+        "key": "13_2072326079964975104",
+        "type": "video",
+        "url": "https://pbs.twimg.com/media/HMJhvB5XUAAK-Nb.jpg",
+        "width": 720,
+        "height": 405,
+        "duration_ms": 115048,
+        "variants": [
+          {
+            "bitrate": 0,
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/amplify_video/2072326079964975104/pl/3SiaTTb7gu9Uw5Om.m3u8?tag=14\u0026v=a2b"
+          },
+          {
+            "bitrate": 288000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2072326079964975104/vid/avc1/480x270/Emgkkrr1nbdEl1Qj.mp4?tag=14"
+          },
+          {
+            "bitrate": 832000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2072326079964975104/vid/avc1/640x360/MhwA-UIq0gF1k2YI.mp4?tag=14"
+          },
+          {
+            "bitrate": 2176000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/amplify_video/2072326079964975104/vid/avc1/1280x720/tN3cGG9J5lVGPfW-.mp4?tag=14"
+          }
+        ]
+      }
+    ],
+    "source": "Sprinklr"
+  }
+]

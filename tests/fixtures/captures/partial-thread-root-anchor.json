@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "acquisition": {
+    "provider": {
+      "tool": "tamnd/x-cli",
+      "version": "0.5.0",
+      "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+      "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+      "licence": "AGPL-3.0"
+    },
+    "requested_at": "2026-09-03T20:36:00Z",
+    "routes_read": [
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2094007256576565379 --tier guest -o json"
+      },
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x timeline NASA --tier guest -n 250 -o json"
+      }
+    ],
+    "network": {
+      "via_tunnel": true,
+      "note": "always-on tunnel; named Phase 2.2 dependency (D-209)"
+    }
+  },
+  "raw_evidence": [
+    {
+      "route": "xcli_guest",
+      "path": "tests/fixtures/captures/raw/nasa_roman_2094007256576565379.json",
+      "sha256_raw": "c0efe52046dd9e0adea8ec682279b0fa03957f0f297300bca58af1fb719bcf7f",
+      "sha256_sanitized": "c0efe52046dd9e0adea8ec682279b0fa03957f0f297300bca58af1fb719bcf7f",
+      "sanitization_removed": []
+    }
+  ],
+  "anchor": {
+    "post_id": "2094007256576565379",
+    "role": "thread_root",
+    "terminal_claim": "none"
+  },
+  "items": [
+    {
+      "post_id": "2094007256576565379",
+      "author": {
+        "username": "NASA",
+        "rest_id": "11348282",
+        "display_name": "NASA"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2094007256576565379",
+      "created_at": "2026-08-30T10:20:09Z",
+      "lang": "en",
+      "text": {
+        "canonical": "LIVE: Today’s the day!\n\n@NASARoman is getting ready to head to its new home 1 million miles from Earth, where it will change how we view the universe. Liftoff is currently scheduled for 7:26am ET (1126 UTC). https://t.co/fJi2wd5ztm",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "unverified",
+          "note": "one route only; text completeness has no in-band signal on any measured route"
+        },
+        "entities": [
+          {
+            "kind": "mention",
+            "start_char": 24,
+            "end_char": 34,
+            "handle": "NASARoman"
+          }
+        ]
+      }
+    }
+  ],
+  "order": {
+    "basis": "parent_links",
+    "note": "one item; the thread's root"
+  },
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "root_reached",
+      "single_author": true
+    },
+    "downward": {
+      "status": "unprovable",
+      "reason": "anchored at the root: x thread and x replies return the anchor alone at every credential-free tier, and a 250-post author archive held 3 of the 10 known members"
+    }
+  },
+  "coverage": {
+    "status": "PARTIAL",
+    "expected_item_count": 1,
+    "included_post_ids": [
+      "2094007256576565379"
+    ],
+    "omitted_items": [
+      {
+        "descriptor": "descendants of the anchor",
+        "reason": "not enumerable at any credential-free tier; re-ingest from the thread's last post to obtain them"
+      }
+    ]
+  }
+}

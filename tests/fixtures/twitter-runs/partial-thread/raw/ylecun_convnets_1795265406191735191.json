@@ -1,0 +1,76 @@
+[
+  {
+    "kind": "tweet",
+    "id": "1795265406191735191",
+    "uri": "x://tweet/1795265406191735191",
+    "url": "https://x.com/ylecun/status/1795265406191735191",
+    "tier": 1,
+    "surfaces": [
+      "s4"
+    ],
+    "sources": [
+      "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%221795265406191735191%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+    ],
+    "text": "@elonmusk @bneiluj @how_many_roads_ Now you're acting as if you were my boss 😂😂😂",
+    "created_at": "2024-05-28T01:26:41Z",
+    "lang": "en",
+    "author": {
+      "kind": "user",
+      "id": "ylecun",
+      "uri": "x://user/ylecun",
+      "url": "https://x.com/ylecun",
+      "tier": 1,
+      "surfaces": [
+        "s4"
+      ],
+      "sources": [
+        "https://x.com/i/api/graphql/8CEYnZhCp0dx9DFyyEBlbQ/TweetResultByRestId?variables=%7B%22includePromotedContent%22%3Afalse%2C%22tweetId%22%3A%221795265406191735191%22%2C%22withCommunity%22%3Afalse%2C%22withVoice%22%3Afalse%7D"
+      ],
+      "username": "ylecun",
+      "rest_id": "48008938",
+      "name": "Yann LeCun",
+      "created_at": "2009-06-17T16:05:51Z",
+      "description": "Founder/Chair, AMI Labs; Professor, NYU; Partner, 224 Ventures; Ex-Chief AI Scientist, Meta.\nResearcher in AI, ML, Robotics, etc.\nACM Turing Award Laureate.",
+      "location": "New York",
+      "website": "http://yann.lecun.com",
+      "verified": true,
+      "verified_type": "blue",
+      "metrics": {
+        "followers": 1288569,
+        "following": 794,
+        "tweets": 27208,
+        "listed": 17281,
+        "likes": 31796,
+        "media": 472
+      },
+      "profile_image": "https://pbs.twimg.com/profile_images/1483577865056702469/rWA-3_T7_normal.jpg",
+      "profile_banner": "https://pbs.twimg.com/profile_banners/48008938/1642547502",
+      "pinned_tweet": "1862598063275061484",
+      "entities": {
+        "urls": [
+          "http://yann.lecun.com"
+        ]
+      }
+    },
+    "conversation_id": "1794981927125987683",
+    "reply_to": "1795231379619274846",
+    "reply_to_user": "elonmusk",
+    "metrics": {
+      "replies": 201,
+      "retweets": 116,
+      "likes": 7353,
+      "quotes": 63,
+      "bookmarks": 162,
+      "impressions": 602827
+    },
+    "entities": {
+      "mentions": [
+        "elonmusk",
+        "bneiluj",
+        "how_many_roads_"
+      ]
+    },
+    "source": "Twitter for Android",
+    "is_reply": true
+  }
+]
