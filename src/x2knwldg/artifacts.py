@@ -635,7 +635,9 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
 #: with no capture contract, no extraction and no adapter would be an invented
 #: output format, not a generalization. The seam is what `T-230` delivers for
 #: all four (D-234, D-240); Medium/articles, books and website links each add a
-#: row when their adapter does.
+#: row when their adapter does. `T-229` added ``validate`` and ``apply_bundle``
+#: to the row rather than starting a second table somewhere else, so this is
+#: also what ``x2knwldg validate`` and ``apply-bundle`` dispatch on (D-243).
 MEDIUM_PROFILES: dict[str, MediumProfile] = {
     ids.DEFAULT_SOURCE_TYPE: MediumProfile(
         note_type="video",
@@ -683,10 +685,11 @@ def _profile_for(metadata: Mapping[str, Any]) -> MediumProfile:
     profile = MEDIUM_PROFILES.get(source_type)
     if profile is None:
         raise PipelineError(
-            f"metadata.json declares source_type {source_type!r}, which has no "
-            "finalize profile. The media that can be finalized are "
+            f"metadata.json declares source_type {source_type!r}, which no "
+            "medium profile describes, so this run cannot be validated, applied "
+            "to or finalized. The media that have one are "
             f"{sorted(MEDIUM_PROFILES)}; add a row to artifacts.MEDIUM_PROFILES "
-            "rather than a second finalize path (D-240)."
+            "rather than a second pipeline (D-240, D-243)."
         )
     return profile
 
