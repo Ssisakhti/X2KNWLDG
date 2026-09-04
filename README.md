@@ -25,6 +25,10 @@ for provenance and attribution details.
 - Rejects plain transcripts without timestamps in strict mode.
 - Produces canonical JSON, Markdown, graph, validation, coverage, and Obsidian artifacts.
 - Can be driven by ChatGPT/Codex, Claude, the small CLI, or the optional MCP server.
+- Ingests **public X/Twitter posts and same-author self-threads** through the same
+  pipeline and the same commands, to the same canonical outputs, a vault note and the
+  same library. Credential-free and no-payment: no X account, cookie, token or browser
+  profile is used, needed, or read. See [Twitter/X](#twitterx) below.
 
 ## Everyday use
 
@@ -53,6 +57,42 @@ Plain text is accepted only in this form:
 [00:00:00 - 00:00:07] First timestamped caption.
 [00:00:07 - 00:00:15] Second timestamped caption.
 ```
+
+## Twitter/X
+
+A public post or a same-author self-thread becomes a run like any other, and reaches the
+same end — validated canonical files, `graph.json`, `report.md`, a vault note and a place
+in the cumulative library. `apply-bundle`, `validate` and `finalize` are the same commands
+for both media; only the first step and the citation unit differ.
+
+```bash
+.venv/bin/x2knwldg capture "https://x.com/<user>/status/<id>" --via-tunnel --output output
+.venv/bin/x2knwldg capture "<last-post-id>" --thread --via-tunnel --output output
+# then extract with prompts/twitter/, and:
+.venv/bin/x2knwldg apply-bundle output/<post-id> extraction_bundle.json
+.venv/bin/x2knwldg finalize output/<post-id>
+```
+
+**Give a thread's LAST post, not its first.** A self-thread is provably complete only
+upward; descendants cannot be enumerated on any credential-free route, so a root-anchored
+thread is reported `PARTIAL` with a warning rather than silently dropping most of it.
+
+**What leaves the machine.** Exactly one kind of outbound request: a pinned, digest-verified
+local `x-cli` binary reading `x.com` over your own tunnel. No credential, cookie, token or
+browser profile is read, stored or sent, and no third-party mirror is contacted — the
+FxTwitter/oEmbed fallback is *not implemented*, and would be explicit opt-in with a visible
+statement of what leaves. Provider bytes are sanitized and then scanned for credential
+material before being written, in that order. No provider name, version or binary digest
+reaches the index or the web UI; the acquisition record lives in `capture.json`, which you
+can open.
+
+A claim from a post cites the post it came from and an exact character span into that
+post's authored text — never seconds, and never a normalized copy: `t.co` links, Persian
+digits, ZWNJ and NBSP are preserved byte for byte.
+
+**What this can and cannot do**, route by route, plus troubleshooting for exit codes `7`,
+`8` and `9` and the steps a person still has to perform on the target machine:
+[`WORKFLOW.md` § Twitter/X](WORKFLOW.md#twitterx-posts-and-self-threads).
 
 ## Canonical outputs
 
