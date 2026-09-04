@@ -1,0 +1,64 @@
+{
+  "extraction_metadata": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "knowledge_units": [
+    {
+      "id": "KU-000001",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "برنامه‌های بی‌بی‌سی فارسی را از رادیو بشنوید:",
+      "normalized_statement": "برنامه‌های بی‌بی‌سی فارسی را از رادیو بشنوید:",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2027781710667010262",
+        "start_char": 0,
+        "end_char": 45,
+        "evidence_excerpt": "برنامه‌های بی‌بی‌سی فارسی را از رادیو بشنوید:"
+      },
+      "attribution": {
+        "speaker": "bbcpersian",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-D-0001",
+      "kind": "synthesis",
+      "source_class": "derived",
+      "content": "This run quotes 1 post(s) captured from 2027781710667010262.",
+      "normalized_statement": "This run quotes 1 post(s) captured from 2027781710667010262.",
+      "confidence": 0.7,
+      "derived_from": [
+        "KU-000001"
+      ],
+      "derivation_note": "Counts the source units this fixture's extraction produced."
+    }
+  ],
+  "relationships": [
+    {
+      "from": "KU-000001",
+      "to": "KU-D-0001",
+      "relation": "supports",
+      "confidence": 0.8,
+      "source_class": "derived"
+    }
+  ],
+  "coverage": {
+    "status": "PASS",
+    "audit_attempts": 1,
+    "items": [
+      {
+        "item_id": "CI-0001",
+        "post_id": "2027781710667010262",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000001"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      }
+    ]
+  }
+}

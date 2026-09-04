@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "video_id": "2094039408081068233",
+  "relationships": [
+    {
+      "from": "KU-000001",
+      "to": "KU-D-0001",
+      "relation": "supports",
+      "confidence": 0.8,
+      "source_class": "derived"
+    }
+  ]
+}

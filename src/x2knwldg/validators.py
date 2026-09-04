@@ -146,6 +146,73 @@ PROVENANCE_FIELDS: dict[str, frozenset[str]] = {
 }
 
 
+#: The extraction bundle's top-level contract, and the one implementation of it.
+#:
+#: ``schemas/extraction_bundle.schema.json`` requires these three keys, accepts
+#: ``extraction_metadata`` beside them and sets ``additionalProperties: false``
+#: — and nothing applies that schema at runtime, because ``jsonschema`` is a dev
+#: extra and appears nowhere in the package. So the contract is enforced here or
+#: nowhere, and it is enforced *once*: both apply gates read the same bundle
+#: shape, and a rule with two implementations is what D-185 is about.
+BUNDLE_KEYS = ("knowledge_units", "relationships", "coverage")
+
+
+def bundle_shape_error(bundle: Any) -> str | None:
+    """What is wrong with *bundle*'s top level, or ``None`` if nothing is.
+
+    A message rather than an exception, because the two callers raise different
+    types — ``PipelineError`` for a YouTube run, ``ExtractionError`` for a
+    Twitter one — and the rule is the same rule either way. Each caller keeps
+    its own vocabulary; neither keeps its own copy of the contract.
+    """
+    if not isinstance(bundle, dict):
+        return "Extraction bundle must be a JSON object"
+    # D-073: this used to be read as `bundle.get("knowledge_units",
+    # bundle.get("units", []))`. The bundle schema requires `knowledge_units`
+    # and rejects `units` outright — while prompts 01, 02 and 04 all told the
+    # agent to return `{"units": ...}` and the reader silently accepted both
+    # spellings. Nothing broke, and so the divergence went unnoticed. Refusing
+    # names the right key instead of guessing which one was meant.
+    if "knowledge_units" not in bundle and "units" in bundle:
+        return (
+            "Extraction bundle uses 'units'; the key is 'knowledge_units' "
+            "(schemas/extraction_bundle.schema.json). The canonical "
+            "knowledge_units.json file uses 'units' — the bundle does not."
+        )
+    # D-169: the schema requires all three and two of them were guarded, while
+    # `relationships` was `bundle.get("relationships", [])`. So a bundle that
+    # misspelled it (`relations`, `edges`) or dropped it applied cleanly and
+    # wiped `relationships.json` to `[]`, reporting `PASS` over a run that had
+    # just lost every relationship it had.
+    missing = [key for key in BUNDLE_KEYS if key not in bundle]
+    if missing:
+        return (
+            f"Extraction bundle is missing required key(s): {', '.join(missing)}. "
+            f"The schema requires {', '.join(BUNDLE_KEYS)} and accepts "
+            "no other top-level key but the optional extraction_metadata "
+            "(schemas/extraction_bundle.schema.json)"
+        )
+    unknown = sorted(set(bundle) - set(BUNDLE_KEYS) - {"extraction_metadata"})
+    if unknown:
+        # `additionalProperties: false`, enforced where the bundle is read. A
+        # key nobody consumes is a key whose content was silently discarded.
+        return (
+            f"Extraction bundle has unknown top-level key(s): {', '.join(unknown)}. "
+            f"Accepted: {', '.join((*BUNDLE_KEYS, 'extraction_metadata'))}"
+        )
+    if not isinstance(bundle["coverage"], dict):
+        return "Extraction bundle must contain a coverage object"
+    extraction_metadata = bundle.get("extraction_metadata")
+    if extraction_metadata is not None and not isinstance(extraction_metadata, dict):
+        # D-169: a non-dict used to be discarded in silence while `extracted_at`
+        # was stamped anyway, so the run looked as though it had recorded
+        # provenance it had not.
+        return (
+            "Extraction bundle's extraction_metadata must be an object, got "
+            f"{type(extraction_metadata).__name__}"
+        )
+    return None
+
 def validate_knowledge_units(document: Any) -> dict[str, Any]:
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []

@@ -1,0 +1,28 @@
+{
+  "extraction_metadata": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "knowledge_units": [],
+  "relationships": [],
+  "coverage": {
+    "status": "PARTIAL",
+    "audit_attempts": 1,
+    "items": [
+      {
+        "item_id": "CI-0001",
+        "post_id": "999999999999999999",
+        "status": "omitted",
+        "knowledge_units": [],
+        "omitted_items": [
+          {
+            "type": "source_unavailable",
+            "note": "The post was not observed at this tier, so it carries no text to audit. Deleted, suspended and protected are not distinguishable below Tier 2."
+          }
+        ],
+        "unresolved_items": []
+      }
+    ]
+  }
+}

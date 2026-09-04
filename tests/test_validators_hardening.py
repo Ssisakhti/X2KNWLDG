@@ -37,14 +37,14 @@ from x2knwldg.artifacts import _carry_coverage_scaffold_forward, apply_extractio
 from x2knwldg.constants import COVERAGE_WINDOW_SEC, DERIVED_KINDS, SOURCE_KINDS
 from x2knwldg.pipeline import PipelineError
 from x2knwldg.validators import (
-    validate_item_coverage,
-    validate_item_coverage_links,
-    validate_post_provenance,
     MAX_AUDIT_ATTEMPTS,
     MIN_EVIDENCE_EXCERPT_CHARS,
     validate_coverage,
     validate_coverage_links,
+    validate_item_coverage,
+    validate_item_coverage_links,
     validate_knowledge_units,
+    validate_post_provenance,
     validate_provenance,
     validate_relationships,
 )

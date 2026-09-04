@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "pipeline_version": "0.1.0",
+  "video_id": "1795393908886712425",
+  "source_type": "twitter",
+  "source_url": "https://x.com/i/status/1795393908886712425",
+  "author_username": "ylecun",
+  "title": "@elonmusk @bneiluj @how_many_roads_ Now you're acting as if you were my boss 😂😂😂",
+  "channel": "ylecun",
+  "languages": [
+    "en"
+  ],
+  "language": "en",
+  "anchor": {
+    "post_id": "1795393908886712425",
+    "role": "thread_terminal",
+    "terminal_claim": "user_asserted"
+  },
+  "item_count": 2,
+  "available_item_count": 2,
+  "order_basis": "parent_links",
+  "completeness": {
+    "upward": {
+      "status": "incomplete",
+      "basis": "unresolved_hop",
+      "single_author": true,
+      "unresolved_at": "1795231379619274846"
+    },
+    "downward": {
+      "status": "unprovable",
+      "reason": "the chain above this anchor is not proven complete to a root, and no credential-free route can enumerate descendants to confirm the anchor is the thread's last post; neither direction is established"
+    }
+  },
+  "capture_coverage_status": "PARTIAL",
+  "external_references": [],
+  "acquired_at": "2026-09-03T21:51:25Z",
+  "imported_at": "2026-01-01T00:00:00+00:00",
+  "canonical_hashes": {
+    "capture.json": "ffeea648daf09f3eb8bb090144ecc85e88368ba8d505de8dd17c6a6e081fb4f6"
+  },
+  "extraction": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "extracted_at": "2026-01-01T00:00:00+00:00",
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — the capture and its raw evidence are real measured bytes, the knowledge units are mechanical quotations built for this file. Regenerate with tests/fixtures/twitter-runs/build_fixtures.py."
+}

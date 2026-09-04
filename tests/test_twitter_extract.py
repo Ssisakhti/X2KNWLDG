@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from capture_shapes import EDIT_PRIOR_IDS, edited_post_capture
+
 from x2knwldg.constants import OMISSION_REASONS
 from x2knwldg.io import dumps_json
 from x2knwldg.twitter import extract

@@ -1,0 +1,118 @@
+{
+  "status": "PASS",
+  "audit_attempts": 1,
+  "items": [
+    {
+      "item_id": "CI-0001",
+      "post_id": "2094007256576565379",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000001"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    },
+    {
+      "item_id": "CI-0002",
+      "post_id": "2094017464216563968",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000002"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    },
+    {
+      "item_id": "CI-0003",
+      "post_id": "2094023339434012989",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000003"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    },
+    {
+      "item_id": "CI-0004",
+      "post_id": "2094024294988701975",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000004"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    },
+    {
+      "item_id": "CI-0005",
+      "post_id": "2094025441984098677",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000005"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    },
+    {
+      "item_id": "CI-0006",
+      "post_id": "2094025920579354632",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000006"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    },
+    {
+      "item_id": "CI-0007",
+      "post_id": "2094028067924504596",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000007"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    },
+    {
+      "item_id": "CI-0008",
+      "post_id": "2094033367767339277",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000008"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    },
+    {
+      "item_id": "CI-0009",
+      "post_id": "2094036569640317348",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000009"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    },
+    {
+      "item_id": "CI-0010",
+      "post_id": "2094037638856454625",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000010"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    }
+  ],
+  "schema_version": "1.0",
+  "source_type": "twitter",
+  "source_id": "2094037638856454625",
+  "basis": "items",
+  "excluded_items": [],
+  "summary": {
+    "total_items": 10,
+    "covered_items": 10,
+    "pending_items": 0,
+    "unresolved_important_items": 0,
+    "excluded_items": 0
+  }
+}

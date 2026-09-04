@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0",
+  "acquisition": {
+    "provider": {
+      "tool": "tamnd/x-cli",
+      "version": "0.5.0",
+      "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+      "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+      "licence": "AGPL-3.0"
+    },
+    "requested_at": "2026-09-03T20:36:00Z",
+    "routes_read": [
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 20 --tier guest -o json"
+      }
+    ],
+    "network": {
+      "via_tunnel": true,
+      "note": "always-on tunnel; named Phase 2.2 dependency (D-209)"
+    }
+  },
+  "raw_evidence": [
+    {
+      "route": "xcli_guest",
+      "path": "twitter-runs/edit/raw/single_post_en__xcli_guest.txt",
+      "sha256_raw": "ad1c59d65e8b71a56ee5f2eace1ea8cb849c28e00e56fd38dc33eeac4b2f3b65",
+      "sha256_sanitized": "ad1c59d65e8b71a56ee5f2eace1ea8cb849c28e00e56fd38dc33eeac4b2f3b65",
+      "sanitization_removed": []
+    },
+    {
+      "route": "fxtwitter",
+      "path": "twitter-runs/edit/raw/single_post_en__fxtwitter.txt",
+      "sha256_raw": "4bc754100bc550b14d716c2f7b303c4aec0d488d267b0be519df341d6f1ca63d",
+      "sha256_sanitized": "4bc754100bc550b14d716c2f7b303c4aec0d488d267b0be519df341d6f1ca63d",
+      "sanitization_removed": []
+    }
+  ],
+  "anchor": {
+    "post_id": "20",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "items": [
+    {
+      "post_id": "20",
+      "author": {
+        "username": "jack",
+        "rest_id": "12",
+        "display_name": "jack"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "20",
+      "created_at": "2006-03-21T20:50:14Z",
+      "lang": "en",
+      "text": {
+        "canonical": "just setting up my twttr",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "corroborated",
+          "corroborated_by": [
+            {
+              "route": "fxtwitter",
+              "tier": 0,
+              "surface": "fxtwitter"
+            }
+          ],
+          "agreement": "identical"
+        }
+      },
+      "edits": [
+        "999999999999999001",
+        "999999999999999002"
+      ]
+    }
+  ],
+  "order": {
+    "basis": "single_item"
+  },
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "single_item"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "a single post makes no claim about a conversation"
+    }
+  },
+  "coverage": {
+    "status": "PASS",
+    "expected_item_count": 1,
+    "included_post_ids": [
+      "20"
+    ],
+    "omitted_items": []
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "capture": {
+    "status": "FAIL",
+    "errors": [
+      {
+        "code": "capture_not_complete",
+        "capture_status": "FAIL",
+        "expected_item_count": 1,
+        "included": 0,
+        "omitted": 1
+      }
+    ],
+    "warnings": []
+  },
+  "evidence": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "knowledge_units": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "provenance": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "relationships": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "coverage": {
+    "status": "PASS",
+    "errors": [],
+    "warnings": []
+  },
+  "status": "FAIL"
+}

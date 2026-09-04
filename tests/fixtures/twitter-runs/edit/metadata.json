@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "pipeline_version": "0.1.0",
+  "video_id": "20",
+  "source_type": "twitter",
+  "source_url": "https://x.com/i/status/20",
+  "author_username": "jack",
+  "title": "just setting up my twttr",
+  "channel": "jack",
+  "languages": [
+    "en"
+  ],
+  "language": "en",
+  "anchor": {
+    "post_id": "20",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "item_count": 1,
+  "available_item_count": 1,
+  "order_basis": "single_item",
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "single_item"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "a single post makes no claim about a conversation"
+    }
+  },
+  "capture_coverage_status": "PASS",
+  "external_references": [],
+  "acquired_at": "2026-09-03T20:36:00Z",
+  "imported_at": "2026-01-01T00:00:00+00:00",
+  "canonical_hashes": {
+    "capture.json": "48a082019e8ca3ea5b27edf8472dd874fdda521329f8084b41275e2476b24b91"
+  },
+  "extraction": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "extracted_at": "2026-01-01T00:00:00+00:00",
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — the capture and its raw evidence are real measured bytes, the knowledge units are mechanical quotations built for this file. Regenerate with tests/fixtures/twitter-runs/build_fixtures.py."
+}

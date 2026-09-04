@@ -51,7 +51,6 @@ from pathlib import Path
 from typing import Any
 
 from .. import ids
-from ..constants import MAX_AUDIT_ATTEMPTS
 from ..io import LIBRARY_DIR_NAME as LIBRARY_DIR_NAME
 from ..io import scrub_host_paths, sha256_file
 from .base import (
@@ -80,7 +79,6 @@ from .base import (
     project_relative,
     read_optional_json,
     read_optional_json_or_reason,
-    read_status,
     refuse,
 )
 

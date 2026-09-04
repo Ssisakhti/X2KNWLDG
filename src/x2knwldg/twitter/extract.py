@@ -42,6 +42,7 @@ an ``observed_at`` they never had.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,7 @@ from ..io import (
     write_json,
 )
 from ..validators import (
+    bundle_shape_error,
     validate_item_coverage,
     validate_item_coverage_links,
     validate_knowledge_units,
@@ -389,6 +391,196 @@ def initialize_run(run_dir: Path) -> dict[str, Any]:
     return metadata
 
 
+def _carry_item_scaffold_forward(coverage: dict[str, Any], capture: dict[str, Any]) -> None:
+    """Restore the facts the scaffold knows and an audit does not get to restate.
+
+    The item-based counterpart of ``artifacts._carry_coverage_scaffold_forward``
+    and the same lesson (D-164): a bundle's coverage document *replaces* the
+    scaffolded one, so whatever the scaffold knew and the bundle omits is
+    silently dropped — and worse, whatever the bundle *states* about itself is
+    then what the validator measures it against.
+
+    Three groups of field, and the difference between them is who is entitled to
+    the answer:
+
+    * **What the capture says.** ``basis``, ``source_id``, ``source_type`` and
+      ``excluded_items`` are read off the capture, so they are imposed rather
+      than accepted. An audit that renamed its own ``basis`` would be read by
+      the time-window validator and report every post missing; an audit that
+      shortened ``excluded_items`` would quietly promote a third-party parent
+      into something nobody has to account for.
+    * **What the pipeline minted.** The ``source_unavailable`` omission (D-225)
+      and the ``capture_text_truncated`` unresolved item are facts about what
+      was observed, not judgements — ``prompts/twitter/05_item_coverage_audit.md``
+      tells the model in as many words not to overwrite them, and this is where
+      that promise is kept. Re-imposed if missing, and re-imposing the
+      truncation gap is what stops a model reaching ``PASS`` by deleting it.
+    * **What the audit says.** Every entry's ``status``, its
+      ``knowledge_units``, its own omissions and any unresolved item it added.
+      Those are the audit's to write, and none of them is touched here.
+
+    ``coverage_not_audited`` is deliberately *not* re-imposed: it is the
+    scaffold saying no audit has run, and resolving it is exactly what an audit
+    does. ``summary`` is recomputed rather than carried, for the reason its
+    YouTube sibling is: it is derived from the entries the bundle just supplied.
+    """
+    scaffold = create_pending_coverage(capture)
+    minted = {entry["post_id"]: entry for entry in scaffold["items"]}
+    for field in ("schema_version", "source_type", "source_id", "basis"):
+        coverage[field] = scaffold[field]
+    coverage["excluded_items"] = [dict(entry) for entry in scaffold["excluded_items"]]
+
+    entries = coverage.get("items")
+    if not isinstance(entries, list):
+        # `validate_item_coverage` reports the shape failure, and the gate
+        # refuses on it. Nothing to carry forward into a document that is not
+        # one.
+        return
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        mint = minted.get(entry.get("post_id"))
+        if mint is None:
+            # A post that is not in this capture. Again the validator's to
+            # refuse — inventing an `item_id` for it would only make the
+            # refusal harder to read.
+            continue
+        entry["item_id"] = mint["item_id"]
+        for field, kept in (
+            ("omitted_items", {"source_unavailable"}),
+            ("unresolved_items", {"capture_text_truncated"}),
+        ):
+            stated = entry.get(field, [])
+            if not isinstance(stated, list):
+                # Present and the wrong type. Left exactly as it is:
+                # `validate_item_coverage` reports `coverage_item_field_not_array`
+                # and the gate refuses, which is a better answer than quietly
+                # replacing a malformed field with a well-formed one. A *missing*
+                # field is different — it is an audit that said nothing, and
+                # what the pipeline minted still holds.
+                continue
+            present = {
+                item.get("type") for item in stated if isinstance(item, dict)
+            }
+            restored = [
+                dict(item)
+                for item in mint[field]
+                if item["type"] in kept and item["type"] not in present
+            ]
+            if restored:
+                entry[field] = [*restored, *stated]
+
+    statuses = [entry.get("status") if isinstance(entry, dict) else None for entry in entries]
+    coverage["summary"] = {
+        "total_items": len(entries),
+        "covered_items": sum(1 for status in statuses if status == "covered"),
+        "pending_items": sum(1 for status in statuses if status == "pending"),
+        "unresolved_important_items": sum(
+            len(entry.get("unresolved_items") or [])
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("unresolved_items"), list)
+        ),
+        "excluded_items": len(coverage["excluded_items"]),
+    }
+
+
+def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
+    """Apply a model's extraction to an initialized Twitter run, or refuse it whole.
+
+    The gate ``artifacts.apply_extraction_bundle`` is for a YouTube run, and it
+    is a gate in the same sense: a bundle that fails validation is not written,
+    so a run cannot reach the disk in a state its own validators refuse. What
+    differs is only what the bundle is checked *against* — a capture rather than
+    a transcript and segments, a post id and a codepoint span rather than a time
+    range, item coverage rather than a timeline. The bundle's top-level contract
+    is shared outright (``validators.bundle_shape_error``), because that one is
+    about the bundle and not about the medium.
+
+    The four canonical files are written in **one** ``write_group``: they
+    describe a single extraction, and ``validate_run`` immediately below reads
+    all four, so a half-applied bundle would be validated as though it were a
+    whole one.
+    """
+    run_dir = run_dir.expanduser().resolve()
+    capture = read_capture(run_dir)
+    metadata = _read(run_dir / "metadata.json")
+    try:
+        bundle = read_json(bundle_path.expanduser().resolve())
+    except JsonReadError as exc:
+        raise ExtractionError(f"Extraction bundle: {exc}") from exc
+    shape_error = bundle_shape_error(bundle)
+    if shape_error:
+        raise ExtractionError(shape_error)
+
+    source_id = capture["anchor"]["post_id"]
+    if metadata.get("video_id") != source_id:
+        # The run's two documents disagree about which post this run is. A
+        # bundle applied here would be applied to whichever of them the reader
+        # happened to trust.
+        raise ExtractionError(
+            f"{run_dir} has metadata for {metadata.get('video_id')!r} beside a capture "
+            f"anchored at {source_id!r}; the run was not initialized from this capture."
+        )
+
+    units_document = {
+        "schema_version": "1.0",
+        "video_id": source_id,
+        # What `validate_knowledge_units` dispatches on (D-226). Declared in the
+        # canonical file rather than inferred later, so a reader of
+        # `knowledge_units.json` alone knows which provenance shape its units
+        # carry.
+        "source_type": SOURCE_TYPE,
+        "units": bundle["knowledge_units"],
+    }
+    relationships_document = {
+        "schema_version": "1.0",
+        "video_id": source_id,
+        "relationships": bundle["relationships"],
+    }
+    coverage_document = bundle["coverage"]
+    _carry_item_scaffold_forward(coverage_document, capture)
+
+    unit_validation = validate_knowledge_units(units_document)
+    unit_ids = {
+        unit["id"]
+        for unit in units_document["units"]
+        if isinstance(unit, dict) and isinstance(unit.get("id"), str) and unit["id"]
+    }
+    errors = {
+        "knowledge_units": unit_validation["errors"],
+        "provenance": validate_post_provenance(units_document, capture)["errors"],
+        "relationships": validate_relationships(relationships_document, unit_ids)["errors"],
+        "coverage": validate_item_coverage(coverage_document, capture)["errors"],
+    }
+    if any(errors.values()):
+        raise ExtractionError(
+            f"Extraction bundle failed validation: {json.dumps(errors, ensure_ascii=False)}"
+        )
+    # Kept separate for the reason the YouTube gate keeps it separate: this is
+    # the cross-document rule, and it is the one an apply gate exists to catch —
+    # a unit cited under a post it does not cite leaves that post looking
+    # covered with no evidence of its own.
+    link_errors = validate_item_coverage_links(coverage_document, units_document["units"])
+    if link_errors:
+        raise ExtractionError(
+            f"Coverage does not match the knowledge units: "
+            f"{json.dumps(link_errors, ensure_ascii=False)}"
+        )
+
+    extraction_metadata = bundle.get("extraction_metadata")
+    if extraction_metadata is not None:
+        metadata["extraction"] = extraction_metadata
+    metadata["extracted_at"] = _now()
+    write_group(
+        [
+            (run_dir / "knowledge_units.json", dumps_json(units_document)),
+            (run_dir / "relationships.json", dumps_json(relationships_document)),
+            (run_dir / "coverage.json", dumps_json(coverage_document)),
+            (run_dir / "metadata.json", dumps_json(metadata)),
+        ]
+    )
+    return validate_run(run_dir)
+
 def evidence_integrity(
     run_dir: Path, metadata: Any, capture: Any
 ) -> dict[str, Any]:
@@ -489,7 +681,7 @@ def _rederivation_errors(
 
     errors: list[dict[str, Any]] = []
     records: dict[str, dict[str, Any]] = {}
-    for relative, raw in preserved.items():
+    for raw in preserved.values():
         try:
             parsed = json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError):

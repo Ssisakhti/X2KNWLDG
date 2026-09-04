@@ -36,7 +36,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from capture_shapes import EDIT_PRIOR_IDS, edited_post_capture
 
 jsonschema = pytest.importorskip(

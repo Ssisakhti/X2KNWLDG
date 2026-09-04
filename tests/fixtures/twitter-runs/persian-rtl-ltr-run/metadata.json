@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "pipeline_version": "0.1.0",
+  "video_id": "1580541310636883972",
+  "source_type": "twitter",
+  "source_url": "https://x.com/i/status/1580541310636883972",
+  "author_username": "bbcpersian",
+  "title": "ویدیوی منتشرشده در شبکه‌های اجتماعی، تعرض نیروهای امنیتی به یک زن جوان و رفتار تحقیرآمیز…",
+  "channel": "bbcpersian",
+  "languages": [
+    "fa"
+  ],
+  "language": "fa",
+  "anchor": {
+    "post_id": "1580541310636883972",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "item_count": 1,
+  "available_item_count": 1,
+  "order_basis": "single_item",
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "single_item"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "a single post makes no claim about a conversation"
+    }
+  },
+  "capture_coverage_status": "PASS",
+  "external_references": [],
+  "acquired_at": "2026-09-03T20:36:00Z",
+  "imported_at": "2026-01-01T00:00:00+00:00",
+  "canonical_hashes": {
+    "capture.json": "4d1aea6ee291c005572154d6fe47087b467970a66fd584e3fbb7e8dffcb0d0df"
+  },
+  "extraction": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "extracted_at": "2026-01-01T00:00:00+00:00",
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — the capture and its raw evidence are real measured bytes, the knowledge units are mechanical quotations built for this file. Regenerate with tests/fixtures/twitter-runs/build_fixtures.py."
+}

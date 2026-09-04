@@ -1,0 +1,93 @@
+{
+  "extraction_metadata": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "knowledge_units": [
+    {
+      "id": "KU-000001",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "@elonmusk @bneiluj @how_many_roads_ Now you're acting as if you were my boss 😂😂😂",
+      "normalized_statement": "@elonmusk @bneiluj @how_many_roads_ Now you're acting as if you were my boss 😂😂😂",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "1795265406191735191",
+        "start_char": 0,
+        "end_char": 80,
+        "evidence_excerpt": "@elonmusk @bneiluj @how_many_roads_ Now you're acting as if you were my boss 😂😂😂"
+      },
+      "attribution": {
+        "speaker": "ylecun",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-000002",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "To those who say 'these are *just* papers':",
+      "normalized_statement": "To those who say 'these are *just* papers':",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "1795393908886712425",
+        "start_char": 0,
+        "end_char": 43,
+        "evidence_excerpt": "To those who say 'these are *just* papers':"
+      },
+      "attribution": {
+        "speaker": "ylecun",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-D-0001",
+      "kind": "synthesis",
+      "source_class": "derived",
+      "content": "This run quotes 2 post(s) captured from 1795393908886712425.",
+      "normalized_statement": "This run quotes 2 post(s) captured from 1795393908886712425.",
+      "confidence": 0.7,
+      "derived_from": [
+        "KU-000001",
+        "KU-000002"
+      ],
+      "derivation_note": "Counts the source units this fixture's extraction produced."
+    }
+  ],
+  "relationships": [
+    {
+      "from": "KU-000001",
+      "to": "KU-D-0001",
+      "relation": "supports",
+      "confidence": 0.8,
+      "source_class": "derived"
+    }
+  ],
+  "coverage": {
+    "status": "PARTIAL",
+    "audit_attempts": 1,
+    "items": [
+      {
+        "item_id": "CI-0001",
+        "post_id": "1795265406191735191",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000001"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      },
+      {
+        "item_id": "CI-0002",
+        "post_id": "1795393908886712425",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000002"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      }
+    ]
+  }
+}

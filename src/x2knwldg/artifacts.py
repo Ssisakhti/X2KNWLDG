@@ -19,6 +19,7 @@ from .io import (
 )
 from .pipeline import PipelineError, VerdictRefusal, run_duration_sec, validate_run
 from .validators import (
+    bundle_shape_error,
     validate_coverage,
     validate_coverage_links,
     validate_knowledge_units,
@@ -106,11 +107,6 @@ def _read(path: Path) -> Any:
     if not isinstance(document, dict):
         raise PipelineError(f"Canonical JSON must be an object: {path}")
     return document
-
-
-#: The three keys ``schemas/extraction_bundle.schema.json`` requires, stated
-#: here because nothing applies that schema at runtime (D-169).
-_REQUIRED_BUNDLE_KEYS = ("knowledge_units", "relationships", "coverage")
 
 
 def _carry_coverage_scaffold_forward(run_dir: Path, coverage: dict[str, Any]) -> None:
@@ -291,48 +287,14 @@ def _slug(value: str) -> str:
 def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
     run_dir = run_dir.expanduser().resolve()
     bundle = _read(bundle_path.expanduser().resolve())
-    if not isinstance(bundle, dict):
-        raise PipelineError("Extraction bundle must be a JSON object")
+    # The bundle's top-level contract, checked once for both media
+    # (`validators.bundle_shape_error`): the `units` misspelling of D-073, the
+    # three required keys and the silent `relationships` default of D-169, the
+    # unknown-key refusal, and `extraction_metadata` being an object.
+    shape_error = bundle_shape_error(bundle)
+    if shape_error:
+        raise PipelineError(shape_error)
     metadata = _read(run_dir / "metadata.json")
-    # D-073: this used to read `bundle.get("knowledge_units",
-    # bundle.get("units", []))`. The bundle schema requires `knowledge_units`
-    # and sets `additionalProperties: false`, so it rejects `units` outright —
-    # while prompts 01, 02 and 04 all told the agent to return `{"units": ...}`
-    # and this line silently accepted both spellings. Nothing broke, and so the
-    # divergence between the prompts and the schema went unnoticed. Refusing
-    # here names the right key instead of guessing which one was meant.
-    if "knowledge_units" not in bundle and "units" in bundle:
-        raise PipelineError(
-            "Extraction bundle uses 'units'; the key is 'knowledge_units' "
-            "(schemas/extraction_bundle.schema.json). The canonical "
-            "knowledge_units.json file uses 'units' — the bundle does not."
-        )
-    # D-169: the schema requires all three of these and sets
-    # `additionalProperties: false`, and two of them were guarded here —
-    # `units` above for D-073, `coverage` below — while `relationships` was
-    # `bundle.get("relationships", [])`. So a bundle that misspelled it
-    # (`relations`, `edges`) or dropped it applied cleanly and wiped
-    # `relationships.json` to `[]`, reporting `PASS` over a run that had just
-    # lost every relationship it had. The schema cannot catch this: nothing
-    # applies it at runtime — `jsonschema` is a dev extra and appears nowhere
-    # in the package — so the required keys are required here or nowhere.
-    missing = [key for key in _REQUIRED_BUNDLE_KEYS if key not in bundle]
-    if missing:
-        raise PipelineError(
-            f"Extraction bundle is missing required key(s): {', '.join(missing)}. "
-            f"The schema requires {', '.join(_REQUIRED_BUNDLE_KEYS)} and accepts "
-            "no other top-level key but the optional extraction_metadata "
-            "(schemas/extraction_bundle.schema.json)"
-        )
-    unknown = sorted(set(bundle) - set(_REQUIRED_BUNDLE_KEYS) - {"extraction_metadata"})
-    if unknown:
-        # `additionalProperties: false`, enforced where the bundle is read. A
-        # key nobody consumes is a key whose content was silently discarded.
-        raise PipelineError(
-            f"Extraction bundle has unknown top-level key(s): {', '.join(unknown)}. "
-            f"Accepted: {', '.join((*_REQUIRED_BUNDLE_KEYS, 'extraction_metadata'))}"
-        )
-
     # D-077: `metadata["video_id"]` raised a bare `KeyError` for a
     # metadata.json that had lost the key. `finalize_run` already read it
     # through `_checked_video_id`; apply-bundle did not.
@@ -348,8 +310,6 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
         "relationships": bundle["relationships"],
     }
     coverage_document = bundle["coverage"]
-    if not isinstance(coverage_document, dict):
-        raise PipelineError("Extraction bundle must contain a coverage object")
     coverage_document.setdefault("schema_version", "1.0")
     coverage_document.setdefault("video_id", units_document["video_id"])
     _carry_coverage_scaffold_forward(run_dir, coverage_document)
@@ -400,14 +360,6 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
 
     extraction_metadata = bundle.get("extraction_metadata")
     if extraction_metadata is not None:
-        if not isinstance(extraction_metadata, dict):
-            # D-169: a non-dict used to be discarded in silence while
-            # `extracted_at` was stamped anyway, so the run looked as though it
-            # had recorded provenance it had not.
-            raise PipelineError(
-                "Extraction bundle's extraction_metadata must be an object, got "
-                f"{type(extraction_metadata).__name__}"
-            )
         metadata["extraction"] = extraction_metadata
     metadata["extracted_at"] = datetime.now(timezone.utc).isoformat()
     # One step, not four. These four files describe the same extraction, and

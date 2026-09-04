@@ -1,0 +1,28 @@
+{
+  "status": "PASS",
+  "audit_attempts": 1,
+  "items": [
+    {
+      "item_id": "CI-0001",
+      "post_id": "2094039408081068233",
+      "status": "covered",
+      "knowledge_units": [
+        "KU-000001"
+      ],
+      "omitted_items": [],
+      "unresolved_items": []
+    }
+  ],
+  "schema_version": "1.0",
+  "source_type": "twitter",
+  "source_id": "2094039408081068233",
+  "basis": "items",
+  "excluded_items": [],
+  "summary": {
+    "total_items": 1,
+    "covered_items": 1,
+    "pending_items": 0,
+    "unresolved_important_items": 0,
+    "excluded_items": 0
+  }
+}

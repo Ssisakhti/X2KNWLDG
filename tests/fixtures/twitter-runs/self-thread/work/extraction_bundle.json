@@ -1,0 +1,325 @@
+{
+  "extraction_metadata": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "knowledge_units": [
+    {
+      "id": "KU-000001",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "LIVE: Today’s the day!",
+      "normalized_statement": "LIVE: Today’s the day!",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094007256576565379",
+        "start_char": 0,
+        "end_char": 22,
+        "evidence_excerpt": "LIVE: Today’s the day!"
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-000002",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "\"This mission could change our fundamental understanding of the universe: dark matter, dark energy, maybe 100,000 more exoplanets. This is a really exciting time.\" @NASAAdmin previews what we'll learn from the @NASARoman Space Telescope. https://t.co/OT8XRSQFZ3",
+      "normalized_statement": "\"This mission could change our fundamental understanding of the universe: dark matter, dark energy, maybe 100,000 more exoplanets. This is a really exciting time.\" @NASAAdmin previews what we'll learn from the @NASARoman Space Telescope. https://t.co/OT8XRSQFZ3",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094017464216563968",
+        "start_char": 0,
+        "end_char": 261,
+        "evidence_excerpt": "\"This mission could change our fundamental understanding of the universe: dark matter, dark energy, maybe 100,000 more exoplanets. This is a really exciting time.\" @NASAAdmin previews what we'll learn from the @NASARoman Space Telescope. https://t.co/OT8XRSQFZ3"
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-000003",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "Our teams are GO. @NASARoman is ready for launch. https://t.co/bLy089aso6",
+      "normalized_statement": "Our teams are GO. @NASARoman is ready for launch. https://t.co/bLy089aso6",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094023339434012989",
+        "start_char": 0,
+        "end_char": 73,
+        "evidence_excerpt": "Our teams are GO. @NASARoman is ready for launch. https://t.co/bLy089aso6"
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-000004",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "Liftoff! @NASARoman begins its flight to space. The Roman telescope’s wide field of view will generate never-before-seen images, revolutionizing our understanding of the universe. https://t.co/tWGW14hohO",
+      "normalized_statement": "Liftoff! @NASARoman begins its flight to space. The Roman telescope’s wide field of view will generate never-before-seen images, revolutionizing our understanding of the universe. https://t.co/tWGW14hohO",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094024294988701975",
+        "start_char": 0,
+        "end_char": 203,
+        "evidence_excerpt": "Liftoff! @NASARoman begins its flight to space. The Roman telescope’s wide field of view will generate never-before-seen images, revolutionizing our understanding of the universe. https://t.co/tWGW14hohO"
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-000005",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "First and second stage separation complete. The first stage’s job is done, while the Falcon Heavy’s second stage and @NASARoman continue the journey. https://t.co/ZpmMQNn0mB",
+      "normalized_statement": "First and second stage separation complete. The first stage’s job is done, while the Falcon Heavy’s second stage and @NASARoman continue the journey. https://t.co/ZpmMQNn0mB",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094025441984098677",
+        "start_char": 0,
+        "end_char": 173,
+        "evidence_excerpt": "First and second stage separation complete. The first stage’s job is done, while the Falcon Heavy’s second stage and @NASARoman continue the journey. https://t.co/ZpmMQNn0mB"
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-000006",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "Fairing separation. Free of its protective shell, our Roman telescope has its first taste of space. https://t.co/LnZx28lFpb",
+      "normalized_statement": "Fairing separation. Free of its protective shell, our Roman telescope has its first taste of space. https://t.co/LnZx28lFpb",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094025920579354632",
+        "start_char": 0,
+        "end_char": 123,
+        "evidence_excerpt": "Fairing separation. Free of its protective shell, our Roman telescope has its first taste of space. https://t.co/LnZx28lFpb"
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-000007",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "The Falcon Heavy rocket’s side boosters return to Earth, coming in for a targeted landing at Cape Canaveral Space Force Station. https://t.co/Y35wNIJ10l",
+      "normalized_statement": "The Falcon Heavy rocket’s side boosters return to Earth, coming in for a targeted landing at Cape Canaveral Space Force Station. https://t.co/Y35wNIJ10l",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094028067924504596",
+        "start_char": 0,
+        "end_char": 152,
+        "evidence_excerpt": "The Falcon Heavy rocket’s side boosters return to Earth, coming in for a targeted landing at Cape Canaveral Space Force Station. https://t.co/Y35wNIJ10l"
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-000008",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "Acquisition of signal confirmed for our @NASARoman telescope. We have spacecraft separation, and a last look at Roman, now flying on its own. https://t.co/ZKTzQCAGxC https://t.co/IOuHw9MYwr",
+      "normalized_statement": "Acquisition of signal confirmed for our @NASARoman telescope. We have spacecraft separation, and a last look at Roman, now flying on its own. https://t.co/ZKTzQCAGxC https://t.co/IOuHw9MYwr",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094033367767339277",
+        "start_char": 0,
+        "end_char": 189,
+        "evidence_excerpt": "Acquisition of signal confirmed for our @NASARoman telescope. We have spacecraft separation, and a last look at Roman, now flying on its own. https://t.co/ZKTzQCAGxC https://t.co/IOuHw9MYwr"
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-000009",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "The spacecraft is power positive: solar arrays are actively providing electricity to @NASARoman. https://t.co/4X1BG0FtDS",
+      "normalized_statement": "The spacecraft is power positive: solar arrays are actively providing electricity to @NASARoman. https://t.co/4X1BG0FtDS",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094036569640317348",
+        "start_char": 0,
+        "end_char": 120,
+        "evidence_excerpt": "The spacecraft is power positive: solar arrays are actively providing electricity to @NASARoman. https://t.co/4X1BG0FtDS"
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-000010",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "After a million-mile journey, deployments, calibrations, and tests, we expect to share Roman’s first images in early 2027. Sign up to claim your pixel and be part of history: https://t.co/mG6d5j0zsh",
+      "normalized_statement": "After a million-mile journey, deployments, calibrations, and tests, we expect to share Roman’s first images in early 2027. Sign up to claim your pixel and be part of history: https://t.co/mG6d5j0zsh",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094037638856454625",
+        "start_char": 0,
+        "end_char": 198,
+        "evidence_excerpt": "After a million-mile journey, deployments, calibrations, and tests, we expect to share Roman’s first images in early 2027. Sign up to claim your pixel and be part of history: https://t.co/mG6d5j0zsh"
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-D-0001",
+      "kind": "synthesis",
+      "source_class": "derived",
+      "content": "This run quotes 10 post(s) captured from 2094037638856454625.",
+      "normalized_statement": "This run quotes 10 post(s) captured from 2094037638856454625.",
+      "confidence": 0.7,
+      "derived_from": [
+        "KU-000001",
+        "KU-000002",
+        "KU-000003",
+        "KU-000004",
+        "KU-000005",
+        "KU-000006",
+        "KU-000007",
+        "KU-000008",
+        "KU-000009",
+        "KU-000010"
+      ],
+      "derivation_note": "Counts the source units this fixture's extraction produced."
+    }
+  ],
+  "relationships": [
+    {
+      "from": "KU-000001",
+      "to": "KU-D-0001",
+      "relation": "supports",
+      "confidence": 0.8,
+      "source_class": "derived"
+    }
+  ],
+  "coverage": {
+    "status": "PASS",
+    "audit_attempts": 1,
+    "items": [
+      {
+        "item_id": "CI-0001",
+        "post_id": "2094007256576565379",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000001"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      },
+      {
+        "item_id": "CI-0002",
+        "post_id": "2094017464216563968",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000002"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      },
+      {
+        "item_id": "CI-0003",
+        "post_id": "2094023339434012989",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000003"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      },
+      {
+        "item_id": "CI-0004",
+        "post_id": "2094024294988701975",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000004"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      },
+      {
+        "item_id": "CI-0005",
+        "post_id": "2094025441984098677",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000005"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      },
+      {
+        "item_id": "CI-0006",
+        "post_id": "2094025920579354632",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000006"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      },
+      {
+        "item_id": "CI-0007",
+        "post_id": "2094028067924504596",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000007"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      },
+      {
+        "item_id": "CI-0008",
+        "post_id": "2094033367767339277",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000008"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      },
+      {
+        "item_id": "CI-0009",
+        "post_id": "2094036569640317348",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000009"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      },
+      {
+        "item_id": "CI-0010",
+        "post_id": "2094037638856454625",
+        "status": "covered",
+        "knowledge_units": [
+          "KU-000010"
+        ],
+        "omitted_items": [],
+        "unresolved_items": []
+      }
+    ]
+  }
+}

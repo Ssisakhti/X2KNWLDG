@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.0",
+  "acquisition": {
+    "provider": {
+      "tool": "tamnd/x-cli",
+      "version": "0.5.0",
+      "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+      "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+      "licence": "AGPL-3.0"
+    },
+    "requested_at": "2026-09-03T20:36:00Z",
+    "routes_read": [
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 2027781710667010262 --tier guest -o json"
+      }
+    ],
+    "network": {
+      "via_tunnel": true,
+      "note": "always-on tunnel; named Phase 2.2 dependency (D-209)"
+    }
+  },
+  "raw_evidence": [
+    {
+      "route": "xcli_guest",
+      "path": "twitter-runs/persian-rtl/raw/single_post_fa__xcli_guest.txt",
+      "sha256_raw": "9314be2a1d52e745a69ce6e06c9de30a2c19e99ddf617d19c51c1e558c74df04",
+      "sha256_sanitized": "9314be2a1d52e745a69ce6e06c9de30a2c19e99ddf617d19c51c1e558c74df04",
+      "sanitization_removed": []
+    },
+    {
+      "route": "fxtwitter",
+      "path": "twitter-runs/persian-rtl/raw/single_post_fa__fxtwitter.txt",
+      "sha256_raw": "50a95cf45d1a2c7dd17d3336f4c94d5e280f24b62e21cb2d5ee2f0063acce124",
+      "sha256_sanitized": "50a95cf45d1a2c7dd17d3336f4c94d5e280f24b62e21cb2d5ee2f0063acce124",
+      "sanitization_removed": []
+    }
+  ],
+  "anchor": {
+    "post_id": "2027781710667010262",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "items": [
+    {
+      "post_id": "2027781710667010262",
+      "author": {
+        "username": "bbcpersian",
+        "rest_id": "790728",
+        "display_name": "BBC NEWS فارسی"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "2027781710667010262",
+      "created_at": "2026-02-28T16:23:28Z",
+      "lang": "fa",
+      "text": {
+        "canonical": "برنامه‌های بی‌بی‌سی فارسی را از رادیو بشنوید:\n\nاز ساعت ۷ تا ۸ صبح به‌وقت تهران روی موج کوتاه ۱۲۰۶۵ کیلوهرتز\n\nاز ساعت ۸ تا ۸:۳۰ شب به‌وقت تهران روی موج متوسط ۷۰۲ کیلوهرتز و موج کوتاه ۹۷۷۰ کیلوهرتز\n\nاز ساعت ۱۰ تا ۱۱ شب به‌وقت تهران روی موج متوسط ۷۰۲ کیلوهرتز و موج کوتاه ۶۱۳۰ کیلوهرتز\n\nاز ساعت ۱۱ تا ۱۱:۳۰ شب به‌وقت تهران روی موج متوسط ۷۰۲ کیلوهرتز\n\nاز ساعت ۱۲ شب تا ۰۰:۳۰ بامداد به‌وقت تهران روی موج متوسط ۱۳۹۵ کیلوهرتز",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "corroborated",
+          "corroborated_by": [
+            {
+              "route": "fxtwitter",
+              "tier": 0,
+              "surface": "fxtwitter"
+            }
+          ],
+          "agreement": "identical",
+          "note": "Persian prose; ZWNJ and Persian digits identical on both routes"
+        }
+      }
+    }
+  ],
+  "order": {
+    "basis": "single_item"
+  },
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "single_item"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "a single post makes no claim about a conversation"
+    }
+  },
+  "coverage": {
+    "status": "PASS",
+    "expected_item_count": 1,
+    "included_post_ids": [
+      "2027781710667010262"
+    ],
+    "omitted_items": []
+  }
+}

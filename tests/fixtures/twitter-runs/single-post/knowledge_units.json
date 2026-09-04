@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "video_id": "20",
+  "source_type": "twitter",
+  "units": [
+    {
+      "id": "KU-000001",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "just setting up my twttr",
+      "normalized_statement": "just setting up my twttr",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "20",
+        "start_char": 0,
+        "end_char": 24,
+        "evidence_excerpt": "just setting up my twttr"
+      },
+      "attribution": {
+        "speaker": "jack",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-D-0001",
+      "kind": "synthesis",
+      "source_class": "derived",
+      "content": "This run quotes 1 post(s) captured from 20.",
+      "normalized_statement": "This run quotes 1 post(s) captured from 20.",
+      "confidence": 0.7,
+      "derived_from": [
+        "KU-000001"
+      ],
+      "derivation_note": "Counts the source units this fixture's extraction produced."
+    }
+  ]
+}

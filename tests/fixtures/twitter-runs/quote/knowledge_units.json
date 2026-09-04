@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "video_id": "2094039408081068233",
+  "source_type": "twitter",
+  "units": [
+    {
+      "id": "KU-000001",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "It's a great day to be a space fan! @NASARoman lifted off on its journey of discovery at 7:26am ET (1126 UTC) from @NASAKennedy.",
+      "normalized_statement": "It's a great day to be a space fan! @NASARoman lifted off on its journey of discovery at 7:26am ET (1126 UTC) from @NASAKennedy.",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "2094039408081068233",
+        "start_char": 0,
+        "end_char": 128,
+        "evidence_excerpt": "It's a great day to be a space fan! @NASARoman lifted off on its journey of discovery at 7:26am ET (1126 UTC) from @NASAKennedy."
+      },
+      "attribution": {
+        "speaker": "NASA",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-D-0001",
+      "kind": "synthesis",
+      "source_class": "derived",
+      "content": "This run quotes 1 post(s) captured from 2094039408081068233.",
+      "normalized_statement": "This run quotes 1 post(s) captured from 2094039408081068233.",
+      "confidence": 0.7,
+      "derived_from": [
+        "KU-000001"
+      ],
+      "derivation_note": "Counts the source units this fixture's extraction produced."
+    }
+  ]
+}
