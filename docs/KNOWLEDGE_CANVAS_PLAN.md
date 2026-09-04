@@ -1594,14 +1594,21 @@ An agent must not guess the answers to these if the decision would cause a notic
   the `T-223` contract. Verified live on the target machine over the tunnel on 2026-09-04 — a
   single post, a Persian post, a ten-post self-thread walked from its **last** post, and an
   unavailable id (D-213–D-219)
-- [ ] **Phase 2.2 / `T-227`: claimed and in progress** — item-based extraction, segmentation,
-  provenance and coverage over the capture. D-220 settles the ordering: a source claim cites a
-  post id and a codepoint span into the authored text, so the URL spans D-218 found missing are
-  not a prerequisite
-- [ ] Phase 2.2 / `T-228`–`T-229`: adapter/product coexistence and the full phase gate.
-  `T-225` (opt-in network fallback and corroboration) and `T-226` (passive browser capture) are
-  genuine fallbacks rather than the way forward — `T-225` is what adds URL entity spans and
-  corroborated text, additively (D-218, D-220)
+- [x] Phase 2.2 / `T-227` — item-based extraction, segmentation, provenance and coverage over
+  the capture: a post is the segment, an excerpt **is** its own codepoint slice of
+  `text.canonical`, coverage is item-based, and the apply gate refuses a bundle rather than
+  writing a run its own validators reject. Eight run fixtures built by driving that code
+  (D-220, D-225–D-231)
+- [ ] **Phase 2.2 / `T-228`: claimed and in progress** — source-neutral integration and product
+  coexistence: the `post_id`-with-a-span locator widening D-212 handed it, entities and
+  artifacts over a run whose evidence is a capture rather than a transcript, the SQLite rebuild,
+  and presentation only where the generic renderer cannot already represent a post
+- [ ] Phase 2.2 / `T-229`: the full phase gate, the operating documentation and the failure
+  rehearsal. `T-225` (opt-in network fallback and corroboration) and `T-226` (passive browser
+  capture) are genuine fallbacks rather than the way forward — `T-225` is what adds URL entity
+  spans and corroborated text, additively (D-218, D-220) — and `T-229`'s capability table may
+  not promise a route that was never built, so the selection between them has to be recorded
+  before it runs
 - [ ] Canvas — Phase 3 / `T-301`: technically unblocked by `T-210`, deliberately deferred
   until the Twitter phase gate closes (D-204)
 - [ ] Pen annotations
@@ -1611,41 +1618,46 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**`T-227` is claimed — extraction, provenance and coverage over the capture.** The acquisition
-half of Phase 2.2 is done: the boundary was accepted (D-204), the qualification returned a `GO` (D-205), the capture
-contract is frozen (D-212), and the qualified local provider seam now writes it and was verified
-live on the target machine over the tunnel (D-213–D-219).
+**`T-228` is claimed — source-neutral integration and product coexistence.** The whole default
+path now exists up to `validation.json`: the boundary was accepted (D-204), the qualification
+returned a `GO` (D-205), the capture contract is frozen (D-212), the qualified local provider
+seam writes it and was verified live on the target machine over the tunnel (D-213–D-219), and
+`T-227` turns a capture into canonical outputs the existing source-grounded / derived pipeline
+validates, including the apply gate a model's extraction goes through (D-225–D-231).
 
-What the measurement changed, and why the sequencing was right: the phase MVP promised "provable
-same-author self-threads", and that is true in one direction only. Following `reply_to` upward
-terminates at a parent-less root and *is* a completeness proof, credential-free — the live
-verification walked a real ten-post thread from its last post and reproduced the recorded
-manifest exactly. Enumerating descendants is impossible at every credential-free tier, and the
-author archive that looks like a substitute held 3 of 10 posts of a real thread. So the seam
-ingests from the thread's **last** post (D-206), and `completeness.downward` has no field in
-which to claim otherwise.
+What is left is the half that makes any of it visible. A Twitter run is **discoverable** today —
+`io.run_dirs` globs `output/*/metadata.json` — and `TwitterAdapter` registers the source type so
+one acquired post cannot refuse the whole project's projection, but it projects a single `Source`
+record and nothing else, on purpose: an `Entity` carries a `Locator`, and no locator branch can
+carry a post id and a span together (D-212, D-227). So `T-228` widens that branch, mints the
+entities, artifacts and relations, forces the re-index its `0.1` adapter version exists to force,
+and adds presentation only where the generic renderer cannot already represent a post.
 
-The question that decided the order, now answered as D-220: a capture from the local route
-carries mention spans and no URL spans (D-218), because the tool's expanded-URL list cannot be
-paired with the `t.co` links in the authored text. Citing the post and a text span **is** enough
-— it is what ADR 0007's MVP asks for and what the `T-227` row says in as many words — so `T-227`
-starts now and URL spans arrive additively, since `entities` is already optional in the contract
-and `textEntity.kind` already accepts `url`. Putting `T-225` first would have made an explicit
-opt-in network route a prerequisite of the default local one.
+What `T-227` handed forward, so this task does not have to guess:
 
-What acquisition deliberately did **not** do, so the next task does not have to guess:
+1. **The provenance shape is already exact.** A unit's `source` block carries `post_id`,
+   `start_char`, `end_char` and `evidence_excerpt`, and the excerpt **is** that slice of
+   `text.canonical` compared verbatim — no normalization, because normalizing would discard the
+   ZWNJ, NBSP and Persian digits a Persian post is made of. The widened locator branch is that
+   block, field for field.
+2. **The evidence artifact is `capture.json`, not a transcript.** It holds the exact codepoint
+   text a claim slices, which is the same reason a YouTube locator addresses the segments file
+   rather than the transcript. A Twitter run has no `transcript.json`, `segments.json`,
+   `graph.json` or `report.md`.
+3. **A run ends at `validation.json`.** `artifacts.finalize_run` reads a transcript and segments
+   and requires `metadata['video_url']`, `metadata['channel']` and `metadata['transcript_hash']`
+   — a Twitter `metadata.json` carries `source_url` and `canonical_hashes` instead. Whether
+   `T-228` or `T-229` closes that is stated as an open scope question in
+   `PROJECT_MANAGEMENT.md` §11 rather than left for whichever task reaches it first.
+4. **Nothing is reachable from the CLI but `capture`.** Initializing, applying and validating a
+   Twitter run is library-only, and `WORKFLOW.md` still correctly describes only the YouTube
+   workflow. `T-229` owns the CLI help, the documentation and the failure rehearsal — do not
+   update `WORKFLOW.md` before it.
 
-1. **Nothing is ingested.** No `metadata.json` is written, so an acquired post is invisible to
-   run discovery, the library, the Reader and the Map until `T-227`/`T-228` give it one. A run
-   half-made by acquisition must not appear in `status` as a broken YouTube run.
-2. **Metrics are not carried.** The records hold them and the contract can represent them, but
-   only as an observation with an `observed_at`; whether extraction wants them is `T-227`'s call.
-3. **Text completeness is never claimed.** One route means `unverified` — corroboration needs
-   the second route `T-225` owns.
-
-The Phase 2.2 gate is **not** met: one measured no-payment path now produces canonical captures,
-which is one clause of six. Nothing reaches the product yet, and `WORKFLOW.md` still correctly
-describes only the implemented YouTube workflow — `T-229` owns updating it, and not before.
+The Phase 2.2 gate is **not** met and must not be reported as met. One measured no-payment path
+produces canonical captures *and* canonical runs, which is one clause of six, and the runs that
+exist are committed test fixtures: nothing has been ingested into `output/`, and no Twitter run
+reaches the library, the Reader or the Map.
 
 
 ## 24. Research references
