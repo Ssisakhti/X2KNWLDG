@@ -511,6 +511,164 @@ def test_integer_and_zero_seconds_are_still_real_timings(locator: dict) -> None:
 
 
 # --------------------------------------------------------------------------
+# 6b. Invariant 3 over the other coordinate — a text_span (T-228, D-233)
+# --------------------------------------------------------------------------
+
+_SPAN_ARTIFACT = "twitter:2027781710667010262:post-2027781710667010262"
+
+
+def test_forward_text_span_passes() -> None:
+    ids.check_locator(
+        {
+            "type": "text_span",
+            "artifact_id": _SPAN_ARTIFACT,
+            "start_char": 0,
+            "end_char": 45,
+        }
+    )
+
+
+def test_zero_length_text_span_passes() -> None:
+    """An empty half-open range is representable, exactly as a zero-length
+    time range is. Refusing it here would be a rule the schema does not have,
+    invented at the wrong layer."""
+    ids.check_locator(
+        {
+            "type": "text_span",
+            "artifact_id": _SPAN_ARTIFACT,
+            "start_char": 12,
+            "end_char": 12,
+        }
+    )
+
+
+def test_backwards_text_span_is_rejected() -> None:
+    """The whole reason this branch is checked: JSON Schema bounds both fields
+    at zero and compares neither, so this document is schema-valid and
+    addresses nothing."""
+    with pytest.raises(ids.IdError):
+        ids.check_locator(
+            {
+                "type": "text_span",
+                "artifact_id": _SPAN_ARTIFACT,
+                "start_char": 45,
+                "end_char": 0,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("reason", "locator"),
+    [
+        # artifact_id is required on this branch and on no other, because a
+        # character offset into an unnamed artifact addresses nothing. The
+        # global-id check runs only when one is present, so its absence has to
+        # be caught separately or it passes as "nothing to validate".
+        ("no artifact", {"type": "text_span", "start_char": 0, "end_char": 4}),
+        (
+            "artifact that is not a global id",
+            {
+                "type": "text_span",
+                "artifact_id": "2027781710667010262:post",
+                "start_char": 0,
+                "end_char": 4,
+            },
+        ),
+        ("missing end", {"type": "text_span", "artifact_id": _SPAN_ARTIFACT, "start_char": 0}),
+        ("missing start", {"type": "text_span", "artifact_id": _SPAN_ARTIFACT, "end_char": 4}),
+        ("no offsets at all", {"type": "text_span", "artifact_id": _SPAN_ARTIFACT}),
+        # A float cannot slice a string: text[0:2.0] is a TypeError, so an
+        # offset that is not an integer is not an offset. This is the one place
+        # the span rule is *stricter* than the seconds rule it mirrors.
+        (
+            "float offsets",
+            {
+                "type": "text_span",
+                "artifact_id": _SPAN_ARTIFACT,
+                "start_char": 0.0,
+                "end_char": 4.0,
+            },
+        ),
+        (
+            "string offsets",
+            {
+                "type": "text_span",
+                "artifact_id": _SPAN_ARTIFACT,
+                "start_char": "0",
+                "end_char": "45",
+            },
+        ),
+        # bool is an int in Python and False < True holds, so an unchecked
+        # comparison would order these happily.
+        (
+            "boolean offsets",
+            {
+                "type": "text_span",
+                "artifact_id": _SPAN_ARTIFACT,
+                "start_char": False,
+                "end_char": True,
+            },
+        ),
+        (
+            "null offsets",
+            {
+                "type": "text_span",
+                "artifact_id": _SPAN_ARTIFACT,
+                "start_char": None,
+                "end_char": None,
+            },
+        ),
+        (
+            "negative start",
+            {
+                "type": "text_span",
+                "artifact_id": _SPAN_ARTIFACT,
+                "start_char": -1,
+                "end_char": 4,
+            },
+        ),
+    ],
+)
+def test_a_text_span_that_is_not_two_real_offsets_is_an_id_error(
+    reason: str, locator: dict
+) -> None:
+    with pytest.raises(ids.IdError):
+        ids.check_locator(locator)
+
+
+def test_the_excerpt_is_not_measured_against_the_span_here() -> None:
+    """Deliberate, and the reason is recorded in ``check_locator``: an excerpt
+    and a span agree only under the medium's own definition of a character, and
+    ``twitter.extract`` already compares an excerpt with its own slice verbatim
+    while holding the capture's text. A length check here would be a second,
+    weaker answer to a question already settled — and would fire on the Persian
+    case, where the text is full of ZWNJ and NBSP."""
+    ids.check_locator(
+        {
+            "type": "text_span",
+            "artifact_id": _SPAN_ARTIFACT,
+            "start_char": 0,
+            "end_char": 45,
+            "excerpt": "shorter than the span says",
+        }
+    )
+
+
+def test_the_reserved_branches_are_still_not_second_guessed() -> None:
+    """Widening the check to a second branch must not quietly widen it to the
+    four that carry no traffic: each would need its own coordinate rule, and
+    inventing one before a consumer exists is what the reserved branches are
+    designed to avoid."""
+    for locator in (
+        {"type": "page", "page": 3},
+        {"type": "page_bbox", "page": 3, "bbox": [0, 0, 1, 1]},
+        {"type": "post_id", "post_id": "20"},
+        {"type": "url_fragment", "url": "https://example.test/a", "fragment": "x"},
+    ):
+        ids.check_locator(locator)
+
+
+# --------------------------------------------------------------------------
 # 7. library.py emits both forms — the kg_navigator contract is preserved
 # --------------------------------------------------------------------------
 

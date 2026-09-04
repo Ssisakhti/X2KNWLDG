@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any, ClassVar, NoReturn
 
 from .. import constants, ids
-from ..io import read_json_or_reason
+from ..io import read_json_or_reason, scrub_host_paths, sha256_file
 
 #: Index model version these records conform to. The version is the schema
 #: *directory*: a breaking change becomes ``schemas/v2/`` and a new constant.
@@ -622,6 +622,86 @@ def _wrap(check, value, owner: str):
 # --------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------
+# Reading a canonical record, and naming what was wrong with it
+# --------------------------------------------------------------------------
+#
+# These moved here with the projection they serve (``T-228``). They were
+# ``youtube.py``'s while it was the only adapter minting entities and
+# relations; the rules they carry — a missing field is named, an id is built
+# through ``ids`` so the failure says which record broke, an edge id is
+# deterministic and its parts escaped — are not YouTube's, and a second copy of
+# any of them in a second adapter is exactly the drift D-219 removed from the
+# capture normalizer.
+
+
+def required_field(record: Mapping[str, Any], key: str, owner: str) -> Any:
+    if key not in record:
+        raise AdapterError(f"{owner} is missing the required field {key!r}")
+    return record[key]
+
+
+def build_id(factory, value: Any, owner: str):
+    """Build an id through ``ids``, naming what failed. Never an f-string."""
+    try:
+        return factory(value)
+    except ids.IdError as exc:
+        raise AdapterError(f"{owner}: {exc}") from exc
+
+
+def edge_id(from_id: str, relation: Any, to_id: str) -> str:
+    """A deterministic edge id, so a rebuild yields the identical set (T-104).
+
+    The parts are escaped before they are joined. A global id can never contain
+    ``|`` and a relation name from either vocabulary never does either, so no
+    id this project produces today changes shape — but a separator that only
+    works while nothing collides with it is an id collision waiting for the
+    first relation vocabulary that admits one, and two distinct edges sharing an
+    id is one of them silently disappearing from the index.
+    """
+    edge_id = "|".join(_escape_id_part(part) for part in (from_id, relation, to_id))
+    if len(edge_id) > MAX_EDGE_ID_LENGTH:
+        raise AdapterError(
+            f"edge id {edge_id[:80]}… is {len(edge_id)} characters, over the "
+            f"{MAX_EDGE_ID_LENGTH} the IndexedRelation contract allows"
+        )
+    return edge_id
+
+
+def _escape_id_part(part: str) -> str:
+    """Make *part* unable to spell the separator, reversibly."""
+    return part.replace("\\", "\\\\").replace("|", "\\|")
+
+
+@dataclass(frozen=True)
+class ArtifactSpec:
+    """One well-known file of a run, and the local id that addresses it."""
+
+    key: str
+    kind: str
+    role: str
+    relative: str
+
+
+def list_items(document: Any, key: str, owner: str) -> list[Mapping[str, Any]]:
+    """The list under *key*, or an empty list — never a partial read.
+
+    An unreadable document and an absent key are both absences and read as
+    empty. A key that is present but holds something other than a list of
+    objects is neither: reading past it would report a count and a record set
+    that quietly omit whatever was in there.
+    """
+    if not isinstance(document, Mapping) or key not in document:
+        return []
+    value = document.get(key)
+    if not isinstance(value, list):
+        refuse(owner, key, value, "reads a list of objects there")
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            refuse(owner, f"{key}[{index}]", item, "reads an object there")
+    return list(value)
+
+
 class SourceAdapter(ABC):
     """Maps canonical run directories of one source type onto the v1 model.
 
@@ -711,6 +791,290 @@ class SourceAdapter(ABC):
         else:
             status["audit_attempts"] = None
         return status
+
+    def _file_artifact(
+        self,
+        run_dir: Path,
+        source_id: ids.SourceId,
+        spec: ArtifactSpec,
+        hash_artifacts: bool,
+        unmappable: list[dict[str, str]],
+    ) -> dict[str, Any] | None:
+        """One canonical artifact, or ``None`` when its path cannot be mapped.
+
+        Defect D-100: ``self.relative`` resolves symlinks, so a canonical file
+        that *is* a symlink to somewhere outside the project resolved outside
+        it and raised — taking the **whole run** down over one file. Measured:
+        a symlinked ``report.md``, ``raw/source.srt`` or vault note each made
+        ``adapt_run`` refuse the run entirely, and since D-078 that is a
+        skipped-and-named run rather than a dead index, which is better and
+        still wrong.
+
+        ``adapter_metadata.unmappable_artifacts`` is the channel that already
+        exists for exactly this — "a generated ``vault/`` note whose filename
+        cannot spell an id, skipped and named" (D-045) — so an artifact the
+        index model cannot address is reported there and the rest of the run is
+        indexed. Not mapped to its *lexical* path instead: the bytes really do
+        live outside the project, ``media.py``'s containment check would refuse
+        to serve them, and an artifact in the index whose bytes cannot be
+        fetched is a promise the API does not keep.
+        """
+        path = run_dir / spec.relative
+        try:
+            relative = self.relative(path)
+        except AdapterError as exc:
+            unmappable.append(
+                {
+                    "path": f"{spec.relative} (in {run_dir.name})",
+                    "reason": scrub_host_paths(str(exc)),
+                }
+            )
+            return None
+        available = path.is_file()
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "id": source_id.entity(spec.key).value,
+            "source_id": source_id.value,
+            "kind": spec.kind,
+            "role": spec.role,
+            "media_type": media_type_for(path),
+            "path": relative,
+            "url": None,
+            "bytes": path.stat().st_size if available else None,
+            "sha256": sha256_file(path) if available and hash_artifacts else None,
+            # Everything under raw/ is evidence and is never written again.
+            "immutable": spec.role == "raw",
+            "available": available,
+        }
+
+    # ----------------------------------------------------------------
+    # The projection every medium shares
+    # ----------------------------------------------------------------
+    #
+    # ``T-228``. What a knowledge unit *is* — a global id, a provenance class,
+    # a kind, a label chosen the way ``library.py`` chooses it, a confidence,
+    # and either a locator or the work a derived unit shows — is not a
+    # statement about video, and neither is what a canonical edge is. The one
+    # thing that differs between media is **where the evidence sits**, so that
+    # is the one thing subclasses override.
+    #
+    # This is D-228's argument applied a second time: ``_status`` moved here
+    # because what a status record is is not a YouTube rule, and the Twitter
+    # adapter had already written a schema-invalid one by re-deriving it. The
+    # same failure was available here at four times the size — and a second
+    # implementation of ``_derived_refs`` in particular would be free to
+    # disagree with its own ``derived_from`` edges, which is the exact bug that
+    # method's docstring exists to prevent.
+
+    def _locator(
+        self,
+        unit: Mapping[str, Any],
+        source_id: ids.SourceId,
+        owner: str,
+    ) -> dict[str, Any]:
+        """Where *unit*'s evidence sits, in this medium's coordinates.
+
+        The only medium-specific step of the shared projection, and the reason
+        it is a method rather than a branch: a time-based medium answers with a
+        ``time_range`` into its segments, and a text-based one with a
+        ``text_span`` into the item the claim was taken from (D-233). An
+        adapter that mints source-class entities must answer; one that does not
+        never reaches this.
+        """
+        raise AdapterError(
+            f"{type(self).__name__} projects a source-class knowledge unit "
+            f"({owner}) but states no locator for this medium"
+        )
+
+    def _knowledge_entities(
+        self, run_dir: Path, source_id: ids.SourceId, units: list[Mapping[str, Any]]
+    ) -> list[dict[str, Any]]:
+        canonical_path = self.relative(run_dir / "knowledge_units.json")
+        entities = []
+        for unit in units:
+            local_id = required_field(unit, "id", f"a knowledge unit in {canonical_path}")
+            owner = f"knowledge unit {local_id!r} in {canonical_path}"
+            global_id = build_id(source_id.entity, local_id, owner)
+            # 'user' is workspace content and never appears in a canonical file;
+            # a unit that claims it would also claim a canonical path, which the
+            # three-tier storage boundary forbids (D-006).
+            provenance = copied_choice(
+                required_field(unit, "source_class", owner),
+                owner=owner,
+                field="source_class",
+                allowed=CANONICAL_PROVENANCE_CLASSES,
+                required=True,
+            )
+            entity: dict[str, Any] = {
+                "schema_version": SCHEMA_VERSION,
+                "global_id": global_id.value,
+                "source_type": global_id.source_type,
+                "external_id": global_id.external_id,
+                "local_id": global_id.local_id,
+                "library_id": global_id.library_id,
+                "source_id": source_id.value,
+                "entity_type": "knowledge_unit",
+                "provenance_class": provenance,
+                "kind": copied_choice(
+                    unit.get("kind"),
+                    owner=owner,
+                    field="kind",
+                    allowed=KNOWLEDGE_KINDS,
+                    # A knowledge unit whose kind is unstated has no honest
+                    # projection: the model requires one for this entity type.
+                    required=True,
+                ),
+                # library.py:52 already makes this choice; making a different
+                # one here would put two labels on one entity.
+                "label": copied_text(
+                    unit.get("normalized_statement") or unit.get("content"),
+                    owner=owner,
+                    field="normalized_statement/content",
+                    max_length=MAX_LABEL_LENGTH,
+                ),
+                "confidence": copied_confidence(unit.get("confidence"), owner=owner),
+                "canonical_path": canonical_path,
+            }
+            if provenance == "source":
+                entity["locator"] = self._locator(unit, source_id, owner)
+            else:
+                entity["derived_from"] = self._derived_refs(unit, source_id, owner)
+                # 'Derived from nothing, for no stated reason' is not derived
+                # synthesis, and the note is what makes the claim auditable.
+                entity["derivation_note"] = copied_text(
+                    unit.get("derivation_note"),
+                    owner=owner,
+                    field="derivation_note",
+                    max_length=None,
+                    allow_empty=False,
+                    required=True,
+                )
+            entities.append(entity)
+        return entities
+
+    def _derived_refs(
+        self, unit: Mapping[str, Any], source_id: ids.SourceId, owner: str
+    ) -> list[str]:
+        """The units a derived unit was synthesised from, as global ids.
+
+        The one place the list is read, so the ``EntityRef`` and the
+        ``derived_from`` edges cannot disagree about it. A derived unit that
+        shows no work is refused rather than given an empty list: the empty list
+        asserts derived provenance while naming nothing, the schemas reject it,
+        and the edge that should have recorded the provenance silently vanishes
+        along with it.
+        """
+        refs = unit.get("derived_from")
+        if refs is None:
+            raise AdapterError(
+                f"{owner} is derived but names nothing it was derived from; a derived "
+                "unit shows its work or it is not indexed as derived"
+            )
+        if not isinstance(refs, list):
+            refuse(owner, "derived_from", refs, "carries a list of unit ids there")
+        if not refs:
+            raise AdapterError(
+                f"{owner} is derived from an empty list; an empty list asserts derived "
+                "provenance while showing no work"
+            )
+        values = [build_id(source_id.entity, ref, f"derived_from of {owner}").value for ref in refs]
+        duplicates = sorted({value for value in values if values.count(value) > 1})
+        if duplicates:
+            raise AdapterError(
+                f"{owner} names {', '.join(duplicates)} in derived_from more than once; "
+                "one provenance edge, one entry"
+            )
+        return values
+
+    def _canonical_relations(
+        self, run_dir: Path, source_id: ids.SourceId, edges: list[Mapping[str, Any]]
+    ) -> list[dict[str, Any]]:
+        canonical_path = self.relative(run_dir / "relationships.json")
+        relations = []
+        for index, edge in enumerate(edges):
+            owner = f"relationship {index} in {canonical_path}"
+            from_id = build_id(source_id.entity, required_field(edge, "from", owner), owner)
+            to_id = build_id(source_id.entity, required_field(edge, "to", owner), owner)
+            # The canonical vocabulary is exactly constants.RELATION_TYPES. An
+            # edge outside it is not a canonical edge, and calling it one — or
+            # quietly relabelling it as synthetic — would blur the vocabulary
+            # separation the whole relation model rests on.
+            name = copied_choice(
+                required_field(edge, "relation", owner),
+                owner=owner,
+                field="relation",
+                allowed=CANONICAL_RELATION_TYPES,
+                required=True,
+            )
+            relation: dict[str, Any] = {
+                "schema_version": SCHEMA_VERSION,
+                "id": edge_id(from_id.value, name, to_id.value),
+                "from_id": from_id.value,
+                "to_id": to_id.value,
+                "relation": name,
+                "relation_vocabulary": "canonical",
+                "provenance_class": copied_choice(
+                    edge.get("source_class"),
+                    owner=owner,
+                    field="source_class",
+                    allowed=CANONICAL_PROVENANCE_CLASSES,
+                    required=True,
+                ),
+                # A canonical edge states a confidence; unlike derived_from,
+                # this one is about the edge itself, so an absent value cannot
+                # be read as 'no confidence exists' and is refused instead.
+                "confidence": copied_confidence(
+                    edge.get("confidence"), owner=owner, required=True
+                ),
+                "source_id": source_id.value,
+                "canonical_path": canonical_path,
+            }
+            # Without the flag a self-loop is an error, not a design
+            # (validators.py:124), so it is carried through as stated.
+            if "intentional_self_loop" in edge:
+                relation["intentional_self_loop"] = bool(edge["intentional_self_loop"])
+            relations.append(relation)
+        return relations
+
+    def _derived_from_relations(
+        self, run_dir: Path, source_id: ids.SourceId, units: list[Mapping[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """``derived_from`` edges, the library-synthetic vocabulary.
+
+        ``confidence`` is ``null`` on purpose. The unit carries a confidence
+        about *itself*; no confidence about the edge exists anywhere in the
+        canonical data, and copying the unit's onto the edge would put a number
+        on a claim nothing made. ``library.py:70`` writes the unit's value into
+        its own graph for its own reasons; the index does not carry that
+        forward as though it were an edge confidence.
+        """
+        canonical_path = self.relative(run_dir / "knowledge_units.json")
+        relations = []
+        for unit in units:
+            local_id = unit.get("id")
+            if unit.get("source_class") != "derived":
+                continue
+            owner = f"knowledge unit {local_id!r} in {canonical_path}"
+            from_id = build_id(source_id.entity, local_id, owner)
+            # The same list the EntityRef carries, read once: a unit that shows
+            # no work is refused there and here alike, so an edge can no longer
+            # go missing while the unit it belongs to is still indexed.
+            for to_id_value in self._derived_refs(unit, source_id, owner):
+                relations.append(
+                    {
+                        "schema_version": SCHEMA_VERSION,
+                        "id": edge_id(from_id.value, "derived_from", to_id_value),
+                        "from_id": from_id.value,
+                        "to_id": to_id_value,
+                        "relation": "derived_from",
+                        "relation_vocabulary": "library_synthetic",
+                        "provenance_class": "derived",
+                        "confidence": None,
+                        "source_id": source_id.value,
+                        "canonical_path": canonical_path,
+                    }
+                )
+        return relations
 
     @abstractmethod
     def detect(self, run_dir: Path) -> bool:

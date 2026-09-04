@@ -29,6 +29,10 @@ const KU1 = "youtube:pqlWNihgdjI:KU-000001";
 const KU2 = "youtube:pqlWNihgdjI:KU-000002";
 const C1 = "library:concepts:C-000001";
 
+/** A post artifact and the Persian text of the committed `persian-rtl` run. */
+const POST_ARTIFACT = "twitter:2027781710667010262:post-2027781710667010262";
+const PERSIAN_EXCERPT = "برنامه\u200cهای بی\u200cبی\u200cسی فارسی را از رادیو بشنوید:";
+
 /** A statement longer than any preview budget, so a cut would be visible. */
 const LONG = `${"A statement the transcript actually makes, at length. ".repeat(12)}End.`;
 
@@ -111,6 +115,58 @@ describe("Quick Read", () => {
     );
     expect(screen.getByText("1:32 – 1:58")).toBeDefined();
     expect(screen.getByText("SEG-0007")).toBeDefined();
+  });
+
+  it("quotes a post excerpt through the bidi wrapper and prints its own coordinate", () => {
+    // T-228 (D-233). Before this branch existed a text_span fell through to
+    // `JSON.stringify(locator)`, which renders an escaped string with no
+    // direction isolation -- on the one locator type most likely to hold
+    // Persian. The excerpt is the ZWNJ-bearing text of the committed
+    // persian-rtl fixture, so a normalizing render fails here.
+    quickRead({
+      entity: sourceUnit({
+        locator: {
+          type: "text_span",
+          artifact_id: POST_ARTIFACT,
+          start_char: 0,
+          end_char: 45,
+          excerpt: PERSIAN_EXCERPT,
+        },
+      }),
+    });
+    const excerpt = document.querySelector("[data-map-excerpt]");
+    expect(excerpt?.textContent).toBe(PERSIAN_EXCERPT);
+    expect(excerpt?.getAttribute("dir")).toBe("auto");
+    expect(screen.getByText("characters 0–45")).toBeDefined();
+    expect(screen.getByText(POST_ARTIFACT)).toBeDefined();
+  });
+
+  it("states no time range for a post, because a post has no timeline", () => {
+    // The failure this rules out is a coordinate being invented: seconds are
+    // what the Reader link and the time row are built from, and a post record
+    // carries none.
+    quickRead({
+      entity: sourceUnit({
+        locator: {
+          type: "text_span",
+          artifact_id: POST_ARTIFACT,
+          start_char: 0,
+          end_char: 45,
+          excerpt: PERSIAN_EXCERPT,
+        },
+      }),
+    });
+    expect(document.body.textContent).not.toMatch(/\d+:\d\d/);
+  });
+
+  it("still prints a reserved locator type as its own fields", () => {
+    // Four of the six branches are still produced by no adapter, and widening
+    // the two that are must not quietly claim to render them.
+    quickRead({
+      entity: sourceUnit({ locator: { type: "page", page: 3 } }),
+    });
+    expect(document.querySelector("[data-map-excerpt]")).toBeNull();
+    expect(document.body.textContent).toContain('"page"');
   });
 
   it("names each active relation, its direction and its vocabulary", () => {

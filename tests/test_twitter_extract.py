@@ -687,17 +687,13 @@ def test_the_twitter_source_record_validates_against_the_v1_schema(tmp_path: Pat
             assert source["counts"]["knowledge_units"] == len(knowledge["units"])
 
 
-def test_the_twitter_projection_is_honestly_empty_rather_than_absent(
-    tmp_path: Path,
-) -> None:
-    """A source with no knowledge attached, which is what it is until T-228.
+def test_a_scaffolded_run_projects_its_posts_and_no_knowledge(tmp_path: Path) -> None:
+    """The D-227 case, re-measured after ``T-228`` completed the projection.
 
-    Zero counts and no entities is the honest projection of a run whose units
-    are not yet mapped; ``adapter_metadata`` says which task owns the rest, so
-    the emptiness does not read as a damaged run. What must **not** happen is a
-    locator being invented here: no branch of
-    ``schemas/v1/locator.schema.json`` can carry a post id and a span together,
-    and D-212 hands that widening to ``T-228``.
+    An initialized run has a capture and no extraction, so the honest answer is
+    artifacts but no entities: the posts exist and are addressable, and there
+    are no claims about them yet. Zero counts say so. What must still not
+    happen is a locator being invented — there is no unit to carry one.
     """
     from x2knwldg.adapters import adapt_run
 
@@ -718,13 +714,60 @@ def test_the_twitter_projection_is_honestly_empty_rather_than_absent(
         "segments": 1,
     }
     assert "captions" not in source["counts"]
-    assert source["artifact_ids"] == []
-    assert source["adapter_metadata"]["projection"] == "source_only"
-    assert source["adapter"]["version"] == "0.1"
-    assert records.entities == [] and records.relations == [] and records.artifacts == []
+    assert records.entities == [] and records.relations == []
+    # D-227 set the version to 0.1 precisely so that completing the projection
+    # would force a re-index. This is that bump; a cache built against the
+    # source-only shape must not go on serving this run.
+    assert source["adapter"]["version"] == "1.0"
+    assert "projection" not in source["adapter_metadata"]
     # A post is not a time-based medium, so there is no duration to state and
     # `0` would be a measurement rather than an absence.
     assert source["duration_sec"] is None
+
+    kinds = {artifact["kind"] for artifact in records.artifacts}
+    assert "capture" in kinds and "post" in kinds
+    assert source["artifact_ids"] == [artifact["id"] for artifact in records.artifacts]
+    # A run that has not been finalized has neither, and T-230 is what writes
+    # them (D-234). Listing them as permanently unavailable artifacts would
+    # read as damage rather than as a stage not yet reached.
+    assert not {"graph", "report"} & kinds
+    # And nothing from the time-based medium leaked in: a post is the segment.
+    assert not {"transcript", "segments"} & kinds
+
+
+def test_no_provider_name_reaches_the_index(tmp_path: Path) -> None:
+    """T-228: provider names are not part of the UI contract.
+
+    The capture records which tool read which tier, and it stays there — it is
+    an artifact anyone can open. If it were copied onto the Source record it
+    would be served by `/api/sources`, and adding the T-225 or T-226 fallback
+    later would then be a visible change of behaviour rather than an
+    implementation detail.
+    """
+    import json as _json
+
+    from x2knwldg.adapters import adapt_run
+
+    run_dir = stage(tmp_path, load("pass-quote-post"))
+    extract.initialize_run(run_dir)
+    records = adapt_run(run_dir, tmp_path)
+
+    provider = _json.loads((run_dir / "capture.json").read_text(encoding="utf-8"))
+    tool = provider["acquisition"]["provider"]["tool"]
+    digest = provider["acquisition"]["provider"]["binary_sha256"]
+    assert tool and digest
+
+    projected = _json.dumps(
+        {
+            "sources": records.sources,
+            "artifacts": records.artifacts,
+            "entities": records.entities,
+            "relations": records.relations,
+        },
+        ensure_ascii=False,
+    )
+    for secret in (tool, digest, "x-cli", "xcli_guest", "fxtwitter"):
+        assert secret not in projected, f"{secret!r} reached the index records"
 
 
 def test_the_projected_status_is_the_one_validation_stated(tmp_path: Path) -> None:

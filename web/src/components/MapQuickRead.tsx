@@ -61,19 +61,54 @@ import { RelationCues } from "./MapRelation";
 import { KindBadge, ProvenanceBadge } from "./Provenance";
 import { Bidi, DefinitionList, Missing, Mono } from "./primitives";
 
-/** The one locator type v1 produces. The rest are reserved and shown as they are. */
+/** The two locator types an adapter produces. The other four are reserved. */
 function timeRangeOf(locator: Locator | null | undefined) {
   return locator != null && locator.type === "time_range" ? locator : null;
+}
+
+function textSpanOf(locator: Locator | null | undefined) {
+  return locator != null && locator.type === "text_span" ? locator : null;
 }
 
 function Evidence({ entity }: { entity: EntityRef }) {
   const { t } = useI18n();
   const locator = entity.locator;
   if (locator == null) return <p className="faint">{t("reader.units.locatorNone")}</p>;
+  const span = textSpanOf(locator);
+  if (span !== null) {
+    // T-228 (D-233). The excerpt goes through `Bidi` exactly as a time-range
+    // excerpt does, and that is the whole reason this branch exists rather
+    // than falling through: a post's excerpt is the case most likely to be
+    // Persian, and `JSON.stringify` would render it as an escaped string with
+    // no direction isolation — the one rendering the bidi rules forbid.
+    return (
+      <>
+        {span.excerpt !== undefined && (
+          <Bidi as="blockquote" className="excerpt" marks={{ "data-map-excerpt": "recorded" }}>
+            {span.excerpt}
+          </Bidi>
+        )}
+        <DefinitionList
+          entries={[
+            {
+              label: t("reader.units.locator"),
+              value: (
+                <Mono>{t("text.range", { start: span.start_char, end: span.end_char })}</Mono>
+              ),
+            },
+            {
+              label: t("reader.units.locatorPost"),
+              value: <Mono>{span.artifact_id}</Mono>,
+            },
+          ]}
+        />
+      </>
+    );
+  }
   const range = timeRangeOf(locator);
   if (range === null) {
-    // A reserved locator type. Its own fields are printed rather than being
-    // squeezed into the time-range shape, which would misreport coordinates.
+    // One of the four still-reserved types. Its own fields are printed rather
+    // than being squeezed into a shape that would misreport its coordinates.
     return (
       <p className="faint">
         <Mono>{JSON.stringify(locator)}</Mono>

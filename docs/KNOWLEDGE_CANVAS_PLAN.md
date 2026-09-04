@@ -641,7 +641,13 @@ Planned adapters:
 1. YouTube adapter, from the current `output/<video-id>` structure
 2. Twitter/X adapter, after the corresponding extraction pipeline is designed
 3. Medium/article adapter
-4. Generic file/PDF adapter
+4. Books — PDF and EPUB
+5. Website links
+
+Steps 2–5 are the user's stated order (D-234), and each of them has to reach the **graph and
+the vault**, not only the index and the Reader. A claim in any of them is a `text_span` into
+its own artifact (D-233), so the four differ in what an artifact *is* — a post, an article, a
+chapter, a page — and not in how a claim is addressed.
 
 Only the YouTube adapter is currently implemented. Phase 2.2 adds Twitter through the same
 generic boundary; it does not make a provider response part of the adapter contract.
@@ -1329,6 +1335,8 @@ AGPL boundary are recorded. See [ADR 0007](adr/0007-twitter-acquisition-boundary
 
 This table is the canonical index of decisions and answers "what was decided". The reasoning, rejected alternatives, and consequences are recorded in `docs/adr/`. The ADR convention is described in `docs/adr/README.md`.
 
+**This mirror is behind.** It runs to D-219 and then jumps to D-233; D-220–D-232 were recorded in `docs/PROJECT_MANAGEMENT.md` §6 only, which is the complete ledger and the one to read. The two rows below are here because they change *this* document's roadmap — they are not evidence that the rest was backfilled.
+
 Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/0001-local-web-ui.md).
 
 | ID | Decision | Status | Rationale |
@@ -1444,6 +1452,8 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-217 | The **root-first thread invariant is conditional on upward completeness** — a `T-223` refinement `T-224` forced | accepted | An honestly truncated chain does not begin at a root, and its first item keeps the `parent_post_id` that proves it; dropping that link to satisfy a root-first rule would hide the incompleteness the capture reports. So the root claim applies when `upward.status` is `complete`, and where the chain dangles the dangling end must equal the id `upward.unresolved_at` names — tying the item set and the completeness claim together |
 | D-218 | At the qualified local route a capture carries **mention spans and no URL spans** | accepted | Measured live: x-cli's `entities.urls` holds expanded targets absent from the authored text, and one thread post carried two `t.co` links against a single entry, so a link can be located but not paired. A guessed target is worse than no span, and the facet triple comes from the route `T-225` owns. Absent, not wrong |
 | D-219 | The record→capture normalization has **one implementation**, in the package, imported by `T-223`'s fixture builder | accepted | Two copies of "how a provider record becomes a capture" would be two answers the moment one was edited, and the codepoint-offset and absent-not-empty rules drift silently. The byte-identical regeneration check `T-223` already requires is the proof the move was faithful |
+| D-233 | A source claim is projected as a **per-item artifact addressed by the generic `text_span` locator**; no locator branch is widened. Revises D-212's plan | accepted | Four media are coming (D-234) and a per-medium branch would repeat the same three span fields four times, in a file whose header says the reserved branches exist so that adding PDFs, articles or posts needs no version bump. One locator type over four artifact kinds instead — and the artifact id replaces the `video_id` comparison a post claim has nothing to compare for. Cost: an artifact per item, carrying no bytes, which `_video_artifact` already has precedent for. Full reasoning in `PROJECT_MANAGEMENT.md` §6 |
+| D-234 | Source-type order is **Twitter → Medium/articles → books → website links**, each reaching the **graph and the vault**; `T-230` generalizes finalize and the vault for all four | accepted | The user's, 2026-09-04. Neither the order nor **books** was derivable from this document. `finalize_run` and `_obsidian_files` are YouTube-shaped, so the wall is not Twitter's — folding the fix into `T-228` would rewrite an acceptance clause mid-claim, and leaving it in `T-229` would have the phase gate implement what it exists to rehearse |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
@@ -1594,58 +1604,74 @@ An agent must not guess the answers to these if the decision would cause a notic
   the `T-223` contract. Verified live on the target machine over the tunnel on 2026-09-04 — a
   single post, a Persian post, a ten-post self-thread walked from its **last** post, and an
   unavailable id (D-213–D-219)
-- [ ] **Phase 2.2 / `T-227`: claimed and in progress** — item-based extraction, segmentation,
-  provenance and coverage over the capture. D-220 settles the ordering: a source claim cites a
-  post id and a codepoint span into the authored text, so the URL spans D-218 found missing are
-  not a prerequisite
-- [ ] Phase 2.2 / `T-228`–`T-229`: adapter/product coexistence and the full phase gate.
-  `T-225` (opt-in network fallback and corroboration) and `T-226` (passive browser capture) are
-  genuine fallbacks rather than the way forward — `T-225` is what adds URL entity spans and
-  corroborated text, additively (D-218, D-220)
+- [x] Phase 2.2 / `T-227` — item-based extraction, segmentation, provenance and coverage over
+  the capture: a post is the segment, an excerpt **is** its own codepoint slice of
+  `text.canonical`, coverage is item-based, and the apply gate refuses a bundle rather than
+  writing a run its own validators reject. Eight run fixtures built by driving that code
+  (D-220, D-225–D-231)
+- [x] Phase 2.2 / `T-228` — source-neutral integration and product coexistence: a Twitter run
+  reaches the index, the API, search, the Reader and the Map beside a YouTube one, on the eleven
+  frozen operations with no new endpoint, field or query parameter. No locator branch was
+  widened — a claim is a `text_span` into a per-item artifact (D-233) — and most of the
+  projection moved to `SourceAdapter` so the media that follow inherit it (D-235–D-239)
+- [ ] Phase 2.2 / `T-229`: the full phase gate, the operating documentation and the failure
+  rehearsal. `T-225` (opt-in network fallback and corroboration) and `T-226` (passive browser
+  capture) are genuine fallbacks rather than the way forward — `T-225` is what adds URL entity
+  spans and corroborated text, additively (D-218, D-220) — and `T-229`'s capability table may
+  not promise a route that was never built, so the selection between them has to be recorded
+  before it runs
+- [ ] **Phase 2.2 / `T-230`: next** — medium-dispatched finalize and a vault a second medium can
+  reach. Runs between `T-228` and `T-229`, and is sized for all four media rather than for
+  Twitter, because `finalize_run` and `_obsidian_files` are YouTube-shaped and every medium hits
+  the same four places (D-234)
 - [ ] Canvas — Phase 3 / `T-301`: technically unblocked by `T-210`, deliberately deferred
   until the Twitter phase gate closes (D-204)
 - [ ] Pen annotations
-- [ ] Additional adapters for Medium, web pages and future approved sources
+- [ ] Additional adapters, in the user's stated order (D-234): **Medium and articles**, then
+  **books** (PDF/EPUB), then **website links** — each reaching the graph *and* the vault
 
 Live status, task breakdown, and track ownership are maintained in `docs/PROJECT_MANAGEMENT.md`. In case of conflict, that file is the authority on **status** and this document is the authority on **design**.
 
 ## 23. Precise next step
 
-**`T-227` is claimed — extraction, provenance and coverage over the capture.** The acquisition
-half of Phase 2.2 is done: the boundary was accepted (D-204), the qualification returned a `GO` (D-205), the capture
-contract is frozen (D-212), and the qualified local provider seam now writes it and was verified
-live on the target machine over the tunnel (D-213–D-219).
+**`T-230` is next — medium-dispatched finalize, and a vault a second medium can reach.** With
+`T-228` done, a Twitter run is a first-class citizen of the index, the API, search, the Reader
+and the Map: it projects artifacts, entities, `text_span` locators and relations, it coexists
+with the YouTube sample without moving a single one of its ids, and rebuilding the SQLite cache
+from scratch loses nothing (D-235–D-239).
 
-What the measurement changed, and why the sequencing was right: the phase MVP promised "provable
-same-author self-threads", and that is true in one direction only. Following `reply_to` upward
-terminates at a parent-less root and *is* a completeness proof, credential-free — the live
-verification walked a real ten-post thread from its last post and reproduced the recorded
-manifest exactly. Enumerating descendants is impossible at every credential-free tier, and the
-author archive that looks like a substitute held 3 of 10 posts of a real thread. So the seam
-ingests from the thread's **last** post (D-206), and `completeness.downward` has no field in
-which to claim otherwise.
+What it still cannot do is *finish*. `artifacts.finalize_run` requires `metadata['video_url']`,
+`metadata['channel']` and `metadata['transcript_hash']`, and `_obsidian_files` writes
+`vault/videos/<id>.md` with `type: video` frontmatter — so a Twitter run stops at
+`validation.json` with no `graph.json`, no `report.md`, no vault note, and nothing for
+`rebuild-library` to merge. That wall is **YouTube-shaped rather than Twitter-shaped**, which is
+why D-234 makes it one task sized for four media: Medium, books and website links all hit the
+same four places.
 
-The question that decided the order, now answered as D-220: a capture from the local route
-carries mention spans and no URL spans (D-218), because the tool's expanded-URL list cannot be
-paired with the `t.co` links in the authored text. Citing the post and a text span **is** enough
-— it is what ADR 0007's MVP asks for and what the `T-227` row says in as many words — so `T-227`
-starts now and URL spans arrive additively, since `entities` is already optional in the contract
-and `textEntity.kind` already accepts `url`. Putting `T-225` first would have made an explicit
-opt-in network route a prerequisite of the default local one.
+What `T-228` established, so `T-230` inherits rather than re-decides:
 
-What acquisition deliberately did **not** do, so the next task does not have to guess:
+1. **One projection, one implementation.** `_knowledge_entities`, `_derived_refs`,
+   `_canonical_relations`, `_derived_from_relations` and `_file_artifact` are
+   `SourceAdapter`'s, with `_locator` the single overridable hook (D-235). A finalize path that
+   dispatches per medium belongs in the same shape — inside one implementation, not beside a
+   second one.
+2. **A claim's location is medium-neutral already.** Every source claim carries a locator with
+   an `artifact_id` and an excerpt, whether its coordinate is seconds or characters, so a report
+   or a vault note can cite provenance without asking which medium it is reading.
+3. **What a medium *is* lives in one field.** `metadata.source_type` is what every validator and
+   both adapters dispatch on. A vault note's identity, frontmatter and provenance line follow
+   from it, and nothing needs to sniff a file layout to work out which kind of run it has.
+4. **The two refusals that already guard finalize stay.** A `FAIL` run is refused before the
+   first write, because `graph.json` and `report.md` are overwritten in place and
+   `rebuild_library` merges the result into the cumulative graph; a `PARTIAL` still finalizes,
+   because an honestly incomplete run is a real deliverable.
 
-1. **Nothing is ingested.** No `metadata.json` is written, so an acquired post is invisible to
-   run discovery, the library, the Reader and the Map until `T-227`/`T-228` give it one. A run
-   half-made by acquisition must not appear in `status` as a broken YouTube run.
-2. **Metrics are not carried.** The records hold them and the contract can represent them, but
-   only as an observation with an `observed_at`; whether extraction wants them is `T-227`'s call.
-3. **Text completeness is never claimed.** One route means `unverified` — corroboration needs
-   the second route `T-225` owns.
-
-The Phase 2.2 gate is **not** met: one measured no-payment path now produces canonical captures,
-which is one clause of six. Nothing reaches the product yet, and `WORKFLOW.md` still correctly
-describes only the implemented YouTube workflow — `T-229` owns updating it, and not before.
+The Phase 2.2 gate is **not** met and must not be reported as met. Two of six clauses now hold —
+one measured no-payment path produces canonical captures and canonical runs, and those runs
+coexist with YouTube through the product — but nothing has been ingested into `output/`, no
+Twitter run has a vault note or a report, and no Twitter command but `capture` exists.
+`WORKFLOW.md` still correctly describes only the YouTube workflow; `T-229` owns updating it, and
+not before.
 
 
 ## 24. Research references

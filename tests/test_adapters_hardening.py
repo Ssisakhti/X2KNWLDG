@@ -626,10 +626,13 @@ def test_an_edge_id_cannot_be_spelled_by_another_edge() -> None:
     """The separator is escaped in every part. Nothing splits on it today, which
     is exactly why an unescaped join is a collision waiting for the first
     relation vocabulary that admits the character."""
-    from x2knwldg.adapters.youtube import _edge_id
+    # It moved to the base with the relation minting it serves (T-228): the
+    # rule is not YouTube's, and a second adapter joining ids its own way is
+    # the collision this test is about, one layer up.
+    from x2knwldg.adapters.base import edge_id
 
-    collidable = _edge_id("youtube:v:a", "supports|youtube:v:b", "youtube:v:c")
-    plain = _edge_id("youtube:v:a", "supports", "youtube:v:b|youtube:v:c")
+    collidable = edge_id("youtube:v:a", "supports|youtube:v:b", "youtube:v:c")
+    plain = edge_id("youtube:v:a", "supports", "youtube:v:b|youtube:v:c")
     assert collidable != plain
 
 

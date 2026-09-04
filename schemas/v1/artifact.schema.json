@@ -22,13 +22,15 @@
     },
     "source_id": { "$ref": "common.schema.json#/$defs/sourceId" },
     "kind": {
-      "description": "What the artifact is. Grounded in the files the pipeline actually writes plus the media types planned for later phases.",
+      "description": "What the artifact is. Grounded in the files the pipeline actually writes plus the media types planned for later phases. 'capture' and 'post' were added additively by T-228 (D-233): a Twitter run's evidence is capture.json rather than a transcript, and each item inside it is addressed as an artifact of its own so that a claim can cite a text_span into the post it came from. 'post' is the item, not the file - it is role 'external' with no path, the way 'video' already is.",
       "enum": [
         "metadata",
         "raw_source",
         "raw_transcript",
         "transcript",
         "segments",
+        "capture",
+        "post",
         "knowledge_units",
         "relationships",
         "graph",

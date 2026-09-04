@@ -49,9 +49,33 @@ function LocatorDetail({ locator }: { locator: Locator }) {
       />
     );
   }
-  // Every other locator type is reserved in v1 and not produced by any
+  if (locator.type === "text_span") {
+    // T-228: the second locator type an adapter produces (D-233). Its own
+    // coordinate, not seconds — a post has no timeline, and rendering one
+    // would be a coordinate the record does not carry. The artifact id is the
+    // post, so it is labelled as one rather than shown bare.
+    return (
+      <DefinitionList
+        entries={[
+          {
+            label: t("reader.units.locator"),
+            value: (
+              <Mono>
+                {t("text.range", { start: locator.start_char, end: locator.end_char })}
+              </Mono>
+            ),
+          },
+          {
+            label: t("reader.units.locatorPost"),
+            value: <Mono>{locator.artifact_id}</Mono>,
+          },
+        ]}
+      />
+    );
+  }
+  // The four remaining locator types are reserved in v1 and produced by no
   // adapter. If one ever arrives, its own fields are shown rather than being
-  // squeezed into the time-range shape.
+  // squeezed into a shape that would misreport its coordinates.
   return (
     <p className="faint">
       <Mono>{JSON.stringify(locator)}</Mono>
