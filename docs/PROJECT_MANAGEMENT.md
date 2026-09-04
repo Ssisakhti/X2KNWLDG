@@ -576,7 +576,7 @@ So the fixes are guards at the level the misses happened, not repairs: 53 contra
 
 ### 7.2 Regression baseline
 ```bash
-.venv/bin/python -m pytest -q               # expect: 3071 passed, 0 failed, 111 subtests (plus new tests)
+.venv/bin/python -m pytest -q               # expect: 3149 passed, 0 failed, 111 subtests (plus new tests)
 git diff --stat -- output/                  # expect: empty, always
 .venv/bin/python tests/fixtures/runs/build_fixtures.py
 git status --porcelain -- tests/fixtures/runs/   # expect: empty — regeneration is byte-identical (D-157)
@@ -588,6 +588,7 @@ git status --porcelain -- tests/fixtures/twitter-runs/  # expect: empty — and 
 (cd web && npm ci && npm run typecheck)     # expect: silent — tsc --noEmit, risk R17
 (cd web && npm run typecheck:browser && npm run typecheck:scripts)  # the gate's and the scripts' own
 (cd web && npm run lint && npm test && npm run build)  # expect: clean; 743 passed, 23 skipped; a clean build
+(cd web && npm run browser)                 # expect: 47 passed -- needs Chrome and a served bundle
 ```
 
 `--check` duplicates `tests/test_api_types.py::test_the_committed_declarations_are_current`;
@@ -635,7 +636,7 @@ for p in jsonschema openapi-spec-validator networkx pyvis yt-dlp fastapi uvicorn
          mcp youtube-transcript-api requests httpx ruff mypy; do
   /tmp/bare/bin/pip show "$p" >/dev/null 2>&1 && echo "LEAKED: $p"
 done                                        # expect: no output
-/tmp/bare/bin/python -m pytest -q           # expect: 1862 passed, 533 skipped, 111 subtests
+/tmp/bare/bin/python -m pytest -q           # expect: 2211 passed, 537 skipped, 111 subtests
 ```
 
 The 496 skips are 491 API/HTTP-layer tests, which belong to the `ui` extra, plus the
