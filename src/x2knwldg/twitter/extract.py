@@ -57,6 +57,7 @@ from ..io import (
     write_group,
     write_json,
 )
+from ..pipeline import PipelineError
 from ..validators import (
     bundle_shape_error,
     validate_item_coverage,
@@ -96,8 +97,20 @@ def post_url(post_id: str) -> str:
 SEALED_CANONICAL_FILES = (CAPTURE_FILENAME,)
 
 
-class ExtractionError(RuntimeError):
-    """The capture cannot be turned into a run, and the reason is stated."""
+class ExtractionError(PipelineError):
+    """The capture cannot be turned into a run, and the reason is stated.
+
+    A ``PipelineError`` since `T-229`, and for a concrete reason rather than
+    tidiness: making the Twitter apply gate reachable from the CLI made this
+    class reachable from ``cli.main``, which catches ``USER_FACING_ERRORS`` and
+    prints the documented ``{"status": "ERROR"}`` envelope. As a bare
+    ``RuntimeError`` it was outside that tuple, so a refused bundle left the
+    command on a raw traceback — exactly the class of escape D-074 and the
+    ``TranscriptError``/``IdError`` entries in that tuple were added to close,
+    reproduced by a new medium. It refuses for the same reason
+    ``artifacts.apply_extraction_bundle`` raises ``PipelineError``, so it is the
+    same kind of event and now says so (D-243).
+    """
 
 
 class RunAlreadyInitialized(ExtractionError):

@@ -76,7 +76,6 @@ from .pipeline import (
     is_youtube_url,
     prepare_inbox,
     project_root,
-    validate_run,
 )
 from .query import UnsearchableRun
 from .transcripts import TranscriptError
@@ -280,7 +279,10 @@ def build_parser() -> argparse.ArgumentParser:
             "Acquire one public X post, or one same-author self-thread, through the "
             "pinned local provider and write it as a schemas/capture/v1/ capture beside "
             "its immutable raw evidence. Credential-free: no X account, cookie, token or "
-            "browser profile is used, needed, or read."
+            "browser profile is used, needed, or read. Leaves an initialized run -- a "
+            "metadata.json and an item-based coverage.json scaffolded to PARTIAL -- so "
+            "apply-bundle, validate and finalize can be run against it next. A post "
+            "that already has a capture is refused rather than re-acquired."
         ),
     )
     capture_parser.add_argument("reference", help="A post id, or an https://x.com/<user>/status/<id> URL")
@@ -604,6 +606,20 @@ def _run_capture(args: argparse.Namespace) -> int:
     for warning in result.warnings:
         print(json.dumps({"status": "WARNING", "message": warning}, ensure_ascii=False),
               file=sys.stderr)
+    # `T-229`: the capture becomes a run here, so the journey does not stop at
+    # a file no command can read. `acquire` stays pure acquisition -- it writes
+    # evidence and nothing else -- and this is the step that gives the run its
+    # `metadata.json` and its scaffolded, item-based `coverage.json`, which is
+    # what `discover_run_dirs`, `status`, `apply-bundle` and the library all
+    # key on. It is the analogue of `import-transcript` for this medium, and
+    # `initialize_run` refuses a run that already has canonical outputs, so a
+    # re-run says so rather than overwriting an extraction.
+    from .artifacts import initialize_capture_run
+
+    initialize_capture_run(result.run_dir)
+    scaffold = json.loads(
+        (result.run_dir / "coverage.json").read_text(encoding="utf-8")
+    )
     print(
         json.dumps(
             {
@@ -613,6 +629,15 @@ def _run_capture(args: argparse.Namespace) -> int:
                 "items": len(result.capture["items"]),
                 "raw_evidence": [str(path) for path in result.evidence_paths],
                 "routes_read": len(result.capture["acquisition"]["routes_read"]),
+                # What to do next, because a capture that has become a run is
+                # not obviously one: `coverage.json` is scaffolded and reports
+                # `coverage_not_audited` against every item until an extraction
+                # is applied, so this status is honestly not a pass yet.
+                "run_coverage": scaffold.get("status"),
+                "next": (
+                    "extract with prompts/twitter/, then: x2knwldg apply-bundle "
+                    f"{result.run_dir} <bundle.json>"
+                ),
             },
             ensure_ascii=False,
             indent=2,
@@ -757,13 +782,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "process":
             return _run_process(args)
         if args.command == "validate":
-            result = validate_run(args.run_dir)
+            # `T-229`, D-243: the run says which medium it is and the dispatch
+            # is in `artifacts`, not here. This called `pipeline.validate_run`
+            # outright, so it reported every Twitter run as broken for having
+            # no transcript -- a correct validator applied to the wrong medium.
+            from .artifacts import validate_any_run
+
+            result = validate_any_run(args.run_dir)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return verdict_exit_code(result["status"])
         if args.command == "apply-bundle":
-            from .artifacts import apply_extraction_bundle
+            from .artifacts import apply_bundle_to_any_run
 
-            result = apply_extraction_bundle(args.run_dir, args.bundle)
+            result = apply_bundle_to_any_run(args.run_dir, args.bundle)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return verdict_exit_code(result["status"])
         if args.command == "finalize":

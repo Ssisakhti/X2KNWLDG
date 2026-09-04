@@ -1615,18 +1615,20 @@ An agent must not guess the answers to these if the decision would cause a notic
   frozen operations with no new endpoint, field or query parameter. No locator branch was
   widened — a claim is a `text_span` into a per-item artifact (D-233) — and most of the
   projection moved to `SourceAdapter` so the media that follow inherit it (D-235–D-239)
-- [ ] Phase 2.2 / `T-229`: the full phase gate, the operating documentation and the failure
-  rehearsal. `T-225` (opt-in network fallback and corroboration) and `T-226` (passive browser
-  capture) are genuine fallbacks rather than the way forward — `T-225` is what adds URL entity
-  spans and corroborated text, additively (D-218, D-220) — and `T-229`'s capability table may
-  not promise a route that was never built, so the selection between them has to be recorded
-  before it runs
-- [ ] **Phase 2.2 / `T-230`: next** — medium-dispatched finalize and a vault a second medium can
-  reach. Runs between `T-228` and `T-229`, and is sized for all four media rather than for
-  Twitter, because `finalize_run` and `_obsidian_files` are YouTube-shaped and every medium hits
-  the same four places (D-234)
-- [ ] Canvas — Phase 3 / `T-301`: technically unblocked by `T-210`, deliberately deferred
-  until the Twitter phase gate closes (D-204)
+- [x] Phase 2.2 / `T-230` — medium-dispatched finalize and a vault a second medium can reach,
+  sized for all four media rather than for Twitter. Seven YouTube-shaped places, not the four
+  D-234 named, the seventh being the validator the path called; one table of names-as-data and
+  rules-as-pure-callables, so a third medium is a row (D-240–D-242). Measuring its byte-identity
+  clause found that `report.md` was never reproducible (D-241)
+- [x] Phase 2.2 / `T-229` — the full phase gate, the operating documentation and the failure
+  rehearsal. `T-225` and `T-226` stay **unselected** and the capability table lists both as *not
+  implemented*, so it promises no route that was never built; `capture` leaves an initialized run
+  and `validate`/`apply-bundle` dispatch on the medium, so the journey is reachable from the
+  shell `WORKFLOW.md` documents. Walked live on the target machine on 2026-09-04 — a real public
+  Persian post and a real ten-post self-thread from its last post, to a vault note and a library
+  of two runs (D-243)
+- [ ] **Canvas — Phase 3 / `T-301`: next.** Technically unblocked by `T-210` and deliberately
+  deferred until the Twitter phase gate closed (D-204). It has closed
 - [ ] Pen annotations
 - [ ] Additional adapters, in the user's stated order (D-234): **Medium and articles**, then
   **books** (PDF/EPUB), then **website links** — each reaching the graph *and* the vault
@@ -1635,8 +1637,12 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**`T-230` is next — medium-dispatched finalize, and a vault a second medium can reach.** With
-`T-228` done, a Twitter run is a first-class citizen of the index, the API, search, the Reader
+**Phase 2.2 has closed and Canvas (`T-301`) is next.** `T-230` generalized finalize and the
+vault for all four media (D-240–D-242) and `T-229` closed the gate (D-243); D-204's deferral of
+Canvas was explicitly until that gate closed, so the next task is `T-301`. What follows is the
+record of why `T-230` came before the gate rather than the gate implementing it.
+
+With `T-228` done, a Twitter run is a first-class citizen of the index, the API, search, the Reader
 and the Map: it projects artifacts, entities, `text_span` locators and relations, it coexists
 with the YouTube sample without moving a single one of its ids, and rebuilding the SQLite cache
 from scratch loses nothing (D-235–D-239).

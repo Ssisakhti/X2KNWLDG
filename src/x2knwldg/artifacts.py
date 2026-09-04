@@ -22,6 +22,8 @@ from .io import (
 from .pipeline import PipelineError, VerdictRefusal, run_duration_sec, validate_run
 from .twitter.extract import CAPTURE_FILENAME, post_url
 from .twitter.extract import SOURCE_TYPE as TWITTER_SOURCE_TYPE
+from .twitter.extract import apply_extraction_bundle as apply_twitter_bundle
+from .twitter.extract import initialize_run as initialize_twitter_run
 from .twitter.extract import validate_run as validate_twitter_run
 from .validators import (
     bundle_shape_error,
@@ -103,7 +105,7 @@ _REQUIRED_UNIT_FIELDS = ("id", "kind", "content", "source_class")
 
 @dataclass(frozen=True)
 class MediumProfile:
-    """Everything the final artifacts render differently for one medium.
+    """Everything one medium does differently on the way to a finished run.
 
     `T-230`: ``finalize_run``, ``_obsidian_files``, ``_unit_markdown`` and
     ``_coverage_markdown`` were YouTube-shaped in six places, and a Twitter run
@@ -163,6 +165,13 @@ class MediumProfile:
     #: Both write ``validation.json`` and return the same shape (D-225), which
     #: is what lets one profile field stand in for both.
     validate: Callable[[Path], dict[str, Any]]
+    #: The apply gate a model's extraction goes through. Added by `T-229` for
+    #: the same reason ``validate`` was: the CLI needs to reach it, and the
+    #: alternative to one more row here is a second dispatch table somewhere
+    #: else (D-243). Both gates share the bundle's top-level contract outright
+    #: (``validators.bundle_shape_error``) and differ only in what the bundle is
+    #: checked against.
+    apply_bundle: Callable[[Path, Path], dict[str, Any]]
 
 
 def _youtube_metadata_lines(metadata: Mapping[str, Any]) -> list[str]:
@@ -316,64 +325,6 @@ def _audit_note_lines(unit: Mapping[str, Any]) -> list[str]:
     for unresolved in unit.get("unresolved_items", []):
         lines.append(f"- Unresolved `{unresolved.get('type')}`: {unresolved.get('note', '')}")
     return lines
-
-
-#: One row per medium. Two exist because two media exist — a row for a medium
-#: with no capture contract, no extraction and no adapter would be an invented
-#: output format, not a generalization. The seam is what `T-230` delivers for
-#: all four (D-234, D-240); Medium/articles, books and website links each add a
-#: row when their adapter does.
-MEDIUM_PROFILES: dict[str, MediumProfile] = {
-    ids.DEFAULT_SOURCE_TYPE: MediumProfile(
-        note_type="video",
-        note_dir="videos",
-        id_key="video_id",
-        backlink_label="Source video",
-        url_field="video_url",
-        coverage_noun="window-by-window",
-        required_metadata=("title", "video_url", "channel", "language", "transcript_hash"),
-        metadata_lines=_youtube_metadata_lines,
-        provenance_lines=_youtube_provenance_lines,
-        coverage_sections=_window_sections,
-        validate=validate_run,
-    ),
-    TWITTER_SOURCE_TYPE: MediumProfile(
-        note_type="post",
-        note_dir="posts",
-        id_key="anchor_post_id",
-        backlink_label="Source post",
-        url_field="source_url",
-        coverage_noun="post-by-post",
-        # `transcript_hash` has no counterpart and `canonical_hashes` is an
-        # object, so the integrity row is checked by the renderer that reads it
-        # (`_twitter_capture_hash`) rather than by the string check here.
-        required_metadata=("title", "source_url", "channel", "language"),
-        metadata_lines=_twitter_metadata_lines,
-        provenance_lines=_twitter_provenance_lines,
-        coverage_sections=_item_sections,
-        validate=validate_twitter_run,
-    ),
-}
-
-
-def _profile_for(metadata: Mapping[str, Any]) -> MediumProfile:
-    """The medium's profile, or a refusal naming the media that have one.
-
-    ``validators.validate_provenance`` *defaults* an unknown source type to
-    YouTube and records an error; this refuses. The difference is what the two
-    do next: that function goes on to report, and this one goes on to write
-    files whose names and frontmatter come from the answer.
-    """
-    source_type = declared_source_type(metadata)
-    profile = MEDIUM_PROFILES.get(source_type)
-    if profile is None:
-        raise PipelineError(
-            f"metadata.json declares source_type {source_type!r}, which has no "
-            "finalize profile. The media that can be finalized are "
-            f"{sorted(MEDIUM_PROFILES)}; add a row to artifacts.MEDIUM_PROFILES "
-            "rather than a second finalize path (D-240)."
-        )
-    return profile
 
 
 def _read(path: Path) -> Any:
@@ -680,6 +631,66 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
     return validate_run(run_dir)
 
 
+#: One row per medium. Two exist because two media exist — a row for a medium
+#: with no capture contract, no extraction and no adapter would be an invented
+#: output format, not a generalization. The seam is what `T-230` delivers for
+#: all four (D-234, D-240); Medium/articles, books and website links each add a
+#: row when their adapter does.
+MEDIUM_PROFILES: dict[str, MediumProfile] = {
+    ids.DEFAULT_SOURCE_TYPE: MediumProfile(
+        note_type="video",
+        note_dir="videos",
+        id_key="video_id",
+        backlink_label="Source video",
+        url_field="video_url",
+        coverage_noun="window-by-window",
+        required_metadata=("title", "video_url", "channel", "language", "transcript_hash"),
+        metadata_lines=_youtube_metadata_lines,
+        provenance_lines=_youtube_provenance_lines,
+        coverage_sections=_window_sections,
+        validate=validate_run,
+        apply_bundle=apply_extraction_bundle,
+    ),
+    TWITTER_SOURCE_TYPE: MediumProfile(
+        note_type="post",
+        note_dir="posts",
+        id_key="anchor_post_id",
+        backlink_label="Source post",
+        url_field="source_url",
+        coverage_noun="post-by-post",
+        # `transcript_hash` has no counterpart and `canonical_hashes` is an
+        # object, so the integrity row is checked by the renderer that reads it
+        # (`_twitter_capture_hash`) rather than by the string check here.
+        required_metadata=("title", "source_url", "channel", "language"),
+        metadata_lines=_twitter_metadata_lines,
+        provenance_lines=_twitter_provenance_lines,
+        coverage_sections=_item_sections,
+        validate=validate_twitter_run,
+        apply_bundle=apply_twitter_bundle,
+    ),
+}
+
+
+def _profile_for(metadata: Mapping[str, Any]) -> MediumProfile:
+    """The medium's profile, or a refusal naming the media that have one.
+
+    ``validators.validate_provenance`` *defaults* an unknown source type to
+    YouTube and records an error; this refuses. The difference is what the two
+    do next: that function goes on to report, and this one goes on to write
+    files whose names and frontmatter come from the answer.
+    """
+    source_type = declared_source_type(metadata)
+    profile = MEDIUM_PROFILES.get(source_type)
+    if profile is None:
+        raise PipelineError(
+            f"metadata.json declares source_type {source_type!r}, which has no "
+            "finalize profile. The media that can be finalized are "
+            f"{sorted(MEDIUM_PROFILES)}; add a row to artifacts.MEDIUM_PROFILES "
+            "rather than a second finalize path (D-240)."
+        )
+    return profile
+
+
 def _unit_markdown(
     unit: dict[str, Any], video_id: str, profile: MediumProfile
 ) -> list[str]:
@@ -790,6 +801,43 @@ def _obsidian_files(
         (vault / "reports" / f"{video_id}-coverage.md", _coverage_markdown(coverage, profile))
     )
     return files
+
+
+def validate_any_run(run_dir: Path) -> dict[str, Any]:
+    """Validate a run of any medium, choosing the validator from what it declares.
+
+    `T-229`: ``x2knwldg validate`` called ``pipeline.validate_run`` outright, so
+    it reported a Twitter run as broken for having no transcript — the same
+    seventh YouTube-shaped place D-240 found inside ``finalize_run``, in the
+    command instead of the function. Dispatching here rather than in the CLI is
+    what keeps the medium out of the command: ``cli.main`` should not know how
+    many media there are (D-243).
+    """
+    run_dir = run_dir.expanduser().resolve()
+    return _profile_for(_read(run_dir / "metadata.json")).validate(run_dir)
+
+
+def apply_bundle_to_any_run(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
+    """Apply an extraction bundle to a run of any medium, through that medium's gate.
+
+    A gate in the same sense for both: a bundle that fails validation is refused
+    rather than written, so a run cannot reach the disk in a state its own
+    validators reject (D-229, D-230).
+    """
+    run_dir = run_dir.expanduser().resolve()
+    profile = _profile_for(_read(run_dir / "metadata.json"))
+    return profile.apply_bundle(run_dir, bundle_path)
+
+
+def initialize_capture_run(run_dir: Path) -> dict[str, Any]:
+    """Turn an acquired capture into an initialized run.
+
+    Re-exported here so the CLI reaches one module for the whole journey rather
+    than importing ``twitter.extract`` directly and thereby naming a medium.
+    ``initialize_run`` refuses a run that already has canonical outputs, so
+    calling it twice is safe and the second call says why it declined.
+    """
+    return initialize_twitter_run(run_dir)
 
 
 def finalize_run(run_dir: Path) -> dict[str, Any]:
