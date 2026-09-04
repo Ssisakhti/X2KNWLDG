@@ -213,7 +213,7 @@ provider advertises — its own `x fields tweet` disagreed with measurement in f
 
 | Route / capability | Status | What it means |
 |---|---|---|
-| `xcli_guest` (pinned local `x-cli`, tiers 0 and 1) | **supported, default and only** | The one measured no-payment path. Verified live over the user's tunnel on 2026-09-04: a single post, a Persian post, a ten-post self-thread walked from its last post, and an unavailable id |
+| `xcli_guest` (pinned local `x-cli`; the registry carries tiers 0 and 1, and **tier 1 `guest` is the default and the qualified read**) | **supported, default and only** | The one measured no-payment path. Verified live on the target machine on 2026-09-04, on the `guest` tier: a single post, a Persian post, a ten-post self-thread walked from its last post, and an unavailable id — then again end to end to a vault note (`T-229`). `--via-tunnel` records what the operator **stated**; whether a tunnel carried the request is never measured, which is why the capture stores the statement rather than an inference (D-209) |
 | Single public post | **supported** | Canonical text, author, timestamp, language, mention spans |
 | Self-thread from its last post | **supported** | Walked upward to a parent-less root, every hop resolved and single-author |
 | Self-thread from its root | **`PARTIAL` with a warning** | Downward traversal does not exist on any credential-free route (D-206) |
