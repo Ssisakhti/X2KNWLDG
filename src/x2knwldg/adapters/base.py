@@ -478,15 +478,12 @@ def read_optional_json_or_reason(path: Path) -> tuple[Any | None, str | None]:
     return document, reason
 
 
-def declared_source_type(metadata: Mapping[str, Any]) -> str:
-    """The source type a run declares, defaulting as ``library.py:39`` does.
-
-    Every run written before the field existed is a YouTube run. This lives here
-    rather than in an adapter because dispatch has to read it *before* an
-    adapter has been chosen.
-    """
-    declared = metadata.get("source_type")
-    return declared if isinstance(declared, str) and declared else ids.DEFAULT_SOURCE_TYPE
+#: Re-exported from :mod:`x2knwldg.ids`, which is where it moved under `T-230`.
+#: The finalize path needs the same answer and cannot import this package
+#: without a low-level writer depending on the index layer, so the rule moved
+#: down to the module that owns the vocabulary. Every importer here keeps
+#: working, and there is one implementation of it (D-240).
+declared_source_type = ids.declared_source_type
 
 
 def read_status(document: Any | None) -> str:

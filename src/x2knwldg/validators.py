@@ -225,6 +225,12 @@ def validate_knowledge_units(document: Any) -> dict[str, Any]:
     # than sniffed from the shape of the first `source` block — a unit that
     # simply *omitted* `start_sec` would otherwise be silently reclassified as
     # a post claim and skip the timing rules altogether.
+    #
+    # Deliberately **not** `ids.declared_source_type` (D-240), which every other
+    # reader now shares: that helper treats a stated `null` as "unstated" and
+    # answers `youtube`, and this function's whole job is to *report* a
+    # source_type it cannot dispatch on. `.get(key, default)` returns the `None`
+    # so the `unknown_source_type` arm below can see it.
     source_type = (
         document.get("source_type", DEFAULT_SOURCE_TYPE)
         if isinstance(document, dict)

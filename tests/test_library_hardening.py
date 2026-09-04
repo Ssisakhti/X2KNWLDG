@@ -477,7 +477,7 @@ def test_a_failed_write_still_leaves_no_temp_file(tmp_path: Path) -> None:
 def test_every_kind_has_a_report_section(tmp_path: Path) -> None:
     covered: set[str] = set()
     for _, kinds in SECTION_ORDER:
-        covered |= kinds
+        covered |= set(kinds)
     assert covered == constants.KNOWLEDGE_KINDS
 
 
