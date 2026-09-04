@@ -222,7 +222,7 @@ def _add_import_options(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="x2knwldg",
-        description="Timestamp-preserving, auditable video knowledge pipeline",
+        description="Evidence-preserving, auditable source-to-knowledge pipeline",
         epilog=EXIT_CODE_HELP,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -242,7 +242,7 @@ def build_parser() -> argparse.ArgumentParser:
     process_parser.add_argument("--preferred-language", action="append", default=[])
     process_parser.add_argument("--inbox", type=Path, default=Path("inbox"))
 
-    validate_parser = commands.add_parser("validate", help="Validate one canonical video output")
+    validate_parser = commands.add_parser("validate", help="Validate one canonical source run")
     validate_parser.add_argument("run_dir", type=Path)
 
     apply_parser = commands.add_parser(
@@ -256,7 +256,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     finalize_parser.add_argument("run_dir", type=Path)
 
-    status_parser = commands.add_parser("status", help="List local video processing status")
+    status_parser = commands.add_parser("status", help="List local source processing status")
     status_parser.add_argument("--output", type=Path, default=Path("output"))
 
     search_parser = commands.add_parser(
@@ -268,7 +268,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--output", type=Path, default=Path("output"))
 
     library_parser = commands.add_parser(
-        "rebuild-library", help="Rebuild the cumulative cross-video graph and concept registry"
+        "rebuild-library", help="Rebuild the cumulative cross-source graph and concept registry"
     )
     library_parser.add_argument("--output", type=Path, default=Path("output"))
 

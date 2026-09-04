@@ -1,49 +1,141 @@
 # X2KNWLDG
 
-![X2KNWLDG — Turn anything into knowledge](assets/readme/x2knwldg-hero-dark-v3.png)
+![X2KNWLDG — Turn sources into auditable knowledge](assets/readme/x2knwldg-hero-dark-v3.png)
 
-X2KNWLDG turns timestamped YouTube transcripts into auditable, reusable knowledge. It extracts structured knowledge first and only summarizes later.
+X2KNWLDG turns source material into a local, traceable knowledge base. It preserves
+the evidence, extracts source-grounded knowledge before synthesis, validates
+provenance and coverage, and produces a searchable graph plus Obsidian-ready notes.
 
-## Origin and attribution
+The current release supports timestamped YouTube content and public X/Twitter posts
+or same-author self-threads. The pipeline is designed to accept more source adapters,
+but Medium, arbitrary web pages, books, PDFs, and EPUBs are **not implemented yet**.
 
-X2KNWLDG is an independent derivative of
-[velmighty/youtube-to-knowledge](https://github.com/velmighty/youtube-to-knowledge).
-It retains and modifies portions of the original MIT-licensed source, and adds
-a canonical transcript, knowledge-unit, provenance, validation, and coverage
-layer. X2KNWLDG is not affiliated with or endorsed by the upstream author.
+> **Project status:** active development (`0.1.0`). Canonical formats and the read-only
+> API are tested, but backward compatibility is not yet promised across minor releases.
 
-The upstream copyright and MIT permission notice are preserved in
-[`LICENSE`](LICENSE). See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
-for provenance and attribution details.
+## Why X2KNWLDG?
 
-## Current behavior
+Most “content to notes” tools start by compressing a source into a summary. That can
+silently remove the very detail needed to verify or reuse an idea. X2KNWLDG instead:
 
-- Uses native YouTube captions when available.
-- Accepts user-provided `SRT`, `VTT`, timestamped `JSON`, and timestamped `TXT/MD`.
-- Preserves the raw transcript, exact timing, source, and transcript hash.
-- Never falls back to Whisper or WhisperX.
-- Rejects plain transcripts without timestamps in strict mode.
-- Produces canonical JSON, Markdown, graph, validation, coverage, and Obsidian artifacts.
-- Can be driven by ChatGPT/Codex, Claude, the small CLI, or the optional MCP server.
-- Ingests **public X/Twitter posts and same-author self-threads** through the same
-  pipeline and the same commands, to the same canonical outputs, a vault note and the
-  same library. Credential-free and no-payment: no X account, cookie, token or browser
-  profile is used, needed, or read. See [Twitter/X](#twitterx) below.
+1. preserves immutable raw evidence;
+2. extracts small, typed knowledge units with exact provenance;
+3. separates source claims from model-derived synthesis;
+4. audits coverage and reports `PASS`, `PARTIAL`, or `FAIL` honestly;
+5. builds Markdown notes, a graph, and a local browsing interface.
 
-## Everyday use
+No cloud database is required. The core Python package has no runtime dependencies,
+and the optional web interface binds to loopback only.
 
-You do not need to type commands when using ChatGPT/Codex or Claude. Give the app this project folder, attach or place a transcript, and ask it to follow `WORKFLOW.md`.
+## Supported sources
 
-If you do use the command line:
+| Source | Current support | Provenance unit | Acquisition |
+|---|---|---|---|
+| YouTube | **Supported** | Timestamped caption range | Native captions, or a user-provided timestamped transcript |
+| X/Twitter | **Supported with documented limits** | Exact character span in a public post | Credential-free, pinned local `x-cli` provider |
+| Medium articles | **Planned** | — | No adapter or capture contract yet |
+| Other web pages | **Planned** | — | No adapter or capture contract yet |
+| Books / PDF / EPUB | **Planned** | — | No adapter or capture contract yet |
+
+“Planned” means the source-neutral index, graph, UI, and finalization seams are ready
+to be extended. It does not mean that a URL or file of that type can be ingested today.
+See [WORKFLOW.md](WORKFLOW.md) for the exact, currently executable paths.
+
+## What you get
+
+- canonical source metadata and preserved evidence;
+- source-grounded and derived knowledge units in separate classes;
+- typed relationships and a cumulative cross-source knowledge graph;
+- an explicit coverage audit and machine-readable validation report;
+- a Markdown report with clickable source citations;
+- an Obsidian-compatible vault subtree with frontmatter and wikilinks;
+- local search, Library, Reader, and interactive Knowledge Map views;
+- the same portable files whether the model passes are run through Codex or Claude.
+
+## Interface preview
+
+The local Knowledge Canvas contains three implemented views: Library, Reader, and
+Knowledge Map. Final screenshots are intentionally not committed yet. The comments
+below mark their exact future positions; the capture specification and filenames are
+in [`assets/readme/README.md`](assets/readme/README.md).
+
+<!-- README SCREENSHOT SLOT 1
+Replace this comment with:
+![Library view showing mixed YouTube and X sources](assets/readme/library.png)
+Capture: desktop, English UI, at least one YouTube run and one X run, with PASS/PARTIAL
+badges visible. Do not use private source titles or evidence.
+-->
+
+### Read without losing provenance
+
+The Reader keeps the source, knowledge units, relationships, validation state, and
+coverage result together. Missing evidence is shown as missing; it is never replaced
+with an invented timestamp or excerpt.
+
+<!-- README SCREENSHOT SLOT 2
+Replace this comment with:
+![Reader view with provenance and coverage](assets/readme/reader.png)
+Capture: one fixture source, a source-grounded unit, its citation, and the coverage
+panel. Prefer a state that demonstrates provenance rather than a decorative overview.
+-->
+
+### Explore connections
+
+The Knowledge Map supports search, keyboard-accessible navigation, focused
+neighbourhoods, relationship cues, and a DOM outline that remains usable without
+WebGL or a pointer.
+
+<!-- README SCREENSHOT SLOT 3
+Replace this comment with:
+![Knowledge Map focused on a connected knowledge unit](assets/readme/knowledge-map.png)
+Capture: a selected node, related knowledge, legend, and Quick Read panel at a useful
+zoom. Avoid an empty or unlabelled graph.
+-->
+
+### Use the result in Obsidian
+
+`finalize` writes plain Markdown notes under each run's `vault/` directory. Notes use
+YAML frontmatter, stable filenames, and Obsidian wikilinks for source backlinks,
+derived-from links, and relationships. You can open that directory as a vault or copy
+its generated subtrees into an existing vault.
+
+This is file-format compatibility, not an Obsidian plugin: X2KNWLDG does not install
+Obsidian, manage community plugins, or sync your vault.
+
+<!-- README SCREENSHOT SLOT 4
+Replace this comment with:
+![Generated X2KNWLDG notes opened as an Obsidian graph](assets/readme/obsidian.png)
+Capture: a disposable fixture vault with source and derived notes visibly connected.
+Do not capture a personal vault.
+-->
+
+## Quick start
+
+Requirements:
+
+- Python 3.10 or newer;
+- Node.js `^20.19.0` or `>=22.12.0` only if you want the web UI;
+- a supported source and, for X/Twitter, the separately installed pinned provider
+  described in [the workflow](WORKFLOW.md#twitterx-posts-and-self-threads).
+
+Create an environment and install the source-specific extras you need:
 
 ```bash
 python -m venv .venv
 .venv/bin/pip install -e '.[youtube]'
+```
 
+### YouTube
+
+Use native captions when available:
+
+```bash
 .venv/bin/x2knwldg process "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
-When native captions are unavailable, the command creates `inbox/<video-id>/README.md` and exits **5** (`TRANSCRIPT_REQUIRED`) — its own code, so a wrapper can tell "this video needs a transcript from you" from a broken install. Put a transcript file there, then import it:
+If captions are unavailable, the command exits `5` (`TRANSCRIPT_REQUIRED`) and creates
+`inbox/<video-id>/README.md`. Supply `SRT`, `VTT`, timestamped JSON, or timestamped
+TXT/Markdown, then import it:
 
 ```bash
 .venv/bin/x2knwldg import-transcript inbox/<video-id>/transcript.vtt \
@@ -51,199 +143,199 @@ When native captions are unavailable, the command creates `inbox/<video-id>/READ
   --video-url "https://www.youtube.com/watch?v=<video-id>"
 ```
 
-Plain text is accepted only in this form:
+Plain text is accepted only with explicit ranges:
 
 ```text
 [00:00:00 - 00:00:07] First timestamped caption.
 [00:00:07 - 00:00:15] Second timestamped caption.
 ```
 
-## Twitter/X
+Whisper and WhisperX are never installed or used as a fallback.
 
-A public post or a same-author self-thread becomes a run like any other, and reaches the
-same end — validated canonical files, `graph.json`, `report.md`, a vault note and a place
-in the cumulative library. `apply-bundle`, `validate` and `finalize` are the same commands
-for both media; only the first step and the citation unit differ.
+### X/Twitter
+
+Capture one public post, or walk a same-author self-thread upward from its last post:
 
 ```bash
-.venv/bin/x2knwldg capture "https://x.com/<user>/status/<id>" --via-tunnel --output output
-.venv/bin/x2knwldg capture "<last-post-id>" --thread --via-tunnel --output output
-# then extract with prompts/twitter/, and:
-.venv/bin/x2knwldg apply-bundle output/<post-id> extraction_bundle.json
-.venv/bin/x2knwldg finalize output/<post-id>
+.venv/bin/x2knwldg capture "https://x.com/<user>/status/<id>" --via-tunnel
+.venv/bin/x2knwldg capture "<last-post-id>" --thread --via-tunnel
 ```
 
-**Give a thread's LAST post, not its first.** A self-thread is provably complete only
-upward; descendants cannot be enumerated on any credential-free route, so a root-anchored
-thread is reported `PARTIAL` with a warning rather than silently dropping most of it.
+For a thread, supply the **last post**, not the root. The credential-free provider
+cannot enumerate descendants; a root-anchored thread is therefore `PARTIAL`, never a
+silent success. No X account, cookie, token, or browser profile is used or read.
 
-**What leaves the machine.** Exactly one kind of outbound request: a pinned, digest-verified
-local `x-cli` binary reading `x.com` over your own tunnel. No credential, cookie, token or
-browser profile is read, stored or sent, and no third-party mirror is contacted — the
-FxTwitter/oEmbed fallback is *not implemented*, and would be explicit opt-in with a visible
-statement of what leaves. Provider bytes are sanitized and then scanned for credential
-material before being written, in that order. No provider name, version or binary digest
-reaches the index or the web UI; the acquisition record lives in `capture.json`, which you
-can open.
+Provider installation, pin verification, network disclosure, capability limits, and
+troubleshooting are documented in
+[WORKFLOW.md § Twitter/X](WORKFLOW.md#twitterx-posts-and-self-threads).
 
-A claim from a post cites the post it came from and an exact character span into that
-post's authored text — never seconds, and never a normalized copy: `t.co` links, Persian
-digits, ZWNJ and NBSP are preserved byte for byte.
+### Extract, validate, and finalize
 
-**What this can and cannot do**, route by route, plus troubleshooting for exit codes `7`,
-`8` and `9` and the steps a person still has to perform on the target machine:
-[`WORKFLOW.md` § Twitter/X](WORKFLOW.md#twitterx-posts-and-self-threads).
+Acquisition creates canonical inputs; the model passes described in
+[WORKFLOW.md](WORKFLOW.md) produce an `extraction_bundle.json`. The same final commands
+work for both supported sources:
 
-## Canonical outputs
+```bash
+.venv/bin/x2knwldg apply-bundle output/<run-id> extraction_bundle.json
+.venv/bin/x2knwldg validate output/<run-id>
+.venv/bin/x2knwldg finalize output/<run-id>
+```
+
+Completion may be claimed only when the command exits `0`. A `PARTIAL` run is a real,
+inspectable deliverable, but it is not a pass.
+
+## Local Knowledge Canvas
+
+Install and build the optional local UI:
+
+```bash
+.venv/bin/pip install -e '.[ui]'
+(cd web && npm ci && npm run build)
+.venv/bin/x2knwldg ui
+```
+
+The command refreshes the local index, serves the built frontend on a loopback address,
+prints the actual URL, and opens it in your browser. Use `--no-open` to suppress the
+browser, or `--root` to point at another project directory. Non-loopback bind addresses
+are refused.
+
+Frontend development details live in [`web/README.md`](web/README.md). The read-only
+HTTP contract is versioned under [`schemas/api/v1/`](schemas/api/v1/README.md).
+
+## Canonical files
+
+A YouTube run contains timestamped transcript and segment files:
 
 ```text
 output/<video-id>/
-  raw/
-    source.<ext>
-    transcript.json
-    transcript.md
-  metadata.json
-  transcript.json
-  segments.json
-  knowledge_units.json
-  relationships.json
-  coverage.json
-  validation.json
-  report.md
-  graph.json
-  vault/
+├── raw/                         # immutable evidence
+├── metadata.json
+├── transcript.json
+├── segments.json
+├── knowledge_units.json
+├── relationships.json
+├── coverage.json
+├── validation.json
+├── graph.json
+├── report.md
+└── vault/
 ```
 
-Existing output is never silently overwritten.
+An X/Twitter run replaces transcript segmentation with `capture.json`; a post is the
+citation unit. Files under `raw/` remain immutable in both forms. Existing runs are not
+silently overwritten.
 
-## Extraction workflow
-
-The desktop agent follows the model-neutral passes in `WORKFLOW.md` and `prompts/`. It then applies the validated bundle and generates final artifacts:
-
-```bash
-.venv/bin/x2knwldg apply-bundle output/<video-id> extraction_bundle.json
-.venv/bin/x2knwldg finalize output/<video-id>
-```
-
-The build is complete for a video only when both validation and coverage report `PASS`.
+The project-wide `output/library/` is rebuilt from finalized runs and holds the
+cumulative concept registry and graph. Source-grounded data remains distinguishable
+from derived knowledge throughout the canonical files, the index, and the UI.
 
 ## Exit codes
 
-Every command returns one of these. They are the only thing a shell or a CI job reads, so
-they are the contract: **completion may be claimed only on `0`.**
-
 | Code | Name | Meaning |
-|---|---|---|
-| `0` | `PASS` | The command succeeded. Any run it validated passed validation **and** coverage |
-| `1` | `ERROR` | The command refused or failed — a bad argument, a missing or corrupt canonical file, an id that is not an id, a run directory already in use, a missing optional extra. A JSON object with `"status": "ERROR"` goes to stderr |
-| `2` | usage error | Reserved by `argparse` for an unknown flag or a missing argument. Nothing semantic uses it |
-| `3` | `PARTIAL` | Every validator passed and coverage is honestly incomplete (`WORKFLOW.md` §4). A real deliverable — and **not** a pass |
-| `4` | `FAIL` | The run validated as failing |
-| `5` | `TRANSCRIPT_REQUIRED` | No native captions. `inbox/<video-id>/` now holds instructions; supply a timestamped transcript. Whisper is never a fallback |
-| `6` | `UI_NOT_BUILT` | `x2knwldg ui` accepted its arguments and the server is ready, but `web/dist` holds no built frontend. Run `cd web && npm ci && npm run build` |
-| `7` | `PROVIDER_UNAVAILABLE` | An acquisition provider is not installed, or the binary at its pinned path is not the pinned build. Nothing was run and nothing was written |
-| `8` | `PROVIDER_UNREACHABLE` | The read could not be completed and **nothing was learned** — the network failed, the request timed out, or it was rate limited. The stderr envelope names which; retry later |
-| `9` | `PROVIDER_DRIFT` | A provider answered and the answer was unusable. Deliberately not `8`: a network failure must never read as a provider having changed |
+|---:|---|---|
+| `0` | `PASS` | The command succeeded; validated runs passed validation and coverage |
+| `1` | `ERROR` | Invalid input, corrupt/missing files, an occupied run directory, or another refused operation |
+| `2` | usage error | Invalid or incomplete command-line syntax |
+| `3` | `PARTIAL` | Validation passed, but coverage or source completeness is honestly incomplete |
+| `4` | `FAIL` | The run failed validation |
+| `5` | `TRANSCRIPT_REQUIRED` | YouTube has no usable native captions; provide a timestamped transcript |
+| `6` | `UI_NOT_BUILT` | The local server is ready but `web/dist` has not been built |
+| `7` | `PROVIDER_UNAVAILABLE` | The X acquisition provider is missing or does not match its pin |
+| `8` | `PROVIDER_UNREACHABLE` | The provider learned nothing because of timeout, rate limit, or network failure |
+| `9` | `PROVIDER_DRIFT` | The provider answered in an unusable shape |
 
-`PARTIAL` used to exit `0`, so no check could tell an honestly incomplete run from a passing
-one, and the `ui` command's refusal shared `1` with every real error. Splitting them
-out is what makes `if x2knwldg finalize ...` a meaningful check: `0` is a pass, `3` and `4`
-are verdicts to act on, `1` is something broken, and `5` and `6` are "do this next".
+`x2knwldg --help` is the command-line source of truth for this table.
 
-`7`, `8` and `9` are the same argument one layer out, for a command that depends on an external
-tool and a network: install-or-re-pin, wait-and-retry, and the provider's output moved. `8` and
-`9` are separate codes because a caller that cannot tell them apart will either retry a real
-drift forever or blame the provider for the network.
+## Agent and desktop-client use
 
-`x2knwldg --help` prints the same table, and `cli.VERDICT_EXIT_CODES` is the single mapping
-from a verdict to its code, so `validate`, `apply-bundle`, and `finalize` cannot disagree.
-
-## ChatGPT/Codex and Claude compatibility
-
-The canonical data does not depend on either vendor. Codex can operate the local project and run the CLI directly. Claude Desktop can use the optional MCP server.
-
-Install the optional MCP adapter:
+The workflow and canonical files are vendor-neutral. Codex can work directly in the
+project. Claude Desktop can use the optional MCP server for the currently exposed
+YouTube-oriented tools:
 
 ```bash
 .venv/bin/pip install -e '.[mcp]'
 ```
 
-Then configure the desktop client to launch this command from the project directory:
+Configure the client to launch:
 
 ```text
 /absolute/path/to/X2KNWLDG/.venv/bin/x2knwldg-mcp
 ```
 
-Set `X2KNWLDG_PROJECT_ROOT` to the absolute project directory in the MCP server environment.
+Set `X2KNWLDG_PROJECT_ROOT` to the checkout's absolute path. A configuration template
+is available at
+[`config/claude_desktop_config.example.json`](config/claude_desktop_config.example.json).
+X/Twitter acquisition currently uses the CLI; the MCP tool surface has not yet been
+generalized to every source type.
 
-A template ships with the repo at [`config/claude_desktop_config.example.json`](config/claude_desktop_config.example.json). Copy it, replace both `/absolute/path/to/X2KNWLDG` placeholders with this checkout's real path, then paste the `x2knwldg` entry into Claude Desktop's MCP configuration and restart Claude Desktop:
+Agents must follow [WORKFLOW.md](WORKFLOW.md). The concise client-specific guardrails
+are in [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md).
 
-```bash
-cp config/claude_desktop_config.example.json config/claude_desktop_config.local.json
-# then edit config/claude_desktop_config.local.json and set both paths to:
-pwd
-```
+## Development
 
-`config/*.local.json` is gitignored on purpose — the filled-in copy holds machine-local
-absolute paths and is never committed, so only the `.example.json` exists in a fresh clone.
-
-## Local web UI
-
-A local-first Knowledge Canvas over the canonical outputs. Phase 2 — the **Library**, the
-**Reader** and the **Knowledge Map** — is built and served; the board is a later phase. The design
-is in [`docs/KNOWLEDGE_CANVAS_PLAN.md`](docs/KNOWLEDGE_CANVAS_PLAN.md) and
-[ADR 0001](docs/adr/0001-local-web-ui.md); status and task breakdown are in
-[`docs/PROJECT_MANAGEMENT.md`](docs/PROJECT_MANAGEMENT.md).
-
-It is **optional.** The core package stays zero-dependency: nothing below is installed by
-`pip install x2knwldg`, and the UI's Python dependencies are imported only by
-`x2knwldg.server`.
+Install all test dependencies and run the Python checks:
 
 ```bash
-.venv/bin/pip install -e '.[ui]'      # fastapi + uvicorn
-(cd web && npm ci && npm run build)   # the frontend; without it, ui exits 6 UI_NOT_BUILT
-
-.venv/bin/x2knwldg ui                 # serves on 127.0.0.1 and opens a browser
-```
-
-`x2knwldg ui` refuses any non-loopback bind address **before** anything else (ADR 0001
-invariant 9), resolves the project root, refreshes the index — incrementally, so an unchanged
-project pays a directory walk — then binds, prints the URL it actually reached, and opens a
-browser. Nothing else in the CLI builds an index, so this is where one comes from.
-
-| Flag | Meaning |
-|---|---|
-| `--root` | Project root. Defaults to `$X2KNWLDG_PROJECT_ROOT`, then the working directory |
-| `--host` | Loopback address to bind. Only `127.0.0.1`, `::1` and `localhost` are accepted |
-| `--port` | Omit to let the OS choose a free one — the URL is printed after the bind, never before |
-| `--no-open` | Do not open a browser |
-
-The frontend lives in [`web/`](web/README.md); the TypeScript types for the frozen HTTP
-contract are generated into [`schemas/api/v1/`](schemas/api/v1/README.md).
-
-## Tests
-
-Core tests require only Python's standard library:
-
-```bash
-PYTHONPATH=src python -m unittest tests.test_core_pipeline -v
-```
-
-For the whole suite, install the development extras and run `pytest`:
-
-```bash
-.venv/bin/pip install -e '.[dev,legacy]'
+.venv/bin/pip install -e '.[dev,legacy,ui]'
 .venv/bin/pytest -q
+.venv/bin/ruff check .
+.venv/bin/mypy
 ```
 
-`dev` brings pytest and the schema validators; `legacy` brings networkx and pyvis, without
-which the `legacy/upstream/` tests skip rather than run.
+Run the frontend checks:
 
-CI runs the suite on Python **3.10, 3.12, 3.13 and 3.14**, separately proves the core package
-installs and passes with **no** extras at all, and installs each of the five declared extras
-(`youtube`, `mcp`, `ui`, `legacy`, `dev`) on its own to prove it is still resolvable and
-importable. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+```bash
+cd web
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
 
-## Whisper status
+CI tests Python 3.10, 3.12, 3.13, and 3.14 on Linux, includes a macOS row, verifies the
+zero-dependency core, installs every optional extra independently, and checks the
+frontend and browser paths. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-The upstream project contained Whisper and WhisperX scripts. They are retained only as upstream legacy code and are not installed, invoked, or used by the X2KNWLDG workflow.
+When contributing a new source type, add the acquisition/capture contract, extraction
+rules, adapter, medium profile, fixtures, validators, vault rendering, documentation,
+and coexistence tests together. A row in a roadmap or enum is not source support.
+
+## Privacy and security boundaries
+
+- Evidence and generated knowledge stay in the local project unless an acquisition
+  command contacts the named source.
+- The web UI and API are read-only and loopback-only.
+- Raw evidence is immutable and digest-checked.
+- YouTube acquisition contacts YouTube through its optional libraries.
+- X/Twitter acquisition invokes a separately installed, digest-pinned local tool and
+  contacts X; it does not use account credentials or third-party mirrors.
+- Generated reports may contain links to external sources. The UI does not load an
+  external YouTube embed until the user asks it to.
+
+Do not ingest private, confidential, or copyrighted material unless you have the right
+to store and process it.
+
+## Limitations and roadmap
+
+- Medium, general web-page, book, PDF, and EPUB ingestion are not implemented.
+- X/Twitter support is limited to public posts and same-author self-threads walked from
+  a user-asserted terminal post; reply trees and timelines are outside the current scope.
+- X post text completeness cannot be independently corroborated on the implemented route.
+- The model passes require an agent; the CLI does not perform autonomous language-model
+  extraction.
+- The local UI is a reader and explorer, not an editor or synchronization service.
+
+The detailed implementation plan and decision history are in
+[`docs/PROJECT_MANAGEMENT.md`](docs/PROJECT_MANAGEMENT.md) and
+[`docs/KNOWLEDGE_CANVAS_PLAN.md`](docs/KNOWLEDGE_CANVAS_PLAN.md).
+
+## Origin, license, and attribution
+
+X2KNWLDG is an independent derivative of
+[`velmighty/youtube-to-knowledge`](https://github.com/velmighty/youtube-to-knowledge).
+It is not affiliated with or endorsed by the upstream author.
+
+The project is distributed under the MIT License. The upstream and X2KNWLDG copyright
+notices are preserved in [`LICENSE`](LICENSE); dependency and provenance details are in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
