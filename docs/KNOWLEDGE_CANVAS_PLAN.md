@@ -641,7 +641,13 @@ Planned adapters:
 1. YouTube adapter, from the current `output/<video-id>` structure
 2. Twitter/X adapter, after the corresponding extraction pipeline is designed
 3. Medium/article adapter
-4. Generic file/PDF adapter
+4. Books — PDF and EPUB
+5. Website links
+
+Steps 2–5 are the user's stated order (D-234), and each of them has to reach the **graph and
+the vault**, not only the index and the Reader. A claim in any of them is a `text_span` into
+its own artifact (D-233), so the four differ in what an artifact *is* — a post, an article, a
+chapter, a page — and not in how a claim is addressed.
 
 Only the YouTube adapter is currently implemented. Phase 2.2 adds Twitter through the same
 generic boundary; it does not make a provider response part of the adapter contract.
@@ -1329,6 +1335,8 @@ AGPL boundary are recorded. See [ADR 0007](adr/0007-twitter-acquisition-boundary
 
 This table is the canonical index of decisions and answers "what was decided". The reasoning, rejected alternatives, and consequences are recorded in `docs/adr/`. The ADR convention is described in `docs/adr/README.md`.
 
+**This mirror is behind.** It runs to D-219 and then jumps to D-233; D-220–D-232 were recorded in `docs/PROJECT_MANAGEMENT.md` §6 only, which is the complete ledger and the one to read. The two rows below are here because they change *this* document's roadmap — they are not evidence that the rest was backfilled.
+
 Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/0001-local-web-ui.md).
 
 | ID | Decision | Status | Rationale |
@@ -1444,6 +1452,8 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-217 | The **root-first thread invariant is conditional on upward completeness** — a `T-223` refinement `T-224` forced | accepted | An honestly truncated chain does not begin at a root, and its first item keeps the `parent_post_id` that proves it; dropping that link to satisfy a root-first rule would hide the incompleteness the capture reports. So the root claim applies when `upward.status` is `complete`, and where the chain dangles the dangling end must equal the id `upward.unresolved_at` names — tying the item set and the completeness claim together |
 | D-218 | At the qualified local route a capture carries **mention spans and no URL spans** | accepted | Measured live: x-cli's `entities.urls` holds expanded targets absent from the authored text, and one thread post carried two `t.co` links against a single entry, so a link can be located but not paired. A guessed target is worse than no span, and the facet triple comes from the route `T-225` owns. Absent, not wrong |
 | D-219 | The record→capture normalization has **one implementation**, in the package, imported by `T-223`'s fixture builder | accepted | Two copies of "how a provider record becomes a capture" would be two answers the moment one was edited, and the codepoint-offset and absent-not-empty rules drift silently. The byte-identical regeneration check `T-223` already requires is the proof the move was faithful |
+| D-233 | A source claim is projected as a **per-item artifact addressed by the generic `text_span` locator**; no locator branch is widened. Revises D-212's plan | accepted | Four media are coming (D-234) and a per-medium branch would repeat the same three span fields four times, in a file whose header says the reserved branches exist so that adding PDFs, articles or posts needs no version bump. One locator type over four artifact kinds instead — and the artifact id replaces the `video_id` comparison a post claim has nothing to compare for. Cost: an artifact per item, carrying no bytes, which `_video_artifact` already has precedent for. Full reasoning in `PROJECT_MANAGEMENT.md` §6 |
+| D-234 | Source-type order is **Twitter → Medium/articles → books → website links**, each reaching the **graph and the vault**; `T-230` generalizes finalize and the vault for all four | accepted | The user's, 2026-09-04. Neither the order nor **books** was derivable from this document. `finalize_run` and `_obsidian_files` are YouTube-shaped, so the wall is not Twitter's — folding the fix into `T-228` would rewrite an acceptance clause mid-claim, and leaving it in `T-229` would have the phase gate implement what it exists to rehearse |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
@@ -1609,10 +1619,15 @@ An agent must not guess the answers to these if the decision would cause a notic
   spans and corroborated text, additively (D-218, D-220) — and `T-229`'s capability table may
   not promise a route that was never built, so the selection between them has to be recorded
   before it runs
+- [ ] Phase 2.2 / `T-230`: medium-dispatched finalize and a vault a second medium can reach.
+  Runs between `T-228` and `T-229`, and is sized for all four media rather than for Twitter,
+  because `finalize_run` and `_obsidian_files` are YouTube-shaped and every medium hits the
+  same four places (D-234)
 - [ ] Canvas — Phase 3 / `T-301`: technically unblocked by `T-210`, deliberately deferred
   until the Twitter phase gate closes (D-204)
 - [ ] Pen annotations
-- [ ] Additional adapters for Medium, web pages and future approved sources
+- [ ] Additional adapters, in the user's stated order (D-234): **Medium and articles**, then
+  **books** (PDF/EPUB), then **website links** — each reaching the graph *and* the vault
 
 Live status, task breakdown, and track ownership are maintained in `docs/PROJECT_MANAGEMENT.md`. In case of conflict, that file is the authority on **status** and this document is the authority on **design**.
 
@@ -1629,9 +1644,12 @@ What is left is the half that makes any of it visible. A Twitter run is **discov
 `io.run_dirs` globs `output/*/metadata.json` — and `TwitterAdapter` registers the source type so
 one acquired post cannot refuse the whole project's projection, but it projects a single `Source`
 record and nothing else, on purpose: an `Entity` carries a `Locator`, and no locator branch can
-carry a post id and a span together (D-212, D-227). So `T-228` widens that branch, mints the
-entities, artifacts and relations, forces the re-index its `0.1` adapter version exists to force,
-and adds presentation only where the generic renderer cannot already represent a post.
+carry a post id and a span together (D-212, D-227). So `T-228` mints the entities, artifacts and
+relations, forces the re-index its `0.1` adapter version exists to force, and adds presentation
+only where the generic renderer cannot already represent a post — but it **widens no locator
+branch**: D-233 projects a claim as a per-item artifact addressed by the generic `text_span`
+branch, so the artifact id is what identifies the post and one locator type serves an article,
+a book chapter and a web page too. That is the shape four media get, not one.
 
 What `T-227` handed forward, so this task does not have to guess:
 
@@ -1644,11 +1662,14 @@ What `T-227` handed forward, so this task does not have to guess:
    text a claim slices, which is the same reason a YouTube locator addresses the segments file
    rather than the transcript. A Twitter run has no `transcript.json`, `segments.json`,
    `graph.json` or `report.md`.
-3. **A run ends at `validation.json`.** `artifacts.finalize_run` reads a transcript and segments
-   and requires `metadata['video_url']`, `metadata['channel']` and `metadata['transcript_hash']`
-   — a Twitter `metadata.json` carries `source_url` and `canonical_hashes` instead. Whether
-   `T-228` or `T-229` closes that is stated as an open scope question in
-   `PROJECT_MANAGEMENT.md` §11 rather than left for whichever task reaches it first.
+3. **A run ends at `validation.json`, and closing that is `T-230`'s (D-234).**
+   `artifacts.finalize_run` reads a transcript and segments and requires
+   `metadata['video_url']`, `metadata['channel']` and `metadata['transcript_hash']`, while
+   `_obsidian_files` writes `vault/videos/<id>.md` with `type: video` frontmatter — a Twitter
+   `metadata.json` carries `source_url` and `canonical_hashes` instead. The wall is
+   **YouTube-shaped, not Twitter-shaped**, so Medium, books and website links all hit the same
+   four places and the generalization is one task sized for four media, running between `T-228`
+   and `T-229`.
 4. **Nothing is reachable from the CLI but `capture`.** Initializing, applying and validating a
    Twitter run is library-only, and `WORKFLOW.md` still correctly describes only the YouTube
    workflow. `T-229` owns the CLI help, the documentation and the failure rehearsal — do not
