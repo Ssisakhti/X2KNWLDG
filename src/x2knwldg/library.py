@@ -148,12 +148,9 @@ def rebuild_library(output_root: Path) -> dict[str, Any]:
             )
             continue
         claimed_by[video_id] = relative
-        declared_type = metadata.get("source_type")
-        source_type = (
-            declared_type
-            if isinstance(declared_type, str) and declared_type
-            else ids.DEFAULT_SOURCE_TYPE
-        )
+        # One implementation of the defaulting rule, in the module that owns the
+        # vocabulary (D-240). This was the second of two identical copies.
+        source_type = ids.declared_source_type(metadata)
         problems: list[str] = []
 
         units, unit_problems = _read_list(run_dir / "knowledge_units.json", "units")

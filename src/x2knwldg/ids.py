@@ -68,6 +68,30 @@ CONCEPT_LIBRARY_PREFIX = "concept"
 DEFAULT_SOURCE_TYPE = "youtube"
 
 
+def declared_source_type(metadata: Mapping[str, Any]) -> str:
+    """The source type a run declares, or :data:`DEFAULT_SOURCE_TYPE`.
+
+    Every run written before the field existed is a YouTube run, so an absent
+    ``source_type`` is an answer rather than a gap.
+
+    This lives here, in the module that owns the vocabulary, because **dispatch
+    has to read it before an adapter has been chosen** — and by `T-230` three
+    modules were reading it three ways: ``adapters.base``, which is where this
+    function was and which the finalize path cannot import without inverting the
+    layering, ``library.rebuild_library``, and ``validators.validate_provenance``.
+    The first two were the same rule spelled twice, and are now this one call.
+
+    The third is deliberately **not** a caller. ``validate_provenance`` reads
+    ``document.get("source_type", DEFAULT_SOURCE_TYPE)``, which returns ``None``
+    for a document that states ``"source_type": null`` — and that is how it
+    reports ``unknown_source_type`` rather than silently validating a null as a
+    YouTube run. Folding it in here would turn one of its errors into a default,
+    so it keeps its own read and a comment saying so.
+    """
+    declared = metadata.get("source_type")
+    return declared if isinstance(declared, str) and declared else DEFAULT_SOURCE_TYPE
+
+
 class IdError(ValueError):
     """An identifier is malformed, or its parts contradict the whole."""
 
