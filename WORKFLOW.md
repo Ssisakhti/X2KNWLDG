@@ -2,7 +2,13 @@
 
 This workflow is vendor-neutral. ChatGPT/Codex, Claude, or any MCP-capable agent must use the same canonical files and validators.
 
-**Two media.** Sections 1–5 are the **YouTube** path. The **Twitter/X** path is below them, and it is a different first step and a different citation unit rather than a different pipeline: `apply-bundle`, `validate` and `finalize` are the same commands and dispatch on what the run declares (D-240, D-243). A third and fourth medium — articles, then books, then web pages (D-234) — add a section here and a row to `artifacts.MEDIUM_PROFILES`, not a second workflow.
+**Two source types are implemented.** Sections 1–5 are the **YouTube** path. The
+**Twitter/X** path follows and uses a different acquisition step and citation unit,
+not a second pipeline: `apply-bundle`, `validate`, and `finalize` dispatch on the
+source type declared by the run (D-240, D-243). Medium/articles, books, PDFs/EPUBs,
+and arbitrary web pages are roadmap items only. Do not ingest them until they have a
+capture contract, extraction rules, an adapter, a row in `artifacts.MEDIUM_PROFILES`,
+fixtures, and validators.
 
 ## 1. Acquire the transcript
 
@@ -161,7 +167,7 @@ not safe on this route (D-218).
 ## T3. Run the model passes
 
 ```
-1. prompts/twitter/01_item_extraction.md
+1. prompts/twitter/01_post_extraction.md
 2. prompts/02_normalize_deduplicate.md
 3. prompts/03_relationships.md
 4. prompts/04_derived_synthesis.md
@@ -203,6 +209,12 @@ refuses a `FAIL` run before its first write and finalizes a `PARTIAL` one. It wr
 `vault/posts/<anchor>.md` with `type: post` frontmatter, and each claim's provenance line
 cites the post it came from — not the anchor — as
 `[post <id>, characters n–m](https://x.com/i/status/<id>)`.
+
+For both supported source types, the generated `vault/` tree is Obsidian-compatible
+plain Markdown: YAML frontmatter, stable note filenames, and wikilinks connect source,
+derived, and relationship notes. This is a file-format output, not an Obsidian plugin
+or a synchronization step; do not write into a separate user vault without an explicit
+request.
 
 ## T6. What this medium can and cannot do
 
@@ -255,18 +267,33 @@ in `capture.json`, which anyone can open.
 | `3` `PARTIAL` | Honestly incomplete — a root-anchored thread, an unavailable item, or an unaudited run | A real deliverable. Report it as `PARTIAL`; never as completion |
 | `1` `ERROR` on `apply-bundle` | The gate refused the bundle | Read the named errors, fix the extraction, re-apply. The run on disk was not changed |
 
-## T8. Steps a person still has to do
+## T8. Operational prerequisites and verification boundary
 
-These cannot be asserted from a test machine and are not claimed as done by CI:
+The end-to-end phase gate was completed on the target machine on 2026-09-04 with a real
+public Persian post and a real ten-post self-thread anchored at its last post. Both were
+captured, applied, validated, finalized into vault notes, and merged into one library;
+the commands exited `0` and preserved every `raw/` file byte for byte. Committed fixtures
+rehearse the same path and its failure states offline.
 
-1. Install the pinned `x-cli` build on the target machine and confirm `capture` reports
-   its digest matches — the pin is verified at every invocation, so a wrong build exits
-   `7` rather than producing a capture.
-2. Bring up the tunnel, and state it with `--via-tunnel`.
-3. Walk one **real public** post and one **real public** Persian self-thread from their
-   last posts, end to end, and confirm exit `0` at each step and a vault note at the end.
-4. Confirm `output/<post-id>/raw/` is byte-identical before and after the rest of the
-   journey.
+That historical verification does not remove the prerequisites for a new capture:
 
-The committed fixtures rehearse all of this offline, including every failure above; what
-they cannot rehearse is the network and the pin on real hardware.
+1. Install the pinned `x-cli` build and let `capture` verify its digest at every
+   invocation. A missing or mismatched build exits `7` before acquisition.
+2. Make the required network route available and state it truthfully with
+   `--via-tunnel` or `--no-tunnel`; the program records the statement but cannot measure
+   the route.
+3. Use only public content you have the right to preserve and process.
+4. Treat each new network acquisition as a new observation. CI proves the local
+   contracts and fixtures, not current X availability or unchanged provider behaviour.
+
+---
+
+# Unsupported source types
+
+Do not treat architectural readiness as ingestion support. Medium articles, generic web
+pages, books, PDF, and EPUB have no implemented acquisition command, canonical capture
+contract, prompt pair, adapter, or medium profile in this release. If a user requests one,
+report that boundary rather than converting the content into a fake YouTube transcript or
+an unversioned post capture. Implementing a source requires the complete vertical slice
+listed at the top of this file and cross-source coexistence tests before this workflow may
+name it as supported.

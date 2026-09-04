@@ -15,14 +15,39 @@ unmodified portions of its source code. The original copyright notice and MIT
 permission notice are preserved in [`LICENSE`](LICENSE), as required when
 copying or distributing the software or substantial portions of it.
 
-X2KNWLDG adds and changes functionality including canonical transcript
-handling, evidence provenance, structured knowledge units, relationship and
-coverage data, validation, agent workflows, and plans for a local knowledge
-canvas. New contributions are also distributed under the repository's MIT
-License unless an individual file explicitly states otherwise.
+X2KNWLDG adds and changes functionality including canonical transcript and
+post capture handling, evidence provenance, structured knowledge units,
+relationship and coverage data, validation, multi-source indexing, an
+Obsidian-compatible Markdown export, agent workflows, and a local Knowledge
+Canvas. New contributions are distributed under the repository's MIT License
+unless an individual file explicitly states otherwise.
 
 References to the upstream project or its author are for attribution and
 provenance only. They do not imply affiliation, sponsorship, or endorsement.
+
+The files retained substantially from upstream are isolated under
+`legacy/upstream/` and documented in `legacy/upstream/README.md`. They are not
+part of the maintained ingestion path; in particular, the upstream Whisper and
+WhisperX drivers are never installed or invoked by X2KNWLDG.
+
+## X/Twitter acquisition provider (external, not distributed)
+
+The optional X/Twitter acquisition path invokes a separately installed copy of
+[`tamnd/x-cli`](https://github.com/tamnd/x-cli), version `0.5.0`, licensed under
+AGPL-3.0-only. X2KNWLDG does not copy, vendor, link, install, or redistribute that
+program. It executes the user's local binary as a separate process, after
+verifying its version and SHA-256 pin, and consumes its output through the
+provider boundary described in
+[`docs/adr/0007-twitter-acquisition-boundary.md`](docs/adr/0007-twitter-acquisition-boundary.md).
+Existing capture metadata uses the shorter `AGPL-3.0` label; the provider's own
+`NOTICE` identifies the precise SPDX expression as `AGPL-3.0-only`.
+
+Invoking the separate provider does not by itself replace the license declared for
+this repository's code. Anyone installing, modifying, or redistributing the provider
+must comply with its license independently. If the boundary changes—for example, if
+provider code or binaries are copied or distributed with X2KNWLDG—the licensing
+analysis and this notice must be revisited. This notice records the current operational
+boundary; it does not replace the provider's license text or constitute legal advice.
 
 ## The frontend's application framework (`web/`, Track C)
 
