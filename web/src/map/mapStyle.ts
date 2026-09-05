@@ -80,6 +80,7 @@ import {
   type MapLabelVisibility,
 } from "./labelPolicy";
 import type { MapEdgeAttributes, MapNodeAttributes } from "./graphProjection";
+import { mapStage, type MapStage } from "./stage";
 
 /** The relation vocabularies, as the contract spells them. */
 export type RelationVocabulary = IndexedRelation["relation_vocabulary"];
@@ -306,28 +307,74 @@ export const KIND_FAMILY: Record<KnowledgeKind, KindFamily> = {
 };
 
 /**
- * One hue per family, mid-tone so that it reads on both stage backgrounds.
+ * One hue per family, in the two inks that hue is drawn in.
  *
  * `unrecognised` reserves a hue used by nothing else, because the failure to
  * avoid is a value the contract does not declare quietly looking like one it
  * does.
+ *
+ * **Two tables rather than one, because one is not possible.** These hues are
+ * Paul Tol's colourblind-safe set, and they were carried as a single mid-tone
+ * palette on the argument that a mid-tone "reads on both stage backgrounds".
+ * A node's label is text drawn on the canvas, so SC 1.4.3 asks 4.5:1 of it,
+ * and `stage.ts` works out that the light stage's window (luminance `<=
+ * 0.1737`) and the dark stage's (`>= 0.2124`) are disjoint: no ink clears
+ * 4.5:1 on both. Every value below was measured against its own ground rather
+ * than against an average of the two, and `stageContrast.test.ts` keeps it
+ * that way.
+ *
+ * **Each ink is the nearest one to the designed hue that clears the bar.**
+ * Same hue, same saturation, lightness moved as little as the requirement
+ * allows and no further -- so eleven of the twenty-eight values below are the
+ * originals unchanged, and the palette is still recognisably Tol's. The
+ * fourteen families remain mutually distinct on both stages.
  */
-export const KIND_FAMILY_COLOUR: Record<KindFamily, string> = {
-  thesis: "#4477aa",
-  evidence: "#228833",
-  concept: "#aa3377",
-  framework: "#ee7733",
-  process: "#009988",
-  example: "#999933",
-  fact: "#1e9fd0",
-  recommendation: "#ddaa33",
-  caveat: "#cc3311",
-  question: "#6644aa",
-  synthesis: "#8b5a2b",
-  reference: "#5f7a86",
-  unstated: "#8b847b",
-  unrecognised: "#e4007f",
+export const KIND_FAMILY_INK: Record<MapStage, Record<KindFamily, string>> = {
+  light: {
+    thesis: "#4477aa",
+    evidence: "#218532",
+    concept: "#aa3377",
+    framework: "#c15110",
+    process: "#008274",
+    example: "#777728",
+    fact: "#177ca3",
+    recommendation: "#926e18",
+    caveat: "#cc3311",
+    question: "#6644aa",
+    synthesis: "#8b5a2b",
+    reference: "#5d7783",
+    unstated: "#79736a",
+    unrecognised: "#e0007d",
+  },
+  dark: {
+    thesis: "#4d83b8",
+    evidence: "#259337",
+    concept: "#cc5398",
+    framework: "#ee7733",
+    process: "#009988",
+    example: "#999933",
+    fact: "#1e9fd0",
+    recommendation: "#ddaa33",
+    caveat: "#ec3e17",
+    question: "#8c70c6",
+    synthesis: "#af7236",
+    reference: "#668490",
+    unstated: "#8b847b",
+    unrecognised: "#f60089",
+  },
 };
+
+/**
+ * The family hues for the stage this environment is on.
+ *
+ * A getter rather than a constant: the stage is read at the call so that a
+ * theme changed while the Map is open reaches the next refresh. The name is
+ * kept from when there was one table, because every reader of it -- the
+ * legend, the Library's kind badge, the reducers -- wants exactly this.
+ */
+export function kindFamilyColour(stage: MapStage = mapStage()): Record<KindFamily, string> {
+  return KIND_FAMILY_INK[stage];
+}
 
 /** The family of a `kind` field: absent is `unstated`, unknown is `unrecognised`. */
 export function kindFamily(kind: string | null | undefined): KindFamily {
@@ -397,23 +444,41 @@ export interface EdgeProvenanceMark {
  * used rather than the head because the head already carries vocabulary, and
  * two variables cannot share one end of a line.
  */
-export const EDGE_PROVENANCE_MARK: Record<ProvenanceClass, EdgeProvenanceMark> = {
-  source: { tail: "none", colour: "#2f8f5f" },
-  derived: { tail: "bar", colour: "#a9801f" },
-  user: { tail: "circle", colour: "#7a5ac9" },
+export const EDGE_PROVENANCE_INK: Record<MapStage, Record<ProvenanceClass, EdgeProvenanceMark>> = {
+  light: {
+    source: { tail: "none", colour: "#2b8257" },
+    derived: { tail: "bar", colour: "#926e1b" },
+    user: { tail: "circle", colour: "#7a5ac9" },
+  },
+  dark: {
+    source: { tail: "none", colour: "#2f905f" },
+    derived: { tail: "bar", colour: "#a9801f" },
+    user: { tail: "circle", colour: "#8b6fd0" },
+  },
 };
+
+/** Edge provenance marks for the stage this environment is on. */
+export function edgeProvenanceMarks(
+  stage: MapStage = mapStage(),
+): Record<ProvenanceClass, EdgeProvenanceMark> {
+  return EDGE_PROVENANCE_INK[stage];
+}
 
 /** A `provenance_class` this build does not know, on an edge. */
-export const UNRECOGNISED_EDGE_PROVENANCE_MARK: EdgeProvenanceMark = {
-  tail: "square",
-  colour: KIND_FAMILY_COLOUR.unrecognised,
-};
+export function unrecognisedEdgeProvenanceMark(
+  stage: MapStage = mapStage(),
+): EdgeProvenanceMark {
+  return { tail: "square", colour: KIND_FAMILY_INK[stage].unrecognised };
+}
 
-export function edgeProvenanceMark(value: string | null | undefined): EdgeProvenanceMark {
-  const known = (EDGE_PROVENANCE_MARK as Record<string, EdgeProvenanceMark | undefined>)[
+export function edgeProvenanceMark(
+  value: string | null | undefined,
+  stage: MapStage = mapStage(),
+): EdgeProvenanceMark {
+  const known = (EDGE_PROVENANCE_INK[stage] as Record<string, EdgeProvenanceMark | undefined>)[
     value ?? ""
   ];
-  return known ?? UNRECOGNISED_EDGE_PROVENANCE_MARK;
+  return known ?? unrecognisedEdgeProvenanceMark(stage);
 }
 
 // ---------------------------------------------------------------------------
@@ -723,10 +788,11 @@ export function mapNodeStyle(
   interaction: MapInteraction,
   view: MapViewState,
   fieldWidth: number,
+  stage: MapStage = mapStage(),
 ): MapNodeDisplay {
   const mark = nodeProvenanceMark(record.provenance_class);
   const family = kindFamily(record.kind);
-  const colour = KIND_FAMILY_COLOUR[family];
+  const colour = KIND_FAMILY_INK[stage][family];
   const state = NODE_INTERACTION[interaction];
   const dimmed = interaction === "normal" && hasFocus(view);
   const halo =

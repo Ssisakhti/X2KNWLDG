@@ -476,15 +476,240 @@ def test_the_honest_original_still_validates(validator: Draft202012Validator) ->
     assert not list(validator.iter_errors(load("pass-single-post-en")))
 
 
-def test_deleted_reason_is_schema_legal_but_refused_by_the_invariant() -> None:
+def test_deleted_reason_is_schema_legal_but_refused_by_the_invariant(
+    validator: Draft202012Validator,
+) -> None:
     """Tier 0 cannot tell deleted from suspended from protected.
 
     The enum lists the specific reasons because a future tier could distinguish
-    them, so the schema alone cannot refuse one. The invariant does.
+    them, so the schema alone cannot refuse one. A validator does.
+
+    This test used to be a ``pytest.raises(AssertionError)`` wrapped around its
+    own inline ``assert`` — it exercised no line of ``src/`` at all and would
+    have passed against an empty package, while its name claimed a rule was
+    "refused by the invariant". So it now does what it says: the schema is asked
+    (and accepts, which is the premise), and then the code that actually holds
+    the rule is asked.
     """
     capture = copy.deepcopy(load("fail-unavailable-post"))
     capture["items"][0]["availability"]["reason"] = "deleted"
-    with pytest.raises(AssertionError):
-        for post in capture["items"]:
-            if post["availability"]["state"] == "unavailable":
-                assert post["availability"].get("reason") == "not_determinable_at_this_tier"
+
+    # The premise: the contract cannot refuse this on its own.
+    assert not list(validator.iter_errors(capture))
+
+    # The rule, in the code that owns it.
+    from x2knwldg.validators import TIER_INDETERMINATE_REASON, validate_capture_availability
+
+    errors = validate_capture_availability(capture)
+    assert [error["code"] for error in errors] == ["unavailability_reason_beyond_tier"]
+    assert errors[0]["post_id"] == capture["items"][0]["post_id"]
+    assert errors[0]["reason"] == "deleted"
+    assert errors[0]["expected"] == TIER_INDETERMINATE_REASON
+
+    # And the committed capture, unmutated, passes it — so the assertion above
+    # is about the mutation and not about the fixture.
+    assert validate_capture_availability(load("fail-unavailable-post")) == []
+
+
+# ---------------------------------------------------------------------------
+# The span guard, executed
+# ---------------------------------------------------------------------------
+#
+# `normalize.entities_from` is the only place CLAUDE.md's X-provenance rule is
+# enforced on a *span*, and until `tests/fixtures/twitter-runs/facets/` existed
+# no committed x-cli response carried a facet — all five `__xcli_guest` spike
+# files report `facets: 0`. The loop below had never run under test while its
+# own docstring said the guard had been "proven against a post carrying astral
+# emoji". These execute it.
+
+FACET_RUN = ROOT / "tests" / "fixtures" / "twitter-runs" / "facets"
+FACET_INPUTS = ROOT / "tests" / "fixtures" / "twitter-runs" / "inputs"
+
+
+def facet_inputs() -> tuple[dict, list[dict]]:
+    """The committed record and the facets the corroborating response carries."""
+    record = json.loads(
+        (FACET_INPUTS / "facets_astral__xcli_guest.json").read_text(encoding="utf-8")
+    )[0]
+    fx = json.loads((FACET_INPUTS / "facets_astral__fxtwitter.json").read_text(encoding="utf-8"))
+    return record, fx["tweet"]["raw_text"]["facets"]
+
+
+def test_the_committed_facet_fixture_actually_carries_facets() -> None:
+    """The premise, asserted, because it is the thing that was missing.
+
+    A fixture that quietly stopped carrying facets would leave the guard
+    uncovered again and every test below would still pass by vacuity.
+    """
+    record, facets = facet_inputs()
+    assert len(facets) >= 3
+    assert any(ord(char) > 0xFFFF for char in record["text"]), "no astral character"
+
+
+def test_a_span_read_as_utf16_does_not_reslice_and_is_dropped() -> None:
+    """D-211's measurement, as a fixture: codepoints, not UTF-16 code units.
+
+    The committed response carries the same ``t.co`` link twice — once at its
+    codepoint offsets and once at the offsets a UTF-16 reading produces. Two
+    astral characters sit before it, so the two differ by exactly two, and the
+    wrong one is *in bounds*: it slices to a real substring of the post, which
+    is why only re-slicing against ``original`` can tell them apart.
+    """
+    from x2knwldg.twitter.normalize import entities_from
+
+    record, facets = facet_inputs()
+    text = record["text"]
+    url_facets = [facet for facet in facets if facet["type"] == "url"]
+    assert len(url_facets) == 2
+    good, bad = sorted(url_facets, key=lambda f: f["indices"][0])
+    assert bad["indices"] != good["indices"]
+    assert text[bad["indices"][0] : bad["indices"][1]] != bad["original"]
+
+    entities = entities_from(text, facets)
+    urls = [entity for entity in entities if entity["kind"] == "url"]
+    assert len(urls) == 1
+    assert [urls[0]["start_char"], urls[0]["end_char"]] == good["indices"]
+    assert text[urls[0]["start_char"] : urls[0]["end_char"]] == good["original"]
+
+
+@pytest.mark.parametrize(
+    "indices",
+    [
+        # Slices from the *end* of the string, re-slices to its own `original`,
+        # and wrote `"start_char": -5` — which the schema declares `minimum: 0`
+        # and which nothing applied at runtime.
+        [-5, -1],
+        [-1, -1],
+        # Raised a bare `TypeError` out of the slice, so one malformed facet
+        # took the acquisition down while the malformed facets beside it were
+        # dropped as designed.
+        ["0", 3],
+        [None, 3],
+        [1.5, 3],
+        # Past the end, and backwards. Python clamps both.
+        [0, 10_000],
+        [9, 3],
+        # `True` is an `int`, and `text[True:3]` is a legal slice.
+        [True, 3],
+    ],
+    ids=(
+        "negative-pair", "negative-single", "string-index", "null-index",
+        "float-index", "past-the-end", "backwards", "bool-index",
+    ),
+)
+def test_a_facet_whose_indices_are_not_offsets_is_dropped_not_trusted(indices: list) -> None:
+    from x2knwldg.twitter.normalize import entities_from
+
+    text = "abcdefghij"
+    original = text[indices[0] : indices[1]] if all(
+        isinstance(value, int) and not isinstance(value, bool) for value in indices
+    ) else "abc"
+    facet = {"type": "url", "indices": indices, "original": original or "abc"}
+
+    entities = entities_from(text, facet_list := [facet])
+    assert entities == []
+    # And a good facet beside a bad one still survives: one malformed facet may
+    # not take the others with it.
+    facet_list.append({"type": "url", "indices": [0, 3], "original": "abc"})
+    assert [entity["start_char"] for entity in entities_from(text, facet_list)] == [0]
+
+
+def test_a_handle_is_not_located_inside_a_longer_one() -> None:
+    """The false citation nothing downstream could catch.
+
+    ``extract._rederivation_errors`` excludes entities from its comparison by
+    design — a corroborated capture carries spans one response cannot supply —
+    so a mention span located at the wrong offsets survived every ``validate``
+    the run would ever run.
+    """
+    from x2knwldg.twitter.normalize import mentions_from
+
+    text = "@x2knwldg is getting ready to ship."
+    record = {"entities": {"mentions": ["x2k", "x2knwldg"]}}
+
+    mentions = mentions_from(text, record)
+
+    assert [mention["handle"] for mention in mentions] == ["x2knwldg"]
+    span = mentions[0]
+    assert text[span["start_char"] : span["end_char"]] == "@x2knwldg"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("@nasa", [(0, 5)]),                     # end of string is a boundary
+        ("hi @nasa!", [(3, 8)]),                 # punctuation is a boundary
+        ("@nasa @nasa", []),                     # genuinely ambiguous, as before
+        ("@nasa2", []),                          # a digit is part of a handle
+        ("@nasa_x", []),                         # so is an underscore
+        ("@nasa و @nasax", [(0, 5)]),            # RTL after it is still a boundary
+    ],
+    ids=("end", "punctuation", "twice", "digit", "underscore", "rtl-boundary"),
+)
+def test_only_an_unambiguous_bounded_occurrence_is_recorded(
+    text: str, expected: list[tuple[int, int]]
+) -> None:
+    from x2knwldg.twitter.normalize import mentions_from
+
+    mentions = mentions_from(text, {"entities": {"mentions": ["nasa"]}})
+    assert [(m["start_char"], m["end_char"]) for m in mentions] == expected
+
+
+def test_the_committed_capture_is_what_the_guard_produces() -> None:
+    """The fixture's spans, re-derived from its own committed responses.
+
+    ``build_fixtures.py`` writes ``capture.json`` by calling ``post_from``; this
+    calls it again over the same input and asserts the committed file is the
+    answer. If the guard's behaviour changes, this fails with the two documents
+    side by side rather than as a digest mismatch.
+    """
+    from x2knwldg.twitter.normalize import post_from
+
+    record, facets = facet_inputs()
+    capture = json.loads((FACET_RUN / "capture.json").read_text(encoding="utf-8"))
+    item = capture["items"][0]
+    rebuilt = post_from(
+        record, item["text"]["supplied_by"], item["text"]["completeness"], facets
+    )
+
+    assert rebuilt == item
+    text = item["text"]["canonical"]
+    entities = item["text"]["entities"]
+    assert [entity["kind"] for entity in entities] == ["hashtag", "mention", "url"]
+    for entity in entities:
+        span = text[entity["start_char"] : entity["end_char"]]
+        assert span == (entity.get("shortened") or f"@{entity['handle']}")
+
+
+@pytest.mark.parametrize(
+    "facet",
+    [
+        {"type": "url", "indices": "0,3", "original": "abc"},
+        {"type": "url", "indices": [0, 3, 5], "original": "abc"},
+        {"type": "url", "indices": [0, 3]},
+        {"type": "url", "indices": [0, 3], "original": ""},
+        {"type": "url", "indices": [0, 3], "original": 3},
+        {"type": "poll", "indices": [0, 3], "original": "abc"},
+    ],
+    ids=("indices-not-a-list", "three-indices", "no-original", "empty-original",
+         "original-not-a-string", "kind-outside-the-vocabulary"),
+)
+def test_a_facet_that_is_not_one_is_dropped_silently(facet: dict) -> None:
+    """Every drop branch of the guard, so none of them is an exception instead.
+
+    A facet the contract cannot carry is left out; it is never a refusal, and it
+    never takes the well-formed facets beside it with it.
+    """
+    from x2knwldg.twitter.normalize import entities_from
+
+    good = {"type": "url", "indices": [0, 3], "original": "abc"}
+    assert entities_from("abcdefghij", [facet]) == []
+    assert [e["start_char"] for e in entities_from("abcdefghij", [facet, good])] == [0]
+
+
+def test_a_mention_list_entry_that_is_not_a_handle_is_dropped() -> None:
+    from x2knwldg.twitter.normalize import mentions_from
+
+    record = {"entities": {"mentions": [None, 7, "", "nasa"]}}
+    mentions = mentions_from("hello @nasa", record)
+    assert [mention["handle"] for mention in mentions] == ["nasa"]

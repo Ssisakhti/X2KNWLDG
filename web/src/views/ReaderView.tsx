@@ -309,7 +309,27 @@ function ArtifactsPanel({ artifacts }: { artifacts: readonly Artifact[] }) {
                 label: t("reader.artifacts.path"),
                 value: artifact.path ? <Mono>{artifact.path}</Mono> : null,
               },
-              { label: t("reader.artifacts.bytes"), value: formatBytes(artifact.bytes) },
+              {
+                label: t("reader.artifacts.bytes"),
+                // The unit is a word, so it comes from the catalogue; the
+                // number is not, so it does not. `null` in stays `null` out and
+                // renders as a stated absence.
+                value: (() => {
+                  const size = formatBytes(artifact.bytes);
+                  if (size === null) return null;
+                  // Spelled out rather than built as `bytes.${unit}`: a
+                  // computed key is invisible both to `MessageKey` and to
+                  // `test_ui_scaffold`'s check that no catalogue entry is
+                  // rendered by nothing.
+                  const unit =
+                    size.unit === "B"
+                      ? t("bytes.B")
+                      : size.unit === "KB"
+                        ? t("bytes.KB")
+                        : t("bytes.MB");
+                  return `${size.amount} ${unit}`;
+                })(),
+              },
               {
                 label: t("reader.artifacts.available"),
                 value: artifact.available ? t("common.yes") : t("common.no"),

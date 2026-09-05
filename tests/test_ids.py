@@ -772,3 +772,86 @@ def test_edge_endpoints_stay_in_the_library_vocabulary(library: dict) -> None:
     for edge in library["graph"]["edges"]:
         assert edge["from"] in node_ids
         assert edge["to"] in node_ids
+
+
+# --------------------------------------------------------------------------
+# 5. The five length caps, each one actually executed
+# --------------------------------------------------------------------------
+#
+# All five raise statements were unexercised: 2233 passing tests never reached
+# one of them, so an inverted comparison or a cap raised to a nonsense value
+# would have been invisible. Two of the five are reachable through the public
+# API; the other three are **defence in depth** and the arithmetic below says
+# why, which is a fact worth pinning rather than a reason to leave the branch
+# unrun.
+
+
+def test_an_over_long_source_type_is_refused() -> None:
+    """Reachable: the source-type pattern admits any length, the cap does not."""
+    ids.validate_source_type("a" * ids.SOURCE_TYPE_MAX_LENGTH)
+    with pytest.raises(ids.IdError) as caught:
+        ids.validate_source_type("a" * (ids.SOURCE_TYPE_MAX_LENGTH + 1))
+    assert str(ids.SOURCE_TYPE_MAX_LENGTH) in str(caught.value)
+
+
+def test_an_over_long_id_part_is_refused() -> None:
+    """Reachable, and it is the cap that makes the composite three unreachable."""
+    ids.validate_id_part("a" * ids.ID_PART_MAX_LENGTH)
+    with pytest.raises(ids.IdError) as caught:
+        ids.validate_id_part("a" * (ids.ID_PART_MAX_LENGTH + 1), "external_id")
+    assert "external_id" in str(caught.value)
+    assert str(ids.ID_PART_MAX_LENGTH) in str(caught.value)
+    assert not ids.is_id_part("a" * (ids.ID_PART_MAX_LENGTH + 1))
+
+
+def test_a_library_id_with_the_wrong_number_of_parts_is_refused() -> None:
+    """Reachable: a library id is exactly two colon-separated parts."""
+    assert ids.parse_library_id("pqlWNihgdjI:KU-000001") == ("pqlWNihgdjI", "KU-000001")
+    for value in ("pqlWNihgdjI", "youtube:pqlWNihgdjI:KU-000001", ":", ""):
+        with pytest.raises(ids.IdError):
+            ids.parse_library_id(value)
+
+
+def test_the_composite_caps_cannot_be_reached_through_the_part_caps() -> None:
+    """The arithmetic that makes three of the five raises defensive.
+
+    ``validate_source_type`` and ``validate_id_part`` run *before* each
+    composite is measured, so the widest string any of the three builders can
+    assemble is already inside its own cap. Stated as a test because it is the
+    reason those branches never run, and because a future widening of
+    ``ID_PART_MAX_LENGTH`` should fail here — loudly, in one place — rather than
+    turn three dead branches live without anyone noticing.
+    """
+    widest_source_id = ids.SOURCE_TYPE_MAX_LENGTH + 1 + ids.ID_PART_MAX_LENGTH
+    widest_global_id = ids.SOURCE_TYPE_MAX_LENGTH + 2 + 2 * ids.ID_PART_MAX_LENGTH
+    widest_library_id = 1 + 2 * ids.ID_PART_MAX_LENGTH
+    assert widest_source_id <= ids.SOURCE_ID_MAX_LENGTH
+    assert widest_global_id <= ids.GLOBAL_ID_MAX_LENGTH
+    assert widest_library_id <= ids.LIBRARY_ID_MAX_LENGTH
+
+
+@pytest.mark.parametrize(
+    "build,cap_name",
+    [
+        (lambda part: ids.make_source_id("youtube", part), "SOURCE_ID_MAX_LENGTH"),
+        (lambda part: ids.make_global_id("youtube", part, part), "GLOBAL_ID_MAX_LENGTH"),
+        (lambda part: ids.make_library_id(part, part), "LIBRARY_ID_MAX_LENGTH"),
+    ],
+    ids=["source_id", "global_id", "library_id"],
+)
+def test_each_composite_cap_refuses_what_it_says_it_refuses(
+    monkeypatch: pytest.MonkeyPatch, build: object, cap_name: str
+) -> None:
+    """The three defensive branches, executed.
+
+    The part cap is the only thing standing between these builders and their own
+    limits (see the test above), so it is lifted here — and only here — to put a
+    string past the composite bound. That is what proves the comparison is the
+    right way round and names the right constant, which is exactly what an
+    unexecuted branch cannot tell anyone.
+    """
+    cap = getattr(ids, cap_name)
+    monkeypatch.setattr(ids, "ID_PART_MAX_LENGTH", cap * 2)
+    with pytest.raises(ids.IdError) as caught:
+        build("a" * (cap + 1))  # type: ignore[operator]
+    assert str(cap) in str(caught.value)

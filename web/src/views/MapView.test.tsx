@@ -601,6 +601,36 @@ describe("the Map's canvas and its constellation", () => {
     expect(harness.latest()?.framings).toHaveLength(0);
   });
 
+  it("frames the whole graph when the URL asks for no selection", async () => {
+    /*
+     * The camera's other half. `frame` answers "where is my selection"; nothing
+     * answered "where is the graph", so opening the Map cold left the renderer
+     * at whatever camera it started on — a mostly empty field with the graph
+     * pushed into part of it and marks under the floating chrome.
+     */
+    sizeTheStage();
+    vi.stubGlobal("fetch", library());
+    const harness = recorder({ display: { [KU1]: { x: 0.2, y: 0.2 } } });
+    renderApp(<MapView createRenderer={harness.factory} />, { route: "/map" });
+    await drawn();
+    await waitFor(() => expect(harness.latest()?.framings.length).toBeGreaterThan(0));
+  });
+
+  it("frames the overview once, not again on every page", async () => {
+    // D-178's rule, carried to the overview: a merged page must not animate a
+    // camera the reader has since panned.
+    sizeTheStage();
+    vi.stubGlobal("fetch", library());
+    const harness = recorder({ display: { [KU1]: { x: 0.2, y: 0.2 } } });
+    renderApp(<MapView createRenderer={harness.factory} />, { route: "/map" });
+    await drawn();
+    await waitFor(() => expect(harness.latest()?.framings.length).toBeGreaterThan(0));
+    const first = harness.latest()?.framings.length ?? 0;
+    // Nothing the reader did; just more renders.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(harness.latest()?.framings.length).toBe(first);
+  });
+
   it("gives the narrow field SPEC §5's stack tier, with no relation dropped", async () => {
     /*
      * The tier the stylesheet contradicted itself about. One paragraph called

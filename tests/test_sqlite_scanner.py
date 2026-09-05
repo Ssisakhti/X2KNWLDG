@@ -1214,3 +1214,462 @@ def test_a_build_with_the_hook_still_ends_up_populated(tmp_path: Path) -> None:
     assert first > 0
     scanner.build_index(root, index_documents=search.document_indexer(root))
     assert len(_rows(root, "documents")) == first, "a rebuild duplicated or lost documents"
+
+
+# --------------------------------------------------------------------------
+# The version the stored rows were written at
+#
+# "Unchanged" was a function of a run's *files* alone, and a migration does not
+# touch a file under `output/`. So a schema bump created its tables empty and
+# every later refresh reported a healthy, fully indexed library over them.
+# --------------------------------------------------------------------------
+
+
+def _downgrade_to_schema_1(root: Path) -> None:
+    """Rewrite a built index into the shape schema 1 left on disk.
+
+    Not a mock: the migration-2 tables are dropped, ``index_state`` is rebuilt
+    at its migration-1 declaration — three columns, no record of what wrote the
+    rows — and the ledger is rolled back to ``1``. The four record families,
+    the ``runs`` rows and their digests are left exactly as the build committed
+    them, which is what a real project upgrading across the migration has.
+    """
+    connection = schema.connect(schema.database_path(root), create=False)
+    try:
+        state, built_at, message = _state(root)
+        for table in ("source_entities", "source_briefs", "source_relations"):
+            connection.execute(f"DROP TABLE {table}")
+        connection.execute("DROP TABLE index_state")
+        connection.execute(
+            "CREATE TABLE index_state (id INTEGER PRIMARY KEY CHECK (id = 1), "
+            "state TEXT NOT NULL, built_at TEXT, message TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO index_state (id, state, built_at, message) VALUES (1, ?, ?, ?)",
+            (state, built_at, message),
+        )
+        connection.execute("DELETE FROM schema_migrations WHERE version > 1")
+        connection.commit()
+    finally:
+        connection.close()
+    assert _rows(root, "schema_migrations", "version")[-1]["version"] == 1
+
+
+def test_a_migration_forces_a_whole_build_rather_than_leaving_its_tables_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A schema bump is a change to the index even when no file moved.
+
+    The measured defect: with a populated schema-1 index, ``schema.migrate``
+    created ``source_entities``, ``source_briefs`` and ``source_relations``
+    empty; every run then hashed identical, so the refresh reported
+    ``discovered=3 indexed=3 unchanged=3 skipped=0`` and ``state: ready,
+    message: None`` while the whole source layer held nothing. A healthy report
+    over an empty layer is the silent zero D-043 forbids, and the only escape
+    was to delete the cache directory.
+    """
+    root = _project(tmp_path)
+    scanner.build_index(root)
+    populated = len(_rows(root, "source_entities"))
+    assert populated == 3 and len(_rows(root, "source_briefs")) == 3, (
+        "the premise: a whole build fills the source layer"
+    )
+
+    _downgrade_to_schema_1(root)
+    called = _counting_adapt(monkeypatch)
+    report = scanner.refresh_index(root)
+
+    assert report.runs_unchanged == 0, "a migrated index carried its rows forward"
+    assert sorted(called) == sorted(ALL_FIXTURES), "not every run was re-adapted"
+    assert len(_rows(root, "source_entities")) == populated
+    assert len(_rows(root, "source_briefs")) == 3
+    # And the reason is *said*, not merely acted on: a refresh that quietly
+    # re-adapts every run is indistinguishable from one that is simply slow.
+    assert report.full_rebuild_reason is not None
+    assert "schema version" in report.full_rebuild_reason
+    assert report.payload()["full_rebuild_reason"] == report.full_rebuild_reason
+
+
+def test_a_migrated_index_serves_the_source_layer_it_just_gained(tmp_path: Path) -> None:
+    """The symptom, at the seam that showed it: 0 nodes and a `None` neighborhood."""
+    from x2knwldg.index.repository import SqliteRepository
+    from x2knwldg.repository import SourceGraphQuery, SourceNeighborhoodQuery
+
+    root = _project(tmp_path)
+    scanner.build_index(root)
+    _downgrade_to_schema_1(root)
+    scanner.refresh_index(root)
+
+    repository = SqliteRepository.open(root)
+    try:
+        page = repository.source_graph(SourceGraphQuery(limit=50))
+        assert len(page.nodes) == 3, "the source graph answered from an empty layer"
+        hood = repository.source_neighborhood(
+            SourceNeighborhoodQuery(source_id="youtube:fixture-pass", limit=50)
+        )
+        assert hood is not None, "a source the index holds had no neighborhood"
+    finally:
+        repository.close()
+
+
+def test_a_bumped_adapter_version_re_adapts_rather_than_carrying_records_over(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unchanged run keeps the records of the pass that adapted it.
+
+    ``/api/status.adapters`` reads ``version`` live off the class, so without
+    this the endpoint announced a version no stored record had been written at
+    — a version nothing compares is not a version.
+    """
+    root = _project(tmp_path)
+    scanner.build_index(root)
+
+    monkeypatch.setattr(scanner, "RECORD_SCHEMA_VERSION", "2.0")
+    called = _counting_adapt(monkeypatch)
+    report = scanner.refresh_index(root)
+
+    assert sorted(called) == sorted(ALL_FIXTURES)
+    assert report.runs_unchanged == 0
+    assert report.full_rebuild_reason is not None
+    assert "adapter versions" in report.full_rebuild_reason
+
+
+def test_an_unchanged_refresh_leaves_the_versions_it_can_be_trusted_by(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two cheap refreshes in a row stay cheap.
+
+    ``INSERT OR REPLACE`` writes a whole row, so a ``_write_state`` call that
+    omitted the version columns would blank them — and a blanked record reads
+    as "migrated up from an older build", costing every subsequent refresh a
+    full rebuild that nothing asked for.
+    """
+    root = _project(tmp_path)
+    scanner.build_index(root)
+    assert scanner.refresh_index(root).runs_unchanged == 3
+
+    called = _counting_adapt(monkeypatch)
+    second = scanner.refresh_index(root)
+    assert called == [] and second.runs_unchanged == 3
+    assert second.full_rebuild_reason is None
+    row = _rows(root, "index_state")[0]
+    assert row["schema_version"] == schema.SCHEMA_VERSION
+    assert row["adapter_versions"] == scanner.adapter_versions()
+
+
+def test_a_failed_scan_does_not_cost_the_next_one_a_full_rebuild(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rolled-back scan leaves the previous pass's rows *and* its versions.
+
+    D-086 keeps the index ``ready`` through a failed scan because the records
+    are exactly what they were. The record of what wrote them has to survive the
+    same way, or the failure would be paid for twice.
+    """
+    root = _project(tmp_path)
+    scanner.build_index(root)
+
+    def boom(*args: Any, **kwargs: Any) -> None:
+        # Not `_insert_records`: an unchanged refresh inserts nothing, and the
+        # failure has to land inside `_apply`'s one transaction to be rolled
+        # back. `_write_source_relations` runs on every pass by construction.
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(scanner, "_write_source_relations", boom)
+    with pytest.raises(RuntimeError):
+        scanner.refresh_index(root)
+    monkeypatch.undo()
+
+    called = _counting_adapt(monkeypatch)
+    report = scanner.refresh_index(root)
+    assert called == [], "a failed scan cost the next one every run"
+    assert report.runs_unchanged == 3 and report.full_rebuild_reason is None
+
+
+# --------------------------------------------------------------------------
+# The prefilter's agreement is not evidence
+# --------------------------------------------------------------------------
+
+
+def test_a_rewrite_at_the_same_size_with_a_restored_mtime_is_not_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``rsync -t``, ``cp -p`` and ``touch -r`` all produce exactly this.
+
+    The measured defect: ``_digest_of_files`` returned the *stored* content hash
+    whenever ``(path, mtime_ns, size)`` matched, so the strong half was never
+    computed. A run whose ``knowledge_units.json`` was rewritten with different
+    bytes at the same size and its mtime restored came back ``1 unchanged of
+    1`` — while ``search.document_indexer``, which re-reads the canonical files
+    on every pass, indexed the *new* text. One build, two answers: search
+    returned the new statement and the stored record still held the old one.
+    """
+    import os
+
+    root = _project(tmp_path, "pass-run", library=False)
+    scanner.build_index(root)
+
+    target = root / "output" / "pass-run" / "knowledge_units.json"
+    before = target.stat()
+    document = json.loads(target.read_text(encoding="utf-8"))
+    original = document["units"][0]["normalized_statement"]
+    # Same length, different bytes: `size` cannot notice, and the mtime is put
+    # back exactly where it was.
+    replacement = "Z" * len(original)
+    assert replacement != original
+    target.write_text(
+        target.read_text(encoding="utf-8").replace(original, replacement), encoding="utf-8"
+    )
+    assert target.stat().st_size == before.st_size, "the rewrite must not change the size"
+    os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert target.stat().st_mtime_ns == before.st_mtime_ns
+
+    called = _counting_adapt(monkeypatch)
+    report = scanner.refresh_index(root)
+
+    assert called == ["pass-run"], "the rewritten run was carried over unread"
+    assert (report.runs_unchanged, report.runs_reindexed) == (0, 1)
+    labels = {entity["label"] for entity in _stored_records(root)["entity_ref"]}
+    assert replacement in labels, "the stored record still holds the superseded text"
+
+
+def test_the_record_half_and_the_search_half_cannot_disagree_inside_one_build(
+    tmp_path: Path,
+) -> None:
+    """The asymmetry that made the defect visible, pinned.
+
+    ``search.document_indexer`` re-reads every run's canonical files on every
+    pass, so a stale record half meant ``/api/search`` returning text that
+    ``/api/entities/{id}`` did not have. Whatever the corpus can find, the
+    records must hold.
+    """
+    import os
+
+    from x2knwldg.index import search
+
+    root = _project(tmp_path, "pass-run", library=False)
+    scanner.build_index(root, index_documents=search.document_indexer(root))
+
+    target = root / "output" / "pass-run" / "knowledge_units.json"
+    before = target.stat()
+    document = json.loads(target.read_text(encoding="utf-8"))
+    original = document["units"][0]["normalized_statement"]
+    replacement = "Q" * len(original)
+    target.write_text(
+        target.read_text(encoding="utf-8").replace(original, replacement), encoding="utf-8"
+    )
+    os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+    scanner.refresh_index(root, index_documents=search.document_indexer(root))
+
+    folded = [row["folded"] for row in _rows(root, "documents", "folded")]
+    findable = any(replacement.casefold() in text for text in folded)
+    stored = {entity["label"] for entity in _stored_records(root)["entity_ref"]}
+    assert findable, "the premise: the corpus is rebuilt from the files every pass"
+    assert replacement in stored, (
+        "search returns text the stored records do not have — one build, two answers"
+    )
+
+
+def test_a_touched_media_file_still_costs_nothing(tmp_path: Path) -> None:
+    """The prefilter is kept where it is the right question.
+
+    A run's non-JSON files reach a record as a name, an existence and a size —
+    never as bytes — so hashing them on every scan would buy nothing and cost
+    the whole subtree. Touching one must still be free.
+    """
+    root = _project(tmp_path, "pass-run", library=False)
+    scanner.build_index(root)
+
+    notes = sorted((root / "output" / "pass-run").rglob("*.md"))
+    assert notes, "the fixture is expected to carry a non-JSON file"
+    hashed: list[Path] = []
+    original = scanner.sha256_file
+
+    def counting(path: Path) -> str:
+        hashed.append(Path(path))
+        return original(path)
+
+    import x2knwldg.index.scanner as module
+
+    saved = module.sha256_file
+    module.sha256_file = counting  # type: ignore[assignment]
+    try:
+        report = scanner.refresh_index(root)
+    finally:
+        module.sha256_file = saved  # type: ignore[assignment]
+
+    assert report.runs_unchanged == 1
+    assert all(path.suffix == ".json" for path in hashed), (
+        f"the cheap half read bytes it does not need: "
+        f"{sorted({path.suffix for path in hashed})}"
+    )
+
+
+# --------------------------------------------------------------------------
+# Every writer reports a collision as damage, not as a driver error
+# --------------------------------------------------------------------------
+
+
+def test_a_source_relation_collision_is_named_rather_than_leaked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_write_source_relations`` issued a bare ``execute`` and this escaped raw.
+
+    ``_insert_records`` deliberately turns a primary-key collision into an
+    ``IndexCorrupt`` a reader can act on; the two ``T-254`` writers did not, so
+    the same condition arrived in ``index.message`` as ``IntegrityError: UNIQUE
+    constraint failed: source_relations.identity`` — a sentence about SQLite,
+    offered to someone holding a canonical file.
+    """
+    root = _project(tmp_path, "pass-run", library=False)
+
+    relation = {
+        "schema_version": "1.0",
+        "id": "SR-collision",
+        "from_source_id": "youtube:fixture-pass",
+        "to_source_id": "youtube:fixture-partial",
+    }
+    monkeypatch.setattr(
+        "x2knwldg.artifacts.source_relations_document",
+        lambda output_root: [dict(relation), dict(relation)],
+    )
+    with pytest.raises(IndexCorrupt) as refused:
+        scanner.build_index(root)
+    assert "source_relation" in str(refused.value)
+    assert "SR-collision" in str(refused.value)
+    assert "one id" in str(refused.value)
+
+
+def test_a_brief_collision_is_named_rather_than_leaked(tmp_path: Path) -> None:
+    """The other bare ``execute``. ``source_briefs`` is keyed by ``source_id``."""
+    root = _project(tmp_path, "pass-run", library=False)
+    scanner.build_index(root)
+
+    run = scanner._Run(
+        "output/pass-run",
+        scanner._REINDEXED,
+        scanner._Digest("a", "b"),
+        source_id="youtube:fixture-pass",
+        brief={"state": "unavailable", "reason": "no source_knowledge.json", "brief": None},
+    )
+    connection = schema.connect(schema.database_path(root), create=False)
+    try:
+        with pytest.raises(IndexCorrupt) as refused:
+            scanner._write_brief(connection, run)
+    finally:
+        connection.close()
+    assert "source_brief" in str(refused.value)
+    assert "youtube:fixture-pass" in str(refused.value)
+
+
+# --------------------------------------------------------------------------
+# `x2knwldg index` — the scanner's only name outside `ui`
+#
+# `refresh_index` was reachable from step 4 of `cli._run_ui` and nowhere else,
+# so the only documented escape from an index that had gone wrong was knowing
+# that `.x2knwldg/` is a cache and deleting it.
+# --------------------------------------------------------------------------
+
+
+def test_the_index_command_builds_an_index_and_reports_what_it_found(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from x2knwldg import cli
+
+    root = _project(tmp_path)
+    assert not schema.database_path(root).exists(), "the premise: nothing is built yet"
+
+    assert cli.main(["index", "--root", str(root)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["counts"] == ORACLE
+    assert (payload["runs_discovered"], payload["runs_skipped"]) == (3, 0)
+    # Named, never merely counted — the D-043 rule the whole module turns on.
+    assert payload["skipped_runs"] == [] and payload["incomplete_runs"] == []
+    assert payload["rebuilt"] is False
+    assert payload["index_version"] == schema.SCHEMA_VERSION
+
+
+def test_the_index_command_is_incremental_and_rebuild_is_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from x2knwldg import cli
+
+    root = _project(tmp_path)
+    assert cli.main(["index", "--root", str(root)]) == 0
+    capsys.readouterr()
+
+    called = _counting_adapt(monkeypatch)
+    assert cli.main(["index", "--root", str(root)]) == 0
+    assert json.loads(capsys.readouterr().out)["runs_unchanged"] == 3
+    assert called == [], "the default pass re-adapted an unchanged run"
+
+    assert cli.main(["index", "--root", str(root), "--rebuild"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert sorted(called) == sorted(ALL_FIXTURES), "--rebuild carried rows over"
+    assert (payload["runs_unchanged"], payload["rebuilt"]) == (0, True)
+
+
+def test_the_index_command_wires_the_search_corpus(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The pairing `ui` had to remember, made one call site.
+
+    Without ``index_documents`` the scan produces a complete, correct index of
+    every record family and ``/api/search`` answers ``0`` for every query,
+    because the corpus it searches was never written — and nothing else looks
+    wrong.
+    """
+    from x2knwldg import cli
+
+    root = _project(tmp_path)
+    assert cli.main(["index", "--root", str(root)]) == 0
+    capsys.readouterr()
+    assert len(_rows(root, "documents")) > 0, "the index was built with no searchable text"
+
+
+def test_the_index_command_reports_a_refusal_rather_than_a_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A scan the store refuses exits ``1`` through the documented envelope."""
+    from x2knwldg import cli
+
+    root = _project(tmp_path, "pass-run", library=False)
+    shutil.copytree(FIXTURE_RUNS / "pass-run", root / "output" / "second-copy")
+
+    assert cli.main(["index", "--root", str(root)]) == cli.EXIT_ERROR
+    captured = capsys.readouterr()
+    envelope = json.loads(captured.err)
+    assert envelope["status"] == "ERROR"
+    assert "youtube:fixture-pass" in envelope["message"]
+    assert captured.out == "", "a refusal printed a report as well"
+
+
+def test_a_missing_project_root_is_refused_by_name(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from x2knwldg import cli
+
+    assert cli.main(["index", "--root", str(tmp_path / "nowhere")]) == cli.EXIT_ERROR
+    assert json.loads(capsys.readouterr().err)["status"] == "ERROR"
+
+
+def test_the_ui_and_the_index_command_run_the_same_scan() -> None:
+    """One helper, so the two cannot drift about what a scan is.
+
+    ``_run_ui``'s step 4 and this command wire ``index_documents`` identically
+    because they wire it in one place; two hand-written call sites are two
+    places it can be left out.
+    """
+    import inspect
+
+    from x2knwldg import cli
+
+    for function in (cli._run_ui, cli._run_index):
+        source = inspect.getsource(function)
+        assert "_scan_index(" in source, function.__name__
+        assert "refresh_index(" not in source, (
+            f"{function.__name__} calls the scanner directly rather than through "
+            "the one helper that pairs it with the search corpus"
+        )

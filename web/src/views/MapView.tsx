@@ -106,6 +106,7 @@ import type { GraphFilters } from "../map/graphSnapshot";
 import { apiGraphPages } from "../map/graphWalk";
 import { describeCanvas, describeGraph, type RendererFault } from "../map/mapState";
 import { mapStyle } from "../map/mapStyle";
+import { onMapStageChange } from "../map/stage";
 import { MapSession, type MapRendererFactory } from "../map/mapSession";
 import { useGraphWalk } from "../map/useGraphWalk";
 import { useMapFocus } from "../map/useMapFocus";
@@ -349,6 +350,35 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawnFocus, holdingId]);
 
+  /*
+   * The overview, once, when there is nothing to focus.
+   *
+   * The camera's other half. `frame` above answers "where is my selection";
+   * nothing answered "where is the graph", so opening the Map cold left the
+   * renderer at whatever camera it started on — on the committed corpus a
+   * mostly empty field with the graph pushed into part of it and two marks
+   * under the floating chrome. `fitAll` frames every node with the overview's
+   * wider margin, which is the same measured fit the selection gesture uses.
+   *
+   * Guarded on the focus the *URL asked for*, not on the one that was drawn.
+   * The difference is a case `MapView.test.tsx` already pins: a link naming an
+   * entity these filters never loaded frames nothing, because "pointing the
+   * camera at where it would have been is a picture of a focus that does not
+   * exist" — and quietly showing an overview instead would answer a question
+   * the reader did not ask. A reader who asked for a selection and cannot have
+   * one is told so; they are not silently given something else.
+   *
+   * Held to the first drawn picture by the ref, so a merged page does not
+   * re-frame a camera the reader has since panned — the same rule D-178 wrote
+   * for the selection gesture, for the same reason.
+   */
+  const overviewFramed = useRef(false);
+  useEffect(() => {
+    if (graph === null || graph.order === 0 || focus.focus !== null) return;
+    if (overviewFramed.current) return;
+    if (session.current?.fitAll() === true) overviewFramed.current = true;
+  }, [graph, focus.focus, holdingId]);
+
 
   // One session for the life of the route. The cleanup is the only thing
   // standing between a filter/reload loop and a pile of WebGL contexts, and
@@ -404,6 +434,14 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         attached.current = snapshotId;
       }
       setFault(null);
+      // The retry guard is one-shot *per size*, and a success is what makes the
+      // next failure at that size a new failure rather than the same one. Left
+      // set, a later refusal at a box that had already spent its retry — the
+      // realistic cause being the WebGL context-loss cascade `mapSession.ts`
+      // describes — short-circuits the effect below and pins
+      // `data-map-canvas="refused"` until the reader changes a filter, which is
+      // the D-176 regression that block was written to end.
+      refusedBox.current = "";
       // `T-207` bumped a placement counter here, because the overlay's cards
       // were anchored to marks and the renderer had only just been given the
       // graph that gives them positions. `T-213` does not: the orbit is laid
@@ -791,6 +829,18 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
     // would make the graph jump every time the pointer crossed a result row.
     if (changed || resized) session.current?.refresh();
   }, [drawnFocus, hoveredNode, relatedIds, cardedIds, stageBox.width]);
+
+  /*
+   * Repaint when the stage changes (`map/stage.ts`).
+   *
+   * The reducers read the stage at the moment they are called, so the ink is
+   * right for the ground as of the last refresh -- and nothing asks for a
+   * refresh when a system theme flips at sunset. Sigma would go on drawing the
+   * previous stage's inks on the new ground until the reader happened to touch
+   * a filter, which is the illegible state the two ink tables exist to remove,
+   * reached from the other side.
+   */
+  useEffect(() => onMapStageChange(() => session.current?.refresh()), []);
 
   /*
    * Leave the style table as this route found it (`T-214`).

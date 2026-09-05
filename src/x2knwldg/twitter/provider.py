@@ -64,6 +64,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 #: The pinned artefact (D-208). Platform-specific by nature: the digest and the
 #: version string are of one build, ``darwin/arm64``, which is the target
@@ -132,12 +133,19 @@ _EXIT_OUTCOMES = {
     6: "not_found",
 }
 
-#: Inside exit 8: the tool says which of the two it was. Matched
-#: case-insensitively on the tool's own wording, and the fallback for an exit 8
-#: whose message matches neither is ``unreachable`` — the safer of the two,
-#: because it makes no claim about the provider at all.
+#: Inside exit 8: how the tool says it ran out of time. Matched
+#: case-insensitively on the tool's own wording, and it is the **only** test
+#: applied there — an exit 8 whose message matches nothing is ``unreachable``,
+#: the safer of the two, because it makes no claim about the provider at all.
+#:
+#: A companion ``_UNREACHABLE_MARKERS`` ("cannot reach", "no such host",
+#: "connection refused", "network is") used to sit here and was never read by
+#: anything: ``_classify`` falls straight through to ``return "unreachable"``,
+#: so the behaviour was right by accident and the comment above the two tuples
+#: described a matching step that did not exist. Deleted rather than wired in,
+#: because wiring it in would mean deciding what an exit 8 matching *neither*
+#: list is — and the answer to that is already the fallthrough.
 _TIMEOUT_MARKERS = ("timed out", "timeout")
-_UNREACHABLE_MARKERS = ("cannot reach", "no such host", "connection refused", "network is")
 
 #: The offline refusal at exit 1: not a reference, and no request was sent.
 _MALFORMED_MARKER = "not a tweet id or status url"
@@ -353,6 +361,53 @@ def verify(
     )
 
 
+#: How often the size bound is checked while the child is still running. Short
+#: enough that the cap is a cap rather than a report, long enough that an
+#: ordinary read — which finishes in a second or two — is woken a handful of
+#: times. ``process.wait`` returns the moment the child exits, so this is a
+#: ceiling on the check interval and not a floor on the latency.
+_POLL_INTERVAL_SEC = 0.05
+
+
+def _await(
+    process: subprocess.Popen[bytes],
+    out: IO[bytes],
+    *,
+    timeout: float,
+    max_bytes: int,
+    started: float,
+) -> tuple[int | None, bool, int | None]:
+    """Wait for the child, enforcing both bounds **while it runs**.
+
+    Returns ``(exit_code, timed_out, overflowed_at)``; the exit code is ``None``
+    whenever the process was killed.
+
+    The size bound used to be applied only after ``wait()`` returned, so the
+    docstring's "no unbounded read" was a stronger claim than the code: a child
+    streaming into the temporary file was never interrupted, and the refusal
+    that says "over the limit; refused rather than truncated" arrived only once
+    the whole of it was on disk. Nothing was *read* unbounded, which is what
+    made the bug survive review, but the machine had already written it. So the
+    file is measured on the way past and the child is killed at the boundary,
+    which is what the bound is for.
+    """
+    deadline = started + timeout
+    while True:
+        try:
+            return process.wait(timeout=_POLL_INTERVAL_SEC), False, None
+        except subprocess.TimeoutExpired:
+            pass
+        size = os.fstat(out.fileno()).st_size
+        if size > max_bytes:
+            process.kill()
+            process.wait()
+            return None, False, size
+        if time.monotonic() >= deadline:
+            process.kill()
+            process.wait()
+            return None, True, None
+
+
 def _classify(exit_code: int, message: str) -> str:
     """One exit status and its message, as a contract ``outcome``."""
     known = _EXIT_OUTCOMES.get(exit_code)
@@ -436,20 +491,17 @@ def _invoke(
     started = time.monotonic()
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         process = subprocess.Popen(argv, stdout=out, stderr=err)
-        timed_out = False
-        try:
-            exit_code: int | None = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            process.kill()
-            process.wait()
-            exit_code = None
+        exit_code, timed_out, overflowed_at = _await(
+            process, out, timeout=timeout, max_bytes=max_bytes, started=started
+        )
         latency_ms = int((time.monotonic() - started) * 1000)
 
         out.seek(0)
         err.seek(0)
         stderr_text = _tidy(err.read().decode("utf-8", "replace"))
-        size = out.seek(0, 2)
+        # Checked again after the child is gone, because a process that finishes
+        # inside one poll interval never gets looked at by the loop.
+        size = overflowed_at if overflowed_at is not None else out.seek(0, 2)
         if size > max_bytes:
             # Refused, not truncated: half a JSON document is not evidence, and
             # a capture built from it would carry a digest of something that was

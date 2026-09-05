@@ -16,7 +16,7 @@
 import type { StatusPayload } from "../api/contract";
 import { useI18n } from "../i18n";
 import type { MessageKey } from "../i18n";
-import { formatTimestamp } from "../lib/format";
+import { formatCount, formatTimestamp } from "../lib/format";
 import { DefinitionList, Missing, Mono } from "./primitives";
 
 const STATE_MESSAGE: Record<StatusPayload["index"]["state"], MessageKey> = {
@@ -40,16 +40,16 @@ export function IndexStatusPanel({ status }: { status: StatusPayload }) {
 
       <div className="metrics">
         <span>
-          {t("index.counts.sources")}: {status.counts.sources}
+          {t("index.counts.sources")}: {formatCount(status.counts.sources, locale)}
         </span>
         <span>
-          {t("index.counts.artifacts")}: {status.counts.artifacts}
+          {t("index.counts.artifacts")}: {formatCount(status.counts.artifacts, locale)}
         </span>
         <span>
-          {t("index.counts.entities")}: {status.counts.entities}
+          {t("index.counts.entities")}: {formatCount(status.counts.entities, locale)}
         </span>
         <span>
-          {t("index.counts.relations")}: {status.counts.relations}
+          {t("index.counts.relations")}: {formatCount(status.counts.relations, locale)}
         </span>
       </div>
 
@@ -76,8 +76,9 @@ export function IndexStatusPanel({ status }: { status: StatusPayload }) {
         ) : (
           <>
             <p className="faint">
-              {t("index.runs.discovered")}: {runs.discovered} · {t("index.runs.indexed")}:{" "}
-              {runs.indexed}
+              {t("index.runs.discovered")}: {formatCount(runs.discovered, locale)} ·{" "}
+              {t("index.runs.indexed")}:{" "}
+              {formatCount(runs.indexed, locale)}
             </p>
             {runs.skipped.length === 0 ? (
               <p className="faint">{t("index.runs.noneSkipped")}</p>

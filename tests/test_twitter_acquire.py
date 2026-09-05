@@ -687,3 +687,159 @@ def test_the_tunnel_statement_is_recorded_as_given(tmp_path: Path) -> None:
     )
 
     assert result.capture["acquisition"]["network"] == {"via_tunnel": False}
+
+
+# ---------------------------------------------------------------------------
+# Defects found by execution, and the behaviour that replaced them
+# ---------------------------------------------------------------------------
+
+
+def _record_saying(text: str) -> str:
+    """The committed English record with its authored text replaced.
+
+    A real recording with one field changed, so what is being tested is the
+    *text*, not a hand-built record that might differ from x-cli's shape in some
+    other way at the same time.
+    """
+    record = spike_record("single_post_en__xcli_guest")
+    record["text"] = text
+    return json.dumps([record], ensure_ascii=False)
+
+
+@pytest.mark.parametrize(
+    "authored",
+    [
+        # The measured Persian case: a sentence *about* a cookie, carrying none.
+        "برای احراز هویت، کوکی ct0=abc123def در هدر می‌رود.",
+        "Send it as Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9 and it works.",
+        "Try https://syndication.twimg.com/tweet-result?id=20&token=abcd1234",
+    ],
+    ids=("cookie-name", "bearer-shape", "syndication-token"),
+)
+def test_a_post_whose_own_text_would_be_redacted_is_refused(
+    tmp_path: Path, authored: str
+) -> None:
+    """The run that could never validate, refused before it exists.
+
+    ``acquire`` parses ``items[].text.canonical`` out of the **unsanitized**
+    stdout and preserves the **sanitized** bytes, so a post whose authored text
+    matches a credential pattern used to capture ``PASS`` and then fail every
+    subsequent ``validate`` with ``item_disagrees_with_preserved_response`` —
+    which WORKFLOW.md §T7 reads as tampered evidence and answers with
+    "re-acquire", which produced the identical run again. There is no repair, so
+    the read is refused with nothing written and the operator is told why.
+    """
+    binary = make_stub(
+        tmp_path / "bin", posts={EN_POST: {"exit": 0, "stdout": _record_saying(authored)}}
+    )
+    output = tmp_path / "output"
+
+    with pytest.raises(AcquisitionError) as caught:
+        acquire(EN_POST, provider=verified(binary), output_root=output, via_tunnel=True)
+
+    assert EN_POST in str(caught.value)
+    assert "cannot be both preserved" in str(caught.value)
+    # Nothing written: not the capture, not the evidence, not the directory.
+    assert not (output / EN_POST / "capture.json").exists()
+    assert not (output / EN_POST / "raw").exists()
+
+
+def test_the_refusal_is_about_authored_text_and_not_about_the_envelope(
+    tmp_path: Path,
+) -> None:
+    """A guest token *around* the post is redacted as it always was.
+
+    The refusal has to be narrow or it refuses the ordinary case: the same
+    patterns match provider envelope fields all the time, and those are exactly
+    what redaction is for. Only a hit inside a ``text`` a person wrote is a
+    refusal.
+    """
+    record = spike_record("single_post_en__xcli_guest")
+    record["guest_token"] = "1234567890123456789"
+    binary = make_stub(
+        tmp_path / "bin",
+        posts={EN_POST: {"exit": 0, "stdout": json.dumps([record], ensure_ascii=False)}},
+    )
+
+    result = acquire(
+        EN_POST, provider=verified(binary), output_root=tmp_path / "output", via_tunnel=True
+    )
+
+    entry = result.capture["raw_evidence"][0]
+    assert entry["sanitization_removed"], "the envelope token should have been redacted"
+    assert entry["sha256_raw"] != entry["sha256_sanitized"]
+    # And the item is still the post, byte for byte.
+    assert result.capture["items"][0]["text"]["canonical"] == record["text"]
+
+
+def test_the_capture_and_the_preserved_bytes_can_never_disagree(tmp_path: Path) -> None:
+    """The invariant the refusal exists to hold, stated over what reached disk.
+
+    Every available item's canonical text must appear verbatim in the file the
+    capture cites for it. That is what ``extract._rederivation_errors`` re-checks
+    at every ``validate``, and it is what redaction inside authored text broke.
+    """
+    provider = single_stub(tmp_path, "single_post_fa__xcli_guest", FA_POST)
+
+    result = acquire(
+        FA_POST, provider=provider, output_root=tmp_path / "output", via_tunnel=True
+    )
+
+    preserved = "".join(path.read_text("utf-8") for path in result.evidence_paths)
+    for item in result.capture["items"]:
+        canonical = item["text"]["canonical"]
+        assert json.dumps(canonical, ensure_ascii=False)[1:-1] in preserved
+
+
+def test_a_record_for_another_post_is_drift_not_a_crash(tmp_path: Path) -> None:
+    """A redirect, or a retweet unrolled into what it quotes.
+
+    ``_assemble`` used to find the anchor with a bare ``next(...)``, so this
+    raised ``StopIteration`` — a type neither ``cli._run_capture`` nor
+    ``cli.USER_FACING_ERRORS`` catches, which means ``capture`` died on a raw
+    traceback where WORKFLOW.md §T7 documents exit 9. Secondarily,
+    ``_preserve_reads`` pairs bytes to records by id, so the mismatched record
+    would have produced an item with no preserved evidence at all.
+    """
+    other = spike_record("single_post_fa__xcli_guest")
+    binary = make_stub(
+        tmp_path / "bin",
+        posts={EN_POST: {"exit": 0, "stdout": json.dumps([other], ensure_ascii=False)}},
+    )
+    output = tmp_path / "output"
+
+    with pytest.raises(ProviderDrift) as caught:
+        acquire(EN_POST, provider=verified(binary), output_root=output, via_tunnel=True)
+
+    assert EN_POST in str(caught.value) and other["id"] in str(caught.value)
+    assert not (output / EN_POST / "capture.json").exists()
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        # 200 digits. The 25-digit bound guarded the bare-id branch only, so
+        # this returned a 200-character "post id" that named a run directory and
+        # became argv to the pinned binary.
+        "https://x.com/user/status/" + "1" * 200,
+        # `str.isdigit()` is not ASCII-only. This used to be returned as a post
+        # id and refused four frames later by `resolve_run_dir`, as a *video*.
+        "١٢٣٤٥",
+        "https://x.com/user/status/١٢٣٤٥",
+    ],
+    ids=("two-hundred-digits-in-a-url", "arabic-indic-digits", "arabic-indic-digits-in-a-url"),
+)
+def test_what_is_not_a_post_id_is_refused_as_one(reference: str) -> None:
+    with pytest.raises(AcquisitionError) as caught:
+        parse_reference(reference)
+    assert "video" not in str(caught.value).lower()
+
+
+def test_the_bound_is_the_same_on_both_branches() -> None:
+    """One rule, applied twice, rather than two rules that drifted apart."""
+    longest = "1" * 25
+    assert parse_reference(longest) == longest
+    assert parse_reference(f"https://x.com/u/status/{longest}") == longest
+    for over in (longest + "1", f"https://x.com/u/status/{longest}1"):
+        with pytest.raises(AcquisitionError):
+            parse_reference(over)

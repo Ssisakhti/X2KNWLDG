@@ -17,7 +17,7 @@ import {
   SOURCE_BRIEF_MARK,
   SOURCE_EDGE_SIZE,
   SOURCE_MARK_SIZE,
-  SOURCE_MEDIUM_MARK,
+  SOURCE_MEDIUM_INK,
   SourceStyle,
   sourceBriefMark,
   sourceEdgeInteraction,
@@ -26,6 +26,10 @@ import {
   sourceNodeStyle,
   type SourceViewState,
 } from "./sourceStyle";
+
+// Per stage now (`map/stage.ts`): no one ink clears 4.5:1 on both grounds.
+// jsdom has no `matchMedia`, so `mapStage()` answers `light` throughout this suite.
+const SOURCE_MEDIUM_MARK = SOURCE_MEDIUM_INK.light;
 import { PASS, POST, sourceNode, summary } from "../test/sourceRecords";
 
 const FIELD = 1280;

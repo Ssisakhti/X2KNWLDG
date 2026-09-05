@@ -861,3 +861,199 @@ def test_the_module_never_reaches_for_whisper() -> None:
         and "disabled" not in line.lower()
     ]
     assert code == [], code
+
+
+# ---------------------------------------------------------------------------
+# Determinism, and refusals that must not be relabelled
+# ---------------------------------------------------------------------------
+
+
+def _multi_file_ytdlp_module(files: dict[str, dict[str, Any]]) -> ModuleType:
+    """A yt-dlp whose download leaves several ``captions*.json3`` files behind.
+
+    ``glob`` yields in whatever order the filesystem returns, and the module
+    took ``files[0]``. Which file becomes *the* transcript — the evidence every
+    claim in the run is checked against — was therefore an accident of
+    enumeration order. The keys here are the suffixes after ``captions``; the
+    values are the json3 documents.
+    """
+    module = ModuleType("yt_dlp")
+
+    class YoutubeDL:
+        def __init__(self, options: dict[str, Any]) -> None:
+            self.options = options
+
+        def __enter__(self) -> YoutubeDL:
+            return self
+
+        def __exit__(self, *exc: object) -> bool:
+            return False
+
+        def extract_info(self, url: str, download: bool = False) -> dict[str, Any]:
+            if download and "outtmpl" in self.options:
+                for suffix, document in files.items():
+                    Path(f"{self.options['outtmpl']}{suffix}.json3").write_text(
+                        json.dumps(document), encoding="utf-8"
+                    )
+            return {"subtitles": {"en": [{}]}}
+
+    module.YoutubeDL = YoutubeDL  # type: ignore[attr-defined]
+    return module
+
+
+def _event(text: str) -> dict[str, Any]:
+    return {"tStartMs": 0, "dDurationMs": 1000, "segs": [{"utf8": text}]}
+
+
+@pytest.mark.parametrize("directory_order", ["as_written", "reversed"])
+def test_the_caption_file_is_chosen_in_a_stable_order(
+    monkeypatch: pytest.MonkeyPatch, directory_order: str
+) -> None:
+    """Two candidate files, and the transcript must not depend on `glob` order.
+
+    ``glob`` yields in directory order, which is the filesystem's business and
+    varies by filesystem, by creation order and by what was deleted before. The
+    parametrisation replaces it with both orders so the test cannot pass by
+    landing on the one this machine happens to produce — which is exactly how an
+    unsorted ``files[0]`` looks green on a developer's laptop.
+    """
+    _api_down(monkeypatch)
+    real_glob = Path.glob
+
+    def ordered_glob(self: Path, pattern: str) -> Any:
+        found = sorted(real_glob(self, pattern))
+        return iter(found if directory_order == "as_written" else list(reversed(found)))
+
+    monkeypatch.setattr(Path, "glob", ordered_glob)
+    _install(
+        monkeypatch,
+        "yt_dlp",
+        _multi_file_ytdlp_module(
+            {
+                ".zz": {"events": [_event("last alphabetically")]},
+                ".aa": {"events": [_event("first alphabetically")]},
+            }
+        ),
+    )
+    items, _ = youtube.fetch_native_transcript(REAL_URL)
+    assert items[0]["text"] == "first alphabetically", (
+        "which file becomes the transcript cannot be an accident of enumeration order"
+    )
+
+
+def test_an_empty_preference_list_picks_a_language_in_a_stable_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """"Any language" is not "whichever language this dict was built in".
+
+    An empty preference list is the documented way to accept any track, and the
+    module answered with ``next(iter(manual))`` — dict insertion order, which is
+    yt-dlp's business and not a decision. The same video could be ingested in
+    Spanish today and German tomorrow with ``metadata.language`` recording the
+    accident.
+    """
+    _api_down(monkeypatch)
+    constructed: list[dict[str, Any]] = []
+    _install(
+        monkeypatch,
+        "yt_dlp",
+        _ytdlp_module(
+            info={"subtitles": {"zz": [{}], "de": [{}], "aa": [{}]}},
+            events=[{"tStartMs": 0, "dDurationMs": 1000, "segs": [{"utf8": "x"}]}],
+            constructed=constructed,
+        ),
+    )
+    _, metadata = youtube.fetch_native_transcript(REAL_URL, [])
+    assert metadata["language"] == "aa"
+    assert constructed[1]["subtitleslangs"] == ["aa"]
+
+
+def test_a_manual_track_still_wins_over_an_automatic_one_with_no_preference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sorting decides *within* a pool; it does not reopen the quality choice."""
+    _api_down(monkeypatch)
+    constructed: list[dict[str, Any]] = []
+    _install(
+        monkeypatch,
+        "yt_dlp",
+        _ytdlp_module(
+            info={"subtitles": {"zz": [{}]}, "automatic_captions": {"aa": [{}]}},
+            events=[{"tStartMs": 0, "dDurationMs": 1000, "segs": [{"utf8": "x"}]}],
+            constructed=constructed,
+        ),
+    )
+    _, metadata = youtube.fetch_native_transcript(REAL_URL, [])
+    assert metadata["language"] == "zz"
+    assert constructed[1]["writesubtitles"] is True
+
+
+def test_a_precise_refusal_is_not_relabelled_as_unavailable_captions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The broad handler was overwriting this module's own worded refusals.
+
+    "None of the preferred YouTube caption languages are available (preferred:
+    ['en']; available: ['hi'])" tells the operator what to do — pass
+    ``--preferred-language hi``, or supply a transcript. It was raised inside
+    the ``try`` that wraps the whole yt-dlp block and came back out as "Native
+    YouTube captions unavailable", which is the one thing that was not true:
+    captions were there and this module declined them.
+    """
+    _api_down(monkeypatch)
+    _install(
+        monkeypatch,
+        "yt_dlp",
+        _ytdlp_module(
+            info={"automatic_captions": {"hi": [{}]}},
+            events=[{"tStartMs": 0, "dDurationMs": 1000, "segs": [{"utf8": "x"}]}],
+        ),
+    )
+    with pytest.raises(PipelineError) as caught:
+        youtube.fetch_native_transcript(REAL_URL)
+    message = str(caught.value)
+    assert "preferred YouTube caption languages" in message
+    assert "Native YouTube captions unavailable" not in message
+
+
+def test_the_caption_bound_is_not_relabelled_either(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other refusal raised inside the wrapped block: a track that is not one."""
+    monkeypatch.setattr(youtube, "MAX_CAPTIONS", 2)
+    _api_down(monkeypatch)
+    _install(
+        monkeypatch,
+        "yt_dlp",
+        _ytdlp_module(
+            info={"subtitles": {"en": [{}]}},
+            events=[
+                {"tStartMs": i * 1000, "dDurationMs": 1000, "segs": [{"utf8": f"c{i}"}]}
+                for i in range(20)
+            ],
+        ),
+    )
+    with pytest.raises(PipelineError) as caught:
+        youtube.fetch_native_transcript(REAL_URL)
+    message = str(caught.value)
+    assert "2-cue bound" in message
+    assert "Native YouTube captions unavailable" not in message
+
+
+def test_a_foreign_failure_is_still_reported_with_both_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Letting this module's refusals through must not swallow the generic case.
+
+    yt-dlp's own errors really do mean the captions could not be had, and the
+    message still carries the API failure beside them because either could be
+    the reason.
+    """
+    _api_down(monkeypatch)
+    _install(monkeypatch, "yt_dlp", _ytdlp_module(error=RuntimeError("403 from the host")))
+    with pytest.raises(PipelineError) as caught:
+        youtube.fetch_native_transcript(REAL_URL)
+    message = str(caught.value)
+    assert "Native YouTube captions unavailable" in message
+    assert "api down" in message
+    assert "403 from the host" in message

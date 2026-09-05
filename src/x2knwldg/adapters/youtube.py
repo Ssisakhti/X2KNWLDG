@@ -51,7 +51,6 @@ from typing import Any
 
 from .. import ids
 from ..io import LIBRARY_DIR_NAME as LIBRARY_DIR_NAME
-from ..io import scrub_host_paths
 from .base import (
     MAX_AUTHOR_LENGTH,
     MAX_LABEL_LENGTH,
@@ -76,7 +75,6 @@ from .base import (
     list_items,
     project_relative,
     read_optional_json,
-    read_optional_json_or_reason,
     required_field,
 )
 
@@ -200,58 +198,6 @@ class YouTubeAdapter(SourceAdapter):
             )
         )
 
-    def read_canonical(self, path: Path, damaged: list[dict[str, str]]) -> Any | None:
-        """A canonical file, or ``None`` — recording *why* when there is a why.
-
-        An absent file is an absence and says nothing. A file that is present
-        and unreadable is damage, and the damage is reported on the Source
-        record: the counts derived from it are already omitted rather than
-        zeroed, but 'this count is missing' does not say that the file is
-        broken, and only one of those two is actionable.
-        """
-        document, reason = read_optional_json_or_reason(path)
-        if reason is not None:
-            # D-100's wrap, which `_file_artifact` got and this did not.
-            # `self.relative` **resolves**, so a canonical file that is a
-            # symlink to somewhere outside the project raised `AdapterError`
-            # here and took the whole run down — downgrading it from "indexed,
-            # with this file named as damaged" to "absent". A run whose
-            # `validation.json` is both symlinked outside the root *and*
-            # unparseable is damaged in a way this record can state, and
-            # stating it is the whole point of this channel.
-            #
-            # The lexical path is used when the resolved one cannot be
-            # expressed, for the reason `_file_artifact` gives: the bytes
-            # really do live outside the project, and the entry is a
-            # *report*, not an addressable artifact.
-            try:
-                relative = self.relative(path)
-            except AdapterError:
-                damaged.append(
-                    {
-                        "path": path.name,
-                        "reason": scrub_host_paths(
-                            f"{reason}; it also resolves outside the project root, "
-                            "so it has no project-relative path (risk R15)"
-                        ),
-                    }
-                )
-                return document
-            # D-051's rule, on D-045's other channel. Every ``JsonReadError``
-            # names the file it could not read and names it *absolutely*, and
-            # this record is served verbatim inside a 200 body by
-            # ``/api/sources`` — at which point the reason leaks the user's
-            # filesystem layout to any HTTP client, which D-030 and ADR 0003
-            # both forbid. Sanitised here, at the point the reason is
-            # recorded, rather than on the way out: one rule, the CLI gains
-            # the same property, and it becomes the same relative string the
-            # entry's ``path`` is keyed by, so the two cannot disagree about
-            # which file failed. The substring is exact rather than hopeful --
-            # ``io.read_json`` formats this very ``path`` into the message.
-            relative = self.relative(path)
-            damaged.append({"path": relative, "reason": reason.replace(str(path), relative)})
-        return document
-
     # ----------------------------------------------------------------
     # Source
     # ----------------------------------------------------------------
@@ -345,17 +291,13 @@ class YouTubeAdapter(SourceAdapter):
     ) -> dict[str, int]:
         """Counts for list rendering, omitted rather than zeroed when unknown.
 
-        A count is a cache convenience. Reporting ``0`` for a file that could
-        not be read would state that the run has no knowledge units, which is a
-        different claim from not knowing.
+        The four every medium has come from :meth:`SourceAdapter._knowledge_counts`;
+        the two below it are this medium's, and they are the reason the method
+        is still here. A count is a cache convenience — reporting ``0`` for a
+        file that could not be read would state that the run has no knowledge
+        units, which is a different claim from not knowing.
         """
-        counts: dict[str, int] = {}
-        if units is not None:
-            counts["knowledge_units"] = len(units)
-            counts["source_units"] = sum(1 for u in units if u.get("source_class") == "source")
-            counts["derived_units"] = sum(1 for u in units if u.get("source_class") == "derived")
-        if edges is not None:
-            counts["relationships"] = len(edges)
+        counts = self._knowledge_counts(units, edges)
         transcript = self.read_canonical(run_dir / "transcript.json", damaged)
         if transcript is not None:
             counts["captions"] = len(

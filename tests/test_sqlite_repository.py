@@ -873,7 +873,7 @@ def test_a_reader_answers_honestly_while_a_writer_holds_the_index(tmp_path):
     maps to `state='error'` with no counts — and `payload()` renders an absent
     count as `0`. So the one endpoint that exists to be honest reported
     `state: error, sources: 0, artifacts: 0` about an index that was intact and
-    whose stored row said `building`. Two `x2knwldg serve` processes reach it:
+    whose stored row said `building`. Two `x2knwldg ui` processes reach it:
     the second one's startup `refresh_index` holds the lock at commit while the
     first answers `/api/status`.
     """
@@ -1362,3 +1362,225 @@ def test_a_search_walk_ranks_the_corpus_once(tmp_path):
         assert calls == 1, f"the corpus was ranked {calls} times for one walk"
     finally:
         repo.close()
+
+
+# --------------------------------------------------------------------------
+# The unsearchable-source note counts the same set the endpoint honours
+# --------------------------------------------------------------------------
+
+
+def _write_run_rows(root: Path, rows: Mapping[str, list[str]]) -> None:
+    """One ``runs`` row per ``source_id -> problems``, written directly.
+
+    Direct SQL for the same reason ``write_index`` uses it: the reader under
+    test must not be exercised through the writer.
+    """
+    connection = schema.connect(schema.database_path(root), create=False)
+    try:
+        with connection:
+            for index, (source_id, problems) in enumerate(rows.items()):
+                connection.execute(
+                    "INSERT INTO runs (canonical_dir, source_id, digest, scanned_at, "
+                    "problems, skipped_reason) VALUES (?, ?, ?, ?, ?, NULL)",
+                    (
+                        f"output/run-{index}",
+                        source_id,
+                        "a:b",
+                        BUILT_AT,
+                        json.dumps(problems),
+                    ),
+                )
+    finally:
+        connection.close()
+
+
+def _unsearchable_note_count(root: Path) -> tuple[int, int]:
+    """``(counted by status, held by search)`` for the index at *root*."""
+    from x2knwldg.index.search import unreadable_sources
+
+    repo = SqliteRepository.open(root)
+    try:
+        counted = repo._unsearchable_source_count()
+    finally:
+        repo.close()
+    connection = schema.connect(schema.database_path(root), create=False)
+    try:
+        return counted, len(unreadable_sources(connection))
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    "label,problems",
+    [
+        (
+            "a problem that merely quotes the prefix",
+            # `unmappable_artifacts` reasons are free text copied out of the
+            # adapter, so a note whose *name* contains the marker is a shape
+            # production can produce.
+            ['unmappable_artifacts: notes.md: cannot parse "search: not a marker"'],
+        ),
+        (
+            "the marker in the wrong case",
+            # SQLite's LIKE is ASCII case-insensitive; `startswith` is not.
+            [f'{schema.SEARCH_PROBLEM_PREFIX.upper()}shouted, and not a marker'],
+        ),
+        (
+            "the marker not at the start of its element",
+            [f"unreadable_files: a.json: {schema.SEARCH_PROBLEM_PREFIX}quoted"],
+        ),
+    ],
+)
+def test_the_status_note_counts_no_source_the_endpoint_still_totals(
+    tmp_path: Path, label: str, problems: list[str]
+) -> None:
+    """``index.message`` may not claim damage ``PageInfo.total`` does not honour.
+
+    The count was ``problems LIKE '%"search: %'`` — a substring test over the
+    *serialised list*, so the marker matched anywhere inside any element, and
+    ASCII-case-insensitively at that. ``search.unreadable_sources`` does a
+    per-element ``startswith``, so the two disagreed: the status line reported
+    more unreadable sources than the set that actually makes a search total
+    ``null``, and a reader had no way to reconcile the two.
+    """
+    write_index(tmp_path, _many_entities(1))
+    _write_run_rows(tmp_path, {"youtube:one": problems})
+
+    counted, held = _unsearchable_note_count(tmp_path)
+    assert held == 0, f"the premise: {label} is not an unreadable source"
+    assert counted == held, f"the status note counted {label}"
+
+
+def test_the_status_note_does_count_a_real_marker(tmp_path: Path) -> None:
+    """The other half: narrowing the match must not lose the case it is for."""
+    write_index(tmp_path, _many_entities(1))
+    _write_run_rows(
+        tmp_path,
+        {
+            "youtube:one": [f"{schema.SEARCH_PROBLEM_PREFIX}transcript.json cannot be read"],
+            "youtube:two": ["unreadable_files: work/bundle.json: absent"],
+        },
+    )
+
+    counted, held = _unsearchable_note_count(tmp_path)
+    assert (counted, held) == (1, 1)
+
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        message = repo.status().message
+    finally:
+        repo.close()
+    assert message is not None and "1 indexed source could not be read" in message
+
+
+def test_a_source_with_no_brief_row_answers_what_the_oracle_answers(tmp_path: Path) -> None:
+    """The twin of ``test_both_repositories_say_the_same_thing_about_a_source_with_no_brief``.
+
+    A run the scanner skipped has a node from no pass and a brief from no pass.
+    This branch and ``MemoryRepository``'s said different sentences about that
+    one fact; they now read the same constant.
+    """
+    from x2knwldg import synthesis
+
+    write_index(tmp_path, _many_entities(1))
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        answer = repo._brief("youtube:never-scanned")
+    finally:
+        repo.close()
+    assert answer == {
+        "state": synthesis.BRIEF_UNAVAILABLE,
+        "brief": None,
+        "reason": synthesis.NO_BRIEF_REASON,
+    }
+
+
+# --------------------------------------------------------------------------
+# The edge cap bounds the work, not only the answer
+# --------------------------------------------------------------------------
+
+
+def _star(spokes: int) -> IndexRecords:
+    """One hub with *spokes* neighbours, and an edge to each."""
+    hub = "youtube:s:KU-000000"
+    entities = [_entity(hub, source_id="youtube:s")]
+    relations = []
+    for index in range(1, spokes + 1):
+        spoke = f"youtube:s:KU-{index:06d}"
+        entities.append(_entity(spoke, source_id="youtube:s"))
+        relations.append(
+            _relation(hub, spoke, vocabulary="canonical", source_id="youtube:s")
+        )
+    return IndexRecords(entities=entities, relations=relations)
+
+
+def _counting_documents(repo: SqliteRepository) -> list[str]:
+    """Record the table of every stored row this repository parses."""
+    parsed: list[str] = []
+    original = repo._document
+
+    def counting(row: Any, table: str) -> dict[str, Any]:
+        parsed.append(table)
+        return original(row, table)
+
+    repo._document = counting  # type: ignore[method-assign]
+    return parsed
+
+
+def test_the_adjacency_seek_parses_a_relation_only_as_it_is_asked_for(
+    tmp_path: Path,
+) -> None:
+    """``_relations_touching`` returned a list, so every touching edge was built.
+
+    ``neighborhood`` then handed the lot to ``bounded_edges``, which kept
+    ``MAX_GRAPH_EDGES`` — so the cap bounded the response and nothing bounded
+    the work behind it. A hub node in a large library paid for every edge it has
+    in parsed dictionaries to return a hundred.
+    """
+    write_index(tmp_path, _star(20))
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        parsed = _counting_documents(repo)
+        walk = repo._relations_touching(["youtube:s:KU-000000"])
+        assert next(walk)["from_id"] == "youtube:s:KU-000000"
+        assert next(walk)
+        assert parsed.count("relations") == 2, (
+            f"two relations were asked for and {parsed.count('relations')} were built"
+        )
+    finally:
+        repo.close()
+
+
+def test_a_neighborhood_stops_one_past_the_edge_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One past, because that is what tells ``bounded_edges`` the list was cut.
+
+    The cap is patched down rather than the corpus grown up to it: 5000 edges
+    would make this a slow test of the same one fact.
+    """
+    from x2knwldg.index import repository as index_repository
+    from x2knwldg.repository import base as repository_base
+
+    monkeypatch.setattr(index_repository, "MAX_GRAPH_EDGES", 3)
+    monkeypatch.setattr(repository_base, "MAX_GRAPH_EDGES", 3)
+
+    write_index(tmp_path, _star(20))
+    repo = SqliteRepository.open(tmp_path)
+    try:
+        parsed = _counting_documents(repo)
+        hood = repo.neighborhood(
+            NeighborhoodQuery(entity_id="youtube:s:KU-000000", depth=1, limit=50)
+        )
+    finally:
+        repo.close()
+
+    assert hood is not None
+    assert len(hood.edges) == 3 and hood.truncated is True
+    # The breadth-first round reads every touching relation — it has to, to find
+    # the neighbours — and the edge pass then stops at four. Twenty plus four,
+    # never twenty plus twenty.
+    assert parsed.count("relations") == 24, (
+        f"the edge pass built {parsed.count('relations') - 20} of 20 relations "
+        "after the cap was already met"
+    )

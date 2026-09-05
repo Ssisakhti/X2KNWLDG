@@ -3,7 +3,7 @@
 ``T-227`` registered the source type with a source-only projection so that one
 acquired post could not refuse the whole project's (D-227). ``T-228`` completes
 it: artifacts, entities, locators and relations, so a Twitter run reaches the
-index, the API, search, the Reader and the Map on the same eleven frozen
+index, the API, search, the Reader and the Map on the same thirteen frozen
 operations a YouTube run does.
 
 What is mapped
@@ -49,12 +49,6 @@ providers of ``T-225``/``T-226`` a visible change of behaviour rather than an
 implementation detail. The provenance stays in ``capture.json``, which is an
 artifact anyone can open.
 
-**No ``graph.json``, ``report.md`` or vault note.** They are not omitted here —
-they do not exist. ``artifacts.finalize_run`` is YouTube-shaped and ``T-230``
-generalizes it (D-234), so this adapter maps the run as it actually is: an
-artifact whose file is absent is reported ``available: false`` rather than left
-out, and the two that a Twitter run will never have are simply not in its table.
-
 **No quoted post is fetched, and no ``Entity`` is minted for one.** ADR 0007
 decision 8 makes a quote a separate cited source; the capture carries the
 quoted id and author and nothing else, and ``metadata.external_references``
@@ -94,20 +88,30 @@ from .base import (
 #: becomes the local part of the artifact's global id, so
 #: ``twitter:<anchor>:capture`` stays stable and readable across rebuilds.
 #:
-#: Four of YouTube's twelve are absent and each absence is a fact about the
+#: Two of YouTube's twelve are absent, and the absence is a fact about the
 #: medium rather than an omission: there is no ``transcript.json`` or
-#: ``segments.json`` because a post *is* the segment (``T-227``), and no
-#: ``graph.json`` or ``report.md`` because nothing writes them yet — ``T-230``
-#: generalizes ``finalize_run`` (D-234). Listing either of the last two would
-#: put a permanently ``available: false`` artifact in every Twitter run's
-#: record set, which reads as damage rather than as a stage not yet reached.
+#: ``segments.json`` because a post *is* the segment (``T-227``).
+#:
+#: ``graph.json`` and ``report.md`` used to be absent too, on the grounds that
+#: "they do not exist" — true when ``finalize_run`` was YouTube-shaped, and
+#: false since ``T-230`` generalized it (D-234, D-240). ``MEDIUM_PROFILES``
+#: carries a Twitter row, ``artifacts.finalize_run`` writes both files for both
+#: media, and ``tests/test_phase_gate_twitter.py`` asserts they land. So the two
+#: files ``WORKFLOW.md`` §T5 has just told the operator to read were
+#: addressable for a video and not for a post: absent from the run's
+#: ``artifact_ids``, unreachable through ``/api/artifacts``, invisible to the
+#: Reader. They are listed now, and a run that has not been finalized reports
+#: them ``available: false`` — which is what that field is for, and the same
+#: answer a YouTube run gives at the same stage.
 CANONICAL_ARTIFACTS: tuple[ArtifactSpec, ...] = (
     ArtifactSpec("metadata", "metadata", "canonical", "metadata.json"),
     ArtifactSpec("capture", "capture", "canonical", CAPTURE_FILENAME),
     ArtifactSpec("knowledge_units", "knowledge_units", "canonical", "knowledge_units.json"),
     ArtifactSpec("relationships", "relationships", "canonical", "relationships.json"),
+    ArtifactSpec("graph", "graph", "canonical", "graph.json"),
     ArtifactSpec("coverage", "coverage", "canonical", "coverage.json"),
     ArtifactSpec("validation", "validation", "canonical", "validation.json"),
+    ArtifactSpec("report", "report", "canonical", "report.md"),
     ArtifactSpec("extraction_bundle", "extraction_bundle", "work", "work/extraction_bundle.json"),
 )
 
@@ -119,32 +123,6 @@ POST_ID_PREFIX = "post-"
 
 #: Local-id prefix for a preserved provider read under ``raw/``.
 RAW_ID_PREFIX = "raw-"
-
-
-def _counts(run_dir: Path, metadata: Mapping[str, Any]) -> dict[str, int]:
-    """Cached counts, every one reproducible from the canonical files.
-
-    The schema is explicit that a stale count "is a bug, never a data
-    achievement", so these are read from the files rather than carried from
-    anywhere: a run whose extraction has not happened counts zero units, and
-    says so.
-    """
-    knowledge = read_optional_json(run_dir / "knowledge_units.json")
-    relationships = read_optional_json(run_dir / "relationships.json")
-    units = knowledge.get("units") if isinstance(knowledge, dict) else None
-    units = [unit for unit in units if isinstance(unit, dict)] if isinstance(units, list) else []
-    edges = relationships.get("relationships") if isinstance(relationships, dict) else None
-    edges = [edge for edge in edges if isinstance(edge, dict)] if isinstance(edges, list) else []
-    item_count = metadata.get("item_count")
-    counts = {
-        "knowledge_units": len(units),
-        "source_units": sum(1 for unit in units if unit.get("source_class") == "source"),
-        "derived_units": sum(1 for unit in units if unit.get("source_class") == "derived"),
-        "relationships": len(edges),
-    }
-    if isinstance(item_count, int) and not isinstance(item_count, bool) and item_count >= 0:
-        counts["segments"] = item_count
-    return counts
 
 
 class TwitterAdapter(SourceAdapter):
@@ -204,7 +182,16 @@ class TwitterAdapter(SourceAdapter):
         relations += self._derived_from_relations(run_dir, source_id, units)
 
         source = self._source(
-            run_dir, metadata, source_id, source_id.value, artifacts, unmappable, damaged
+            run_dir,
+            metadata,
+            source_id,
+            source_id.value,
+            artifacts,
+            capture=capture,
+            units=units,
+            edges=edges,
+            unmappable=unmappable,
+            damaged=damaged,
         )
         return check_records(
             IndexRecords(
@@ -215,6 +202,31 @@ class TwitterAdapter(SourceAdapter):
                 source_entities=[self._source_entity(run_dir, source_id, metadata)],
             )
         )
+
+    def _counts(
+        self,
+        source_id: ids.SourceId,
+        capture: Any | None,
+        units: list[Mapping[str, Any]] | None,
+        edges: list[Mapping[str, Any]] | None,
+    ) -> dict[str, int]:
+        """The shared four, plus ``segments`` — which for this medium is items.
+
+        ``segments`` used to be copied from ``metadata.item_count``, and that is
+        the one number in this record that must not be *carried*: a run whose
+        ``capture.json`` had been corrupted went on reporting ``segments: 10``
+        from a metadata file written when the capture was still readable, beside
+        an artifact set holding zero posts. The count is taken from the same
+        parsed items ``_post_artifacts`` mints from, so the two cannot disagree,
+        and an unreadable capture omits it rather than restating a stale ten —
+        the same rule ``YouTubeAdapter._counts`` applies to its own two.
+        """
+        counts = self._knowledge_counts(units, edges)
+        if capture is not None:
+            counts["segments"] = len(
+                list_items(capture, "items", f"the capture of {source_id.value}")
+            )
+        return counts
 
     # ----------------------------------------------------------------
     # Where a claim's evidence sits
@@ -447,6 +459,10 @@ class TwitterAdapter(SourceAdapter):
         source_id: ids.SourceId,
         owner: str,
         artifacts: list[dict[str, Any]],
+        *,
+        capture: Any | None,
+        units: list[Mapping[str, Any]] | None,
+        edges: list[Mapping[str, Any]] | None,
         unmappable: list[dict[str, str]],
         damaged: list[dict[str, str]],
     ) -> dict[str, Any]:
@@ -513,13 +529,23 @@ class TwitterAdapter(SourceAdapter):
             # `audit_attempts` — and this adapter's first version wrote a bare
             # string into it. There is no branch anywhere in it that can turn a
             # stated PARTIAL or FAIL into anything else (ADR 0001 invariant 2).
-            "status": self._status(run_dir, []),
+            #
+            # `damaged`, not `[]`. `_status` reads `validation.json` and
+            # `coverage.json` through `read_canonical`, which is the channel
+            # that names a file it could not parse — and passing a throwaway
+            # list here discarded exactly those two findings. A run whose
+            # `validation.json` is corrupt reports `overall: UNKNOWN`, and
+            # "unknown" without "and here is the file that broke" is the half
+            # of the answer that cannot be acted on. The list is the same
+            # object `adapter_metadata["damaged_files"]` already holds, so what
+            # this call appends is what that key reports.
+            "status": self._status(run_dir, damaged),
             # The six keys `schemas/v1/source.schema.json` defines, and only
             # those: `counts` is `additionalProperties: false`. `segments` is
             # the item count, which is the one mapping that is *exactly* right
             # here — a post is the segment. `captions` is omitted rather than
             # zeroed: there are none, and `0` would say a count was taken.
-            "counts": _counts(run_dir, metadata),
+            "counts": self._counts(source_id, capture, units, edges),
             "artifact_ids": [artifact["id"] for artifact in artifacts],
             "adapter": self.ref,
             # Fields of `metadata.json` the generic `Source` record has no home

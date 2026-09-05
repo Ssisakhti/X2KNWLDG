@@ -157,15 +157,22 @@ def test_a_bundle_cannot_be_applied_to_a_run_it_is_not_for(tmp_path: Path) -> No
 
 
 def test_a_bundle_that_fails_validation_is_not_written(tmp_path: Path) -> None:
-    """The whole point of a gate: the refused run keeps its scaffold."""
+    """The whole point of a gate: the refused run keeps its scaffold.
+
+    ``initialize_run`` writes the two empty knowledge documents itself now — the
+    state ``WORKFLOW.md`` §T1 describes and §T7 grades ``3 PARTIAL`` — so their
+    *absence* is no longer what "not written" means here. The stronger claim is
+    the one asserted: after a refusal the four canonical files are exactly the
+    four the scaffold left, still empty and still unaudited.
+    """
     run_dir, _ = initialized(tmp_path, "pass-single-post-en")
     bundle = committed_bundle("single-post")
     bundle["knowledge_units"][0]["source"]["end_char"] += 3
 
     with pytest.raises(extract.ExtractionError, match="failed validation"):
         apply(run_dir, bundle)
-    assert not (run_dir / "knowledge_units.json").exists()
-    assert not (run_dir / "relationships.json").exists()
+    assert read(run_dir, "knowledge_units.json")["units"] == []
+    assert read(run_dir, "relationships.json")["relationships"] == []
     scaffold = read(run_dir, "coverage.json")
     assert scaffold["audit_attempts"] == 0
     assert scaffold["items"][0]["status"] == "pending"

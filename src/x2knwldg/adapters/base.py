@@ -626,6 +626,7 @@ def check_records(records: IndexRecords, *, self_contained: bool = True) -> Inde
 
     if self_contained:
         _check_endpoints(records)
+        _check_locators(records)
     return records
 
 
@@ -651,6 +652,44 @@ def _check_endpoints(records: IndexRecords) -> None:
                     "entity record has; an edge to an entity the index does not carry "
                     "cannot be drawn, and would be listed by the API anyway"
                 )
+
+
+def _check_locators(records: IndexRecords) -> None:
+    """No locator may address an artifact no record supplies.
+
+    The same rule as :func:`_check_endpoints`, one field over, and it is here
+    for the same reason: ``ids.check_locator`` proves an ``artifact_id`` is a
+    *well-formed* global id, which is a claim about its spelling and not about
+    whether anything in this index answers to it.
+
+    Measured on a Twitter run whose ``capture.json`` had been corrupted. No
+    items parsed, so ``_post_artifacts`` minted nothing, and every source
+    claim's ``text_span`` went on naming ``twitter:<anchor>:post-<id>`` — an
+    artifact id with no record behind it. The index accepted the run, the Reader
+    had a citation it could not resolve, and the ``adapter_metadata`` said
+    nothing was wrong. The evidence a claim cites is the one thing this medium's
+    projection exists to carry (D-233), so a claim that cites nothing is a run
+    to refuse and name, not a run to serve.
+
+    A locator with **no** ``artifact_id`` is untouched: leaving it unaddressed
+    is how ``YouTubeAdapter._locator`` already reports a unit whose provenance
+    names another video, and that is a stated absence rather than a dangling
+    reference.
+    """
+    artifacts = {artifact["id"] for artifact in records.artifacts}
+    for entity in (*records.entities, *records.source_entities):
+        locator = entity.get("locator")
+        if not isinstance(locator, Mapping):
+            continue
+        artifact_id = locator.get("artifact_id")
+        if artifact_id is None or artifact_id in artifacts:
+            continue
+        raise AdapterError(
+            f"{entity.get('entity_type')} {entity.get('global_id')!r} locates its evidence "
+            f"in artifact {artifact_id!r}, which no record in this set supplies; a citation "
+            "the index cannot resolve is worse than an absent one, because it reads as "
+            "evidence"
+        )
 
 
 def _wrap(check, value, owner: str):
@@ -775,14 +814,96 @@ class SourceAdapter(ABC):
         return project_relative(path, self.project_root)
 
     def read_canonical(self, path: Path, damaged: list[dict[str, str]]) -> Any | None:
-        """A canonical file, or ``None``. Override to report *why* it was None.
+        """A canonical file, or ``None`` — recording *why* when there is a why.
 
-        The base behaviour is the plain tolerant read: an absent or unreadable
-        file is an absence. ``YouTubeAdapter`` overrides it to append to
-        *damaged*, because a file that is present and unreadable is damage and
-        only one of "missing count" and "broken file" is actionable.
+        An absent file is an absence and says nothing. A file that is present
+        and unreadable is damage, and the damage is reported on the Source
+        record: the counts derived from it are already omitted rather than
+        zeroed, but 'this count is missing' does not say that the file is
+        broken, and only one of those two is actionable.
+
+        **On the base class since it was measured to be dead everywhere else.**
+        This was the plain tolerant read here and the reporting one on
+        ``YouTubeAdapter`` alone, and ``TwitterAdapter`` — which calls it four
+        times and passes a ``damaged`` list into every call — inherited the
+        version that ignores the argument. So a Twitter run with a corrupted
+        ``capture.json`` indexed as a healthy run: ``damaged_files: []``, zero
+        ``post`` artifacts, and every claim's ``text_span`` pointing at an
+        artifact id no record supplied. That the channel exists and is unwired
+        is worse than not having it, because the empty list reads as "checked,
+        nothing wrong". It is not a YouTube rule — what a damaged canonical file
+        is does not change with the medium, the same argument D-228 made for
+        ``_status`` — so it lives where every adapter gets it.
         """
-        return read_optional_json(path)
+        document, reason = read_optional_json_or_reason(path)
+        if reason is not None:
+            # D-100's wrap, which `_file_artifact` got and this did not.
+            # `self.relative` **resolves**, so a canonical file that is a
+            # symlink to somewhere outside the project raised `AdapterError`
+            # here and took the whole run down — downgrading it from "indexed,
+            # with this file named as damaged" to "absent". A run whose
+            # `validation.json` is both symlinked outside the root *and*
+            # unparseable is damaged in a way this record can state, and
+            # stating it is the whole point of this channel.
+            #
+            # The lexical path is used when the resolved one cannot be
+            # expressed, for the reason `_file_artifact` gives: the bytes
+            # really do live outside the project, and the entry is a
+            # *report*, not an addressable artifact.
+            try:
+                relative = self.relative(path)
+            except AdapterError:
+                damaged.append(
+                    {
+                        "path": path.name,
+                        "reason": scrub_host_paths(
+                            f"{reason}; it also resolves outside the project root, "
+                            "so it has no project-relative path (risk R15)"
+                        ),
+                    }
+                )
+                return document
+            # D-051's rule, on D-045's other channel. Every ``JsonReadError``
+            # names the file it could not read and names it *absolutely*, and
+            # this record is served verbatim inside a 200 body by
+            # ``/api/sources`` — at which point the reason leaks the user's
+            # filesystem layout to any HTTP client, which D-030 and ADR 0003
+            # both forbid. Sanitised here, at the point the reason is
+            # recorded, rather than on the way out: one rule, the CLI gains
+            # the same property, and it becomes the same relative string the
+            # entry's ``path`` is keyed by, so the two cannot disagree about
+            # which file failed. The substring is exact rather than hopeful --
+            # ``io.read_json`` formats this very ``path`` into the message.
+            damaged.append({"path": relative, "reason": reason.replace(str(path), relative)})
+        return document
+
+    def _knowledge_counts(
+        self,
+        units: list[Mapping[str, Any]] | None,
+        edges: list[Mapping[str, Any]] | None,
+    ) -> dict[str, int]:
+        """The four counts every medium has, over lists the caller already read.
+
+        One rule, one implementation, and no second read of the file it counts.
+        ``TwitterAdapter`` had its own copy as a module-level function that
+        re-opened ``knowledge_units.json`` and ``relationships.json`` *after*
+        ``adapt_run`` had parsed both — two answers to "what is a source unit"
+        living a hundred lines apart, and double the I/O to keep them in step.
+
+        A count is a cache convenience. Reporting ``0`` for a file that could
+        not be read would state that the run has no knowledge units, which is a
+        different claim from not knowing — so an unread list is omitted, and
+        the schema's rule that a stale count "is a bug, never a data
+        achievement" is met by counting what was actually parsed.
+        """
+        counts: dict[str, int] = {}
+        if units is not None:
+            counts["knowledge_units"] = len(units)
+            counts["source_units"] = sum(1 for u in units if u.get("source_class") == "source")
+            counts["derived_units"] = sum(1 for u in units if u.get("source_class") == "derived")
+        if edges is not None:
+            counts["relationships"] = len(edges)
+        return counts
 
     def _status(self, run_dir: Path, damaged: list[dict[str, str]]) -> dict[str, Any]:
         """Copy the run status out of the two validator files.

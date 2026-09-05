@@ -20,6 +20,7 @@ from x2knwldg.transcripts import (
     TranscriptError,
     captions_from_items,
     clean_text,
+    comparable_text,
     parse_timestamp,
     parse_transcript_file,
     transcript_end_sec,
@@ -753,3 +754,155 @@ class MediaDurationCoverageTests(unittest.TestCase):
         """The captions are evidence; a duration that contradicts them loses."""
         document = create_pending_coverage(self.CAPTIONS, "vid", duration_sec=60.0)
         self.assertEqual(document["windows"][-1]["end_sec"], 600.0)
+
+
+class RefusalTests(unittest.TestCase):
+    """Every refusal this module can raise, executed once.
+
+    Eight ``raise TranscriptError`` statements had no test that reached them,
+    and they are not incidental: together they are the gate CLAUDE.md states as
+    "never accept untimed plain text as strict YouTube provenance". A gate whose
+    branches are never run is a gate nobody has opened to check which way it
+    swings — a predicate inverted here would let an untimed file through and
+    2233 passing tests would have said nothing.
+
+    Each case names the message, because the message is what the operator acts
+    on: "give me a timestamped file" and "this file is not UTF-8" call for
+    different repairs.
+    """
+
+    def test_a_caption_with_neither_end_nor_duration_is_refused(self):
+        """``_canonical_caption``: a cue with a start and no extent."""
+        with self.assertRaises(TranscriptError) as caught:
+            captions_from_items([{"start_sec": 0.0, "text": "hello"}], "test", "en")
+        self.assertIn("end_sec or duration", str(caught.exception))
+
+    def test_a_subtitle_file_with_no_cues_is_refused(self):
+        """``_parse_srt_or_vtt``: prose in a ``.srt``, with no timing anywhere."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write(directory, "notes.srt", "Just some notes.\n\nAnd more notes.\n")
+            with self.assertRaises(TranscriptError) as caught:
+                parse_transcript_file(path)
+        self.assertIn("No timestamped cues", str(caught.exception))
+
+    def test_transcript_json_that_is_neither_object_nor_array_is_refused(self):
+        """``_json_items``: a bare scalar at the top of a ``.json``."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write(directory, "t.json", '"a transcript"')
+            with self.assertRaises(TranscriptError) as caught:
+                parse_transcript_file(path)
+        self.assertIn("must be an object or an array", str(caught.exception))
+
+    def test_transcript_json_with_no_recognized_caption_list_is_refused(self):
+        """``_json_items``: an object carrying none of the four known keys."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write(directory, "t.json", json.dumps({"lines": [{"text": "hi"}]}))
+            with self.assertRaises(TranscriptError) as caught:
+                parse_transcript_file(path)
+        self.assertIn("no recognized caption list", str(caught.exception))
+
+    def test_malformed_transcript_json_is_refused_by_name(self):
+        """``_parse_json``: the decoder's own complaint is carried through."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write(directory, "t.json", "{not json")
+            with self.assertRaises(TranscriptError) as caught:
+                parse_transcript_file(path)
+        self.assertIn("Invalid transcript JSON", str(caught.exception))
+
+    def test_a_caption_list_holding_nothing_usable_is_refused(self):
+        """``captions_from_items``: entries that are not captions at all.
+
+        The list is present and non-empty, which is exactly why this refusal
+        exists: "there were items" is not "there were captions".
+        """
+        with self.assertRaises(TranscriptError) as caught:
+            captions_from_items(["a line", 7, None], "test", "en")  # type: ignore[list-item]
+        self.assertIn("No usable timestamped captions", str(caught.exception))
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write(directory, "t.json", json.dumps({"captions": []}))
+            with self.assertRaises(TranscriptError) as caught:
+                parse_transcript_file(path)
+        self.assertIn("no usable timestamped captions", str(caught.exception))
+
+    def test_untimed_plain_text_is_refused(self):
+        """``_parse_timed_text``: the gate CLAUDE.md names in as many words.
+
+        A ``.txt`` or ``.md`` of prose has no timing, so nothing extracted from
+        it could ever cite a moment. It is refused with the header shape the
+        operator has to supply, rather than accepted and filed at second zero.
+        """
+        for suffix in (".txt", ".md"):
+            with self.subTest(suffix=suffix):
+                with tempfile.TemporaryDirectory() as directory:
+                    path = _write(
+                        directory,
+                        f"notes{suffix}",
+                        "He opens by saying the model is wrong.\nThen he explains why.\n",
+                    )
+                    with self.assertRaises(TranscriptError) as caught:
+                        parse_transcript_file(path)
+                self.assertIn("[HH:MM:SS - HH:MM:SS]", str(caught.exception))
+
+    def test_a_transcript_that_is_not_utf8_is_refused(self):
+        """``parse_transcript_file``: decoded, not mangled into replacement chars."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cues.srt"
+            path.write_bytes(
+                b"1\n00:00:00,000 --> 00:00:02,000\nca\xa0ption\n"
+            )
+            with self.assertRaises(TranscriptError) as caught:
+                parse_transcript_file(path)
+        self.assertIn("UTF-8", str(caught.exception))
+
+    def test_an_unsupported_extension_is_refused_by_name(self):
+        """``parse_transcript_file``: and an extensionless file says so too."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write(directory, "captions.docx", "anything")
+            with self.assertRaises(TranscriptError) as caught:
+                parse_transcript_file(path)
+            self.assertIn(".docx", str(caught.exception))
+
+            bare = _write(directory, "captions", "anything")
+            with self.assertRaises(TranscriptError) as caught:
+                parse_transcript_file(bare)
+            self.assertIn("(no extension)", str(caught.exception))
+
+
+class CleanTextIdempotenceTests(unittest.TestCase):
+    """``clean_text`` decodes, so cleaning twice invents a string nothing said.
+
+    The defect this pins was in ``validators.validate_provenance``, which ran
+    the parse-time cleaner over both the evidence excerpt and the already-clean
+    segment text it was matched against. The second ``html.unescape`` decoded
+    the stored text a second time, so an excerpt that appears in no canonical
+    file of the run matched it and was reported as proven provenance.
+    """
+
+    def test_clean_text_is_not_idempotent_and_says_so(self):
+        stored = clean_text("the token is &amp;amp; and nothing else")
+        self.assertEqual(stored, "the token is &amp; and nothing else")
+        self.assertEqual(clean_text(stored), "the token is & and nothing else")
+        self.assertNotEqual(clean_text(stored), stored)
+
+    def test_comparable_text_is_idempotent(self):
+        for value in (
+            "the token is &amp; and nothing else",
+            "compare <b> with & and 3 > 2",
+            "  spaced\nout ​text ",
+            "<c.yellow>markup</c> around it",
+        ):
+            with self.subTest(value=value):
+                once = comparable_text(value)
+                self.assertEqual(comparable_text(once), once)
+
+    def test_comparable_text_leaves_entities_alone(self):
+        """The one step removed, and the only one."""
+        self.assertEqual(
+            comparable_text("the token is &amp; and nothing else"),
+            "the token is &amp; and nothing else",
+        )
+
+    def test_comparable_text_keeps_the_forgiveness_clean_text_granted(self):
+        """Markup and whitespace still fold, because both folds are idempotent."""
+        self.assertEqual(comparable_text("  <i>carry the evidence</i>\n"), "carry the evidence")

@@ -52,7 +52,7 @@ X2KNWLDG_BROWSER_CHANNEL= npm run browser
 | Path | Holds |
 |---|---|
 | `src/api/contract.ts` | The single re-export of the generated API types. Untouched by `T-109` |
-| `src/api/client.ts` | The typed client for the eleven operations, and the runtime path table the compiler checks against the contract |
+| `src/api/client.ts` | The typed client for the thirteen operations, and the runtime path table the compiler checks against the contract |
 | `src/api/errors.ts` | The D-030 taxonomy as something the UI can branch on |
 | `src/api/canonical.ts` | Defensive readers for the canonical bytes the byte channel serves |
 | `src/api/vocabulary.ts` | The controlled vocabularies as values a `<select>` can enumerate |
@@ -219,18 +219,19 @@ preferences, and each one has a test:
   walked that path in a browser with `Tab` alone, and again with
   `WebGL2RenderingContext` deleted. What no automated gate can be is a real
   **screen reader**: what is asserted is the roles, names and states one reads.
-- **Ten of the thirteen frozen endpoints have a caller.** `T-207` closed the
-  two that mattered for the Map: `/api/entities/{entity_id}` backs Quick Read
-  and `/api/graph/neighborhood/{entity_id}` backs the constellation and the
-  related list. Three have no caller, and each is a row in the client's path
-  table, so the compiler still checks its shape. `getArtifact`
-  (`/api/artifacts/{artifact_id}`) has none because nothing in the UI reads an
-  artifact's *record*: the Reader reads its bytes, through
-  `/api/media/{artifact_id}`. `getSourceGraph` and `getSourceNeighborhood` have
-  none **yet** — `T-254` served the Source Map, and `T-256` is the Map mode
-  that draws it; until then no view exists to call them, and adding a caller
-  with nothing to render would be scaffolding pretending to be a feature. This
-  bullet said "every" until the census was actually run (D-187).
+- **Twelve of the thirteen frozen endpoints have a caller.** `T-207` closed the
+  two that mattered for the Knowledge Map: `/api/entities/{entity_id}` backs
+  Quick Read and `/api/graph/neighborhood/{entity_id}` backs the constellation
+  and the related list. `T-256` closed the last two it could: `getSourceGraph`
+  and `getSourceNeighborhood` are called from `useSourceGraph`, which is the
+  Source Map mode drawing what `T-254` served. One has no caller, and it is a
+  row in the client's path table like every other, so the compiler still checks
+  its shape: `getArtifact` (`/api/artifacts/{artifact_id}`), because nothing in
+  the UI reads an artifact's *record* — the Reader reads its bytes, through
+  `/api/media/{artifact_id}`. This bullet said "every" until the census was
+  actually run (D-187), and then said "ten… `getSourceGraph` and
+  `getSourceNeighborhood` have none **yet**" for two shipped commits after they
+  did.
 - **The Map has been walked in a real browser** (`T-209`), and what that cost
   is worth knowing. The gate is `browser/`: the built bundle over the real API
   in Google Chrome on the target machine, and the same specs on a software

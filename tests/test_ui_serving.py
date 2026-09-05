@@ -184,7 +184,7 @@ def test_the_api_is_still_underneath(served) -> None:
     """The static mount is added last, so it catches only what no route claimed.
 
     Mounting at ``/`` is the one arrangement that could have swallowed the
-    eleven endpoints, so it is asserted rather than assumed.
+    thirteen endpoints, so it is asserted rather than assumed.
     """
     _root, client = served
     response = client.get("/api/status")

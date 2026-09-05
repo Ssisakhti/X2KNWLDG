@@ -16,6 +16,7 @@ from .io import (
     JsonReadError,
     dumps_json,
     format_timestamp,
+    is_finite_seconds,
     read_json,
     read_json_or_reason,
     run_dirs,
@@ -23,7 +24,14 @@ from .io import (
     write_group,
 )
 from .pipeline import PipelineError, VerdictRefusal, run_duration_sec, validate_run
-from .synthesis import BRIEF_FILENAME, brief_state, canonical_input_digests
+from .synthesis import (
+    BRIEF_AVAILABLE,
+    BRIEF_FILENAME,
+    BRIEF_STALE,
+    BRIEF_UNAVAILABLE,
+    brief_state,
+    canonical_input_digests,
+)
 from .twitter.extract import CAPTURE_FILENAME, post_url
 from .twitter.extract import SOURCE_TYPE as TWITTER_SOURCE_TYPE
 from .twitter.extract import apply_extraction_bundle as apply_twitter_bundle
@@ -359,6 +367,27 @@ def _read(path: Path) -> Any:
     return document
 
 
+def _restore_window_size(coverage: dict[str, Any], scaffolded: Any) -> None:
+    """Set ``coverage['window_size_sec']`` from the scaffold, never above the bound.
+
+    The single path :func:`_carry_coverage_scaffold_forward`'s docstring claims,
+    and the clamp applies to every one of its inputs — the scaffold's own value
+    included, because a scaffold minted by some earlier build with a wider
+    window is still not a licence to audit at that width today.
+    ``constants.COVERAGE_WINDOW_SEC`` is the widest window the format has, and a
+    number that is not a usable width is not a width at all.
+    """
+    stated = scaffolded if scaffolded is not None else coverage.get("window_size_sec")
+    # `io.is_finite_seconds` rather than `isinstance(..., (int, float))`: a
+    # bool is an int in Python and `min(float("nan"), 300)` is `nan`, so both
+    # would survive a clamp written as a comparison and land in the canonical
+    # file as a bound no later comparison can be made against.
+    if not is_finite_seconds(stated):
+        coverage["window_size_sec"] = constants.COVERAGE_WINDOW_SEC
+        return
+    coverage["window_size_sec"] = min(stated, constants.COVERAGE_WINDOW_SEC)
+
+
 def _carry_coverage_scaffold_forward(run_dir: Path, coverage: dict[str, Any]) -> None:
     """Restore the fields the scaffolded ``coverage.json`` knows and a bundle does not.
 
@@ -388,6 +417,16 @@ def _carry_coverage_scaffold_forward(run_dir: Path, coverage: dict[str, Any]) ->
     minutes that were never audited, which is the one thing `WORKFLOW.md` §4
     and `AGENTS.md` forbid outright. An audit may subdivide a scaffolded
     window; nothing it can write may widen one.
+
+    "Unconditionally" is now what the code does. It used to be
+    ``if "window_size_sec" in previous:``, with the clamping ``else`` reachable
+    only when the previous document was not a dict *at all* — so a
+    ``coverage.json`` that was a readable object but had had that one key
+    removed fell through both arms and left the bundle's own declared 1795
+    standing. Absent file, dict-with-key and non-dict all clamped correctly;
+    dict-without-key did not, which made **deleting** the scaffold safer than
+    emptying one field of it. :func:`_restore_window_size` is the one path, so
+    there is no arm left to fall through.
     """
     scaffold = run_dir / "coverage.json"
     previous: Any = None
@@ -397,8 +436,7 @@ def _carry_coverage_scaffold_forward(run_dir: Path, coverage: dict[str, Any]) ->
         except (JsonReadError, OSError):
             previous = None
     if isinstance(previous, dict):
-        if "window_size_sec" in previous:
-            coverage["window_size_sec"] = previous["window_size_sec"]
+        _restore_window_size(coverage, previous.get("window_size_sec"))
         captions_by_window = {
             window.get("window_id"): window.get("caption_ids")
             for window in previous.get("windows", [])
@@ -412,14 +450,8 @@ def _carry_coverage_scaffold_forward(run_dir: Path, coverage: dict[str, Any]) ->
                 window["caption_ids"] = list(carried)
     else:
         # No readable scaffold -- a damaged run, or one whose `coverage.json`
-        # was removed. The bundle must still not name its own bound: the widest
-        # window the format allows is `COVERAGE_WINDOW_SEC`, which is what
-        # `create_pending_coverage` would have minted.
-        stated = coverage.get("window_size_sec")
-        if not isinstance(stated, (int, float)) or isinstance(stated, bool):
-            coverage["window_size_sec"] = constants.COVERAGE_WINDOW_SEC
-        elif stated > constants.COVERAGE_WINDOW_SEC:
-            coverage["window_size_sec"] = constants.COVERAGE_WINDOW_SEC
+        # was removed. The bundle must still not name its own bound.
+        _restore_window_size(coverage, None)
 
     windows = coverage.get("windows")
     if not isinstance(windows, list):
@@ -896,19 +928,23 @@ def source_relations_state(output_root: Path) -> dict[str, Any]:
     output_root = Path(output_root).expanduser().resolve()
     path = source_relations_path(output_root)
     if not path.exists():
-        return {"state": "unavailable", "reason": "no source_relations.json", "relations": []}
+        return {
+            "state": BRIEF_UNAVAILABLE,
+            "reason": "no source_relations.json",
+            "relations": [],
+        }
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         return {
-            "state": "unavailable",
+            "state": BRIEF_UNAVAILABLE,
             "reason": f"source_relations.json cannot be read ({type(exc).__name__})",
             "relations": [],
         }
     relations = document.get("relations") if isinstance(document, dict) else None
     if not isinstance(relations, list):
         return {
-            "state": "unavailable",
+            "state": BRIEF_UNAVAILABLE,
             "reason": "source_relations.json holds no relation list",
             "relations": [],
         }
@@ -945,7 +981,7 @@ def source_relations_state(output_root: Path) -> dict[str, Any]:
         stated.append(
             {
                 "id": relation.get("id"),
-                "state": "stale" if moved else "available",
+                "state": BRIEF_STALE if moved else BRIEF_AVAILABLE,
                 "reason": (
                     "endpoint runs have changed since this pair was compared: "
                     + ", ".join(moved)
@@ -955,7 +991,7 @@ def source_relations_state(output_root: Path) -> dict[str, Any]:
             }
         )
     return {
-        "state": "stale" if any(r["state"] == "stale" for r in stated) else "available",
+        "state": BRIEF_STALE if any(r["state"] == BRIEF_STALE for r in stated) else BRIEF_AVAILABLE,
         "reason": None,
         "relations": stated,
     }

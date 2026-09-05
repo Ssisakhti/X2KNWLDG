@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "video_id": "9000000000000000001",
+  "source_type": "twitter",
+  "units": [
+    {
+      "id": "KU-000001",
+      "kind": "quote",
+      "source_class": "source",
+      "content": "نمونهٔ ساختگی 🛰 و 𝕏 — این متن برای آزمونِ فاصلهٔ نویسه‌ای ساخته شده است. #فاصله — @x2knwldg — https://t.co/AbCdEfGh12 — پایانِ نمونه، با چند واژهٔ افزوده برای اینکه خوانشِ نادرستِ افست هنوز درونِ متن بیفتد.",
+      "normalized_statement": "نمونهٔ ساختگی 🛰 و 𝕏 — این متن برای آزمونِ فاصلهٔ نویسه‌ای ساخته شده است. #فاصله — @x2knwldg — https://t.co/AbCdEfGh12 — پایانِ نمونه، با چند واژهٔ افزوده برای اینکه خوانشِ نادرستِ افست هنوز درونِ متن بیفتد.",
+      "confidence": 0.9,
+      "source": {
+        "post_id": "9000000000000000001",
+        "start_char": 0,
+        "end_char": 206,
+        "evidence_excerpt": "نمونهٔ ساختگی 🛰 و 𝕏 — این متن برای آزمونِ فاصلهٔ نویسه‌ای ساخته شده است. #فاصله — @x2knwldg — https://t.co/AbCdEfGh12 — پایانِ نمونه، با چند واژهٔ افزوده برای اینکه خوانشِ نادرستِ افست هنوز درونِ متن بیفتد."
+      },
+      "attribution": {
+        "speaker": "x2k_fixture",
+        "attribution_type": "direct"
+      }
+    },
+    {
+      "id": "KU-D-0001",
+      "kind": "synthesis",
+      "source_class": "derived",
+      "content": "This run quotes 1 post(s) captured from 9000000000000000001.",
+      "normalized_statement": "This run quotes 1 post(s) captured from 9000000000000000001.",
+      "confidence": 0.7,
+      "derived_from": [
+        "KU-000001"
+      ],
+      "derivation_note": "Counts the source units this fixture's extraction produced."
+    }
+  ]
+}

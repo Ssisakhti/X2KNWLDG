@@ -1291,6 +1291,224 @@ def check_index_integrity(by_model: Mapping[str, Sequence[Mapping[str, Any]]]) -
         )
 
 
+# --------------------------------------------------------------------------
+# The rules both implementations obey, stated once
+#
+# These were private copies in `repository/memory.py` and
+# `index/repository.py`, on the argument — written into the comment above the
+# second copy — that "a deliberate duplication of three lines" was cheaper than
+# a widened import surface between two implementations meant to be
+# independently checkable. The argument did not survive contact: the copies of
+# `_unit_global_id` had **already diverged**, one parsing the stored source id
+# inside its `try` and the other outside it, so an unparseable id raised out of
+# one twin and returned `None` from the other — and those two functions are
+# what `T-104`'s equivalence claim rests on. The divergence was found and
+# recorded rather than caught, because nothing could catch it.
+#
+# Independently checkable means the two *walk the store* differently, which
+# they still do: one seeks in SQL, the other slices a list. It never meant that
+# "what is a well-formed source id" or "which two sources does this relation
+# join" should have two answers.
+# --------------------------------------------------------------------------
+
+
+def source_graph_relations(
+    relations: Iterable[Mapping[str, Any]],
+    *,
+    indexed: set[str],
+    on_page: set[str],
+) -> tuple[list[dict[str, Any]], bool, int]:
+    """Which relations travel with a page of source nodes (``summaries, cut, omitted``).
+
+    Two rules, and each was written out twice — once in each implementation,
+    with the ``bounded_edges`` call, the omission arithmetic and the counting of
+    the unindexed transcribed line for line — while ``T-254``'s equivalence
+    tests compare the two page for page.
+
+    **Both endpoints must be sources the index holds.** A relation naming one it
+    does not would assert a node the client has no record for. It is *counted*
+    rather than dropped in silence, because a graph that is quietly thinner than
+    the corpus is the failure D-043 forbids.
+
+    **At least one endpoint must be on this page.** A source graph page is a
+    page of nodes and the relations are what travel with them, exactly as
+    :func:`graph_nodes`' edges are; a relation whose endpoints straddle two
+    pages appears in both, and a client accumulating pages dedupes by ``id``.
+    """
+    touching: list[Mapping[str, Any]] = []
+    unindexed = 0
+    for relation in relations:
+        endpoints = relation_endpoints(relation)
+        if not endpoints <= indexed:
+            unindexed += 1
+            continue
+        if endpoints & on_page:
+            touching.append(relation)
+    summaries, cut = bounded_edges(
+        [source_relation_summary(relation) for relation in touching]
+    )
+    return summaries, cut, unindexed + len(touching) - len(summaries)
+
+
+def source_neighborhood_relations(
+    relations: Iterable[Mapping[str, Any]],
+    *,
+    source_id: str,
+    indexed: set[str],
+    limit: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str], bool]:
+    """``(incoming, outgoing, neighbour ids, truncated)`` for one source.
+
+    ``limit`` bounds the relations **across** both directions and is applied in
+    id order *before* the split — rather than per direction, which would make
+    ``limit=500`` mean a thousand relations, and rather than
+    incoming-then-outgoing, which would let a bound erase one direction while
+    the other was still short of it. Both implementations applied it that way
+    by transcription; they apply it here by construction.
+
+    *relations* must already be in id order — the order both implementations
+    reach without either storing a position, because the id is deterministic
+    over the endpoints, the type and the scope (D-252).
+    """
+    touching = [
+        relation
+        for relation in relations
+        if source_id in relation_endpoints(relation)
+        and relation_endpoints(relation) <= indexed
+    ]
+    carried = touching[:limit]
+    incoming = [
+        source_relation_detail(relation)
+        for relation in carried
+        if relation.get("to_source_id") == source_id
+    ]
+    outgoing = [
+        source_relation_detail(relation)
+        for relation in carried
+        if relation.get("from_source_id") == source_id
+    ]
+    neighbours = sorted(
+        {
+            other
+            for relation in carried
+            for other in relation_endpoints(relation)
+            if other != source_id
+        }
+    )
+    return incoming, outgoing, neighbours, len(carried) < len(touching)
+
+
+def parse_source_id(value: Any) -> str:
+    """*value* as a source id, or :class:`InvalidId`.
+
+    D-020 over the seam: an id that fails :mod:`x2knwldg.ids` is refused as
+    malformed before anything is read, never dressed up as absence.
+    """
+    try:
+        return ids.parse_source_id(value).value
+    except ids.IdError as exc:
+        raise InvalidId(f"source_id: {exc}") from exc
+
+
+def parse_global_id(value: Any, label: str) -> str:
+    """*value* as a three-part global id, or :class:`InvalidId` naming *label*."""
+    try:
+        return ids.parse_global_id(value).value
+    except ids.IdError as exc:
+        raise InvalidId(f"{label}: {exc}") from exc
+
+
+def unit_global_id(source_id: str | None, local_id: Any) -> str | None:
+    """The unit's three-part global id, or ``None`` when one cannot be built.
+
+    ``parse_source_id`` is **inside** the ``try``. It sat outside it in
+    ``memory._unit_global_id`` and inside it in ``index.search._unit_global_id``,
+    so an unparseable stored ``source_id`` raised ``IdError`` out of one and
+    returned ``None`` from the other. Unreachable today, because every stored id
+    was built by ``ids.py`` — but a coincidence is not an invariant, and these
+    are the two functions an equivalence proof rests on.
+
+    ``None`` is the right half of that disagreement: this function's whole
+    contract is "a plausible string that resolves to nothing is worse than an
+    absence", and a stored id that will not parse is index damage that must cost
+    its own hit's ``global_id`` and not the search.
+    """
+    if source_id is None:
+        return None
+    try:
+        parsed = ids.parse_source_id(source_id)
+        return ids.make_global_id(parsed.source_type, parsed.external_id, local_id).value
+    except ids.IdError:
+        return None
+
+
+def relation_endpoints(relation: Mapping[str, Any]) -> set[str]:
+    """The two source ids a stored ``SourceRelation`` joins."""
+    return {str(relation.get("from_source_id")), str(relation.get("to_source_id"))}
+
+
+def vocabulary_filter(query: NeighborhoodQuery | SourceNeighborhoodQuery) -> GraphQuery:
+    """A neighborhood filters edges by vocabulary only — one matcher, one rule."""
+    return GraphQuery(
+        limit=query.limit, relation_vocabulary=getattr(query, "relation_vocabulary", None)
+    )
+
+
+def search_offset(query: SearchQuery) -> int:
+    """The offset a search cursor names, or ``0``.
+
+    The search cursor is an **offset**, not a key: a relevance rank is not a
+    stable order to key off, and there is no total order over hits to page by.
+    It is authenticated like every other cursor, so the offset that indexes the
+    ranked list is one the repository issued rather than one a caller minted —
+    and anything else is refused rather than clamped.
+    """
+    start = query.start()
+    if start is None:
+        return 0
+    try:
+        offset = int(start.key or "")
+    except ValueError as exc:
+        raise InvalidQuery("cursor is not a cursor this repository issued") from exc
+    if offset < 0:
+        raise InvalidQuery("cursor is not a cursor this repository issued")
+    return offset
+
+
+def offset_page(
+    ranked: Sequence[Mapping[str, Any]],
+    query: SearchQuery,
+    offset: int,
+    *,
+    complete: bool,
+) -> Page:
+    """One window of a ranked hit list, with the token for the next one.
+
+    The offset counterpart of :func:`page_from_window`, and lifted for the same
+    reason: this arithmetic was transcribed line for line into both
+    implementations — the one paging path that was not already shared — while
+    ``T-104`` compares their pages hit for hit. Two transcriptions of one sum is
+    two places a fencepost can move.
+
+    *complete* is whether every source in scope could be read. ``total`` is the
+    length of the ranked list when it is, and ``None`` when it is not: an
+    unreadable source's hits are unknown, never zero (ADR 0004 invariant 6).
+    """
+    window = [record_copy(hit) for hit in ranked[offset : offset + query.limit]]
+    exhausted = len(ranked) <= offset + query.limit
+    next_cursor = (
+        None
+        if exhausted or not window
+        else encode_cursor(query.fingerprint, str(offset + query.limit))
+    )
+    return Page(
+        items=window,
+        limit=query.limit,
+        next_cursor=next_cursor,
+        total=len(ranked) if complete else None,
+    )
+
+
 def page_from_window(
     window: Sequence[Mapping[str, Any]],
     query: PagedQuery,
@@ -1354,7 +1572,7 @@ def keyset_page(
 
 @runtime_checkable
 class IndexRepository(Protocol):
-    """What the API may ask the index for. Ten methods, eleven endpoints.
+    """What the API may ask the index for. Twelve methods, thirteen endpoints.
 
     ``GET /api/media/{artifact_id}`` reuses :meth:`get_artifact`: the record
     carries ``path`` — project-relative, produced by ``adapters.project_relative``

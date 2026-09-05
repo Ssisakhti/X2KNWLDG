@@ -31,7 +31,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .. import ids
 from ..adapters import ADAPTERS, IndexRecords, adapt_project
 from ..query import SearchDocument, rank_documents, run_documents
 from .base import (
@@ -41,8 +40,6 @@ from .base import (
     GraphQuery,
     IndexStatus,
     IndexUnavailable,
-    InvalidId,
-    InvalidQuery,
     Neighborhood,
     NeighborhoodQuery,
     Page,
@@ -56,17 +53,22 @@ from .base import (
     SourceQuery,
     bounded_edges,
     check_index_integrity,
-    encode_cursor,
     graph_nodes,
     keyset_page,
     matches_entity,
     matches_relation,
     matches_source,
+    offset_page,
+    parse_global_id,
+    parse_source_id,
     record_copy,
+    search_offset,
     sort_records,
+    source_graph_relations,
+    source_neighborhood_relations,
     source_of,
-    source_relation_detail,
-    source_relation_summary,
+    unit_global_id,
+    vocabulary_filter,
 )
 
 #: Sentinel for "work the source out yourself", so that ``None`` can keep
@@ -247,7 +249,12 @@ class MemoryRepository:
                 "entities": len(self._entities),
                 "relations": len(self._relations),
             },
-            sources_by_status=tally,
+            # A plain `dict`, not the `defaultdict` this was accumulated in.
+            # `IndexStatus` is a frozen dataclass, and a frozen record holding a
+            # mapping that *invents a zero for every key ever asked for* is only
+            # half frozen: a reader probing a status this project does not use
+            # would silently grow the mapping it was handed.
+            sources_by_status=dict(tally),
             adapters=[
                 {"name": adapter.source_type, "version": adapter.version}
                 for adapter in sorted(ADAPTERS.values(), key=lambda cls: cls.source_type)
@@ -272,7 +279,7 @@ class MemoryRepository:
 
     def get_source(self, source_id: str) -> SourceDetail | None:
         self._require_ready()
-        source = self._source_by_id.get(_source_id(source_id))
+        source = self._source_by_id.get(parse_source_id(source_id))
         if source is None:
             return None
         return SourceDetail(
@@ -284,7 +291,7 @@ class MemoryRepository:
 
     def get_artifact(self, artifact_id: str) -> dict[str, Any] | None:
         self._require_ready()
-        artifact = self._artifact_by_id.get(_global_id(artifact_id, "artifact_id"))
+        artifact = self._artifact_by_id.get(parse_global_id(artifact_id, "artifact_id"))
         return record_copy(artifact) if artifact is not None else None
 
     # ------------------------------------------------------------------
@@ -298,7 +305,7 @@ class MemoryRepository:
 
     def get_entity(self, entity_id: str) -> dict[str, Any] | None:
         self._require_ready()
-        entity = self._entity_by_id.get(_global_id(entity_id, "entity_id"))
+        entity = self._entity_by_id.get(parse_global_id(entity_id, "entity_id"))
         return record_copy(entity) if entity is not None else None
 
     def list_relations(self, query: RelationQuery) -> Page:
@@ -339,7 +346,7 @@ class MemoryRepository:
         ranked list is one this repository issued.
         """
         self._require_ready()
-        offset = _offset(query)
+        offset = search_offset(query)
         corpus = self._documents()
 
         if query.source_id is not None:
@@ -368,20 +375,11 @@ class MemoryRepository:
                     continue
                 documents.append(document)
 
-        ranked = rank_documents(documents, query.q)
-        window = [record_copy(hit) for hit in ranked[offset : offset + query.limit]]
-        exhausted = len(ranked) <= offset + query.limit
-        next_cursor = (
-            None
-            if exhausted or not window
-            else encode_cursor(query.fingerprint, str(offset + query.limit))
-        )
-        return Page(
-            items=window,
-            limit=query.limit,
-            next_cursor=next_cursor,
-            total=len(ranked) if complete else None,
-        )
+        # `offset_page` and not a transcription of it: this arithmetic was
+        # written out line for line here *and* in `SqliteRepository.search`,
+        # the one paging path that was not already routed through the shared
+        # cut, while `T-104` compares the two hit for hit.
+        return offset_page(rank_documents(documents, query.q), query, offset, complete=complete)
 
     def as_api_hit(
         self, result: Mapping[str, Any], *, source_id: Any = _DERIVE
@@ -416,7 +414,7 @@ class MemoryRepository:
             )
         hit["source_id"] = source_id
         if result.get("type") == "knowledge_unit":
-            hit["global_id"] = _unit_global_id(source_id, result.get("id"))
+            hit["global_id"] = unit_global_id(source_id, result.get("id"))
         return hit
 
     def _documents(self) -> dict[str, list[SearchDocument]]:
@@ -460,8 +458,23 @@ class MemoryRepository:
                 )
                 for document in documents
             ]
-        self._corpus = corpus
+        # `_unreadable` is published **first**, and the order is the whole
+        # point. A second thread inside `search` reads `self._corpus` through
+        # this method and `self._unreadable` directly, so with the assignments
+        # the other way round it could arrive between them: a complete corpus
+        # and an empty unreadable set, which reports `total = N, complete =
+        # True` for a scope holding a source whose files could not be read.
+        # ADR 0004 invariant 6 requires `total: null` there — an unreadable
+        # source's hits are unknown, never zero — and a count that is wrong for
+        # one interleaving is a count nothing can rely on.
+        #
+        # Publishing the set first makes the early return above sound: a thread
+        # that can see `_corpus` can already see everything `_corpus` is
+        # incomplete about. Two threads racing to build the corpus is the
+        # remaining cost, and it is only duplicated work — each builds a
+        # complete pair locally and publishes it whole.
         self._unreadable = unreadable
+        self._corpus = corpus
         return corpus
 
     def _run_dir(self, source: Mapping[str, Any]) -> Path | None:
@@ -551,7 +564,7 @@ class MemoryRepository:
             neighbours: set[str] = set()
             for node_id in frontier:
                 for relation in self._adjacency.get(node_id, ()):
-                    if not matches_relation(relation, _vocabulary_filter(query)):
+                    if not matches_relation(relation, vocabulary_filter(query)):
                         continue
                     for endpoint in (relation.get("from_id"), relation.get("to_id")):
                         if isinstance(endpoint, str) and endpoint not in collected:
@@ -574,7 +587,7 @@ class MemoryRepository:
         edges = [
             record_copy(relation)
             for relation in self._relations
-            if matches_relation(relation, _vocabulary_filter(query))
+            if matches_relation(relation, vocabulary_filter(query))
             and relation.get("from_id") in collected
             and relation.get("to_id") in collected
         ]
@@ -586,7 +599,6 @@ class MemoryRepository:
             edges=edges,
             truncated=truncated or edges_cut,
         )
-
 
     # ------------------------------------------------------------------
     # The source graph — `T-254`
@@ -610,25 +622,16 @@ class MemoryRepository:
         nodes = self._source_entities
         page = keyset_page(nodes, query, "source_entity")
 
-        indexed = set(self._source_entity_by_source)
-        on_page = {source_of(node) for node in page.items}
-        touching: list[dict[str, Any]] = []
-        unindexed = 0
-        for relation in self._stored_source_relations():
-            endpoints = _endpoints(relation)
-            if not endpoints <= indexed:
-                unindexed += 1
-                continue
-            if endpoints & on_page:
-                touching.append(relation)
-        summaries, cut = bounded_edges(
-            [source_relation_summary(relation) for relation in touching]
+        summaries, cut, omitted = source_graph_relations(
+            self._stored_source_relations(),
+            indexed=set(self._source_entity_by_source),
+            on_page={source_of(node) for node in page.items},
         )
         return SourceGraphPage(
             nodes=page.items,
             relations=summaries,
             truncated=len(page.items) < len(nodes) or cut,
-            relations_omitted=unindexed + len(touching) - len(summaries),
+            relations_omitted=omitted,
             limit=page.limit,
             next_cursor=page.next_cursor,
             total=page.total,
@@ -650,30 +653,11 @@ class MemoryRepository:
         if node is None:
             return None
 
-        indexed = set(self._source_entity_by_source)
-        touching = [
-            relation
-            for relation in self._stored_source_relations()
-            if query.source_id in _endpoints(relation) and _endpoints(relation) <= indexed
-        ]
-        carried = touching[: query.limit]
-        incoming = [
-            source_relation_detail(relation)
-            for relation in carried
-            if relation.get("to_source_id") == query.source_id
-        ]
-        outgoing = [
-            source_relation_detail(relation)
-            for relation in carried
-            if relation.get("from_source_id") == query.source_id
-        ]
-        neighbours = sorted(
-            {
-                other
-                for relation in carried
-                for other in _endpoints(relation)
-                if other != query.source_id
-            }
+        incoming, outgoing, neighbours, truncated = source_neighborhood_relations(
+            self._stored_source_relations(),
+            source_id=query.source_id,
+            indexed=set(self._source_entity_by_source),
+            limit=query.limit,
         )
         return SourceNeighborhood(
             center_id=node["global_id"],
@@ -684,7 +668,7 @@ class MemoryRepository:
             neighbors=[
                 record_copy(self._source_entity_by_source[other]) for other in neighbours
             ],
-            truncated=len(carried) < len(touching),
+            truncated=truncated,
         )
 
     def _brief(self, source_id: str) -> dict[str, Any]:
@@ -708,8 +692,15 @@ class MemoryRepository:
         run_dir = None if source is None else self._run_dir(source)
         if run_dir is None:
             state = {
-                "state": "unavailable",
-                "reason": "the run this source names cannot be read",
+                "state": synthesis.BRIEF_UNAVAILABLE,
+                # One sentence, shared with the twin. This said "the run this
+                # source names cannot be read" while `SqliteRepository._brief`
+                # said "no source_knowledge.json" — two answers to one question
+                # from the two implementations a whole equivalence module exists
+                # to prove indistinguishable. Both branches are unreachable
+                # today; a coincidence is not an invariant (see
+                # `_unit_global_id`, which learnt that the hard way).
+                "reason": synthesis.NO_BRIEF_REASON,
                 "brief": None,
             }
         else:
@@ -746,68 +737,3 @@ class MemoryRepository:
         )
         return self._source_relations_read
 
-
-# --------------------------------------------------------------------------
-# Small helpers
-# --------------------------------------------------------------------------
-
-
-def _endpoints(relation: Mapping[str, Any]) -> set[str]:
-    """The two source ids a stored relation joins."""
-    return {str(relation.get("from_source_id")), str(relation.get("to_source_id"))}
-
-
-def _source_id(value: Any) -> str:
-    try:
-        return ids.parse_source_id(value).value
-    except ids.IdError as exc:
-        raise InvalidId(f"source_id: {exc}") from exc
-
-
-def _global_id(value: Any, label: str) -> str:
-    try:
-        return ids.parse_global_id(value).value
-    except ids.IdError as exc:
-        raise InvalidId(f"{label}: {exc}") from exc
-
-
-def _unit_global_id(source_id: str | None, local_id: Any) -> str | None:
-    """The unit's three-part global id, or ``None`` when one cannot be built.
-
-    ``parse_source_id`` is **inside** the ``try``. It sat outside it here and
-    inside it in ``index.search._unit_global_id``, so an unparseable stored
-    ``source_id`` raised ``IdError`` out of one twin and returned ``None`` from
-    the other — and these are the two functions T-104's equivalence claim rests
-    on. Unreachable today, because every stored id was built by ``ids.py``, but
-    a coincidence is not an invariant.
-
-    ``None`` is the right half of that disagreement: this function's whole
-    contract is "a plausible string that resolves to nothing is worse than an
-    absence", and a stored id that will not parse is index damage that must
-    cost its own hit's ``global_id`` and not the search.
-    """
-    if source_id is None:
-        return None
-    try:
-        parsed = ids.parse_source_id(source_id)
-        return ids.make_global_id(parsed.source_type, parsed.external_id, local_id).value
-    except ids.IdError:
-        return None
-
-
-def _offset(query: SearchQuery) -> int:
-    start = query.start()
-    if start is None:
-        return 0
-    try:
-        offset = int(start.key or "")
-    except ValueError as exc:
-        raise InvalidQuery("cursor is not a cursor this repository issued") from exc
-    if offset < 0:
-        raise InvalidQuery("cursor is not a cursor this repository issued")
-    return offset
-
-
-def _vocabulary_filter(query: NeighborhoodQuery) -> GraphQuery:
-    """A neighborhood filters edges by vocabulary only — one matcher, one rule."""
-    return GraphQuery(limit=query.limit, relation_vocabulary=query.relation_vocabulary)

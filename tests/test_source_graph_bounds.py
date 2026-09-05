@@ -445,3 +445,104 @@ def test_the_source_layer_left_the_knowledge_map_where_it_was(tmp_path: Path) ->
     # emit it only when the file exists. Asserted rather than excluded, so the
     # difference stays a known quantity.
     assert counted["artifacts"] - bare["artifacts"] == 3
+
+
+# --------------------------------------------------------------------------
+# 5. What a walk of the source graph costs (D-188)
+# --------------------------------------------------------------------------
+
+
+@requires_fts5
+def test_a_source_graph_walk_reads_the_relations_once(tmp_path: Path) -> None:
+    """D-188 was never extended to the layer added after it.
+
+    ``graph``, ``search`` and ``_total`` are memoised per walk; ``source_graph``
+    and ``source_neighborhood`` called ``_stored_source_relations()`` — a full
+    table read plus a JSON parse of every row — and ``_indexed_source_ids()`` on
+    **every page**. With ``MAX_SOURCE_CANDIDATES`` relations discoverable per
+    source that is up to 25 x |sources| records reparsed to answer one page,
+    while the oracle caches the equivalent and pays it once. This counts the
+    reads rather than timing them, so it says what changed and not how fast the
+    machine is.
+    """
+    from x2knwldg.index.repository import SqliteRepository
+
+    root = _corpus(
+        tmp_path,
+        [
+            _relation(smc.TWITTER_QUOTE, smc.YOUTUBE_PASS, basis=1),
+            _relation(smc.YOUTUBE_PASS, smc.YOUTUBE_PARTIAL, basis=1),
+            _relation(smc.TWITTER_QUOTE, smc.YOUTUBE_FAIL, basis=1),
+        ],
+    )
+    pairs = _each(root)
+    try:
+        repo = dict(pairs)["sqlite"]
+        assert isinstance(repo, SqliteRepository)
+        reads: list[str] = []
+        original = repo._query
+
+        def counting(sql: str, params: Any = ()) -> Any:
+            reads.append(sql)
+            return original(sql, params)
+
+        repo._query = counting  # type: ignore[method-assign]
+
+        cursor, pages = None, 0
+        while True:
+            page = repo.source_graph(SourceGraphQuery(limit=1, cursor=cursor))
+            pages += 1
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+        assert pages >= 3, "the premise: this walk is more than one page"
+    finally:
+        _closed(pairs)
+
+    relations_read = sum(1 for sql in reads if "FROM source_relations" in sql)
+    nodes_read = sum(1 for sql in reads if "SELECT source_id FROM source_entities" in sql)
+    assert relations_read == 1, (
+        f"the stored relations were read and reparsed {relations_read} times "
+        f"for a {pages}-page walk"
+    )
+    assert nodes_read == 1, f"the indexed source ids were read {nodes_read} times"
+
+
+@requires_fts5
+def test_a_rebuild_mid_walk_empties_the_source_layer_memo(tmp_path: Path) -> None:
+    """The memo is safe because of the generation key, not because nothing changes.
+
+    ``_walk_cached`` reads the state row on every call anyway, so a build that
+    lands between two pages is seen and the memo is dropped — which is what
+    makes carrying a whole table across pages a cache rather than a stale
+    answer.
+    """
+    from x2knwldg.index.repository import SqliteRepository
+    from x2knwldg.index.scanner import build_index
+    from x2knwldg.index.search import document_indexer, search_retrieval
+
+    relations = [_relation(smc.TWITTER_QUOTE, smc.YOUTUBE_PASS, basis=1)]
+    root = _corpus(tmp_path, relations)
+    build_index(root, index_documents=document_indexer(root))
+    repo = SqliteRepository.open(root, search=search_retrieval)
+    try:
+        before = repo.source_graph(SourceGraphQuery(limit=50))
+        assert len(before.relations) == 1
+
+        (root / "output" / "synthesis" / "source_relations.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "generated_at": "2026-01-01T00:00:00+00:00",
+                    "candidates": {"considered": 0, "omitted": 0, "bound": 25},
+                    "relations": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        build_index(root, index_documents=document_indexer(root))
+        after = repo.source_graph(SourceGraphQuery(limit=50))
+        assert after.relations == [], "the memo outlived the generation it described"
+    finally:
+        repo.close()

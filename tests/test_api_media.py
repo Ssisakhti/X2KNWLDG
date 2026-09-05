@@ -308,7 +308,9 @@ def test_both_implementations_serve_the_same_bytes(tmp_path: Path) -> None:
 # not need converting exactly: it is simply past the end, which is a `416`.
 
 #: Every status `GET /api/media/{artifact_id}` declares. `500` is not among them.
-DECLARED_MEDIA_STATUSES = {200, 206, 400, 404, 416, 503}
+#: `304` joined the set when the byte channel grew validators — it is declared
+#: because it is served, which is the direction this list has to be read in.
+DECLARED_MEDIA_STATUSES = {200, 206, 304, 400, 404, 416, 503}
 
 
 @pytest.mark.parametrize("digits", [4299, 4301, 5000, 20000])
@@ -540,3 +542,446 @@ def test_a_record_path_holding_a_nul_is_a_404_not_a_500(tmp_path: Path) -> None:
 
     with pytest.raises(NotFound):
         _resolve(tmp_path, "output/run/raw/sour\x00ce.srt")
+
+
+# ---------------------------------------------------------------------------
+# 6. `HEAD` is `GET` without the body — including the range headers
+# ---------------------------------------------------------------------------
+#
+# The `HEAD` branch read the scope key *before* the range arithmetic and threw
+# the computed span away, so it always answered `200` with the whole file's
+# length and no `Content-Range`. Measured against a 508-byte artifact:
+#
+#     Range: bytes=0-9   GET=206  bytes 0-9/508      content-length=10
+#                        HEAD=200 (no content-range) content-length=508
+#     Range: bytes=-5    GET=206  bytes 503-507/508  content-length=5
+#                        HEAD=200 (no content-range) content-length=508
+#
+# RFC 9110 §9.3.2 requires `HEAD` to send the header fields `GET` would have
+# sent, and `head.py`'s own docstring names this route as the reason the
+# middleware exists: it is "the standard way a player discovers Content-Length
+# and Accept-Ranges before it asks for a range". A player probing with `HEAD
+# Range: bytes=0-1` read `200` plus the whole length, concluded that ranges were
+# unsupported, and downloaded the entire artifact.
+
+#: Header fields a `HEAD` must reproduce from its `GET`. `Date` is excluded
+#: because it legitimately differs between two requests.
+_MIRRORED_HEADERS = (
+    "content-length",
+    "content-range",
+    "content-type",
+    "accept-ranges",
+    "etag",
+    "last-modified",
+    "cache-control",
+    "x-content-type-options",
+)
+
+
+@pytest.mark.parametrize(
+    "header",
+    ["bytes=0-9", "bytes=-5", "bytes=10-", "bytes=0-0"],
+)
+def test_head_with_a_range_answers_exactly_what_get_answers(tmp_path: Path, header: str) -> None:
+    """The defect, as the property it violated: same status, same headers, no body."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        path = f"/api/media/{artifact['id']}"
+        head = client.head(path, headers={"Range": header})
+        get = client.get(path, headers={"Range": header})
+
+        assert get.status_code == 206, "the fixture range must actually be satisfiable"
+        assert head.status_code == get.status_code, header
+        for field in _MIRRORED_HEADERS:
+            assert head.headers.get(field) == get.headers.get(field), (header, field)
+        assert head.headers["content-range"] == get.headers["content-range"]
+        assert int(head.headers["content-length"]) < size, "a range is not the whole file"
+        assert head.content == b"", "HEAD is GET without the body"
+
+
+def test_head_with_an_unsatisfiable_range_refuses_as_get_does(tmp_path: Path) -> None:
+    """The 416 half of the same rule: a probe must not be told the range is fine."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        path = f"/api/media/{artifact['id']}"
+        headers = {"Range": f"bytes={size + 1}-{size + 9}"}
+        head = client.head(path, headers=headers)
+        get = client.get(path, headers=headers)
+        assert head.status_code == get.status_code == 416
+        assert head.headers["content-range"] == get.headers["content-range"] == f"bytes */{size}"
+        assert head.content == b""
+
+
+def test_a_head_probe_still_discovers_the_whole_length_without_a_range(tmp_path: Path) -> None:
+    """The behaviour the branch was written for, asserted beside the one it broke."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        head = client.head(f"/api/media/{artifact['id']}")
+        assert head.status_code == 200
+        assert int(head.headers["content-length"]) == size
+        assert head.headers["accept-ranges"] == "bytes"
+        assert "content-range" not in head.headers
+        assert head.content == b""
+
+
+# ---------------------------------------------------------------------------
+# 7. The `stat` between the two guards
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("failure", [FileNotFoundError, PermissionError], ids=lambda e: e.__name__)
+def test_a_stat_that_fails_after_the_is_file_check_is_a_404_not_a_500(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: type[OSError]
+) -> None:
+    """``path.stat()`` sat unguarded one line after a guarded ``path.is_file()``.
+
+    ``_open_at`` exists precisely because a file that becomes unreadable between
+    the stat and the first read must stay a *response*, and ``_resolve`` catches
+    ``ValueError`` for the same reason (D-173). The ``stat`` between the two was
+    left bare, so a file that went away — or a directory whose permissions
+    changed — in that window produced ``500 {"error": {"code": "internal"}}``
+    where this module's own taxonomy defines ``404 unavailable`` for "the record
+    exists; the bytes do not". The UI branches on that code, and ``internal``
+    sends a deleted artifact down the "the server is broken" path.
+    """
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+        target = Path(artifact["path"]).name
+        real_stat = Path.stat
+
+        def refuse(self: Path, *args: object, **kwargs: object):
+            if self.name == target:
+                raise failure(f"{target} became unreadable mid-request")
+            return real_stat(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "stat", refuse)
+        h.assert_error(client.get(f"/api/media/{artifact['id']}"), 404, "unavailable")
+
+
+def test_a_directory_where_an_artifact_should_be_is_still_refused(tmp_path: Path) -> None:
+    """The membership check folded into the ``stat`` must keep refusing a non-file.
+
+    ``is_file()`` answered this before; ``S_ISREG`` on the same ``stat_result``
+    answers it now, and losing it would turn a corrupted project into a read of
+    something that is not an artifact.
+    """
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+        target = root / artifact["path"]
+        target.unlink()
+        target.mkdir()
+        h.assert_error(client.get(f"/api/media/{artifact['id']}"), 404, "unavailable")
+
+
+# ---------------------------------------------------------------------------
+# 8. Conditional requests — the byte channel had none
+# ---------------------------------------------------------------------------
+#
+# No `ETag`, no `Last-Modified`, no `Cache-Control`, no `If-Range`. Every
+# `<video>` seek and every re-open of the Reader re-read the artifact in full,
+# and a `304` was not expressible on the one route in the layer that serves
+# megabytes — while `/api/openapi.json`, 71 KB read once per session, was the
+# only route that had a validator at all.
+
+
+def test_a_served_artifact_carries_the_validators_a_cache_needs(tmp_path: Path) -> None:
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+        response = client.get(f"/api/media/{artifact['id']}")
+        etag = response.headers["etag"]
+        assert etag.startswith('"') and etag.endswith('"'), f"a strong tag is quoted: {etag}"
+        assert not etag.startswith("W/"), "If-Range accepts nothing weaker than a strong tag"
+        assert response.headers["cache-control"] == "no-cache"
+        from email.utils import parsedate_to_datetime
+
+        assert parsedate_to_datetime(response.headers["last-modified"]) is not None
+
+
+def test_a_revalidated_artifact_is_304_and_sends_no_bytes(tmp_path: Path) -> None:
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        first = client.get(f"/api/media/{artifact['id']}")
+        etag = first.headers["etag"]
+        assert len(first.content) == size
+
+        again = client.get(f"/api/media/{artifact['id']}", headers={"If-None-Match": etag})
+        assert again.status_code == 304
+        assert again.content == b""
+        assert again.headers["etag"] == etag
+        assert "content-length" not in again.headers
+
+
+@pytest.mark.parametrize(
+    "form",
+    ["strong", "weak", "list", "star"],
+)
+def test_every_form_of_if_none_match_the_rfc_defines_revalidates(
+    tmp_path: Path, form: str
+) -> None:
+    """§13.1.2: weak comparison, a list, and ``*``.
+
+    A cache is free to store a tag as weak and a client is free to send two of
+    them; both must revalidate rather than re-download.
+    """
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+        etag = client.get(f"/api/media/{artifact['id']}").headers["etag"]
+        sent = {
+            "strong": etag,
+            "weak": f"W/{etag}",
+            "list": f'"something-else", {etag}',
+            "star": "*",
+        }[form]
+        response = client.get(
+            f"/api/media/{artifact['id']}", headers={"If-None-Match": sent}
+        )
+        assert response.status_code == 304, (form, sent, response.status_code)
+
+
+def test_a_tag_for_another_representation_is_not_a_match(tmp_path: Path) -> None:
+    """The tautology check: revalidation that always answers 304 serves stale bytes."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        response = client.get(
+            f"/api/media/{artifact['id']}", headers={"If-None-Match": '"not-this-one"'}
+        )
+        assert response.status_code == 200
+        assert len(response.content) == size
+
+
+def test_if_modified_since_revalidates_and_an_older_date_does_not(tmp_path: Path) -> None:
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+        last_modified = client.get(f"/api/media/{artifact['id']}").headers["last-modified"]
+
+        current = client.get(
+            f"/api/media/{artifact['id']}", headers={"If-Modified-Since": last_modified}
+        )
+        assert current.status_code == 304
+
+        stale = client.get(
+            f"/api/media/{artifact['id']}",
+            headers={"If-Modified-Since": "Mon, 01 Jan 1990 00:00:00 GMT"},
+        )
+        assert stale.status_code == 200
+
+
+def test_an_unparseable_if_modified_since_is_ignored_not_refused(tmp_path: Path) -> None:
+    """A recipient that cannot understand a date treats the field as absent."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+        response = client.get(
+            f"/api/media/{artifact['id']}", headers={"If-Modified-Since": "not a date"}
+        )
+        assert response.status_code == 200
+
+
+def test_an_entity_tag_outranks_a_modification_date(tmp_path: Path) -> None:
+    """§13.2.2: with both present, the precise validator decides."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+        response = client.get(
+            f"/api/media/{artifact['id']}",
+            headers={
+                "If-None-Match": '"not-this-one"',
+                "If-Modified-Since": "Mon, 01 Jan 2400 00:00:00 GMT",
+            },
+        )
+        assert response.status_code == 200, "the date must not rescue a failed tag"
+
+
+def test_a_revalidation_outranks_a_range(tmp_path: Path) -> None:
+    """There is no point sending part of a representation the client holds all of."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact = _first_local(client)
+        etag = client.get(f"/api/media/{artifact['id']}").headers["etag"]
+        response = client.get(
+            f"/api/media/{artifact['id']}",
+            headers={"If-None-Match": etag, "Range": "bytes=0-9"},
+        )
+        assert response.status_code == 304
+        assert response.content == b""
+
+
+def test_if_range_applies_the_range_when_the_representation_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        etag = client.get(f"/api/media/{artifact['id']}").headers["etag"]
+        response = client.get(
+            f"/api/media/{artifact['id']}",
+            headers={"If-Range": etag, "Range": "bytes=0-9"},
+        )
+        assert response.status_code == 206
+        assert response.headers["content-range"] == f"bytes 0-9/{size}"
+
+
+@pytest.mark.parametrize(
+    "guard",
+    ['"a-different-representation"', "Mon, 01 Jan 1990 00:00:00 GMT"],
+    ids=["stale-tag", "stale-date"],
+)
+def test_a_stale_if_range_sends_the_whole_representation_rather_than_a_part(
+    tmp_path: Path, guard: str
+) -> None:
+    """§13.1.5: an unmatched ``If-Range`` means the ``Range`` is ignored.
+
+    Not refused. The client asked for "this range of the thing I already have",
+    and the honest answer to a changed thing is all of it — splicing a fresh
+    range onto a stale prefix is how a cache assembles a file that never existed.
+    """
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        response = client.get(
+            f"/api/media/{artifact['id']}",
+            headers={"If-Range": guard, "Range": "bytes=0-9"},
+        )
+        assert response.status_code == 200, response.status_code
+        assert len(response.content) == size
+        assert "content-range" not in response.headers
+
+
+def test_a_weak_tag_never_satisfies_if_range(tmp_path: Path) -> None:
+    """Strong comparison only: a weak tag says *equivalent*, not *identical*."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        etag = client.get(f"/api/media/{artifact['id']}").headers["etag"]
+        response = client.get(
+            f"/api/media/{artifact['id']}",
+            headers={"If-Range": f"W/{etag}", "Range": "bytes=0-9"},
+        )
+        assert response.status_code == 200
+        assert len(response.content) == size
+
+
+def test_a_stale_if_range_over_an_unsatisfiable_range_is_200_not_416(tmp_path: Path) -> None:
+    """The guard is evaluated before the range is parsed, so there is no 416 to give."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        response = client.get(
+            f"/api/media/{artifact['id']}",
+            headers={"If-Range": '"gone"', "Range": f"bytes={size + 99}-{size + 999}"},
+        )
+        assert response.status_code == 200
+        assert len(response.content) == size
+
+
+def test_a_replaced_file_gets_a_new_entity_tag(tmp_path: Path) -> None:
+    """The tag has to change when the bytes do, even at the same length.
+
+    An atomic replace — how this project writes canonical files (D-170) —
+    installs a new inode, so the tag changes even on a filesystem whose
+    ``st_mtime_ns`` is only second-resolution and even when the replacement is
+    exactly as long as what it replaced. A tag that survived that would let a
+    client splice new bytes onto a cached range.
+    """
+    import os
+
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        before = client.get(f"/api/media/{artifact['id']}").headers["etag"]
+
+        replacement = tmp_path / "replacement.bin"
+        replacement.write_bytes(b"x" * size)
+        os.replace(replacement, root / artifact["path"])
+
+        after = client.get(f"/api/media/{artifact['id']}")
+        assert after.headers["etag"] != before, "a replaced artifact kept its tag"
+        assert after.status_code == 200
+        revalidated = client.get(
+            f"/api/media/{artifact['id']}", headers={"If-None-Match": before}
+        )
+        assert revalidated.status_code == 200, "the old tag must not revalidate"
+
+
+def test_two_distinct_files_never_share_an_entity_tag(tmp_path: Path) -> None:
+    """Same length, same second, different files. Only the inode separates them."""
+    from x2knwldg.server.conditional import entity_tag
+
+    first = tmp_path / "one.bin"
+    second = tmp_path / "two.bin"
+    first.write_bytes(b"aaaa")
+    second.write_bytes(b"aaaa")
+    assert entity_tag(first.stat()) != entity_tag(second.stat())
+    assert entity_tag(first.stat()) == entity_tag(first.stat()), "and it is stable"
+
+
+# ---------------------------------------------------------------------------
+# 9. What the byte channel sends is what the document declares
+# ---------------------------------------------------------------------------
+
+#: Header fields no operation declares because the transport, not this route,
+#: decides them.
+_TRANSPORT_HEADERS = {
+    "content-type",
+    "date",
+    "server",
+    "connection",
+    "transfer-encoding",
+}
+
+
+def test_every_header_the_byte_channel_sends_is_declared(tmp_path: Path) -> None:
+    """The spec was the weaker copy of the implementation on three responses.
+
+    ``416`` declared ``content: application/json`` and no headers at all, while
+    the route sends the ``Content-Range: bytes */<size>`` RFC 9110 *requires* on
+    one, plus ``Accept-Ranges``. ``200`` and ``206`` omitted ``Content-Length``
+    and ``X-Content-Type-Options``, both of which the route has always sent. A
+    header a client can rely on and the contract does not mention is a promise
+    that only the code makes.
+    """
+    import json as _json
+
+    frozen = _json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))
+    declared = frozen["paths"]["/api/media/{artifact_id}"]["get"]["responses"]
+
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        artifact, size = _sized(client)
+        path = f"/api/media/{artifact['id']}"
+        etag = client.get(path).headers["etag"]
+        answers = [
+            client.get(path),
+            client.get(path, headers={"Range": "bytes=0-9"}),
+            client.get(path, headers={"If-None-Match": etag}),
+            client.get(path, headers={"Range": f"bytes={size + 1}-{size + 9}"}),
+        ]
+
+    seen = set()
+    for response in answers:
+        status = str(response.status_code)
+        assert status in declared, status
+        seen.add(status)
+        promised = {name.lower() for name in declared[status].get("headers", {})}
+        # On an error envelope the length is the framework's framing of a JSON
+        # body, which no response in the document declares. On the byte
+        # channel's own 200 and 206 it is a value this route computes and a
+        # player relies on, so there it must be declared.
+        ignored = set(_TRANSPORT_HEADERS)
+        if response.headers.get("content-type", "").startswith("application/json"):
+            ignored.add("content-length")
+        for name in response.headers:
+            if name.lower() in ignored:
+                continue
+            assert name.lower() in promised, f"{status} sends undeclared {name!r}"
+    assert seen == {"200", "206", "304", "416"}, seen

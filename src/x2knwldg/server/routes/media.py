@@ -14,11 +14,23 @@ read, and neither is a rewrite:
 The file is served as written. Canonical JSON and the Markdown report go out
 byte for byte — the API never reinterprets, reformats, or summarises canonical
 content (canvas plan §15).
+
+The channel is **conditional**. It used to carry no ``ETag``, no
+``Last-Modified``, no ``Cache-Control`` and no ``If-Range``, so a ``304`` was
+not expressible on the one route that serves megabytes: every re-open of the
+Reader re-read the whole transcript, and every ``<video>`` seek re-read the file
+from a client that already held most of it. ``/api/openapi.json`` — 71 KB, read
+once per session — was the only route in the layer with a validator. See
+``conditional.py`` for the comparisons and for why the entity tag this route
+sends is a *strong* one; :data:`CACHE_CONTROL` records what a client is
+promised about a canonical file.
 """
 
 from __future__ import annotations
 
+import os
 import re
+import stat as stat_module
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -28,6 +40,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ...adapters.base import MEDIA_TYPES
 from ...repository.base import IndexRepository
+from ..conditional import entity_tag, http_date, if_modified_since, if_none_match, if_range_matches
 from ..deps import repository
 from ..envelope import error_body
 from ..errors import ApiError, NotFound
@@ -265,6 +278,50 @@ def _open_at(path: Path, start: int) -> BinaryIO:
     return handle
 
 
+#: What a client may do with a copy of an artifact.
+#:
+#: ``no-cache`` does not mean "do not store"; it means "store it, and
+#: revalidate before reusing it", which is the only cache directive this route
+#: can honour truthfully. A canonical file is rewritten by a re-ingest or by
+#: ``apply-bundle``, and neither is on a schedule, so any ``max-age`` would be a
+#: guess about when the user next runs the pipeline — and a guess that is wrong
+#: serves a stale transcript beside a fresh graph. With an ``ETag`` the
+#: revalidation costs one conditional request and a ``304``, which is what the
+#: byte channel was paying a full re-read for.
+CACHE_CONTROL = "no-cache"
+
+
+def _regular_file_stat(path: Path) -> os.stat_result:
+    """``stat`` for a file this route is willing to open, or a refusal.
+
+    The guard used to be ``if not path.is_file()`` on one line and a bare
+    ``path.stat().st_size`` on the next. The bare call is the one that was
+    reached when a file went away *between* the two — the same window
+    :func:`_open_at` exists for, and the same window ``_resolve`` catches
+    ``ValueError`` for (D-173) — and fault injection confirmed both
+    ``FileNotFoundError`` and ``PermissionError`` there produced ``500
+    {"error": {"code": "internal"}}``. This module's own taxonomy says a record
+    whose bytes are gone is ``404 unavailable``; the UI branches on that code,
+    and ``internal`` sends it down the "the server is broken" path for an
+    artifact the user merely deleted.
+
+    One ``stat`` rather than a ``is_file()`` followed by a ``stat``: the
+    membership question and the size are answered by the same syscall, so there
+    is no window left between them to lose. ``S_ISREG`` is what ``is_file()``
+    asked, so a directory, a FIFO and ``/dev/zero`` are refused exactly as
+    before.
+    """
+    try:
+        result = path.stat()
+    except OSError:
+        # Indexed as available and gone — or unreadable — since. Reported
+        # rather than masked with a placeholder, which canvas plan §15 forbids.
+        raise MediaUnavailable("That artifact is no longer present on disk.") from None
+    if not stat_module.S_ISREG(result.st_mode):
+        raise MediaUnavailable("That artifact is no longer present on disk.")
+    return result
+
+
 def _stream(handle: BinaryIO, length: int) -> Iterator[bytes]:
     """*length* bytes from an already-open, already-positioned handle.
 
@@ -296,6 +353,9 @@ def get_artifact_media(
     artifact_id: str,
     request: Request,
     range_header: str | None = Header(default=None, alias="Range"),
+    if_none_match_header: str | None = Header(default=None, alias="If-None-Match"),
+    if_modified_since_header: str | None = Header(default=None, alias="If-Modified-Since"),
+    if_range_header: str | None = Header(default=None, alias="If-Range"),
     repo: IndexRepository = Depends(repository),
 ) -> Response:
     record = repo.get_artifact(artifact_id)
@@ -308,23 +368,51 @@ def get_artifact_media(
         raise MediaUnavailable("That artifact was not present when the index was built.")
 
     path = _resolve(_project_root(request, repo), str(record["path"]))
-    if not path.is_file():
-        # Indexed as available and gone since. Reported rather than masked with
-        # a placeholder, which canvas plan §15 forbids.
-        raise MediaUnavailable("That artifact is no longer present on disk.")
-
-    size = path.stat().st_size
+    file_stat = _regular_file_stat(path)
+    size = file_stat.st_size
     # A media type is stated, never guessed: `mimetypes` would infer one from
     # the extension, and the schema already says null means "not known". What
     # is stated is now also checked before it becomes a header (D-104).
     media_type = _checked_media_type(record)
+    etag = entity_tag(file_stat)
+    last_modified = http_date(file_stat.st_mtime)
     # `nosniff`: the type is now allowlisted, so a browser has no reason to
     # look past it — and this route shares an origin with the UI mounted at
     # `/`, where a sniffed type would decide what a document *runs as*.
-    headers = {"Accept-Ranges": "bytes", "X-Content-Type-Options": "nosniff"}
+    headers = {
+        "Accept-Ranges": "bytes",
+        "X-Content-Type-Options": "nosniff",
+        "ETag": etag,
+        "Last-Modified": last_modified,
+        "Cache-Control": CACHE_CONTROL,
+    }
+
+    # RFC 9110 §13.2.2 fixes the order, and it is not the order the fields
+    # arrive in: the entity tag decides, and `If-Modified-Since` is consulted
+    # only when there is no `If-None-Match` — a client that sent both asked the
+    # precise question and the imprecise one, and the precise one is the answer.
+    # A match here outranks `Range`: the client already holds the whole
+    # representation, so there is nothing to send a part of.
+    if if_none_match(if_none_match_header, etag) or (
+        if_none_match_header is None
+        and if_modified_since(if_modified_since_header, file_stat.st_mtime)
+    ):
+        # No `Content-Length`, and the validators the client will store next
+        # time. Starlette omits a body length on a 304 of its own accord; the
+        # header dict is passed without one so that stays true if it stops.
+        return Response(status_code=304, headers=headers)
 
     try:
-        span = _parse_range(range_header, size) if range_header else None
+        # `If-Range` guards the range rather than the request: when it does not
+        # match, the range is *ignored* and the whole representation is sent
+        # (§13.1.5). Evaluated before parsing, so a stale `If-Range` over an
+        # unsatisfiable range is a 200 and not a 416 — the client asked for
+        # "this range of the thing I already have", and the thing changed.
+        span = (
+            _parse_range(range_header, size)
+            if range_header and if_range_matches(if_range_header, etag, last_modified)
+            else None
+        )
     except RangeNotSatisfiable as exc:
         # Answered here rather than by the generic handler, because RFC 9110
         # requires a 416 to carry `Content-Range: bytes */size` — the client
@@ -339,29 +427,37 @@ def get_artifact_media(
                 "X-Content-Type-Options": "nosniff",
             },
         )
-    if request.scope.get(HEAD_SCOPE_KEY):
-        # `HEAD` is `GET` without the body (RFC 9110), and this is the route
-        # where that matters most: it is how a player learns `Content-Length`
-        # and `Accept-Ranges` before asking for a range. Answered without
-        # opening the file, so discovering the length costs no read — the
-        # scope key is set by `app.HeadAsGet`, which is what routes `HEAD`
-        # here at all.
-        headers["Content-Length"] = str(size)
-        return Response(status_code=200, media_type=media_type, headers=headers)
 
     if span is None:
+        status, start, length = 200, 0, size
         headers["Content-Length"] = str(size)
-        return StreamingResponse(
-            _stream(_open_at(path, 0), size), media_type=media_type, headers=headers
-        )
+    else:
+        start, end = span
+        length = end - start + 1
+        status = 206
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+        headers["Content-Length"] = str(length)
 
-    start, end = span
-    length = end - start + 1
-    headers["Content-Range"] = f"bytes {start}-{end}/{size}"
-    headers["Content-Length"] = str(length)
+    if request.scope.get(HEAD_SCOPE_KEY):
+        # `HEAD` is `GET` without the body (RFC 9110) — *without the body*, and
+        # with everything else identical. This branch used to sit above the
+        # range arithmetic and throw it away: `HEAD` with `Range: bytes=0-9`
+        # answered `200`, `Content-Length: 508` and no `Content-Range` where
+        # `GET` answered `206`, `bytes 0-9/508`, `Content-Length: 10`. A player
+        # probing with `HEAD Range: bytes=0-1` — which is the discovery this
+        # route exists to serve, in `head.py`'s own words — read a `200` and a
+        # whole-file length, concluded that ranges were unsupported, and
+        # downloaded the entire artifact.
+        #
+        # Below the arithmetic, `headers` and `status` are already the ones the
+        # `GET` would send, so the only difference left is the body: the file is
+        # never opened, and discovering a length still costs no read. The scope
+        # key is set by `head.HeadAsGet`, which is what routes `HEAD` here at all.
+        return Response(status_code=status, media_type=media_type, headers=headers)
+
     return StreamingResponse(
         _stream(_open_at(path, start), length),
-        status_code=206,
+        status_code=status,
         media_type=media_type,
         headers=headers,
     )

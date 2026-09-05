@@ -62,6 +62,7 @@ import {
   nodeInteraction,
 } from "./mapStyle";
 import { MAP_LABEL_CHARS, nodeLabelVisibility, truncateForDisplay } from "./labelPolicy";
+import { mapStage, type MapStage } from "./stage";
 
 /** How a medium is drawn, and how it is written. */
 export interface SourceMediumMark {
@@ -72,30 +73,53 @@ export interface SourceMediumMark {
 }
 
 /**
- * The two implemented media.
+ * The two implemented media, in the ink each stage is drawn in.
  *
- * The hues are the `thesis` and `process` families of `KIND_FAMILY_COLOUR`,
+ * The hues are the `thesis` and `process` families of `KIND_FAMILY_INK`,
  * reused in a mode that draws no kinds — the palette is one project's, and
- * inventing two more hues would have widened it for no reader's benefit.
+ * inventing two more hues would have widened it for no reader's benefit. They
+ * are per stage for the same reason the families are: a source node's label is
+ * text on the canvas, and `stage.ts` shows no single ink clears 4.5:1 on both
+ * grounds. `stageContrast.test.ts` holds every value below to its own ground.
  */
-export const SOURCE_MEDIUM_MARK: Record<string, SourceMediumMark> = {
-  youtube: { colour: "#4477aa", glyph: "▶" },
-  twitter: { colour: "#009988", glyph: "✦" },
+export const SOURCE_MEDIUM_INK: Record<MapStage, Record<string, SourceMediumMark>> = {
+  light: {
+    youtube: { colour: "#4477aa", glyph: "▶" },
+    twitter: { colour: "#008274", glyph: "✦" },
+  },
+  dark: {
+    youtube: { colour: "#4d83b8", glyph: "▶" },
+    twitter: { colour: "#009988", glyph: "✦" },
+  },
 };
+
+/** The medium marks for the stage this environment is on. */
+export function sourceMediumMarks(
+  stage: MapStage = mapStage(),
+): Record<string, SourceMediumMark> {
+  return SOURCE_MEDIUM_INK[stage];
+}
 
 /**
  * A `source_type` this build does not know.
  *
  * Never rounded to a known one, for `nodeProvenanceMark`'s reason: a medium
  * this build cannot name is a medium it must not name, and the roadmap has
- * four more of them. Magenta is `KIND_FAMILY_COLOUR.unrecognised`, which is
+ * four more of them. Magenta is `KIND_FAMILY_INK`'s `unrecognised`, which is
  * this project's existing "the vocabulary moved" colour.
  */
-export const UNRECOGNISED_MEDIUM_MARK: SourceMediumMark = { colour: "#e4007f", glyph: "?" };
+export const UNRECOGNISED_MEDIUM_INK: Record<MapStage, SourceMediumMark> = {
+  light: { colour: "#e0007d", glyph: "?" },
+  dark: { colour: "#f60089", glyph: "?" },
+};
 
-export function sourceMediumMark(value: string | null | undefined): SourceMediumMark {
-  const known = value === null || value === undefined ? undefined : SOURCE_MEDIUM_MARK[value];
-  return known ?? UNRECOGNISED_MEDIUM_MARK;
+export function sourceMediumMark(
+  value: string | null | undefined,
+  stage: MapStage = mapStage(),
+): SourceMediumMark {
+  const known =
+    value === null || value === undefined ? undefined : SOURCE_MEDIUM_INK[stage][value];
+  return known ?? UNRECOGNISED_MEDIUM_INK[stage];
 }
 
 /** Which brief states a source node can be drawn in. */
@@ -162,8 +186,9 @@ export function sourceNodeStyle(
   interaction: MapInteraction,
   view: SourceViewState,
   fieldWidth: number,
+  stage: MapStage = mapStage(),
 ): MapNodeDisplay {
-  const medium = sourceMediumMark(record.source_type);
+  const medium = sourceMediumMark(record.source_type, stage);
   const brief = sourceBriefMark(view.briefStates.get(record.global_id) ?? "unavailable");
   const state = NODE_INTERACTION[interaction];
   const dimmed = interaction === "normal" && hasFocus(view);
@@ -230,16 +255,18 @@ export function sourceEdgeStyle(
   interaction: MapInteraction,
   view: SourceViewState,
   fieldWidth: number,
+  stage: MapStage = mapStage(),
 ): MapEdgeDisplay {
   const state = EDGE_INTERACTION[interaction];
   const dimmed = interaction === "normal" && hasFocus(view);
   const quiet = interaction === "normal" && !hasFocus(view);
+  const relationInk = SOURCE_RELATION_INK[stage];
 
   return {
     // One weight for every relationship. `state.scale` is the interaction
     // again, and `basis_total` reaches this function and is not read.
     size: SOURCE_EDGE_SIZE * state.scale * edgeFieldScale(fieldWidth),
-    color: SOURCE_RELATION_COLOUR,
+    color: relationInk,
     opacity: dimmed ? MAP_DIMMED_EDGE_OPACITY : quiet ? MAP_QUIET_EDGE_OPACITY : state.opacity,
     zIndex: state.zIndex,
     depth: state.top ? "topEdges" : "edges",
@@ -258,7 +285,7 @@ export function sourceEdgeStyle(
     // field of type names is a field nobody reads.
     label: interaction === "normal" ? null : record.relation_type,
     labelVisibility: interaction === "normal" ? "hidden" : "visible",
-    labelColor: SOURCE_RELATION_COLOUR,
+    labelColor: relationInk,
   };
 }
 
@@ -270,8 +297,13 @@ export function sourceEdgeStyle(
  * with one entry, and a *type* palette would give eight relation types eight
  * hues and say, by drawing them apart, that they differ in kind rather than in
  * name. They differ in name; the pill says which.
+ *
+ * One colour per stage, because an edge carries a label too.
  */
-export const SOURCE_RELATION_COLOUR = "#8b847b";
+export const SOURCE_RELATION_INK: Record<MapStage, string> = {
+  light: "#79736a",
+  dark: "#8b847b",
+};
 
 /** A reducer as Sigma calls one, over the source graph's attributes. */
 export type SourceNodeReducer = (

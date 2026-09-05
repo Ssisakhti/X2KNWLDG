@@ -1,6 +1,6 @@
 """``SqliteRepository`` — the frozen seam, answered from the SQLite index (``T-101``).
 
-:class:`~x2knwldg.repository.base.IndexRepository` has ten methods and eleven
+:class:`~x2knwldg.repository.base.IndexRepository` has twelve methods and thirteen
 endpoints, and this module implements exactly those ten. ADR 0002 invariant 3:
 no implementation widens the interface. An endpoint that needs something the
 protocol cannot express is a contract change first and a method here second.
@@ -83,8 +83,9 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .. import ids
+from .. import synthesis
 from ..adapters import ADAPTERS, LIBRARY_DIR_NAME
+from ..constants import MAX_GRAPH_EDGES
 from ..repository import (
     INDEX_STATES,
     READY,
@@ -94,8 +95,6 @@ from ..repository import (
     GraphQuery,
     IndexStatus,
     IndexUnavailable,
-    InvalidId,
-    InvalidQuery,
     Neighborhood,
     NeighborhoodQuery,
     Page,
@@ -109,18 +108,22 @@ from ..repository import (
     SourceNeighborhoodQuery,
     SourceQuery,
     bounded_edges,
-    encode_cursor,
     graph_nodes,
     key_digest,
     matches_entity,
     matches_relation,
     matches_source,
+    offset_page,
     order_key,
     page_from_window,
+    parse_global_id,
+    parse_source_id,
     record_copy,
+    search_offset,
+    source_graph_relations,
+    source_neighborhood_relations,
     source_of,
-    source_relation_detail,
-    source_relation_summary,
+    vocabulary_filter,
 )
 from . import schema
 from .errors import SchemaTooNew, StoreError
@@ -435,14 +438,32 @@ class SqliteRepository:
         Counted in SQL over the same column ``search.unreadable_sources``
         reads, rather than by calling it: this runs on every ``status()`` and
         must not deserialise every run's problems to answer a count.
+
+        ``json_each`` and ``GLOB``, and both halves matter. This was
+        ``problems LIKE '%"search: %'`` — a substring test over the *serialised
+        list*, which is two different mistakes at once. It matched the marker
+        wherever it occurred, so a problem that merely quotes the prefix
+        (``unmappable_artifacts: notes.md: cannot parse "search: ..."``) counted
+        as an unreadable source; and SQLite's ``LIKE`` is ASCII
+        case-insensitive, so ``"SEARCH: `` matched too. ``search.unreadable_sources``
+        does a per-element ``startswith``, so the count in ``index.message``
+        could exceed the set that actually makes ``PageInfo.total`` null — the
+        status line claiming more damage than the endpoint has.
+
+        ``json_each`` walks the list element by element, exactly as that
+        function does, and ``GLOB`` is case-sensitive, exactly as ``startswith``
+        is. The prefix carries no GLOB metacharacter (``*``, ``?``, ``[``), so
+        it needs no escaping; asserting that here would be a second opinion
+        about a constant ``schema.py`` owns, and ``tests/test_sqlite_repository.py``
+        pins the two answers equal instead.
         """
         if self._connection is None:
             return 0
         row = self._query(
             "SELECT COUNT(*) AS n FROM runs "
             "WHERE source_id IS NOT NULL AND skipped_reason IS NULL "
-            "AND problems LIKE ?",
-            (f'%"{schema.SEARCH_PROBLEM_PREFIX}%',),
+            "AND EXISTS (SELECT 1 FROM json_each(runs.problems) WHERE value GLOB ?)",
+            (f"{schema.SEARCH_PROBLEM_PREFIX}*",),
         ).fetchone()
         return int(row["n"]) if row is not None else 0
 
@@ -617,7 +638,7 @@ class SqliteRepository:
     def get_source(self, source_id: str) -> SourceDetail | None:
         """``GET /api/sources/{source_id}``, with the artifacts the source owns."""
         self._require_ready()
-        wanted = _source_id(source_id)
+        wanted = parse_source_id(source_id)
         record = self._one("source", wanted)
         if record is None:
             return None
@@ -644,7 +665,7 @@ class SqliteRepository:
         streamed files would put path safety in two places (risk R14).
         """
         self._require_ready()
-        return self._one("artifact", _global_id(artifact_id, "artifact_id"))
+        return self._one("artifact", parse_global_id(artifact_id, "artifact_id"))
 
     # ------------------------------------------------------------------
     # Entities and relations
@@ -680,7 +701,7 @@ class SqliteRepository:
     def get_entity(self, entity_id: str) -> dict[str, Any] | None:
         """``GET /api/entities/{entity_id}``, or ``None``."""
         self._require_ready()
-        return self._one("entity_ref", _global_id(entity_id, "entity_id"))
+        return self._one("entity_ref", parse_global_id(entity_id, "entity_id"))
 
     @_serialized
     def list_relations(self, query: RelationQuery) -> Page:
@@ -728,7 +749,7 @@ class SqliteRepository:
         wired.
         """
         self._require_ready()
-        offset = _offset(query)
+        offset = search_offset(query)
         if query.source_id is not None and self._one("source", query.source_id) is None:
             return Page(items=[], limit=query.limit, next_cursor=None, total=0)
         # D-188: retrieved and ranked once per walk, not once per page. The
@@ -739,20 +760,11 @@ class SqliteRepository:
         found = self._walk_cached(
             ("search", query.fingerprint), lambda: self._candidates(query)
         )
-        ranked = list(found.hits)
-        window = [record_copy(hit) for hit in ranked[offset : offset + query.limit]]
-        exhausted = len(ranked) <= offset + query.limit
-        next_cursor = (
-            None
-            if exhausted or not window
-            else _encode_offset(query, offset + query.limit)
-        )
-        return Page(
-            items=window,
-            limit=query.limit,
-            next_cursor=next_cursor,
-            total=len(ranked) if found.complete else None,
-        )
+        # `offset_page`, shared with the oracle. The window, the probe and the
+        # token were transcribed line for line into both implementations — the
+        # one paging path not already routed through `page_from_window` — while
+        # `T-104` compares them hit for hit.
+        return offset_page(list(found.hits), query, offset, complete=found.complete)
 
     def _candidates(self, query: SearchQuery) -> SearchCandidates:
         """The ranked hits for *query* — the one seam this module leaves open.
@@ -915,7 +927,7 @@ class SqliteRepository:
         center = self._one("entity_ref", query.entity_id)
         if center is None:
             return None
-        edge_filter = _vocabulary_filter(query)
+        edge_filter = vocabulary_filter(query)
 
         collected: dict[str, dict[str, Any]] = {str(center.get("global_id")): center}
         frontier = [str(center.get("global_id"))]
@@ -948,13 +960,19 @@ class SqliteRepository:
         # the adjacency seek is the whole candidate set — and it returns them in
         # the order the whole index pages by, which is the order a walk of
         # /api/sources/{id}/relations would show them in.
-        edges = [
-            relation
-            for relation in self._relations_touching(collected)
-            if matches_relation(relation, edge_filter)
-            and relation.get("from_id") in collected
-            and relation.get("to_id") in collected
-        ]
+        edges: list[dict[str, Any]] = []
+        for relation in self._relations_touching(collected):
+            if (
+                matches_relation(relation, edge_filter)
+                and relation.get("from_id") in collected
+                and relation.get("to_id") in collected
+            ):
+                edges.append(relation)
+                # One past the cap and then stop. `bounded_edges` needs the
+                # extra one to know the list was cut; every edge beyond it would
+                # be parsed, held and then discarded.
+                if len(edges) > MAX_GRAPH_EDGES:
+                    break
         edges, edges_cut = bounded_edges(edges)
         return Neighborhood(
             center_id=str(center.get("global_id")),
@@ -988,28 +1006,20 @@ class SqliteRepository:
         self._require_ready()
         page = self._page("source_entity", query, lambda _record: True)
 
-        indexed = self._indexed_source_ids()
-        on_page = {source_of(node) for node in page.items}
-        touching: list[dict[str, Any]] = []
-        unindexed = 0
-        for relation in self._stored_source_relations():
-            endpoints = _endpoints(relation)
-            if not endpoints <= indexed:
-                # A relation naming a source this index does not hold cannot be
-                # drawn — it would assert a node the client has no record for —
-                # and it is counted rather than dropped in silence.
-                unindexed += 1
-                continue
-            if endpoints & on_page:
-                touching.append(relation)
-        summaries, cut = bounded_edges(
-            [source_relation_summary(relation) for relation in touching]
+        # The membership rule and the omission arithmetic are
+        # `repository.base`'s, shared with the oracle: both were written out
+        # here line for line while `T-254`'s tests compare the two page for
+        # page.
+        summaries, cut, omitted = source_graph_relations(
+            self._stored_source_relations(),
+            indexed=self._indexed_source_ids(),
+            on_page={source_of(node) for node in page.items},
         )
         return SourceGraphPage(
             nodes=page.items,
             relations=summaries,
             truncated=(page.total is not None and len(page.items) < page.total) or cut,
-            relations_omitted=unindexed + len(touching) - len(summaries),
+            relations_omitted=omitted,
             limit=page.limit,
             next_cursor=page.next_cursor,
             total=page.total,
@@ -1031,41 +1041,24 @@ class SqliteRepository:
         if node is None:
             return None
 
-        indexed = self._indexed_source_ids()
-        touching = [
-            relation
-            for relation in self._stored_source_relations()
-            if query.source_id in _endpoints(relation) and _endpoints(relation) <= indexed
-        ]
-        carried = touching[: query.limit]
-        neighbours = sorted(
-            {
-                other
-                for relation in carried
-                for other in _endpoints(relation)
-                if other != query.source_id
-            }
+        incoming, outgoing, neighbours, truncated = source_neighborhood_relations(
+            self._stored_source_relations(),
+            source_id=query.source_id,
+            indexed=self._indexed_source_ids(),
+            limit=query.limit,
         )
         return SourceNeighborhood(
             center_id=node["global_id"],
             source=node,
             source_knowledge=self._brief(query.source_id),
-            incoming=[
-                source_relation_detail(relation)
-                for relation in carried
-                if relation.get("to_source_id") == query.source_id
-            ],
-            outgoing=[
-                source_relation_detail(relation)
-                for relation in carried
-                if relation.get("from_source_id") == query.source_id
-            ],
+            incoming=incoming,
+            outgoing=outgoing,
             neighbors=[
                 found
                 for other in neighbours
                 if (found := self._source_entity(other)) is not None
             ],
-            truncated=len(carried) < len(touching),
+            truncated=truncated,
         )
 
     def _source_entity(self, source_id: str) -> dict[str, Any] | None:
@@ -1083,11 +1076,27 @@ class SqliteRepository:
         return None if row is None else self._document(row, "source_entities")
 
     def _indexed_source_ids(self) -> set[str]:
-        """Every source this index holds a node for."""
-        return {
-            row["source_id"]
-            for row in self._query("SELECT source_id FROM source_entities").fetchall()
-        }
+        """Every source this index holds a node for, read once per walk.
+
+        D-188, extended to the source layer. ``graph``, ``search`` and
+        ``_total`` were memoised per walk and these two were not, so every page
+        of a source-graph walk re-read this table *and* re-read and re-parsed
+        every stored relation — the whole-collection cost per page that D-188
+        exists to have removed, reintroduced by the layer added after it. The
+        oracle already caches the equivalent, so the two also differed in how
+        much they paid to agree.
+        """
+        return set(
+            self._walk_cached(
+                ("indexed_source_ids",),
+                lambda: {
+                    row["source_id"]
+                    for row in self._query(
+                        "SELECT source_id FROM source_entities"
+                    ).fetchall()
+                },
+            )
+        )
 
     def _stored_source_relations(self) -> list[dict[str, Any]]:
         """The accepted cross-source synthesis, in id order.
@@ -1099,10 +1108,26 @@ class SqliteRepository:
         which :func:`~x2knwldg.repository.base.source_relation_detail` does not
         touch.
         """
-        rows = self._query(
-            "SELECT identity, digest, doc FROM source_relations ORDER BY identity"
-        ).fetchall()
-        return [self._document(row, "source_relations") for row in rows]
+        # D-188, per walk. A full table read plus a JSON parse of every row was
+        # paid on **every page** of `source_graph`, and again on every
+        # `source_neighborhood`; with `MAX_SOURCE_CANDIDATES` relations
+        # discoverable per source that is up to 25 x |sources| records reparsed
+        # to answer one page. The generation key inside `_walk_cached` is what
+        # makes carrying them across pages safe: a rebuild landing mid-walk
+        # empties the memo rather than being served stale.
+        #
+        # The stored list is never handed out: `source_relation_summary` and
+        # `source_relation_detail` build new dicts from it, and this returns the
+        # memo itself only because every consumer here reads it.
+        return self._walk_cached(
+            ("stored_source_relations",),
+            lambda: [
+                self._document(row, "source_relations")
+                for row in self._query(
+                    "SELECT identity, digest, doc FROM source_relations ORDER BY identity"
+                ).fetchall()
+            ],
+        )
 
     def _brief(self, source_id: str) -> dict[str, Any]:
         """``SourceKnowledgeAvailability`` for one source, as the scan stored it.
@@ -1122,10 +1147,12 @@ class SqliteRepository:
             (source_id,),
         ).fetchone()
         if row is None:
+            # The same sentence `MemoryRepository._brief` answers with, by the
+            # same constant: the two said different things about one fact.
             return {
-                "state": "unavailable",
+                "state": synthesis.BRIEF_UNAVAILABLE,
                 "brief": None,
-                "reason": "no source_knowledge.json",
+                "reason": synthesis.NO_BRIEF_REASON,
             }
         document = None
         if row["doc"] is not None:
@@ -1415,7 +1442,7 @@ class SqliteRepository:
                 found[row["identity"]] = self._document(row, table)
         return found
 
-    def _relations_touching(self, node_ids: Iterable[str]) -> list[dict[str, Any]]:
+    def _relations_touching(self, node_ids: Iterable[str]) -> Iterator[dict[str, Any]]:
         """Every stored relation naming one of *node_ids*, in key order.
 
         Both directions, because an edge is adjacency for both of its endpoints.
@@ -1423,9 +1450,19 @@ class SqliteRepository:
         in the set, matches the seek twice — and ordered by the pair the whole
         index pages by, so the edge list of a neighborhood is in the same order
         every other view of those relations uses.
+
+        An **iterator**, and the row is parsed only as it is yielded. This
+        returned a list of parsed records, so ``neighborhood`` built every
+        touching relation into a dict before handing the lot to
+        :func:`~x2knwldg.repository.base.bounded_edges` — which then kept
+        ``MAX_GRAPH_EDGES`` of them. The cap bounded the *response* and nothing
+        bounded the work behind it: a hub node in a large library paid for every
+        edge it has in parsed dictionaries to return a hundred. Yielding lets
+        the caller stop, which it now does one past the cap — one past, because
+        that is what tells ``bounded_edges`` the list was cut.
         """
         wanted = [node_id for node_id in node_ids if isinstance(node_id, str)]
-        seen: dict[str, tuple[str, dict[str, Any]]] = {}
+        seen: dict[tuple[str, str], sqlite3.Row] = {}
         for chunk in _chunks(wanted):
             placeholders = ", ".join("?" * len(chunk))
             rows = self._query(
@@ -1434,61 +1471,28 @@ class SqliteRepository:
                 [*chunk, *chunk],
             ).fetchall()
             for row in rows:
-                seen[row["identity"]] = (row["digest"], self._document(row, "relations"))
-        return [record for _, (_, record) in sorted(seen.items(), key=_by_pair)]
+                seen[(row["identity"], row["digest"])] = row
+        for key in sorted(seen):
+            yield self._document(seen[key], "relations")
 
 
 # --------------------------------------------------------------------------
 # 5. Small helpers
 #
-# `_source_id`, `_global_id` and `_offset` are `MemoryRepository`'s, which keeps
-# them private — a deliberate duplication of three lines rather than a widened
-# import surface between two implementations that are meant to be independently
-# checkable. `_unit_global_id` is *not* duplicated: nothing here mints a global
-# id for a search hit, because `documents.hit` stores the frozen shape whole.
+# What "a well-formed source id", "the two sources this relation joins" and
+# "the offset this cursor names" mean now lives in `repository/base.py`, and
+# both implementations call it. It used to live here *and* in
+# `repository/memory.py`, under a comment calling it "a deliberate duplication
+# of three lines rather than a widened import surface between two
+# implementations that are meant to be independently checkable". The copies of
+# `_unit_global_id` had already diverged by the time that comment was read, so
+# the duplication had demonstrably cost a bug. Independently checkable means
+# these two *walk the store* differently — one seeks in SQL, the other slices a
+# list — and that is untouched.
+#
+# What remains below is genuinely this module's: SQL fragments, chunking, and
+# the row-order pair SQLite sorts on.
 # --------------------------------------------------------------------------
-
-
-def _source_id(value: Any) -> str:
-    try:
-        return ids.parse_source_id(value).value
-    except ids.IdError as exc:
-        raise InvalidId(f"source_id: {exc}") from exc
-
-
-def _global_id(value: Any, label: str) -> str:
-    try:
-        return ids.parse_global_id(value).value
-    except ids.IdError as exc:
-        raise InvalidId(f"{label}: {exc}") from exc
-
-
-def _offset(query: SearchQuery) -> int:
-    start = query.start()
-    if start is None:
-        return 0
-    try:
-        offset = int(start.key or "")
-    except ValueError as exc:
-        raise InvalidQuery("cursor is not a cursor this repository issued") from exc
-    if offset < 0:
-        raise InvalidQuery("cursor is not a cursor this repository issued")
-    return offset
-
-
-def _encode_offset(query: SearchQuery, offset: int) -> str:
-    """The token for the next window of a ranked list."""
-    return encode_cursor(query.fingerprint, str(offset))
-
-
-def _endpoints(relation: Mapping[str, Any]) -> set[str]:
-    """The two source ids a stored source relation joins."""
-    return {str(relation.get("from_source_id")), str(relation.get("to_source_id"))}
-
-
-def _vocabulary_filter(query: NeighborhoodQuery) -> GraphQuery:
-    """A neighborhood filters edges by vocabulary only — one matcher, one rule."""
-    return GraphQuery(limit=query.limit, relation_vocabulary=query.relation_vocabulary)
 
 
 def _narrow(*columns: tuple[str, Any]) -> tuple[list[str], list[Any]]:
@@ -1537,8 +1541,3 @@ def _chunks(values: Sequence[str]) -> Iterator[list[str]]:
     unique = sorted({value for value in values})
     for offset in range(0, len(unique), _IN_CHUNK):
         yield unique[offset : offset + _IN_CHUNK]
-
-
-def _by_pair(item: tuple[str, tuple[str, Mapping[str, Any]]]) -> tuple[str, str]:
-    identity_value, (digest, _) = item
-    return identity_value, digest

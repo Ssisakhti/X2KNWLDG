@@ -46,14 +46,50 @@ class UnsearchableRun(ValueError):
     """
 
 
+# Characters Unicode keeps apart and Persian readers do not.
+#
+# NFKC does **not** map Arabic yeh (U+064A) to Persian yeh (U+06CC), nor Arabic
+# kaf (U+0643) to Persian kaf (U+06A9): they are separate letters of separate
+# languages and normalisation is right to leave them alone. A search box is a
+# different question. Every non-Persian Arabic-script keyboard — and a great
+# deal of copied web text — spells a Persian word with the Arabic forms, so
+# `ماشين` found nothing while `ماشین` found the unit, on a project whose
+# narrative content is Persian by policy. The two spellings are the same word
+# to the reader typing them.
+#
+# Applied to the query and to the corpus through this one function, so both
+# sides fold identically — the property `_fold`'s docstring already turns on.
+# The Arabic-Indic and extended Arabic-Indic digits fold to ASCII for the same
+# reason: `۱۴۰۵` and `1405` are one number to someone searching for it. This
+# folds only what is *searched*; no canonical file, excerpt or evidence span is
+# touched by it, which is the line CLAUDE.md draws around normalising text.
+_SCRIPT_FOLD = str.maketrans(
+    {
+        "\u064a": "\u06cc",  # ARABIC YEH            -> FARSI YEH
+        "\u0649": "\u06cc",  # ARABIC ALEF MAKSURA   -> FARSI YEH
+        "\u0643": "\u06a9",  # ARABIC KAF            -> KEHEH
+        "\u0629": "\u0647",  # TEH MARBUTA           -> HEH
+        "\u200c": " ",        # ZERO WIDTH NON-JOINER -> a word boundary
+        "\u200f": "",         # RIGHT-TO-LEFT MARK
+        "\u200e": "",         # LEFT-TO-RIGHT MARK
+        **{chr(0x0660 + n): str(n) for n in range(10)},  # Arabic-Indic digits
+        **{chr(0x06F0 + n): str(n) for n in range(10)},  # extended Arabic-Indic
+    }
+)
+
+
 def _fold(value: str) -> str:
     """*value* normalised and case-folded, once, the same way on both sides.
 
     NFKC first: without it a full-width or decomposed spelling of a word is a
     different string from its composed form, so it matches neither by phrase nor
     by token, and the search reports zero results for text it holds.
+
+    Then `_SCRIPT_FOLD`, for the equivalences NFKC deliberately does not make
+    and a Persian reader's keyboard does. See that table for why each one is
+    there.
     """
-    return unicodedata.normalize("NFKC", value).casefold()
+    return unicodedata.normalize("NFKC", value).translate(_SCRIPT_FOLD).casefold()
 
 
 def _tokens(value: str) -> set[str]:
@@ -164,6 +200,11 @@ def run_documents(run_dir: Path, *, include_transcript: bool = True) -> list[Sea
     ``&t=0s`` link to a moment nothing happened at. Canonical captions always
     carry a timing (``transcripts._canonical_caption`` refuses to write one
     without), so this is damage, and damage is reported.
+
+    A ``derived`` unit yields neither a timing, a deep link, nor an evidence
+    excerpt, whatever its file happens to hold: it cites no moment, so any
+    ``source`` block on it is a value nothing validated. See the comment on the
+    read below for the search result that produced.
     """
     knowledge_path = run_dir / "knowledge_units.json"
     metadata_path = run_dir / "metadata.json"
@@ -182,8 +223,18 @@ def run_documents(run_dir: Path, *, include_transcript: bool = True) -> list[Sea
     for unit in units:
         if not isinstance(unit, dict):
             raise JsonReadError(f"{knowledge_path}: 'units' holds a non-object entry")
+        # A `source` block belongs to a source-grounded unit and to nothing
+        # else. `validators.validate_knowledge_units` now refuses one on a
+        # `derived` unit, but a run already on disk was never asked, and this
+        # function reads whatever it finds: a derived unit carrying
+        # `{"start_sec": 99999, "evidence_excerpt": "never said this",
+        # "video_id": "OTHER"}` put that excerpt in the search corpus and turned
+        # 99999 into a `hit["start_sec"]` and a `&t=99999s` link to a moment in
+        # a real video where nothing was said. The refusal is new and protects
+        # new runs; this is what protects the ones already ingested, which is
+        # why both exist rather than either alone.
         source = unit.get("source")
-        if not isinstance(source, dict):
+        if unit.get("source_class") != "source" or not isinstance(source, dict):
             source = {}
         # The searchable text of a unit. Widening this list widens the SQLite
         # index too, because `index.search` builds its corpus from this

@@ -215,9 +215,10 @@ may appear in it, and none can: the contract has no field for one.
 The exit code is the **run's** standing verdict, not the brief's. Writing an account of a
 run does not re-grade it, so a brief over a `PARTIAL` run still exits `3`.
 
-This step is optional and deliberately absent from `WORKFLOW.md`'s numbered sequence: the
-Source Map surfaces that display a brief are still being built (`T-256`), so today the
-document is written, validated and indexed but not rendered anywhere.
+This step is optional. It was deliberately absent from `WORKFLOW.md`'s numbered sequence
+while nothing rendered a brief; `T-256` built the Source Map and `T-257` walked it, so the
+sequence is numbered there now as §S1–§S3 and the document is written, validated, indexed
+**and** read.
 
 ### Optional: relations between whole sources
 
@@ -246,7 +247,9 @@ written atomically to `output/synthesis/source_relations.json`.
 
 Emitting **no relation** is a normal outcome, not a failure. Two sources can share every
 concept in a field and stand in no relation at all; the candidate counts are what make an
-empty result readable. As with the brief, nothing renders these yet (`T-256`).
+empty result readable. As with the brief, these are read in the **Source Map** — the Map's
+`#/map?of=sources` mode (`T-256`), where each returned relationship is a row that expands
+into the unit pairs it rests on.
 
 ## Local Knowledge Canvas
 
@@ -310,6 +313,48 @@ from derived knowledge throughout the canonical files, the index, and the UI.
 
 `x2knwldg --help` is the command-line source of truth for this table.
 
+## Command reference
+
+Every subcommand the CLI accepts. `x2knwldg <command> --help` prints the same thing;
+this table exists because `status`, `search` and `rebuild-library` were reachable from
+the parser and named in no document at all — the "local search" this README advertises
+above had no command anywhere in the docs.
+
+| Command | Arguments | What it does |
+|---|---|---|
+| `process` | `<url-or-path>` | Fetch native YouTube captions, or read a local transcript, into a new run |
+| `import-transcript` | `<file>` | Import a timestamped `SRT`, `VTT`, `JSON`, `TXT` or `MD` transcript |
+| `capture` | `<post-id-or-url>` | Acquire one public X post, or a self-thread from its **last** post |
+| `apply-bundle` | `<run-dir> <bundle>` | The extraction gate: validate a model's bundle and store it, or refuse it whole |
+| `validate` | `<run-dir>` | Re-validate one canonical run and rewrite `validation.json` |
+| `finalize` | `<run-dir>` | Generate `report.md`, `graph.json`, the cumulative library and the run-local `vault/` |
+| `apply-source-knowledge` | `<run-dir> <document>` | The gate for one run's readable Persian brief |
+| `source-candidates` | — | List the bounded, deterministic source pairs worth comparing |
+| `apply-source-relations` | `<document>` | The gate for model-proposed relations between whole sources |
+| `status` | — | List every local run and its standing verdict |
+| `search` | `<query>` | Search canonical knowledge first, then exact transcript captions |
+| `rebuild-library` | — | Rebuild the cumulative cross-source graph and concept registry |
+| `ui` | — | Serve the local Knowledge Canvas on loopback |
+
+Flags that are easy to miss:
+
+- `--output <dir>` — where runs live. Defaults to `output/`, and every command that
+  reads or writes a run accepts it.
+- `--video-id`, `--video-url`, `--title`, `--channel`, `--language` — the acquisition
+  facts `process` and `import-transcript` record in `metadata.json`. `--language`
+  defaults to `unknown` rather than guessing.
+- `--preferred-language <code>` (repeatable) and `--inbox <dir>` on `process`.
+- `--limit <n>` and `--video-id <id>` on `search`.
+- `--thread`, `--tier`, `--xcli`, `--timeout`, `--max-bytes`, `--tunnel-note` and the
+  required `--via-tunnel` / `--no-tunnel` on `capture`; see
+  [WORKFLOW.md](WORKFLOW.md) §T1.
+- `--root`, `--host`, `--port`, `--no-open` on `ui`.
+- `x2knwldg --version` prints the package version.
+
+The `ui` command refreshes the local index before serving, so there is no separate
+index command in this release. One is being added; when it lands it belongs in this
+table beside `rebuild-library`.
+
 ## Agent and desktop-client use
 
 The workflow and canonical files are vendor-neutral. Codex can work directly in the
@@ -357,9 +402,23 @@ npm test
 npm run build
 ```
 
-CI tests Python 3.10, 3.12, 3.13, and 3.14 on Linux, includes a macOS row, verifies the
-zero-dependency core, installs every optional extra independently, and checks the
-frontend and browser paths. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI gates every push and pull request, and `main` requires all of it
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The jobs are:
+
+| Job | What it gates |
+|---|---|
+| `tests` | The suite on Python 3.10, 3.12, 3.13 and 3.14 on Linux, plus a macOS row |
+| `core package without extras` | The package installs and passes with no optional dependency, and no declared extra creeps into that install |
+| `extra installs` | Every optional extra installed, `pip check`ed, imported and run on its own |
+| `run fixtures are reproducible` | The committed run fixtures regenerate byte-identically |
+| `web (typecheck, test, build)` | ESLint, `tsc --noEmit` over three programs, the frontend tests, and the production build |
+| `lint and types` | `ruff check` over the repository — tests, docs mockups and tooling included — and `mypy` over `src/x2knwldg` |
+| `frontend against the real API` | The frontend's integration tests against a real server over the committed fixtures |
+| `the Map in a browser` | The Knowledge Map in Google Chrome over the built bundle, which jsdom cannot witness |
+| `requirements.txt installs` | The forward in `requirements.txt`, because a forward nobody follows is a forward nobody has checked |
+
+This list used to be a single sentence that named neither `lint and types` nor the three
+jobs below it, so no user-facing document said that `ruff` or `mypy` gate anything.
 
 When contributing a new source type, add the acquisition/capture contract, extraction
 rules, adapter, medium profile, fixtures, validators, vault rendering, documentation,

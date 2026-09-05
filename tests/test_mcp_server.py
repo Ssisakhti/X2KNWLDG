@@ -27,7 +27,7 @@ from typing import Any
 
 import pytest
 
-from x2knwldg import mcp_server
+from x2knwldg import artifacts, mcp_server
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_RUNS = PROJECT_ROOT / "tests" / "fixtures" / "runs"
@@ -335,12 +335,24 @@ def test_apply_extraction_data_leaves_no_phantom_run_behind(project: Path) -> No
     assert not (project / "output" / "typo-run").exists()
 
 
-def test_apply_extraction_data_refuses_a_run_with_no_transcript(project: Path) -> None:
-    """A directory is not an ingested run."""
+def test_apply_extraction_data_refuses_a_run_that_was_never_initialized(
+    project: Path,
+) -> None:
+    """A directory is not an ingested run.
+
+    The probe used to be ``transcript.json`` and the message used to answer in
+    the imperative — "import a transcript before applying a bundle" — which is
+    an instruction the Twitter path is forbidden to follow (WORKFLOW.md §T2:
+    "There is no ``transcript.json`` … and that is not a gap"). It asks for
+    ``metadata.json`` now: the file every initialized run of every medium has,
+    and the same file ``apply_bundle_to_any_run`` reads to choose the gate.
+    """
     (project / "output" / "empty-run").mkdir()
     with pytest.raises(mcp_server.McpToolError) as caught:
         mcp_server.apply_extraction_data("empty-run", {"knowledge_units": []})
     assert caught.value.code == "not_found"
+    assert "metadata.json" in caught.value.message
+    assert "transcript" not in caught.value.message.split("Import")[0]
     assert not (project / "output" / "empty-run" / "work").exists()
 
 
@@ -392,7 +404,10 @@ def test_an_unexpected_exception_becomes_a_coded_error_not_a_traceback(
     def explode(*args: object, **kwargs: object) -> None:
         raise RuntimeError(f"boom in {project}/output")
 
-    monkeypatch.setattr(mcp_server, "validate_run", explode)
+    # Patched where it is *looked up*: `validate_video_output` imports the
+    # dispatcher from `artifacts` at call time (D-243), so the name this module
+    # once held no longer exists on it.
+    monkeypatch.setattr(artifacts, "validate_any_run", explode)
     with pytest.raises(mcp_server.McpToolError) as caught:
         mcp_server.validate_video_output(PASS_RUN)
     # D-184: `internal`, the code the frozen `ErrorCode` enum publishes. This
@@ -845,3 +860,107 @@ def test_a_malformed_video_id_is_invalid_id_from_every_tool() -> None:
         with pytest.raises(mcp_server.McpToolError) as imported:
             mcp_server.import_timestamped_transcript("tests/fixtures/sample.vtt", bad)
         assert imported.value.code == "invalid_id", bad
+
+
+# ---------------------------------------------------------------------------
+# The dispatch D-243 made, and the one caller that did not get it
+# ---------------------------------------------------------------------------
+
+TWITTER_RUNS = PROJECT_ROOT / "tests" / "fixtures" / "twitter-runs"
+
+
+def _stage_twitter_run(project: Path, case: str = "single-post") -> str:
+    """Copy a committed Twitter run into *project* under its own anchor id.
+
+    The capture's ``raw_evidence`` paths are resolved against
+    ``run_dir.parent.parent``, which for ``output/<id>/`` is the project root —
+    so the evidence is copied to exactly the relative path the capture names,
+    and the run validates where it lands rather than only where it was built.
+    """
+    capture = json.loads((TWITTER_RUNS / case / "capture.json").read_text(encoding="utf-8"))
+    anchor = capture["anchor"]["post_id"]
+    run_dir = project / "output" / anchor
+    shutil.copytree(TWITTER_RUNS / case, run_dir)
+    shutil.rmtree(run_dir / "raw")
+    for entry in capture["raw_evidence"]:
+        destination = project / entry["path"]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # A capture there records evidence against ``tests/fixtures/``, which is
+        # that tree's project root; here the same relative path hangs off the
+        # throwaway project instead. One rule, two roots (D-039).
+        shutil.copyfile(TWITTER_RUNS.parent / entry["path"], destination)
+    return anchor
+
+
+def test_validate_video_output_dispatches_on_the_medium(project: Path) -> None:
+    """D-243 landed in ``cli.main`` and not here.
+
+    ``validate_video_output`` called ``pipeline.validate_run`` outright, so an
+    agent that captured a post and validated it was told "Missing JSON file:
+    …/transcript.json" — the exact symptom the phase-gate suite says was fixed,
+    arriving through the one caller the fix skipped.
+    """
+    anchor = _stage_twitter_run(project)
+
+    result = mcp_server.validate_video_output(anchor)
+
+    # Sections only the Twitter validator produces, and none of the YouTube ones.
+    assert set(result) >= {"capture", "provenance", "coverage", "evidence"}
+    assert "transcript" not in result and "segments" not in result
+    assert result["capture"]["status"] == "PASS"
+    assert result["status"] in {"PASS", "PARTIAL"}
+
+
+def test_validate_video_output_still_validates_a_video(project: Path) -> None:
+    """The dispatch is a widening, not a replacement."""
+    result = mcp_server.validate_video_output(PASS_RUN)
+    assert "transcript" in result
+    assert result["status"] in {"PASS", "PARTIAL"}
+
+
+def test_apply_extraction_data_reaches_the_twitter_gate(project: Path) -> None:
+    """The YouTube gate refused a post for a file it must not have.
+
+    ``apply_extraction_bundle`` is ``artifacts``' *YouTube* entry point, so a
+    Twitter run reaching it was refused for having no transcript. Applying the
+    run's own committed bundle is the smallest proof that the medium's gate is
+    the one that runs.
+    """
+    anchor = _stage_twitter_run(project)
+    bundle = json.loads(
+        (TWITTER_RUNS / "single-post" / "work" / "extraction_bundle.json").read_text("utf-8")
+    )
+    # Back to the state `capture` leaves, so the bundle is applied rather than
+    # re-applied over its own output.
+    for name in ("knowledge_units.json", "relationships.json", "coverage.json"):
+        (project / "output" / anchor / name).unlink()
+    from x2knwldg.twitter import extract as twitter_extract
+
+    (project / "output" / anchor / "metadata.json").unlink()
+    twitter_extract.initialize_run(project / "output" / anchor)
+
+    result = mcp_server.apply_extraction_data(anchor, bundle)
+
+    assert result["status"] in {"PASS", "PARTIAL"}
+    units = json.loads(
+        (project / "output" / anchor / "knowledge_units.json").read_text("utf-8")
+    )
+    assert units["source_type"] == "twitter"
+    assert units["units"], "the bundle was accepted but nothing was written"
+
+
+def test_apply_extraction_bundle_reaches_the_twitter_gate(project: Path) -> None:
+    """The same widening for the file-path tool."""
+    anchor = _stage_twitter_run(project)
+    run_dir = project / "output" / anchor
+    for name in ("knowledge_units.json", "relationships.json", "coverage.json", "metadata.json"):
+        (run_dir / name).unlink()
+    from x2knwldg.twitter import extract as twitter_extract
+
+    twitter_extract.initialize_run(run_dir)
+
+    result = mcp_server.apply_extraction_bundle(
+        anchor, f"output/{anchor}/work/extraction_bundle.json"
+    )
+
+    assert result["status"] in {"PASS", "PARTIAL"}

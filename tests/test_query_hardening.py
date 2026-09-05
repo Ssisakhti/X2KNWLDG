@@ -366,3 +366,88 @@ def test_a_scan_of_healthy_runs_reports_nothing_unreadable(tmp_path: Path) -> No
     hits = search_knowledge(tmp_path, "coverage", unreadable=unreadable)
     assert {hit["video_id"] for hit in hits} == {"a", "b"}
     assert unreadable == []
+
+
+# ---------------------------------------------------------------------------
+# The invented timestamp, one unit along: a `derived` unit's `source` block
+# ---------------------------------------------------------------------------
+
+
+def write_derived_run(root: Path, source: dict[str, object]) -> Path:
+    """A run holding one derived unit that carries the given ``source`` block.
+
+    No validator ever looked at this block. ``validate_knowledge_units`` reads
+    ``source`` only for a unit that owes provenance, and ``validate_provenance``
+    skips every unit whose ``source_class`` is not ``source`` — so a derived
+    unit could carry any block at all and the run validated ``PASS``.
+    """
+    run_dir = root / "vid1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "metadata.json").write_text(
+        json.dumps({"video_id": "vid1", "title": "A talk"}), encoding="utf-8"
+    )
+    (run_dir / "knowledge_units.json").write_text(
+        json.dumps(
+            {
+                "units": [
+                    {
+                        "id": "KU-D-0001",
+                        "kind": "synthesis",
+                        "source_class": "derived",
+                        "content": "windows are audited for coverage",
+                        "confidence": 0.6,
+                        "derived_from": ["KU-000001"],
+                        "derivation_note": "From the unit above.",
+                        "source": source,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return run_dir
+
+
+def test_a_derived_unit_gets_neither_a_timing_nor_a_deep_link(tmp_path: Path) -> None:
+    """The bug, in the shape it was proven: a fabricated ``&t=99999s``.
+
+    ``run_documents`` read ``unit["source"]`` for every unit, whatever its
+    ``source_class``, so ``start_sec: 99999`` on a derived unit became
+    ``hit["start_sec"]`` and a deep link into a real video at a moment nothing
+    was said. CLAUDE.md forbids inventing a timestamp outright, and this one was
+    invented by the search surface out of a field no validator had read.
+    """
+    run_dir = write_derived_run(
+        tmp_path,
+        {"start_sec": 99999, "evidence_excerpt": "never said this", "video_id": "OTHER"},
+    )
+    hits = [document.hit for document in run_documents(run_dir, include_transcript=False)]
+    assert len(hits) == 1
+    assert "start_sec" not in hits[0]
+    assert "source_url" not in hits[0]
+
+
+def test_a_derived_units_unvalidated_excerpt_is_not_search_text(tmp_path: Path) -> None:
+    """The same block's other half: the excerpt went into the search corpus.
+
+    A phrase nothing in the run ever said made the unit findable by it, which is
+    a search result standing on evidence that was never checked against
+    anything.
+    """
+    write_derived_run(
+        tmp_path,
+        {"start_sec": 99999, "evidence_excerpt": "epistemically unsupportable phrase"},
+    )
+    assert (
+        search_knowledge(tmp_path, "epistemically unsupportable phrase", limit=5) == []
+    )
+    # The unit is still searchable by what it actually claims.
+    assert search_knowledge(tmp_path, "windows are audited for coverage", limit=5)
+
+
+def test_a_source_unit_still_carries_its_timing_and_link(tmp_path: Path) -> None:
+    """The gate is on ``source_class``, and it must not cost a real citation."""
+    run_dir = write_run(tmp_path, unit_start=12.5)
+    hits = [document.hit for document in run_documents(run_dir, include_transcript=False)]
+    assert hits[0]["start_sec"] == 12.5
+    assert hits[0]["source_url"].endswith("&t=12s")

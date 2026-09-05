@@ -1455,13 +1455,71 @@ def test_ci_installs_requirements_txt() -> None:
 
 
 def test_requirements_txt_names_the_extras_pyproject_declares() -> None:
-    """The file describes the extras in prose; the prose has to be true."""
+    """The file describes the extras in prose; the prose has to be true.
+
+    **And the prose is now read, not just counted.** This used to assert only
+    that a line beginning ``#  <extra-name>`` existed per extra, while
+    ``requirements.txt`` claimed in the same breath that this test "checks that
+    the extras named here are the ones pyproject declares". It did not: two
+    descriptions were stale for as long as that claim stood — ``youtube`` named
+    two of four distributions and ``ui`` named two of three, omitting
+    ``starlette``, which is the package D-203 added *because* it was undeclared.
+    A guard that reads a heading and not the sentence under it is how a list
+    goes stale while looking checked.
+    """
     text = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    # `importorskip`, which is what the two tests above this one do: `tomllib`
+    # is stdlib only from 3.11 and this project's floor is 3.10. On 3.10 the
+    # check is skipped rather than hand-rolled, because a regex over TOML reads
+    # quoted strings out of comments and misses single-line arrays — both of
+    # which it did before this line replaced it.
+    tomllib = pytest.importorskip("tomllib", reason="stdlib tomllib arrived in 3.11")
+    optional = tomllib.loads(_pyproject_text())["project"]["optional-dependencies"]
+
     for extra in sorted(_declared_extras()):
-        assert re.search(rf"^#\s+{re.escape(extra)}\b", text, re.MULTILINE), (
-            f"requirements.txt does not describe the {extra!r} extra"
+        # Only the *list column* — the names between the extra and the prose —
+        # is searched. Matching the whole block would pass on a mention in the
+        # description, which is exactly how `ui` read as correct while omitting
+        # `starlette` from its list and then discussing `starlette` in the
+        # sentence after it.
+        found = re.search(
+            rf"^#\s+{re.escape(extra)}\s+([^\n]*?)(?:\s{{2,}}|$)", text, re.MULTILINE
         )
+        assert found is not None, f"requirements.txt does not describe the {extra!r} extra"
+        listed = found.group(1)
+        for requirement in optional[extra]:
+            # The distribution name, before any version specifier or marker.
+            name = re.split(r"[<>=!~;\[ ]", requirement, maxsplit=1)[0].strip()
+            assert name in listed, (
+                f"requirements.txt's {extra!r} line lists {listed!r}, which does not name "
+                f"{name!r} — a distribution pyproject declares for that extra"
+            )
     assert "not functional yet" not in text, "the `ui` layer shipped in T-116"
+
+
+def test_third_party_notices_names_every_python_distribution() -> None:
+    """The npm half was walked; the Python half was not, and it was empty.
+
+    ``THIRD_PARTY_NOTICES.md`` carried every one of the seventeen npm packages
+    with a version matched against ``package-lock.json`` — because
+    ``test_the_notices_name_every_npm_dependency`` walks the lockfile — and
+    **zero** of the sixteen distributions ``pyproject.toml`` declares, eight of
+    them non-MIT. The asymmetry was not a judgement about licences; it was that
+    one half had a guard and the other did not. This is the other guard.
+    """
+    tomllib = pytest.importorskip("tomllib", reason="stdlib tomllib arrived in 3.11")
+    notices = (PROJECT_ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    optional = tomllib.loads(_pyproject_text())["project"]["optional-dependencies"]
+    missing = []
+    for requirements in optional.values():
+        for requirement in requirements:
+            name = re.split(r"[<>=!~;\[ ]", requirement, maxsplit=1)[0].strip()
+            if name not in notices:
+                missing.append(name)
+    assert not missing, (
+        "THIRD_PARTY_NOTICES.md does not name these declared distributions: "
+        f"{sorted(set(missing))}"
+    )
 
 
 # ---------------------------------------------------------------------------

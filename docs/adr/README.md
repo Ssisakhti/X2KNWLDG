@@ -11,10 +11,14 @@ There are three decision surfaces; they are not redundant.
 | Where | Holds | Granularity |
 |---|---|---|
 | `docs/adr/` | The reasoning: context, alternatives, consequences | One file per decision |
-| [`KNOWLEDGE_CANVAS_PLAN.md`](../KNOWLEDGE_CANVAS_PLAN.md) §19 | The decision *ledger* — `D-0xx` IDs, one row each | One line per decision |
-| [`PROJECT_MANAGEMENT.md`](../PROJECT_MANAGEMENT.md) §6 | Decisions added after the plan was written, staged for §19 | One line per decision |
+| [`PROJECT_MANAGEMENT.md`](../PROJECT_MANAGEMENT.md) §6 | The decision *ledger* — `D-0xx` IDs, one row each. **Start here** | One line per decision |
+| [`KNOWLEDGE_CANVAS_PLAN.md`](../KNOWLEDGE_CANVAS_PLAN.md) §19 | The ledger's first stretch, `D-001`–`D-045`, plus a partial mirror of later rows that changed that document's roadmap | One line per decision |
 
-**Rule:** the §19 table stays the canonical index of *what* was decided. An ADR explains *why* and records what was rejected. When an ADR covers one or more `D-0xx` rows, it lists them under `Decision ledger` in its header, and the §19 rows point back at the ADR file.
+**Rule:** `PROJECT_MANAGEMENT.md` §6 is the index of *what* was decided, and it is the one to grep. It holds every row from `D-011` onward except `D-031`–`D-036`. The **sixteen** rows it does not hold — `D-001`–`D-010`, consolidated in [ADR 0001](0001-local-web-ui.md), and `D-031`–`D-036`, which landed with `T-007` — live in canvas plan §19 only. Those two ranges are the whole of the split; nothing else is in one table and not the other.
+
+This paragraph used to name §19 as "the canonical index", and §19 named §6 as "the complete ledger", so **neither table was what the other said it was** and each pointed at the other. §19 stops being complete at `D-045`, not at `D-219` as its own note claimed: it is missing more than a hundred rows, most of them cited from `src/`, `web/src/`, `tests/` or `schemas/`, so an agent following the stated rule and grepping §19 for a decision the code names found nothing and had no reason to look further.
+
+An ADR explains *why* and records what was rejected. When an ADR covers one or more `D-0xx` rows, it lists them under `Decision ledger` in its header, and the ledger rows point back at the ADR file.
 
 ## Language
 

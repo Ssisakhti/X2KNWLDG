@@ -127,6 +127,62 @@ describe("VirtualList scrollToIndex", () => {
     }
   });
 
+  /**
+   * jsdom's `scrollTop` is a plain data property: it neither clamps to
+   * `scrollHeight - clientHeight` nor fires a `scroll` event, which is exactly
+   * why the defect below survived a suite that measures rows. This installs the
+   * half of the browser that matters — a clamp, and the event a clamp provokes.
+   */
+  function clampingScroll(viewport: number): () => void {
+    const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTop");
+    const stored = new WeakMap<HTMLElement, number>();
+    Object.defineProperty(HTMLElement.prototype, "scrollTop", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return stored.get(this) ?? 0;
+      },
+      set(this: HTMLElement, value: number) {
+        const runway = this.querySelector(".virtual__runway") as HTMLElement | null;
+        const height = runway === null ? 0 : Number.parseFloat(runway.style.blockSize) || 0;
+        const clamped = Math.max(0, Math.min(value, height - viewport));
+        stored.set(this, clamped);
+        // A real browser reports the clamped value back, asynchronously.
+        this.dispatchEvent(new Event("scroll"));
+      },
+    });
+    return () => {
+      if (original) Object.defineProperty(HTMLElement.prototype, "scrollTop", original);
+      else delete proto.scrollTop;
+    };
+  }
+
+  it("reaches a row near the end even though the browser clamps the first try", () => {
+    /*
+     * D-080 re-applies the position as rows are measured, because
+     * `offsets[target]` under-estimates until the rows above the target have
+     * been on screen. The re-application was retired on the *first* attempt:
+     * `enforced` held the value we asked for, the browser stored the clamped
+     * one and fired `scroll` with it, and `handleScroll` read the difference as
+     * the reader scrolling away. A deep link to a late caption landed short and
+     * stayed there.
+     */
+    const restoreRows = measuringRows(120);
+    const restoreScroll = clampingScroll(600);
+    try {
+      mount(ROWS.length - 1);
+      const container = document.querySelector(".virtual") as HTMLElement;
+      const runway = document.querySelector(".virtual__runway") as HTMLElement;
+      const honest = Number.parseFloat(runway.style.blockSize) - 600;
+      // Within one row of the true bottom, rather than at the 40px-estimate
+      // position the first clamped attempt would have left it at.
+      expect(container.scrollTop).toBeGreaterThan(honest - 120);
+    } finally {
+      restoreScroll();
+      restoreRows();
+    }
+  });
+
   it("scrolls to the linked row", () => {
     const restore = measuringRows(50);
     try {

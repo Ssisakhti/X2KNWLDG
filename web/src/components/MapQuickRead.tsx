@@ -92,9 +92,9 @@ function Evidence({ entity }: { entity: EntityRef }) {
           entries={[
             {
               label: t("reader.units.locator"),
-              value: (
-                <Mono>{t("text.range", { start: span.start_char, end: span.end_char })}</Mono>
-              ),
+              // Not `Mono` — see `EntityCard.tsx`: the Persian message opens
+              // with a Persian word, and an LTR isolate reverses it.
+              value: t("text.range", { start: span.start_char, end: span.end_char }),
             },
             {
               label: t("reader.units.locatorPost"),

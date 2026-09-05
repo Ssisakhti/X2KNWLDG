@@ -130,7 +130,13 @@ def test_every_locator_addresses_an_artifact_the_index_carries(tmp_path: Path) -
 
 
 @pytest.mark.parametrize(
-    "case", sorted(p.name for p in TWITTER_RUNS.iterdir() if p.is_dir() and p.name[0].isalpha())
+    # By the file that makes a directory a run, the way
+    # `test_twitter_run_fixtures.test_every_planned_case_is_present` already
+    # discovers them. Filtering on the *name* instead swept in whatever else
+    # lived beside the cases: `__pycache__` was excluded by hand, and `inputs/`
+    # — the two constructed responses the `facets` case is built from — was
+    # picked up as a ninth run with no capture in it.
+    "case", sorted(path.parent.name for path in TWITTER_RUNS.glob("*/capture.json"))
 )
 def test_every_twitter_fixture_projects_and_resolves(tmp_path: Path, case: str) -> None:
     """All eight run fixtures, not just the convenient one — the tombstone

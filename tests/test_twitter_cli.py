@@ -235,8 +235,8 @@ def test_the_acquisition_path_needs_no_third_party_package() -> None:
     """
     package = Path(cli.__file__).parent / "twitter"
     stdlib = {
-        "__future__", "dataclasses", "datetime", "hashlib", "json", "os", "pathlib",
-        "re", "subprocess", "tempfile", "time", "typing", "urllib",
+        "__future__", "collections", "dataclasses", "datetime", "hashlib", "json",
+        "os", "pathlib", "re", "subprocess", "tempfile", "time", "typing", "urllib",
     }
     for module in sorted(package.glob("*.py")):
         tree = ast.parse(module.read_text("utf-8"))
@@ -248,3 +248,25 @@ def test_the_acquisition_path_needs_no_third_party_package() -> None:
                 assert node.module is not None
                 root = node.module.split(".")[0]
                 assert root in stdlib, f"{module.name}: {node.module}"
+
+
+def test_capture_then_validate_exits_PARTIAL_not_ERROR(tmp_path: Path, pinned) -> None:
+    """§T1's state, graded by §T7's table, at the shell.
+
+    ``capture`` leaves an initialized run scaffolded to ``PARTIAL``; §T7 grades
+    "an unaudited run" ``3``. It exited ``1 ERROR`` with "Missing JSON file:
+    …/knowledge_units.json", because ``initialize_run`` wrote two of the four
+    canonical documents and ``validate_run`` reads all four. Two commands is the
+    smallest sequence that shows it, and it is the sequence WORKFLOW.md prints.
+    """
+    pinned(tmp_path, posts={EN_POST: {"exit": 0, "stdout": spike("single_post_en__xcli_guest")}})
+    output = tmp_path / "output"
+
+    capture_code, _, _ = run(["capture", EN_POST, "--via-tunnel", "--output", str(output)])
+    assert capture_code == cli.EXIT_OK
+
+    code, payload, errors = run(["validate", str(output / EN_POST)])
+
+    assert code == cli.EXIT_PARTIAL, errors
+    assert payload["status"] == "PARTIAL"
+    assert payload["capture"]["status"] == "PASS"

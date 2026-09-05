@@ -44,6 +44,23 @@ What the units say is **mechanical and says so**: each available post yields one
 taken from. A fixture's job here is to pin the *shape* the pipeline writes and
 the provenance rules it enforces; inventing analytical claims about real posts
 would put words in real authors' mouths in a file that is committed forever.
+
+**One case is constructed rather than measured, and says which.** ``facets``
+reads its two responses from ``inputs/`` and neither is a recording: they are
+written for this fixture, under a synthetic account and a post id no snowflake
+has reached, for the reason D-222 already applies to ``edit`` — no measured
+route produces the shape, so it is pinned by a fixture instead of by data. What
+it pins is :func:`x2knwldg.twitter.normalize.entities_from`, the single place
+CLAUDE.md's X-provenance invariant is enforced on a span, and which until this
+directory had it had **never executed under test**: no committed x-cli response
+carries a facet — the five ``__xcli_guest`` spike files all report ``facets:
+0`` — so the loop that re-slices every span and drops the ones that do not
+match was uncovered while its own docstring claimed it had been "proven against
+a post carrying astral emoji". The response here carries three facets and its
+text carries two astral characters, so the two readings of the same link differ
+by exactly the two code units D-211 measured: the codepoint span survives, the
+UTF-16 span slices to ``tps://t.co/… —`` and is dropped, and the committed
+capture is the difference between them.
 """
 
 from __future__ import annotations
@@ -67,6 +84,7 @@ from capture_shapes import edited_post_capture  # noqa: E402
 
 from x2knwldg.io import dumps_json, sha256_text, write_json  # noqa: E402
 from x2knwldg.twitter import acquire, evidence, extract  # noqa: E402
+from x2knwldg.twitter.normalize import post_from  # noqa: E402
 
 # Frozen so regenerating the fixtures is byte-identical and CI can prove it.
 # Obviously not a real ingestion time, and deliberately the same value the
@@ -77,6 +95,19 @@ FIXTURE_NOTE = (
     "Synthetic test fixture — the capture and its raw evidence are real measured "
     "bytes, the knowledge units are mechanical quotations built for this file. "
     "Regenerate with tests/fixtures/twitter-runs/build_fixtures.py."
+)
+
+#: For a case whose *responses* were written rather than recorded. The first
+#: clause of the note above is a claim about provenance, and it would be false
+#: here — a fixture that mislabels its own evidence is the one thing this
+#: directory cannot afford, since every other file in it is trusted precisely
+#: because that sentence is true.
+CONSTRUCTED_NOTE = (
+    "Synthetic test fixture — the provider responses under raw/ were WRITTEN FOR "
+    "THIS FIXTURE, not recorded: a synthetic account, a post id no snowflake has "
+    "reached, and a facet list carrying one deliberately wrong offset. Nothing "
+    "here is a claim about a real post or a real provider answer. Regenerate "
+    "with tests/fixtures/twitter-runs/build_fixtures.py."
 )
 
 EXTRACTION_METADATA = {
@@ -138,15 +169,156 @@ CASES: tuple[tuple[str, str, str], ...] = (
         "A quoted post becoming embedded content or a fetch. It is a separate "
         "cited source relation (ADR 0007 decision 8).",
     ),
+    (
+        "facets",
+        None,
+        "A span written from an offset nobody re-sliced. Three facets go in and "
+        "two come out: the UTF-16 reading of the same link is in bounds, is "
+        "wrong, and must be dropped — and @x2k must not be located inside "
+        "@x2knwldg.",
+    ),
 )
+
+#: Where the two constructed responses for the ``facets`` case live. Outside
+#: any run directory on purpose: :func:`build` deletes a run before rebuilding
+#: it, and an input stored inside its own output is an input that survives
+#: exactly one run of the builder.
+INPUT_DIR = FIXTURE_DIR / "inputs"
+
+#: The route the constructed responses are attributed to. Tier 1 for the x-cli
+#: record, and the corroborating surface for the document that carries the
+#: facets — because that is where a facet comes from (D-218, ``T-225``), and
+#: attributing it to the local route would be a claim about x-cli that the five
+#: committed ``__xcli_guest`` responses contradict.
+_GUEST = {"route": "xcli_guest", "tier": 1, "surface": "guest_graphql"}
+_FX = {"route": "fxtwitter", "tier": 0, "surface": "fxtwitter"}
+
+
+def facet_capture() -> dict[str, Any]:
+    """The ``facets`` case, assembled from ``inputs/`` through the real normalizer.
+
+    Built by calling :func:`~x2knwldg.twitter.normalize.post_from` with the
+    facets the corroborating document carries, which is the same call
+    ``tests/fixtures/captures/build_captures.py`` makes and the same one
+    ``T-225`` would make at acquisition time. So the committed ``capture.json``
+    is the normalizer's own output over committed input: if the guard's answer
+    changes, this file stops rebuilding byte for byte and
+    ``test_re_running_the_builder_is_byte_identical`` says so.
+    """
+    xcli_path = INPUT_DIR / "facets_astral__xcli_guest.json"
+    fx_path = INPUT_DIR / "facets_astral__fxtwitter.json"
+    record = json.loads(xcli_path.read_text(encoding="utf-8"))[0]
+    fx = json.loads(fx_path.read_text(encoding="utf-8"))
+    raw_text = fx["tweet"]["raw_text"]
+    if raw_text["text"] != record["text"]:
+        # Different text, different offsets. The builder refuses rather than
+        # normalizing spans against a string they do not index.
+        raise SystemExit("the two facets/ responses disagree about the authored text")
+
+    completeness = {
+        "status": "corroborated",
+        "corroborated_by": [_FX],
+        "agreement": "identical",
+        "note": "constructed fixture; both responses carry the same authored text",
+    }
+    post = post_from(record, _GUEST, completeness, raw_text["facets"])
+    return {
+        "schema_version": "1.0",
+        "acquisition": {
+            "provider": {
+                "tool": "tamnd/x-cli",
+                "version": "0.5.0",
+                "version_string": (
+                    "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)"
+                ),
+                "binary_sha256": (
+                    "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97"
+                ),
+                "licence": "AGPL-3.0",
+            },
+            "requested_at": "2026-01-01T00:00:00Z",
+            "routes_read": [
+                {
+                    **_GUEST,
+                    "outcome": "ok",
+                    "request_shape": f"x tweet {record['id']} --tier guest -o json",
+                },
+                {
+                    **_FX,
+                    "outcome": "ok",
+                    "request_shape": f"https://api.fxtwitter.com/i/status/{record['id']}",
+                },
+            ],
+            "network": {"via_tunnel": True, "note": "constructed fixture; nothing was read"},
+        },
+        "raw_evidence": [
+            _constructed_evidence(xcli_path, "xcli_guest"),
+            _constructed_evidence(fx_path, "fxtwitter"),
+        ],
+        "anchor": {
+            "post_id": record["id"],
+            "role": "single_post",
+            "terminal_claim": "none",
+        },
+        "items": [post],
+        "order": {"basis": "single_item"},
+        "completeness": {
+            "upward": {"status": "complete", "basis": "single_item"},
+            "downward": {
+                "status": "not_applicable",
+                "reason": "a single post makes no claim about a conversation",
+            },
+        },
+        "coverage": {
+            "status": "PASS",
+            "expected_item_count": 1,
+            "included_post_ids": [record["id"]],
+            "omitted_items": [],
+        },
+    }
+
+
+def _constructed_evidence(path: Path, route: str) -> dict[str, Any]:
+    """A ``raw_evidence`` entry for a response that was written, not recorded.
+
+    ``sha256_raw`` equals ``sha256_sanitized`` and ``sanitization_removed`` is
+    empty, and both are *true* rather than convenient: these bytes were never
+    sanitized because nothing in them is credential-shaped, and the equality is
+    the checkable claim the contract asks the two digests to make.
+    """
+    text = path.read_text(encoding="utf-8")
+    return {
+        "route": route,
+        "path": path.relative_to(PROJECT_ROOT).as_posix(),
+        "sha256_raw": sha256_text(text),
+        "sha256_sanitized": sha256_text(text),
+        "sanitization_removed": [],
+    }
+
+
+#: Cases whose capture is constructed in-process rather than read from
+#: ``tests/fixtures/captures/``. Keyed by case name, so adding one does not mean
+#: adding a branch to :func:`_capture_for`.
+CONSTRUCTED: dict[str, Any] = {
+    # D-222: no measured route produces an edit history.
+    "edit": edited_post_capture,
+    "facets": facet_capture,
+}
+
+#: Of those, the cases whose ``raw/`` bytes were written rather than recorded.
+#: ``edit`` is not one: its capture is constructed, but the two responses under
+#: it are the committed ``single_post_en`` recordings.
+CONSTRUCTED_RESPONSES = frozenset({"facets"})
 
 
 def _capture_for(case: str, name: str | None) -> dict[str, Any]:
     if name is None:
-        # D-222: no measured route produces an edit history, so this shape is
-        # built in the process rather than committed as a claim about what a
-        # provider returned.
-        return edited_post_capture()
+        # Built in the process rather than committed as a claim about what a
+        # provider returned. See `CONSTRUCTED`.
+        build = CONSTRUCTED[case]
+        result = build()
+        assert isinstance(result, dict)
+        return result
     return json.loads((CAPTURE_DIR / f"{name}.json").read_text(encoding="utf-8"))
 
 
@@ -300,12 +472,12 @@ def _bundle(capture: dict[str, Any], coverage: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def _label(run_dir: Path) -> None:
+def _label(run_dir: Path, note: str) -> None:
     """Mark the run synthetic and freeze its two clock-stamped fields."""
     path = run_dir / "metadata.json"
     metadata = json.loads(path.read_text(encoding="utf-8"))
     metadata["fixture"] = True
-    metadata["fixture_note"] = FIXTURE_NOTE
+    metadata["fixture_note"] = note
     metadata["imported_at"] = FIXTURE_TIMESTAMP
     metadata["extracted_at"] = FIXTURE_TIMESTAMP
     write_json(path, metadata)
@@ -330,7 +502,7 @@ def build(case: str, capture_name: str | None) -> tuple[str, str]:
 
     # Labelled before the final validation rather than after it, so
     # `validation.json` is a report about the files as they are committed.
-    _label(run_dir)
+    _label(run_dir, CONSTRUCTED_NOTE if case in CONSTRUCTED_RESPONSES else FIXTURE_NOTE)
     result = extract.validate_run(run_dir)
     coverage_status = json.loads((run_dir / "coverage.json").read_text(encoding="utf-8"))["status"]
     return result["status"], coverage_status
@@ -339,7 +511,7 @@ def build(case: str, capture_name: str | None) -> tuple[str, str]:
 def main() -> None:
     for case, capture_name, _ in CASES:
         status, coverage_status = build(case, capture_name)
-        source = capture_name or "capture_shapes.edited_post_capture()"
+        source = capture_name or f"{CONSTRUCTED[case].__module__}.{CONSTRUCTED[case].__name__}()"
         print(f"{case}: validation={status} coverage={coverage_status}  ← {source}")
     digest = sha256_text(
         "".join(

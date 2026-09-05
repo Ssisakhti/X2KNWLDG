@@ -34,6 +34,7 @@ import {
 } from "../test/sourceRecords";
 import { sizeTheStage } from "../test/mapServer";
 import { SourceMapView } from "./SourceMapView";
+import { sourceStyle } from "../map/sourceStyle";
 import { fakeRenderers } from "../test/mapRenderer";
 import type { MapRendererFactory } from "../map/mapSession";
 import type { SourceRelationSummary } from "../api/contract";
@@ -438,6 +439,119 @@ describe("the canvas", () => {
     await waitFor(() =>
       expect(document.querySelector(`[data-source-card="${PASS}"]`)).toBeTruthy(),
     );
+  });
+
+  it("deselects on a second click of the same mark, and does not stack history", async () => {
+    /*
+     * The defect: the session's `onSelectNode` closed over `focusSource`, and
+     * the effect that builds the session has `[projection, createRenderer]` for
+     * deps — `projection` is one fetch and never changes identity, so the
+     * closure was frozen at `focus.focus === null` for the life of the route.
+     * The second click therefore compared the clicked id against a stale
+     * `null`, re-selected instead of deselecting, and pushed a duplicate
+     * history entry, leaving Back with nothing to do.
+     */
+    vi.stubGlobal("fetch", corpus());
+    const harness = fakeRenderers<SourceRelationSummary>();
+    mount("/map?of=sources", harness.factory);
+    await waitFor(() => expect(harness.latest()).not.toBeNull());
+
+    act(() => harness.latest()?.fireNode("clickNode", `${PASS}:source`));
+    await waitFor(() =>
+      expect(document.querySelector(`[data-source-card="${PASS}"]`)).toBeTruthy(),
+    );
+
+    // The same mark again: the reader is putting the selection down.
+    act(() => harness.latest()?.fireNode("clickNode", `${PASS}:source`));
+    await waitFor(() =>
+      expect(document.querySelector(`[data-source-card="${PASS}"]`)).toBeNull(),
+    );
+  });
+
+  it("never lights a previous selection's neighbours around a new one", async () => {
+    /*
+     * `useAsync` keeps the previous `data` while the next request is in flight.
+     * The drawer is masked by a `loading` branch; the style table was not, so
+     * `setView` drew the marks of one source's neighbours around a *different*
+     * source — a false relatedness claim on the canvas. The endpoint echoes
+     * `center_id` back so a client can refuse a stale answer, which is what the
+     * view now does.
+     *
+     * The window is only open while the second request is unresolved, so this
+     * test holds PARTIAL's neighbourhood open deliberately. Resolving it first
+     * and asserting afterwards is the shape that passes with the bug present.
+     */
+    const held: { release: () => void } = { release: () => {} };
+    const partialHeld = new Promise<void>((resolve) => {
+      held.release = resolve;
+    });
+    const underlying = corpus();
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/source-graph/neighborhood/") && sourceIdIn(url) === PARTIAL) {
+        await partialHeld;
+      }
+      return underlying(input, init);
+    }) as typeof fetch);
+
+    const harness = fakeRenderers<SourceRelationSummary>();
+    mount("/map?of=sources", harness.factory);
+    await waitFor(() => expect(harness.latest()).not.toBeNull());
+
+    act(() => harness.latest()?.fireNode("clickNode", `${PASS}:source`));
+    // PASS really does have POST as a neighbour, so the table is populated.
+    await waitFor(() => expect(sourceStyle.view.neighbourNodes.has(`${POST}:source`)).toBe(true));
+
+    // Select PARTIAL, whose answer is still in flight. Until it lands, nothing
+    // may be drawn as PARTIAL's neighbour — least of all POST, which is the
+    // previous selection's.
+    act(() => harness.latest()?.fireNode("clickNode", `${PARTIAL}:source`));
+    await waitFor(() => expect(sourceStyle.view.selectedNode).toBe(`${PARTIAL}:source`));
+    expect(sourceStyle.view.neighbourNodes.has(`${POST}:source`)).toBe(false);
+
+    held.release();
+    // And PARTIAL carries no relationships at all, so it stays empty after.
+    await waitFor(() =>
+      expect(document.querySelector(`[data-source-card="${PARTIAL}"]`)).toBeTruthy(),
+    );
+    expect(sourceStyle.view.neighbourNodes.size).toBe(0);
+  });
+
+  it("shows no brief for a focus that names a unit rather than a source", async () => {
+    /*
+     * `focusedSourceId` is `sourceIdOf(focus.focus)`, which drops the third
+     * segment — so `youtube:abc:KU-000001` and `youtube:abc:source` both ask
+     * the endpoint for `youtube:abc`. A stale bookmark or a hand-typed link
+     * carrying a unit id would therefore have filled the drawer with that
+     * unit's *source* brief while `focus.focus` matched no node on the field,
+     * leaving the drawer saying a source was selected and the list saying
+     * nothing was — two selection identities derived from one, which is what
+     * `MapView`'s §8.6 doctrine exists to forbid.
+     *
+     * The centre-id guard closes it: the answer's own `centre.global_id` is
+     * `…:source` and the focus is not, so the answer is refused as not being
+     * about this selection.
+     */
+    vi.stubGlobal("fetch", corpus());
+    mount(`/map?of=sources&focus=${PASS}:KU-000001`);
+    await waitFor(() => expect(document.querySelector("[data-source-outline]")).toBeTruthy());
+    expect(document.querySelector(`[data-source-card="${PASS}"]`)).toBeNull();
+  });
+
+  it("leaves the shared style table empty when the route unmounts", async () => {
+    // `sourceStyle` is a module singleton: a selection left in it dims every
+    // mark on the next mount, around a selection that no longer exists.
+    vi.stubGlobal("fetch", corpus());
+    const harness = fakeRenderers<SourceRelationSummary>();
+    const view = mount("/map?of=sources", harness.factory);
+    await waitFor(() => expect(harness.latest()).not.toBeNull());
+
+    act(() => harness.latest()?.fireNode("clickNode", `${PASS}:source`));
+    await waitFor(() => expect(sourceStyle.view.selectedNode).toBe(`${PASS}:source`));
+
+    view.unmount();
+    expect(sourceStyle.view.selectedNode).toBeNull();
+    expect(sourceStyle.view.neighbourNodes.size).toBe(0);
   });
 
   it("is not announced as an image while there is no picture", async () => {

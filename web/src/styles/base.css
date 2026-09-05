@@ -273,6 +273,27 @@ input {
   min-inline-size: 9rem;
 }
 
+/*
+ * A search field wide enough for the sentence inside it.
+ *
+ * `search.placeholder` is "Search knowledge units and transcripts" -- and in
+ * Persian a word longer still -- while `.field > input` above sizes every
+ * field at `9rem`. At that width the placeholder was cut mid-word ("Search
+ * knowledge uni"), in both directions, on the Library and on the Map's search
+ * rail. A placeholder is not decoration on an empty field: it is the sentence
+ * that says what may be typed, and half of it says something else.
+ *
+ * `min` rather than a flat width so the field still fits a narrow rail, and
+ * `flex: 1` so it takes the row's spare space rather than leaving it beside a
+ * truncated label. The visually-hidden `<label>` is unaffected -- this is
+ * about what a sighted reader can read, which the label element does not fix.
+ */
+.field > input[type="search"] {
+  inline-size: min(100%, 26rem);
+  min-inline-size: min(100%, 14rem);
+  flex: 1 1 auto;
+}
+
 .filters {
   display: flex;
   gap: var(--space-3);
@@ -1217,6 +1238,43 @@ input {
  * enough for a thumb and a summary line that sits beside the heading rather
  * than under it.
  */
+/*
+ * The affordance `display: flex` takes away.
+ *
+ * A `<summary>` renders a disclosure triangle by default, and a `<summary>`
+ * with `display: flex` renders none — the default `::marker` only exists on
+ * the `list-item` display type. Nothing in this file asked for that, and the
+ * result was every collapsed panel in the app reading as a titled empty box
+ * with no sign it could be opened. The Map's legend was the worst of them: a
+ * bordered card saying "WHAT THE MARKS MEAN" and nothing else, which looks
+ * like a panel that failed to load rather than one that is folded.
+ *
+ * So the triangle is drawn back, explicitly. `aria-hidden` is unnecessary —
+ * generated content is not in the accessibility tree — and the element is
+ * still a `<summary>`, so it is still announced as expanded or collapsed
+ * without this. It is a *visual* affordance, restored for sighted readers who
+ * had none.
+ */
+.disclosure__summary::before {
+  content: "";
+  flex: none;
+  inline-size: 0;
+  block-size: 0;
+  /* A triangle from borders, so it needs no glyph and no font that has one. */
+  border-block-start: 0.34em solid transparent;
+  border-block-end: 0.34em solid transparent;
+  border-inline-start: 0.48em solid currentColor;
+  color: var(--fg-muted);
+  /* Mirrors with the writing direction, because the logical border above
+     already points the way the text runs. */
+  transform: rotate(0deg);
+  /* No `prefers-reduced-motion` block of its own: the blanket `*` rule at the
+     foot of this file neutralises every transition, which is precisely the
+     rot-proofing it was written for. */
+  transition: transform 150ms ease;
+  align-self: center;
+}
+
 .disclosure__summary {
   display: flex;
   flex-wrap: wrap;
@@ -1242,6 +1300,20 @@ input {
   /* Neutral text next to a heading: an identifier or a count must not be
      reordered by the heading's direction (D-012). */
   unicode-bidi: isolate;
+}
+
+details[open] > .disclosure__summary::before {
+  transform: rotate(90deg);
+}
+
+/*
+ * `border-inline-start` already flips the triangle's own geometry under
+ * `dir="rtl"`, but `rotate(90deg)` does not: it is a physical rotation, and
+ * rotating a leftward-pointing triangle clockwise points it up rather than
+ * down. The open state turns the other way in RTL so it points down in both.
+ */
+[dir="rtl"] details[open] > .disclosure__summary::before {
+  transform: rotate(-90deg);
 }
 
 .disclosure__body {

@@ -1,5 +1,5 @@
 /**
- * The typed client for the eleven frozen endpoints.
+ * The typed client for the thirteen frozen endpoints.
  *
  * Two properties are worth the small amount of machinery here:
  *
@@ -134,7 +134,49 @@ export class ApiClient {
     options: CallOptions<K> = {},
   ): Promise<Operation<K>["response"]> {
     const response = await this.send(operation, options, "application/json");
-    return (await response.json()) as Operation<K>["response"];
+    const body: unknown = await response.json();
+    /*
+     * The one place a body becomes typed, and until now the only check on it
+     * was the `as` that made it so.
+     *
+     * The contract is frozen and the server is the project's own, so this is
+     * not defence against a hostile payload — it is about *where the failure
+     * lands*. `MapFilters.tsx:100` reads `fetched.data.page.next_cursor`
+     * during render, so a `200 {"data":[]}` threw `TypeError: Cannot read
+     * properties of undefined` out of the render phase and
+     * `RouteErrorBoundary` replaced the whole Map route. Worse, where the same
+     * read sits inside an async loader the error was caught and *misattributed*
+     * — the UI said "The server refused this request. Code: internal" about a
+     * server that answered 200, when the fault was the client's own shape
+     * assumption.
+     *
+     * So the envelope is checked, and only the envelope: `data` present, and
+     * `page.next_cursor` a string or null when a page is present. The records
+     * inside are the contract's business and are checked by
+     * `test_api_contract.py` against the frozen components. A refusal here is
+     * an `internal` failure whose message says plainly that the client
+     * rejected the shape, so the taxonomy the UI branches on still holds.
+     */
+    if (typeof body !== "object" || body === null || !("data" in body)) {
+      throw new ApiFailure(
+        "internal",
+        `The reply to ${operation} did not carry a data envelope.`,
+      );
+    }
+    const page = (body as { page?: unknown }).page;
+    if (page !== undefined) {
+      const cursor = (page as { next_cursor?: unknown } | null)?.next_cursor;
+      if (typeof page !== "object" || page === null) {
+        throw new ApiFailure("internal", `The reply to ${operation} carried a malformed page.`);
+      }
+      if (cursor !== null && typeof cursor !== "string" && cursor !== undefined) {
+        throw new ApiFailure(
+          "internal",
+          `The reply to ${operation} carried a malformed page cursor.`,
+        );
+      }
+    }
+    return body as Operation<K>["response"];
   }
 
   /**

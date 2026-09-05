@@ -1,0 +1,46 @@
+[
+  {
+    "kind": "tweet",
+    "id": "9000000000000000001",
+    "uri": "x://tweet/9000000000000000001",
+    "url": "https://x.com/x2k_fixture/status/9000000000000000001",
+    "tier": 1,
+    "surfaces": [
+      "s4"
+    ],
+    "text": "نمونهٔ ساختگی 🛰 و 𝕏 — این متن برای آزمونِ فاصلهٔ نویسه‌ای ساخته شده است. #فاصله — @x2knwldg — https://t.co/AbCdEfGh12 — پایانِ نمونه، با چند واژهٔ افزوده برای اینکه خوانشِ نادرستِ افست هنوز درونِ متن بیفتد.",
+    "created_at": "2026-01-01T00:00:00Z",
+    "lang": "fa",
+    "author": {
+      "kind": "user",
+      "id": "x2k_fixture",
+      "uri": "x://user/x2k_fixture",
+      "url": "https://x.com/x2k_fixture",
+      "tier": 1,
+      "surfaces": [
+        "s4"
+      ],
+      "username": "x2k_fixture",
+      "rest_id": "9000000000000000002",
+      "name": "X2KNWLDG fixture account"
+    },
+    "conversation_id": "9000000000000000001",
+    "entities": {
+      "mentions": [
+        "x2k",
+        "x2knwldg"
+      ],
+      "hashtags": [
+        "فاصله"
+      ],
+      "urls": [
+        "https://example.org/x2knwldg-fixture"
+      ]
+    },
+    "metrics": {
+      "likes": 0,
+      "replies": 0,
+      "retweets": 0
+    }
+  }
+]

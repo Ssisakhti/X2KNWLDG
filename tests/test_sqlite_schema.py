@@ -426,3 +426,85 @@ def test_store_errors_carry_the_seams_codes_rather_than_inventing_one(error: typ
     # has a branch for.
     assert error.code == "internal"
     assert error.http_status == 500
+
+
+# --------------------------------------------------------------------------
+# D-159's remedy could reproduce D-159's symptom
+# --------------------------------------------------------------------------
+
+
+def _in_delete_journal(path: Path) -> None:
+    """Leave a real database at *path* in the classic rollback journal.
+
+    A fresh clone, a cache deleted and recreated by another tool, and a database
+    created by a version of this code that predates WAL all arrive this way —
+    the comment on the pragma enumerates them itself.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("PRAGMA journal_mode = delete")
+        connection.execute("CREATE TABLE probe (id INTEGER PRIMARY KEY)")
+        connection.commit()
+        mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        assert mode == "delete", f"the premise: this database is not in WAL ({mode})"
+    finally:
+        connection.close()
+
+
+def test_a_writer_holding_the_database_does_not_make_it_unopenable(tmp_path: Path) -> None:
+    """Converting to WAL needs an exclusive lock, and not getting one is survivable.
+
+    Measured: with ``journal_mode=delete`` on disk and a second connection in
+    ``BEGIN IMMEDIATE``, ``connect`` raised ``OperationalError: database is
+    locked`` and ``SqliteRepository.open(...).status()`` answered ``state:
+    error, message: the index cannot be opened: database is locked`` — the exact
+    D-159 symptom WAL was introduced to remove, arriving out of the statement
+    that introduces it.
+
+    ``busy_timeout`` is not the fix and reordering is not either: SQLite fails a
+    journal-mode transition immediately rather than waiting (measured at 0.000s
+    in both orderings). The mode is persistent, so a failed conversion is worth
+    retrying on the next connect and is never worth reporting the index broken.
+    """
+    path = database_path(tmp_path)
+    _in_delete_journal(path)
+
+    writer = sqlite3.connect(path)
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        reader = connect(path, create=False)
+        try:
+            assert reader.execute("SELECT 1").fetchone()[0] == 1, (
+                "the connection came back unusable"
+            )
+        finally:
+            reader.close()
+    finally:
+        writer.rollback()
+        writer.close()
+
+
+def test_the_conversion_is_retried_once_the_writer_has_gone(tmp_path: Path) -> None:
+    """Tolerating the failure must not mean giving up on WAL.
+
+    The pragma runs on every connect precisely so a database that could not be
+    converted while a writer held it is converted by the next connection that
+    finds it idle.
+    """
+    path = database_path(tmp_path)
+    _in_delete_journal(path)
+
+    writer = sqlite3.connect(path)
+    writer.execute("BEGIN IMMEDIATE")
+    blocked = connect(path, create=False)
+    assert blocked.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    blocked.close()
+    writer.rollback()
+    writer.close()
+
+    converted = connect(path, create=False)
+    try:
+        assert converted.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    finally:
+        converted.close()

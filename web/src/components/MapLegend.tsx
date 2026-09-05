@@ -25,18 +25,19 @@ import type { ProvenanceClass } from "../api/contract";
 import { PROVENANCE_CLASSES, RELATION_VOCABULARIES } from "../api/vocabulary";
 import { useI18n, type MessageKey } from "../i18n";
 import {
-  EDGE_PROVENANCE_MARK,
+  edgeProvenanceMarks,
   EDGE_VOCABULARY_MARK,
   KIND_FAMILIES,
-  KIND_FAMILY_COLOUR,
+  kindFamilyColour,
   NODE_PROVENANCE_MARK,
-  UNRECOGNISED_EDGE_PROVENANCE_MARK,
+  unrecognisedEdgeProvenanceMark,
   UNRECOGNISED_PROVENANCE_MARK,
   UNRECOGNISED_VOCABULARY_MARK,
   type MapEdgeExtremity,
   type MapNodeShape,
   type KindFamily,
 } from "../map/mapStyle";
+import { useMapStage } from "../map/useMapStage";
 import { Disclosure } from "./Disclosure";
 import { ProvenanceBadge } from "./Provenance";
 import { FORWARD_GLYPH } from "./primitives";
@@ -158,6 +159,11 @@ function Row({
 
 export function MapLegend() {
   const { t } = useI18n();
+  // The stage the canvas is drawing on, so a swatch here is the ink there.
+  const stage = useMapStage();
+  const familyInk = kindFamilyColour(stage);
+  const edgeInk = edgeProvenanceMarks(stage);
+  const unrecognisedEdgeInk = unrecognisedEdgeProvenanceMark(stage);
 
   return (
     // Collapsed by default (`T-208`): a legend is read once and then known,
@@ -166,6 +172,19 @@ export function MapLegend() {
     <Disclosure
       id="legend"
       title={t("map.legend.title")}
+      /*
+       * `Disclosure`'s first rule is that a collapsed panel still states its
+       * own content — "a disclosure that says only 'Related knowledge' turns a
+       * reader's screen into a row of doors". This panel was the one that did
+       * exactly that: folded, it was a bordered card carrying a title and
+       * nothing else, which reads as a panel that failed to load rather than
+       * one that is closed. What it holds is a fixed vocabulary rather than a
+       * changing count, so the summary names the vocabulary.
+       */
+      summary={t("map.legend.summary", {
+        shapes: PROVENANCE_CLASSES.length + 1,
+        hues: KIND_FAMILIES.length,
+      })}
       preferOpen={false}
       marks={{ "data-map-legend": "" }}
     >
@@ -226,7 +245,7 @@ export function MapLegend() {
           {t("map.legend.unrecognised")} — {t("map.legend.head")}: <Extremity head={UNRECOGNISED_VOCABULARY_MARK.head} />
         </Row>
         {PROVENANCE_CLASSES.map((provenance: ProvenanceClass) => {
-          const mark = EDGE_PROVENANCE_MARK[provenance];
+          const mark = edgeInk[provenance];
           return (
             <Row
               key={`edge-${provenance}`}
@@ -243,16 +262,16 @@ export function MapLegend() {
           );
         })}
         <Row
-          glyph={EXTREMITY_GLYPH[UNRECOGNISED_EDGE_PROVENANCE_MARK.tail]}
-          colour={UNRECOGNISED_EDGE_PROVENANCE_MARK.colour}
+          glyph={EXTREMITY_GLYPH[unrecognisedEdgeInk.tail]}
+          colour={unrecognisedEdgeInk.colour}
           marks={{
             "data-map-legend-edge-provenance": "unrecognised",
-            "data-tail": UNRECOGNISED_EDGE_PROVENANCE_MARK.tail,
-            "data-colour": UNRECOGNISED_EDGE_PROVENANCE_MARK.colour,
+            "data-tail": unrecognisedEdgeInk.tail,
+            "data-colour": unrecognisedEdgeInk.colour,
           }}
         >
           {t("map.legend.unrecognised")} — {t("map.legend.tail")}:{" "}
-          <Extremity head={UNRECOGNISED_EDGE_PROVENANCE_MARK.tail} />
+          <Extremity head={unrecognisedEdgeInk.tail} />
         </Row>
       </ul>
 
@@ -263,10 +282,10 @@ export function MapLegend() {
           <Row
             key={family}
             glyph={SHAPE_GLYPH.circle}
-            colour={KIND_FAMILY_COLOUR[family]}
+            colour={familyInk[family]}
             marks={{
               "data-map-legend-family": family,
-              "data-colour": KIND_FAMILY_COLOUR[family],
+              "data-colour": familyInk[family],
             }}
           >
             {t(FAMILY_LABEL[family])}

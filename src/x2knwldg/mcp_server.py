@@ -41,7 +41,7 @@ from .constants import MAX_PAGE_LIMIT
 from .coverage import caption_in_window
 from .ids import is_id_part
 from .io import _ABSOLUTE_PATH_ONLY, scrub_host_paths, scrub_host_paths_roots_only, write_json
-from .pipeline import PipelineError, import_transcript, project_root, resolve_run_dir, validate_run
+from .pipeline import PipelineError, import_transcript, project_root, resolve_run_dir
 
 #: D-155 amends D-114. The bare ``MCPServer = None`` rebound an imported *name*
 #: to ``None``, which mypy refuses two ways once the module is actually there —
@@ -404,37 +404,67 @@ def get_coverage_window(video_id: str, window_id: str) -> dict[str, Any]:
 
 @_boundary
 def validate_video_output(video_id: str) -> dict[str, Any]:
-    """Validate transcript, knowledge units, relations, and coverage."""
-    return validate_run(_run_dir(video_id))
+    """Validate a run's canonical outputs against the evidence it was built from.
+
+    Dispatched on what the run declares, not on what this tool is named. D-243
+    moved ``validate`` and ``apply-bundle`` onto ``artifacts.MEDIUM_PROFILES``
+    so that ``cli.main`` need not know how many media there are — and the CLI
+    was changed and this surface was not. So an agent that captured a post and
+    called ``validate_video_output("<post-id>")`` got "Missing JSON file:
+    …/transcript.json", which is the exact symptom the phase-gate suite says
+    was fixed, arriving through the one caller D-243 skipped.
+    """
+    from .artifacts import validate_any_run
+
+    return validate_any_run(_run_dir(video_id))
 
 
 @_boundary
 def apply_extraction_bundle(video_id: str, bundle_path: str) -> dict[str, Any]:
-    """Validate and store a JSON bundle containing knowledge units, relations, and coverage."""
-    from .artifacts import apply_extraction_bundle as apply_bundle
+    """Validate and store a JSON bundle containing knowledge units, relations, and coverage.
+
+    Through the medium's own gate (D-243), for the reason
+    :func:`validate_video_output` gives: ``artifacts.apply_extraction_bundle``
+    is the *YouTube* gate, and a Twitter run reached it and was refused for a
+    transcript it is not supposed to have.
+    """
+    from .artifacts import apply_bundle_to_any_run
 
     run_dir = _run_dir(video_id)
-    return apply_bundle(run_dir, _checked_input_path(bundle_path, what="bundle_path"))
+    return apply_bundle_to_any_run(
+        run_dir, _checked_input_path(bundle_path, what="bundle_path")
+    )
 
 
 @_boundary
 def apply_extraction_data(video_id: str, bundle: dict[str, Any]) -> dict[str, Any]:
     """Validate and store extraction data directly, without requiring a separate file connector."""
-    from .artifacts import apply_extraction_bundle as apply_bundle
+    from .artifacts import apply_bundle_to_any_run
 
     # Resolved *and* proven to exist before anything is written. This used to
     # write the bundle first, so a typo'd id left a phantom `output/<typo>/work/`
     # directory behind on the way to the error — and the next `list_ingested_videos`
     # then had a run-shaped thing to trip over.
     run_dir = _run_dir(video_id)
-    if not (run_dir / "transcript.json").is_file():
+    # `metadata.json`, not `transcript.json`. The old probe asked a
+    # YouTube-shaped question and then *answered* it in the imperative — "import
+    # a transcript before applying a bundle" — for a medium where importing a
+    # transcript is forbidden and where `capture.json` is the canonical input
+    # (WORKFLOW.md §T2). A message that names a file the operator must not
+    # create is worse than no message. This file is the one every initialized
+    # run of every medium has, and it is the same file
+    # `apply_bundle_to_any_run` reads to choose the gate — so the pre-check
+    # asks exactly the question the dispatcher is about to ask, rather than a
+    # second, narrower one that can disagree with it.
+    if not (run_dir / "metadata.json").is_file():
         raise McpToolError(
             "not_found",
-            f"{video_id!r} has no transcript.json; import a transcript before applying a bundle",
+            f"{video_id!r} is not an initialized run: it has no metadata.json. Import a "
+            "transcript, or capture a post, before applying a bundle",
         )
     bundle_path = run_dir / "work" / "mcp_extraction_bundle.json"
     write_json(bundle_path, bundle)
-    return apply_bundle(run_dir, bundle_path)
+    return apply_bundle_to_any_run(run_dir, bundle_path)
 
 
 @_boundary

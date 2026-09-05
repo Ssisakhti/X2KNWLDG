@@ -297,3 +297,51 @@ def test_the_response_table_can_change_without_repinning(tmp_path: Path) -> None
     before = sha256_of(binary)
     write_responses(binary, posts={POST: {"exit": 6}})
     assert sha256_of(binary) == before
+
+
+def test_the_size_bound_is_applied_while_the_child_is_still_writing(
+    tmp_path: Path,
+) -> None:
+    """"No unbounded read" was a stronger claim than the code made.
+
+    ``max_bytes`` was measured only after ``wait()`` returned, so a provider
+    streaming into the temporary file was never interrupted: nothing was *read*
+    unbounded, which is what let the defect survive, but the whole of it had
+    already been written to disk before the refusal was decided. The stub here
+    would take about ten seconds to produce eight megabytes; a bound applied on
+    the way past kills it in a fraction of that.
+    """
+    binary = make_stub(
+        tmp_path / "bin",
+        posts={POST: {"exit": 0, "stream": {"chunk": 4096, "iterations": 2000, "delay": 0.005}}},
+    )
+    provider = verified(binary)
+
+    read = read_tweet(provider, POST, max_bytes=1000, timeout=30)
+
+    assert read.outcome == "provider_error"
+    assert read.stdout == b""
+    assert "over the 1000-byte limit" in read.error_text
+    # Killed, not awaited: the child never reported an exit status of its own.
+    assert read.exit_code is None
+    assert read.latency_ms < 3_000, (
+        f"the child ran for {read.latency_ms}ms; the bound was applied after it finished"
+    )
+
+
+def test_a_response_inside_the_bound_still_arrives_whole(tmp_path: Path) -> None:
+    """The bound is a bound, not a truncation — and not a new failure mode.
+
+    A response that finishes inside one poll interval is never looked at by the
+    waiting loop, so the size check after the child exits is still the one that
+    decides for the ordinary case.
+    """
+    binary = make_stub(tmp_path / "bin", posts={POST: {"exit": 0, "stdout": spike(
+        "single_post_en__xcli_guest"
+    )}})
+
+    read = read_tweet(verified(binary), POST, max_bytes=1_048_576)
+
+    assert read.outcome == "ok"
+    assert read.exit_code == 0
+    assert json.loads(read.stdout)[0]["id"] == POST

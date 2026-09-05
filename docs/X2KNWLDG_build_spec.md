@@ -8,9 +8,18 @@ The system must ingest a YouTube video, preserve the full transcript with timing
 
 This project should **not** be built from scratch if an existing base already covers most of the pipeline. Use the existing `youtube-to-knowledge` project as the base/fork and extend it. Do **not** use Fabric `extract_wisdom` as the core extraction layer because its design prioritizes selecting the most interesting insights rather than preserving all meaningful knowledge.
 
-### 0.1 Current implementation status — 2026-08-31
+### 0.1 Implementation status as of 2026-08-31
 
-The current implementation is an operational first version built from `velmighty/youtube-to-knowledge`.
+**A dated snapshot, not the current state.** It describes a YouTube-only system and counts
+tests that were counted once. X/Twitter capture, a second medium through every read
+surface, the local Knowledge Canvas, the Source Map and cross-source synthesis all landed
+after it. For what is implemented now, read `README.md` and `WORKFLOW.md`; for what is
+being built and what each gate proves, read `docs/PROJECT_MANAGEMENT.md`. The rest of this
+file is the pipeline reference and is maintained; this subsection is kept as the record of
+where the first version stood.
+
+The implementation on that date was an operational first version built from
+`velmighty/youtube-to-knowledge`.
 
 Implemented:
 
@@ -223,11 +232,15 @@ Current-version behavior:
 - never silently continue with untimed text
 - never automatically invoke Whisper or WhisperX
 
-Future optional behavior:
-
-- WhisperX may be added as an explicit opt-in adapter
-- its output must be normalized to the same canonical schema
-- enabling it must not change the user-provided transcript path or provenance rules
+There is no future optional behavior here. This section used to hold a door — "WhisperX
+may be added as an explicit opt-in adapter" — and the rest of the project had nailed it
+shut: `CLAUDE.md` and `AGENTS.md` both say *never install, invoke, or silently fall back*,
+`THIRD_PARTY_NOTICES.md` records that the upstream Whisper and WhisperX drivers "are never
+installed or invoked by X2KNWLDG", and `test_no_whisper_driver_is_reachable_from_the_package_or_the_cli`
+fails on an import or a subprocess call anywhere under `src/`. A reader of this file — the
+pipeline reference — would have found the one statement that said the option was still
+open. Adding audio transcription is a decision to be argued and recorded, not an option
+already reserved.
 
 ### 5.3 Transcript preservation
 
@@ -569,7 +582,9 @@ unresolved_items: []
 
 ### 14.3 Allowed omission reasons
 
-Use explicit labels only:
+The vocabulary is `constants.OMISSION_REASONS`, mirrored into
+`schemas/extraction_bundle.schema.json` and drift-tested against the constant. Use explicit
+labels only:
 
 - `intro_noninformational`
 - `sponsor`
@@ -580,9 +595,16 @@ Use explicit labels only:
 - `audience_reaction`
 - `unintelligible`
 - `off_topic`
+- `source_unavailable`
 - `other_explained`
 
 If `other_explained`, require a note.
+
+`source_unavailable` joined for `T-227` (D-225) and this list stayed at ten. An *included*
+post that was never observed — a tombstone — has no content to audit, and the omission is
+minted by the pipeline rather than chosen by an auditor, so it is a named reason and not
+`other_explained`: "explain yourself" invites a different sentence each time for one
+structural fact.
 
 ### 14.4 Coverage pass criteria
 

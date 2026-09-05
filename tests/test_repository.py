@@ -51,7 +51,31 @@ from x2knwldg.repository import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_OUTPUT_DIR = "tests/fixtures/runs"
 FIXTURE_RUNS = PROJECT_ROOT / FIXTURE_OUTPUT_DIR
-SAMPLE_DIR = PROJECT_ROOT / "output" / "pqlWNihgdjI"
+
+
+def _discovered_sample() -> Path:
+    """The real ingested run this machine has, or a path that does not exist.
+
+    ``SAMPLE_DIR`` was ``output/pqlWNihgdjI`` — one video id, hard-coded in five
+    test modules — and ``output/`` is gitignored. So every test gated on it
+    skipped in CI *and* on the developer's own machine, whose ``output/`` holds a
+    different run entirely: thirteen tests, the whole real-data half of the
+    equivalence proof, running nowhere at all. A suite that runs nowhere proves
+    nothing, and it does not announce that either.
+
+    Discovered rather than named, so it is whatever this machine actually
+    ingested; the first in directory order, so two runs still give one stable
+    answer. ``library/`` and ``synthesis/`` are excluded by construction —
+    neither holds a ``metadata.json``, which is what makes a directory a run.
+
+    A machine with no ``output/`` at all still gets a ``Path``, so the module
+    imports and the skip is decided by the same ``exists`` check as before.
+    """
+    runs = sorted(path.parent for path in (PROJECT_ROOT / "output").glob("*/metadata.json"))
+    return runs[0] if runs else PROJECT_ROOT / "output" / "no-run-has-been-ingested"
+
+
+SAMPLE_DIR = _discovered_sample()
 
 #: The fixture runs, by the ``external_id`` their metadata declares — which is
 #: deliberately not their directory name, so nothing here can quietly assume the
@@ -985,3 +1009,75 @@ def test_the_real_sample_walks_through_the_seam_intact() -> None:
     assert counts["sources"] >= 1
     assert len(walk(repo.list_entities, EntityQuery, limit=25)) == counts["entities"]
     assert len(walk(repo.list_relations, RelationQuery, limit=25)) == counts["relations"]
+
+
+# --------------------------------------------------------------------------
+# The brief vocabulary has one home
+# --------------------------------------------------------------------------
+
+
+def test_every_brief_state_the_reader_can_produce_is_one_it_declares(
+    tmp_path: Path,
+) -> None:
+    """``synthesis.BRIEF_STATES`` had zero references — not even in its own file.
+
+    It called itself "the vocabulary ``SourceKnowledgeAvailability`` publishes"
+    while ``brief_state`` a few lines below spelled all three strings out as
+    literals. A declared vocabulary nothing consults is not a single source of
+    truth; it is one more place the strings are written down, and the only one
+    that cannot be caught being wrong. This walks every branch of the producer
+    and holds it to the declaration.
+    """
+    from x2knwldg import synthesis
+
+    run = tmp_path / "run"
+    run.mkdir()
+    seen = {synthesis.brief_state(run)["state"]}  # no file at all
+
+    (run / "source_knowledge.json").write_text("not json", encoding="utf-8")
+    seen.add(synthesis.brief_state(run)["state"])
+
+    (run / "source_knowledge.json").write_text("[]", encoding="utf-8")
+    seen.add(synthesis.brief_state(run)["state"])
+
+    (run / "knowledge_units.json").write_text('{"units": []}', encoding="utf-8")
+    (run / "source_knowledge.json").write_text(
+        json.dumps({"generated_from": {"knowledge_units_sha256": "nope"}}), encoding="utf-8"
+    )
+    seen.add(synthesis.brief_state(run)["state"])
+
+    (run / "source_knowledge.json").write_text(
+        json.dumps({"generated_from": synthesis.canonical_input_digests(run)}),
+        encoding="utf-8",
+    )
+    seen.add(synthesis.brief_state(run)["state"])
+
+    assert seen == set(synthesis.BRIEF_STATES), (
+        "the producer and its declared vocabulary do not describe the same set"
+    )
+
+
+def test_both_repositories_say_the_same_thing_about_a_source_with_no_brief() -> None:
+    """Two implementations, one sentence.
+
+    ``MemoryRepository`` answered "the run this source names cannot be read" and
+    ``SqliteRepository`` answered "no source_knowledge.json" for the same
+    question. Both branches are unreachable today — which is exactly the
+    argument ``_unit_global_id`` records having lost: a coincidence is not an
+    invariant, and these two are the pair a whole equivalence module exists to
+    prove indistinguishable.
+    """
+    from x2knwldg import synthesis
+    from x2knwldg.repository.memory import MemoryRepository as Memory
+
+    repo = Memory(
+        IndexRecords(sources=[_source_record("youtube:nowhere", canonical_dir=None)]),
+        project_root=PROJECT_ROOT,
+    )
+    answer = repo._brief("youtube:nowhere")
+    assert answer["state"] in synthesis.BRIEF_STATES
+    assert answer == {
+        "state": synthesis.BRIEF_UNAVAILABLE,
+        "brief": None,
+        "reason": synthesis.NO_BRIEF_REASON,
+    }

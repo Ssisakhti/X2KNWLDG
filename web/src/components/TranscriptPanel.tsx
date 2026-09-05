@@ -21,6 +21,8 @@
  * the reader being moved somewhere arbitrary.
  */
 
+import { useMemo } from "react";
+
 import { readCaptions, type Caption } from "../api/canonical";
 import { api } from "../api/client";
 import type { Artifact } from "../api/contract";
@@ -108,12 +110,23 @@ export function TranscriptPanel({
     { enabled: artifact !== null },
   );
 
+  // Memoised on the payload, not recomputed per render: `readCaptions` is a
+  // full `JSON.parse` plus a `.map` over every caption, and this component is
+  // rendered inline and unmemoised by `ReaderView`. Every timestamp click
+  // calls `setSeek`, so a 92 KB / 1,200-caption transcript was re-parsed
+  // synchronously on each one — measured at six parses over five parent
+  // renders — and handed `VirtualList` a fresh array identity each time, which
+  // re-ran its prefix sums too.
+  const captions = useMemo(
+    () => (state.data === null ? null : readCaptions(state.data)),
+    [state.data],
+  );
+
   if (artifact === null) return <p className="muted">{t("reader.transcript.unavailable")}</p>;
   if (state.error !== null) return <ErrorState error={state.error} onRetry={state.reload} />;
   if (state.status !== "ready" || state.data === null)
     return <p className="muted">{t("common.loading")}</p>;
 
-  const captions = readCaptions(state.data);
   if (captions === null) return <p className="muted">{t("reader.transcript.malformed")}</p>;
 
   const linkedIndex = captionIndexAt(captions, highlightSec);

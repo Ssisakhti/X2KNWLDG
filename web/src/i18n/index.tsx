@@ -16,7 +16,7 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -85,7 +85,25 @@ export function interpolate(template: string, params?: Record<string, string | n
 
 export function translator(locale: Locale): Translate {
   const catalog = CATALOGS[locale];
-  return (key, params) => interpolate(catalog[key], params);
+  return (key, params) => {
+    /*
+     * A key the catalog does not hold falls back to the key itself.
+     *
+     * `MessageKey = keyof typeof en` and `fa` is typed `Record<MessageKey,
+     * string>`, so a missing key is normally a compile error and three runtime
+     * tests check the two catalogues agree — this is not a substitute for any
+     * of that. It is for the case the type system cannot see: a key arriving
+     * from outside the module graph, or a catalogue mutated at runtime. There
+     * the previous behaviour was `interpolate(undefined, params)`, which
+     * rendered **silently blank** with no params and threw
+     * `undefined.replace` with them — a whole view lost to a typo, with
+     * nothing logged. A visible key is an honest "this string is missing",
+     * which is the same choice the rest of this UI makes about absent values.
+     */
+    const message = catalog[key];
+    if (typeof message !== "string") return key;
+    return interpolate(message, params);
+  };
 }
 
 function readStored(): Locale | null {
@@ -120,7 +138,22 @@ export function I18nProvider({
 
   const dir = DIRECTION[locale];
 
-  useEffect(() => {
+  /*
+   * Written before the browser paints, not after.
+   *
+   * The locale is read synchronously in the `useState` initialiser above, so a
+   * returning Persian reader's *content* is Persian on the very first render —
+   * while `index.html` ships `lang="en" dir="ltr"` and a plain `useEffect`
+   * runs after paint. That is at least one frame of Persian text in a fully
+   * mirrored-wrong shell on every cold load, and every logical property in the
+   * stylesheet resolves the wrong way round for it.
+   *
+   * `useLayoutEffect` closes the gap: it runs after the DOM is written and
+   * before the paint, which is exactly the window this attribute has to be
+   * correct in. It is not a substitute for `index.html`'s own default — that
+   * is still what a reader sees before any script runs at all.
+   */
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.setAttribute("lang", locale);
     root.setAttribute("dir", dir);

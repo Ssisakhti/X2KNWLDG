@@ -71,19 +71,54 @@ from x2knwldg.repository.memory import MemoryRepository
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_RUNS = PROJECT_ROOT / "tests" / "fixtures" / "runs"
 FIXTURE_NAMES = ("pass-run", "partial-run", "fail-run")
-SAMPLE_ID = "pqlWNihgdjI"
-SAMPLE_DIR = PROJECT_ROOT / "output" / SAMPLE_ID
+
+
+def _discovered_sample() -> Path:
+    """The real ingested run this machine has, or a path that does not exist.
+
+    ``SAMPLE_DIR`` was ``output/pqlWNihgdjI`` — one video id, hard-coded in five
+    test modules — and ``output/`` is gitignored. So every test gated on it
+    skipped in CI *and* on the developer's own machine, whose ``output/`` holds a
+    different run entirely: thirteen tests, the whole real-data half of the
+    equivalence proof, running nowhere at all. A suite that runs nowhere proves
+    nothing, and it does not announce that either.
+
+    Discovered rather than named, so it is whatever this machine actually
+    ingested; the first in directory order, so two runs still give one stable
+    answer. ``library/`` and ``synthesis/`` are excluded by construction —
+    neither holds a ``metadata.json``, which is what makes a directory a run.
+
+    A machine with no ``output/`` at all still gets a ``Path``, so the module
+    imports and the skip is decided by the same ``exists`` check as before.
+    """
+    runs = sorted(path.parent for path in (PROJECT_ROOT / "output").glob("*/metadata.json"))
+    return runs[0] if runs else PROJECT_ROOT / "output" / "no-run-has-been-ingested"
+
+
+SAMPLE_DIR = _discovered_sample()
+SAMPLE_ID = SAMPLE_DIR.name
 
 requires_sample = pytest.mark.skipif(
     not (SAMPLE_DIR / "metadata.json").exists(),
     reason="output/ is gitignored; the real sample is present only on a machine that ingested it",
 )
 
-#: The measured hit counts for the real sample, read off ``MemoryRepository`` —
-#: the cache-free oracle. A token-only index returns 3, 10 and 162.
-#: `the` is 258 rather than 253 because `derivation_note` joined the
-#: searchable field set under D-047; `learning` and `model` are unmoved.
-SAMPLE_TOTALS = {"learning": 4, "model": 19, "the": 258}
+#: Queries put to whatever real run this machine has ingested.
+#:
+#: These were three *numbers* — ``{"learning": 4, "model": 19, "the": 258}`` —
+#: measured against one video id that no longer exists on any machine in this
+#: project, so every test using them skipped everywhere. What the numbers were
+#: pinning is the two-disjunct design: a token-only index returns 3, 10 and 162
+#: for those queries, and the substring half is the difference. That claim is
+#: pinned exactly, on every machine, by the synthetic corpus above — every line
+#: of ``SYNTHETIC_TEXTS`` exists to fail one wrong implementation — so what the
+#: real sample is still uniquely good for is *scale*: a corpus of hundreds of
+#: documents, walked, and agreeing with the cache-free oracle hit for hit.
+#:
+#: So these are queries and not answers. ``the`` is here because it is the
+#: widest hit list any English corpus has; the rest are drawn from the run
+#: itself by :func:`_frequent_tokens`, so they cannot be vacuous.
+SAMPLE_QUERIES = ("the", "a")
 
 #: The text of the synthetic run. Every line is here to fail a specific wrong
 #: implementation, and the comment says which.
@@ -97,6 +132,17 @@ SYNTHETIC_TEXTS = (
     "the models of modeling",         # substring-only matches for `model`
     "before" + chr(0) + "after",      # GLOB cannot see past a NUL (see the module)
     "Ｍｏｄｅｌ and café and İstanbul",  # NFKC folding on both sides
+    # The project's permanent output language, and until now entirely absent
+    # from these corpora: the only non-ASCII in `tests/fixtures/runs/*` is an
+    # em-dash, so the *shape* every `content`, `normalized_statement` and
+    # summary in this project actually has was untested end to end. Persian is
+    # right-to-left, joins its letters, and carries its own digits and its own
+    # zero-width non-joiner — every one of which is a way for folding,
+    # tokenising, GLOB escaping or a length check to go wrong on text nobody
+    # looked at.
+    "یادگیری ماشین و مدل‌های زبانی",   # ZWNJ inside `مدل‌های`
+    "شبکهٔ عصبی عمیق",                # U+0654 above yeh, which NFKC keeps
+    "دقت ۹۸٪ در آزمون",               # Extended Arabic-Indic digits and ٪
 )
 
 #: Every query the parity test runs. Grouped by what each group would break.
@@ -159,6 +205,18 @@ QUERIES = (
     "(",
     ")",
     "a*",
+    # Persian, the language this project writes its knowledge in.
+    "یادگیری",          # a whole word
+    "ماشین",            # the word as written with Persian yeh (U+06CC)
+    "ماشين",            # ... and with Arabic yeh (U+064A), a common keyboard
+    "مدل‌های",           # a word carrying a zero-width non-joiner
+    "مدل",              # its prefix, which only the substring disjunct holds
+    "های",              # its suffix, likewise
+    "شبکه",             # a prefix of `شبکهٔ`, whose next codepoint is a mark
+    "۹۸",               # extended Arabic-Indic digits
+    "٪",                # a percent sign that is not `%`
+    "یادگیری ماشین",     # two words, where the phrase bonus applies
+    "ماشین یادگیری",     # the same two, reordered, where it does not
     # Nothing, and everything: `MAX_QUERY_LENGTH` is 512.
     " ",
     ".",
@@ -1066,28 +1124,54 @@ def sample_project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@requires_sample
-@pytest.mark.parametrize("q,total", sorted(SAMPLE_TOTALS.items()))
-def test_the_measured_totals_of_the_real_sample(
-    sample_project: Path, q: str, total: int
-) -> None:
-    """The numbers a token-only index would have got wrong: 3, 10 and 162.
+def _frequent_tokens(run_dir: Path, count: int = 3) -> list[str]:
+    """The commonest tokens of *run_dir*'s own text, longest first.
 
-    Pinned because they are the measurement the whole two-disjunct design rests
-    on. They are not read off one developer's machine and asserted blind — the
-    test below proves the same figures are what the cache-free oracle reports.
+    Drawn from the run rather than named, so a query cannot be vacuous on a
+    machine whose sample is about something else — which is exactly how the
+    hard-coded ``learning``/``model`` became untestable. Tokens of four
+    characters or more, so the sample is words rather than articles.
     """
-    repo, _ = _both(sample_project)
-    assert repo.search(SearchQuery(q=q, limit=3)).total == total
+    counted: dict[str, int] = {}
+    for document in run_documents(run_dir):
+        for token in document.tokens:
+            if len(token) >= 4:
+                counted[token] = counted.get(token, 0) + 1
+    ordered = sorted(counted, key=lambda token: (-counted[token], token))
+    return ordered[:count]
 
 
 @requires_sample
-@pytest.mark.parametrize("q", sorted(SAMPLE_TOTALS))
-def test_the_real_sample_pages_identically_to_the_oracle(
-    sample_project: Path, q: str
+def test_the_real_sample_totals_what_the_cache_free_oracle_totals(
+    sample_project: Path,
 ) -> None:
+    """Scale, agreed on rather than asserted from memory.
+
+    The totals were three numbers read off one machine. They are the oracle's
+    answer now — which is what they were said to be — and the assertion that
+    matters beside them is that they are not zero: two readers that both find
+    nothing agree perfectly and prove nothing.
+    """
     repo, memory = _both(sample_project)
-    assert _all_pages(repo, q) == _all_pages(memory, q)
+    queries = [*SAMPLE_QUERIES, *_frequent_tokens(SAMPLE_DIR)]
+    found: dict[str, int | None] = {}
+    for q in queries:
+        indexed = repo.search(SearchQuery(q=q, limit=3)).total
+        assert indexed == memory.search(SearchQuery(q=q, limit=3)).total, q
+        found[q] = indexed
+    vacuous = [q for q, total in found.items() if not total]
+    assert not vacuous, f"these queries reached nothing in the real sample: {vacuous}"
+    assert max(total or 0 for total in found.values()) > 20, (
+        "the real sample is here for scale the fixtures cannot give; this one "
+        f"is too small to be doing that job: {found}"
+    )
+
+
+@requires_sample
+def test_the_real_sample_pages_identically_to_the_oracle(sample_project: Path) -> None:
+    repo, memory = _both(sample_project)
+    for q in [*SAMPLE_QUERIES, *_frequent_tokens(SAMPLE_DIR)]:
+        assert _all_pages(repo, q) == _all_pages(memory, q), q
 
 
 def _fixture_documents(root: Path) -> Iterable[Any]:
@@ -1101,13 +1185,98 @@ def test_retrieval_narrows_the_real_sample_rather_than_scanning_it(
 ) -> None:
     """The point of the index: candidates, not the corpus.
 
-    ``learning`` scores 4 of 578 documents. Retrieving all 578 and rescoring them
-    would give the same answer and none of the reason this module exists, so the
-    candidate count is asserted to be the answer's size and not the library's.
+    On the sample this was written against, ``learning`` scored 4 of 578
+    documents; retrieving all 578 and rescoring them would give the same answer
+    and none of the reason this module exists. The *query* is drawn from the run
+    now rather than named, because a hard-coded word is a word some other
+    machine's sample does not contain — and a query that matches nothing
+    narrows perfectly while proving nothing. What is asserted is what was
+    always meant: retrieval returns the answer's size, and the answer is
+    smaller than the library and larger than nothing.
     """
     build_index(sample_project, index_documents=document_indexer(sample_project))
     connection = connect(database_path(sample_project), create=False)
     corpus = connection.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-    found = search_candidates(connection, "learning")
-    assert len(found.documents) == SAMPLE_TOTALS["learning"]
-    assert len(found.documents) < corpus
+    assert corpus > 50, "the real sample is here for a corpus the fixtures cannot give"
+    for q in _frequent_tokens(SAMPLE_DIR):
+        found = search_candidates(connection, q)
+        ranked = rank_documents(list(run_documents(SAMPLE_DIR)), q)
+        assert len(found.documents) == len(ranked), q
+        assert 0 < len(found.documents) < corpus, q
+
+
+# --------------------------------------------------------------------------
+# 13. Persian — the shape this project's knowledge actually has
+#
+# The corpora held no non-Latin text but `機習` and an em-dash, while the
+# project's permanent output-language policy is that every `content`,
+# `normalized_statement`, summary and `derivation_note` is written in Persian.
+# So the parity above proved parity over text this library does not contain.
+#
+# Parity alone would not be enough here either: two implementations that both
+# find nothing agree perfectly. These assert that the Persian text is *found*,
+# so a regression to zero hits fails rather than passing quietly.
+# --------------------------------------------------------------------------
+
+
+#: ``query -> the synthetic texts it must reach``, measured against
+#: ``query.rank_documents`` itself. Every case is a distinct way Persian breaks
+#: an implementation that only ever saw Latin.
+PERSIAN_EXPECTED = {
+    "یادگیری": 1,      # a whole word, tokenised
+    "ماشین": 1,        # the word as written with Persian yeh (U+06CC)
+    "مدل": 1,          # a prefix of `مدل‌های`, held by the token split at the ZWNJ
+    "های": 1,          # and its suffix, likewise
+    "شبکه": 1,         # a prefix of `شبکهٔ`, whose next codepoint is a combining mark
+    "۹۸": 1,           # extended Arabic-Indic digits, which `\\w+` does keep
+    "٪": 1,            # a percent sign that is not `%`, so GLOB must not read it as one
+    "یادگیری ماشین": 1,  # two words, with the phrase bonus
+}
+
+
+@pytest.mark.parametrize("q,expected", sorted(PERSIAN_EXPECTED.items()))
+def test_persian_text_is_findable_through_the_index(
+    corpus: dict[str, Any], q: str, expected: int
+) -> None:
+    """Retrieval reaches Persian, and reaches the same documents ranking would.
+
+    The synthetic run is the only Persian in the corpus, so the count is exact
+    rather than a lower bound: a query that started matching the Latin fixtures
+    would fail here, and so would one that stopped matching at all.
+    """
+    retrieved = _retrieved(corpus, q)
+    assert len(retrieved) == expected * 2, (
+        # Each synthetic text is written twice — once as a unit and once as a
+        # caption — so a text found once is two documents.
+        f"{q!r} reached {len(retrieved)} documents"
+    )
+    ranked = rank_documents(list(_fixture_documents(corpus["output"].parent)), q)
+    assert not ranked, f"{q!r} must not also match the Latin fixtures"
+
+
+def test_the_arabic_and_persian_spellings_of_a_word_are_one_query(
+    corpus: dict[str, Any],
+) -> None:
+    """One word, however the reader's keyboard spells it.
+
+    This replaces ``test_the_arabic_spelling_of_a_persian_word_finds_nothing_
+    on_either_path``, which pinned the gap as *agreement* and said in as many
+    words that it should be replaced by this test once ``query._fold`` learnt
+    the mapping. It has.
+
+    ``ماشين`` is the same word typed with Arabic yeh (U+064A) rather than
+    Persian yeh (U+06CC) — what every non-Persian Arabic-script keyboard
+    produces, and what a great deal of copied web text carries. NFKC leaves the
+    two distinct, correctly: they are letters of different languages. A search
+    box is a different question, and ``query._SCRIPT_FOLD`` answers it for the
+    query and for the corpus at once, so both readers move together.
+    """
+    persian = _retrieved(corpus, "ماشین")
+    assert persian, "the premise: the Persian spelling is findable"
+
+    arabic = _retrieved(corpus, "ماشين")
+    assert arabic == persian, "the two spellings must reach the same documents"
+
+    # And the two readers still agree, which was the old test's contract and is
+    # not weakened by the word having become findable.
+    assert arabic == rank_documents(corpus["documents"], "ماشين")

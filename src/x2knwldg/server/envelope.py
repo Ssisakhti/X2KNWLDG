@@ -3,7 +3,7 @@
 Every ``200`` body in ``schemas/api/v1/openapi.json`` is ``{api_version,
 schema_version, data}``, plus ``page`` on the six paged endpoints and ``query``
 on search. Every error body is ``{api_version, schema_version, error}``. Those
-two shapes are built here, once, so eleven routes cannot disagree about the
+two shapes are built here, once, so thirteen routes cannot disagree about the
 envelope they share.
 
 Stdlib only, deliberately. The envelope is the part of the API that the CLI's

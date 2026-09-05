@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0",
+  "acquisition": {
+    "provider": {
+      "tool": "tamnd/x-cli",
+      "version": "0.5.0",
+      "version_string": "x 0.5.0 (commit ff9aa9e, built 2026-07-29T02:41:51Z, darwin/arm64)",
+      "binary_sha256": "6cb6b7f9b5fdb2366f113919423e87b4ddf9d41ce10bfc65b43614bed9987c97",
+      "licence": "AGPL-3.0"
+    },
+    "requested_at": "2026-01-01T00:00:00Z",
+    "routes_read": [
+      {
+        "route": "xcli_guest",
+        "tier": 1,
+        "surface": "guest_graphql",
+        "outcome": "ok",
+        "request_shape": "x tweet 9000000000000000001 --tier guest -o json"
+      },
+      {
+        "route": "fxtwitter",
+        "tier": 0,
+        "surface": "fxtwitter",
+        "outcome": "ok",
+        "request_shape": "https://api.fxtwitter.com/i/status/9000000000000000001"
+      }
+    ],
+    "network": {
+      "via_tunnel": true,
+      "note": "constructed fixture; nothing was read"
+    }
+  },
+  "raw_evidence": [
+    {
+      "route": "xcli_guest",
+      "path": "twitter-runs/facets/raw/facets_astral__xcli_guest.json",
+      "sha256_raw": "292aebc0fda4e844b6600ea9d34ed5adb5739a779bfc9e3f55db68a04b2714fc",
+      "sha256_sanitized": "292aebc0fda4e844b6600ea9d34ed5adb5739a779bfc9e3f55db68a04b2714fc",
+      "sanitization_removed": []
+    },
+    {
+      "route": "fxtwitter",
+      "path": "twitter-runs/facets/raw/facets_astral__fxtwitter.json",
+      "sha256_raw": "4caa2cd265fc860d40c55e116a538ecfda9e858c5cfb5dac51bc7bce12c78bbb",
+      "sha256_sanitized": "4caa2cd265fc860d40c55e116a538ecfda9e858c5cfb5dac51bc7bce12c78bbb",
+      "sanitization_removed": []
+    }
+  ],
+  "anchor": {
+    "post_id": "9000000000000000001",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "items": [
+    {
+      "post_id": "9000000000000000001",
+      "author": {
+        "username": "x2k_fixture",
+        "rest_id": "9000000000000000002",
+        "display_name": "X2KNWLDG fixture account"
+      },
+      "availability": {
+        "state": "available"
+      },
+      "conversation_id": "9000000000000000001",
+      "created_at": "2026-01-01T00:00:00Z",
+      "lang": "fa",
+      "text": {
+        "canonical": "نمونهٔ ساختگی 🛰 و 𝕏 — این متن برای آزمونِ فاصلهٔ نویسه‌ای ساخته شده است. #فاصله — @x2knwldg — https://t.co/AbCdEfGh12 — پایانِ نمونه، با چند واژهٔ افزوده برای اینکه خوانشِ نادرستِ افست هنوز درونِ متن بیفتد.",
+        "form": "authored",
+        "supplied_by": {
+          "route": "xcli_guest",
+          "tier": 1,
+          "surface": "guest_graphql"
+        },
+        "completeness": {
+          "status": "corroborated",
+          "corroborated_by": [
+            {
+              "route": "fxtwitter",
+              "tier": 0,
+              "surface": "fxtwitter"
+            }
+          ],
+          "agreement": "identical",
+          "note": "constructed fixture; both responses carry the same authored text"
+        },
+        "entities": [
+          {
+            "kind": "hashtag",
+            "start_char": 73,
+            "end_char": 79,
+            "shortened": "#فاصله"
+          },
+          {
+            "kind": "mention",
+            "start_char": 82,
+            "end_char": 91,
+            "handle": "x2knwldg"
+          },
+          {
+            "kind": "url",
+            "start_char": 94,
+            "end_char": 117,
+            "shortened": "https://t.co/AbCdEfGh12",
+            "expanded": "https://example.org/x2knwldg-fixture"
+          }
+        ]
+      }
+    }
+  ],
+  "order": {
+    "basis": "single_item"
+  },
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "single_item"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "a single post makes no claim about a conversation"
+    }
+  },
+  "coverage": {
+    "status": "PASS",
+    "expected_item_count": 1,
+    "included_post_ids": [
+      "9000000000000000001"
+    ],
+    "omitted_items": []
+  }
+}

@@ -1100,3 +1100,150 @@ def test_a_symlinked_file_is_not_in_the_runs_digest(tmp_path: Path) -> None:
     walked = scanner._run_files(run_dir)
     assert all(not path.is_symlink() for path in walked)
     assert not any(path.name == "linked.bin" for path in walked)
+
+
+# ---------------------------------------------------------------------------
+# The damage channel, on the adapter that had it wired to nothing
+# ---------------------------------------------------------------------------
+
+TWITTER_RUNS = PROJECT_ROOT / "tests" / "fixtures" / "twitter-runs"
+
+
+def twitter_run(tmp_path: Path, case: str = "single-post") -> tuple[Path, Path]:
+    """A committed Twitter run copied under ``<root>/output/<anchor>/``."""
+    capture = json.loads((TWITTER_RUNS / case / "capture.json").read_text(encoding="utf-8"))
+    root = tmp_path / "project"
+    run_dir = root / "output" / capture["anchor"]["post_id"]
+    shutil.copytree(TWITTER_RUNS / case, run_dir)
+    return root, run_dir
+
+
+def test_a_damaged_twitter_canonical_file_is_named_rather_than_read_as_absent(
+    tmp_path: Path,
+) -> None:
+    """``TwitterAdapter`` passed a ``damaged`` list into a method that ignored it.
+
+    ``read_canonical`` reported damage on ``YouTubeAdapter`` alone; the base
+    class's version took the argument and dropped it, and the Twitter adapter
+    inherited that one. So ``adapter_metadata.damaged_files`` was ``[]`` for
+    every Twitter run ever indexed — which reads as "checked, nothing wrong"
+    rather than as "not checked", and is worse than having no channel at all.
+    """
+    root, run_dir = twitter_run(tmp_path)
+    (run_dir / "validation.json").write_text("{ not json", encoding="utf-8")
+
+    records = adapt_run(run_dir, root)
+
+    damaged = records.sources[0]["adapter_metadata"]["damaged_files"]
+    assert [entry["path"] for entry in damaged] == [f"output/{run_dir.name}/validation.json"]
+    assert str(tmp_path) not in json.dumps(damaged), "a reason may not leak a host path"
+    # And the status is unknown rather than invented from the file that broke.
+    assert records.sources[0]["status"]["overall"] == "UNKNOWN"
+
+
+def test_a_stale_item_count_is_not_carried_over_a_damaged_capture(tmp_path: Path) -> None:
+    """``counts.segments`` was copied from ``metadata.item_count``.
+
+    A run whose ``capture.json`` had been corrupted went on reporting the item
+    count a metadata file recorded when the capture was still readable, beside
+    an artifact set holding zero posts. A count is a cache convenience, and the
+    schema is explicit that a stale one "is a bug, never a data achievement".
+    """
+    root, run_dir = twitter_run(tmp_path)
+    intact = adapt_run(run_dir, root).sources[0]
+    assert intact["counts"]["segments"] == 1
+
+    # Knowledge removed first: without a claim the run has nothing to locate,
+    # which is the *other* half of the same damage and is asserted on its own
+    # below. Relationships go with it — an edge whose endpoints are gone is a
+    # third failure and not the one under test here.
+    (run_dir / "knowledge_units.json").write_text(
+        json.dumps({"schema_version": "1.0", "video_id": run_dir.name, "units": []}),
+        encoding="utf-8",
+    )
+    (run_dir / "relationships.json").write_text(
+        json.dumps({"schema_version": "1.0", "video_id": run_dir.name, "relationships": []}),
+        encoding="utf-8",
+    )
+    (run_dir / "capture.json").write_text("{ not json", encoding="utf-8")
+
+    records = adapt_run(run_dir, root)
+    source = records.sources[0]
+
+    assert "segments" not in source["counts"]
+    assert source["adapter_metadata"]["item_count"] == 1, "metadata is still copied verbatim"
+    assert [entry["path"] for entry in source["adapter_metadata"]["damaged_files"]] == [
+        f"output/{run_dir.name}/capture.json"
+    ]
+    assert not [a for a in records.artifacts if a["kind"] == "post"]
+
+
+def test_a_claim_that_locates_its_evidence_nowhere_refuses_the_run(tmp_path: Path) -> None:
+    """``ids.check_locator`` proves spelling, not membership.
+
+    With the capture unreadable no ``post`` artifact is minted, and every source
+    claim's ``text_span`` went on naming ``twitter:<anchor>:post-<id>`` — an id
+    with no record behind it. The run indexed clean: the API would list the
+    citation and the Reader could not resolve it. A citation the index cannot
+    resolve is worse than an absent one, because it reads as evidence.
+    """
+    root, run_dir = twitter_run(tmp_path)
+    (run_dir / "capture.json").write_text("{ not json", encoding="utf-8")
+
+    with pytest.raises(AdapterError) as caught:
+        adapt_run(run_dir, root)
+
+    assert "locates its evidence" in str(caught.value)
+    assert "post-" in str(caught.value)
+
+
+def test_the_locator_check_is_the_same_rule_for_a_video(tmp_path: Path) -> None:
+    """It is not a Twitter rule, so it is asserted on the other medium too.
+
+    A YouTube locator that names no artifact is left *unaddressed* rather than
+    dangling (``YouTubeAdapter._locator``), so the honest shape passes — and a
+    fabricated one is refused by the same check.
+    """
+    run = tmp_path / "output" / "pass-run"
+    shutil.copytree(FIXTURE_RUNS / "pass-run", run)
+    records = adapt_run(run, tmp_path)
+    assert records.entities, "the fixture should project entities"
+
+    records.entities[0]["locator"] = dict(records.entities[0]["locator"] or {})
+    records.entities[0]["locator"]["artifact_id"] = "youtube:pass-run:no-such-artifact"
+    with pytest.raises(AdapterError, match="locates its evidence"):
+        base.check_records(records)
+
+
+def test_a_finalized_twitter_run_addresses_its_report_and_graph(tmp_path: Path) -> None:
+    """The two files §T5 has just told the operator to read.
+
+    ``CANONICAL_ARTIFACTS`` omitted both on the grounds that "they do not exist"
+    — true while ``finalize_run`` was YouTube-shaped, false since ``T-230``
+    generalized it (D-234, D-240). So they were addressable for a video and not
+    for a post: absent from ``artifact_ids``, unreachable through the API,
+    invisible to the Reader.
+    """
+    root, run_dir = twitter_run(tmp_path)
+
+    before = {
+        artifact["kind"]: artifact["available"]
+        for artifact in adapt_run(run_dir, root).artifacts
+        if artifact["kind"] in {"graph", "report"}
+    }
+    assert before == {"graph": False, "report": False}
+
+    (run_dir / "graph.json").write_text('{"nodes": [], "edges": []}\n', encoding="utf-8")
+    (run_dir / "report.md").write_text("# report\n", encoding="utf-8")
+
+    records = adapt_run(run_dir, root)
+    after = {
+        artifact["kind"]: artifact
+        for artifact in records.artifacts
+        if artifact["kind"] in {"graph", "report"}
+    }
+    assert after["graph"]["available"] and after["report"]["available"]
+    assert after["report"]["media_type"] == "text/markdown"
+    assert set(records.sources[0]["artifact_ids"]) >= {
+        after["graph"]["id"], after["report"]["id"]
+    }

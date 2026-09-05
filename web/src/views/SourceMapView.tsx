@@ -51,6 +51,7 @@ import { SourceBasisPanel, SourceRelationList } from "../components/SourceRelati
 import { useI18n } from "../i18n";
 import { sourceIdOf } from "../lib/format";
 import { describeCanvas, type RendererFault } from "../map/mapState";
+import { onMapStageChange } from "../map/stage";
 import { MapSession, type MapRendererFactory } from "../map/mapSession";
 import type { SourceRelationSummary } from "../api/contract";
 import { sourceStyle } from "../map/sourceStyle";
@@ -98,7 +99,27 @@ export function SourceMapView({
     () => (projection === null ? [] : [...projection.bySourceId.values()]),
     [projection],
   );
-  const view = hood.data ?? null;
+  /*
+   * Only an answer to the *current* selection is used.
+   *
+   * `useAsync` deliberately keeps the previous `data` while the next request
+   * is in flight (`api/useAsync.ts`), which is right for a list being
+   * refreshed and wrong here. The drawer is masked by a `loading` branch, but
+   * the effects and memos below are not: with the previous source's answer
+   * still in hand, `setView` lit marks as *neighbours of a source they are not
+   * related to* and `frame()` pointed the camera at them. Selecting
+   * `fixture-partial`, which has no relations at all, drew the previously
+   * selected source as its neighbour.
+   *
+   * The guard is on the *answer's own* centre rather than on the id the hook
+   * was called with: `hood.sourceId` tracks the argument, so it equals the
+   * current selection the instant the selection changes and would refuse
+   * nothing. The payload echoes its `centre` back precisely so a client can
+   * tell whose answer it is holding, and `useNeighbourhood.ts:150` refuses a
+   * stale one on the Knowledge Map the same way. This is that clause, carried
+   * over.
+   */
+  const view = hood.data?.centre.global_id === focus.focus ? (hood.data ?? null) : null;
 
   /*
    * What is known about each source's brief.
@@ -160,6 +181,18 @@ export function SourceMapView({
     [focus],
   );
 
+  /*
+   * The canvas's way to reach the *current* `focusSource` (`MapView.tsx:284`).
+   *
+   * The renderer session is built once per projection and its handlers are
+   * captured with it, so a handler that closed over `focusSource` directly
+   * would be frozen at the value it had when the graph first arrived. Written
+   * on every render, read only when a mark is clicked, so the canvas is a
+   * third caller of one selection identity rather than a second identity.
+   */
+  const canvas = useRef({ select: focusSource });
+  canvas.current = { select: focusSource };
+
   /* ---- the renderer ---------------------------------------------------- */
 
   useLayoutEffect(() => {
@@ -204,7 +237,19 @@ export function SourceMapView({
         handlers: {
           // The canvas is a third caller of the same selection, never a second
           // identity: a click on a mark calls what a row calls (`T-207`).
-          onSelectNode: (globalId: string) => focusSource(globalId),
+          //
+          // A *stable trampoline* over the ref, which is `MapView`'s pattern
+          // (`MapView.tsx:365`) and is load-bearing rather than stylistic. A
+          // closure over `focusSource` is captured once, when the session is
+          // built, and this effect's deps are `[projection, createRenderer]` --
+          // `projection` comes from one fetch and never changes identity, so
+          // the session held `focus.focus === null` for the life of the route.
+          // Clicking the same mark twice then compared against a stale `null`
+          // and re-selected instead of deselecting, and `useMapFocus.go`'s
+          // `sameMapState` guard read the same stale state, so it pushed a
+          // duplicate history entry -- leaving Back with nothing to do, which
+          // that function's own comment calls worse than an unexplained no-op.
+          onSelectNode: (globalId: string) => canvas.current.select(globalId),
         },
       });
       session.current?.kill();
@@ -231,9 +276,12 @@ export function SourceMapView({
       session.current?.kill();
       session.current = null;
     };
-    // `focusSource` is deliberately absent: re-creating the renderer whenever a
-    // selection changes would throw the layout away on every click.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The deps are honest now. This list used to carry a suppression, because
+    // the handler closed over `focusSource` and re-creating the renderer on
+    // every selection would throw the layout away on each click — the
+    // suppression bought the layout and cost the stale closure above. Routing
+    // the handler through `canvas.current` removes the dependency instead of
+    // hiding it, so there is nothing left to suppress.
   }, [projection, createRenderer]);
 
   // Selection and hover are written into the style table, and the renderer
@@ -251,6 +299,32 @@ export function SourceMapView({
     });
     if (changed) session.current?.refresh();
   }, [focus.focus, view, briefStates]);
+
+  /*
+   * Repaint when the stage changes (`map/stage.ts`).
+   *
+   * The reducers read the stage at the moment they are called, so the ink is
+   * right for the ground as of the last refresh -- and nothing asks for a
+   * refresh when a system theme flips at sunset. Sigma would go on drawing the
+   * previous stage's inks on the new ground until the reader happened to touch
+   * a filter, which is the illegible state the two ink tables exist to remove,
+   * reached from the other side.
+   */
+  useEffect(() => onMapStageChange(() => session.current?.refresh()), []);
+
+  /*
+   * Leave the style table as this route found it.
+   *
+   * `sourceStyle` is a module singleton, so a selection written into it
+   * outlives the route that wrote it: mount the Source Map again and the first
+   * painted frame dims every mark around a selection that no longer exists.
+   * `MapView.tsx` has carried exactly this line since `T-214`; `sourceStyle`
+   * shipped with a `clear()` and no caller. The window is narrow today because
+   * the `setView` effect runs while the attach effect is still awaiting its
+   * dynamic import — which makes this a latent defect one refactor away from
+   * being visible, not a reason to leave it.
+   */
+  useEffect(() => () => void sourceStyle.clear(), []);
 
   /*
    * The camera goes to the selection (D-146).
@@ -273,6 +347,29 @@ export function SourceMapView({
     // the attach is one of them. Without it, opening a link to a selected source
     // left the camera wherever the layout started.
   }, [focus.focus, view, drawn]);
+
+  /*
+   * The overview, once, when there is nothing to focus.
+   *
+   * The camera's other half. `frame` above answers "where is my selection";
+   * nothing answered "where is the graph", so opening the Map cold left the
+   * renderer at whatever camera it started on — on the committed corpus a
+   * mostly empty field with the graph pushed into part of it and two marks
+   * under the floating chrome. `fitAll` frames every node with the overview's
+   * wider margin, which is the same measured fit the selection gesture uses.
+   *
+   * Guarded on there being no focus, so it can never fight `frame`: a link
+   * that arrives *with* a selection is answered by that effect and this one
+   * stands down. Held to the first drawn picture by the ref, so a merged page
+   * does not re-frame a camera the reader has since panned — the same rule
+   * D-178 wrote for the selection gesture, for the same reason.
+   */
+  const overviewFramed = useRef(false);
+  useEffect(() => {
+    if (!drawn || focus.focus !== null) return;
+    if (overviewFramed.current) return;
+    if (session.current?.fitAll() === true) overviewFramed.current = true;
+  }, [drawn, focus.focus]);
 
   const picture = describeCanvas({
     fault,

@@ -18,7 +18,8 @@
 
 import type { IndexedRelation, ProvenanceClass, RunStatus, Source } from "../api/contract";
 import { useI18n } from "../i18n";
-import { KIND_FAMILY_COLOUR, kindFamily } from "../map/mapStyle";
+import { kindFamilyColour, kindFamily } from "../map/mapStyle";
+import { useMapStage } from "../map/useMapStage";
 import type { MessageKey } from "../i18n";
 import { DefinitionList, Missing, Mono } from "./primitives";
 
@@ -75,9 +76,10 @@ export function ProvenanceBadge({ provenance }: { provenance: ProvenanceClass })
  * whole surface with is provenance — which is a fact about where a statement
  * came from, not about what sort of statement it is.
  *
- * The hue is `KIND_FAMILY_COLOUR`'s, which is Paul Tol's colourblind-safe
+ * The hue is `KIND_FAMILY_INK`'s, which is Paul Tol's colourblind-safe
  * qualitative set and is the same table `MapLegend` explains and `mapStyle`
- * draws the mark with. One table, three readers.
+ * draws the mark with. One table, three readers -- and one table *per stage*,
+ * because the swatch is read on the same two grounds the canvas is drawn on.
  *
  * `null` is rendered as "not stated", never as a family: an absent `kind` is
  * `unstated`, which has a hue of its own precisely so it is not silently
@@ -86,13 +88,14 @@ export function ProvenanceBadge({ provenance }: { provenance: ProvenanceClass })
 export function KindBadge({ kind }: { kind: string | null | undefined }) {
   const { t } = useI18n();
   const family = kindFamily(kind);
+  const familyInk = kindFamilyColour(useMapStage());
   const stated = kind !== null && kind !== undefined && kind !== "";
   return (
     <span className="badge" data-kind={kind ?? ""} data-kind-family={family}>
       <span
         className="badge__swatch"
         aria-hidden="true"
-        style={{ background: KIND_FAMILY_COLOUR[family] }}
+        style={{ background: familyInk[family] }}
       />
       {stated ? kind : <span className="missing">{t("common.notStated")}</span>}
     </span>

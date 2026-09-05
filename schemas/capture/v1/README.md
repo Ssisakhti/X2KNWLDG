@@ -57,7 +57,7 @@ rather than merely discouraged. The pointed ones:
 | `metrics` requires `observed_at` | A bare count invites comparison across time as though it were a property of the post |
 | `sha256_raw` beside `sha256_sanitized` | A redacted body passed off as the original bytes |
 | `availability.reason` normally `not_determinable_at_this_tier` | Deleted, suspended and protected are one message below Tier 2. The specific reasons are listed but unreachable, which is the point |
-| `additionalProperties: false` throughout | A provider's response shape leaking into extraction or the UI |
+| `additionalProperties: false` on every node but two | A provider's response shape leaking into extraction or the UI. The two open nodes are `post.poll` and `post.article`, each `type: object` with `minProperties: 1` and no key list, because no measured route produces one and inventing a shape for an unobserved feature would be worse than leaving it open. They are also, exactly, the two places a provider blob could ride through — so "throughout" was the one word this row could not afford, and it stood while both were open |
 | `network.via_tunnel` | D-209: the qualified path runs over an always-on tunnel. Recorded so a reachability failure is not misread as provider drift |
 
 ## What the schema cannot enforce

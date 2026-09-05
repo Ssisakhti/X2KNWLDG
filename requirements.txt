@@ -6,21 +6,32 @@
 # comment and the line in agreement — a forward that omits `dev` leaves a
 # follower with no pytest.
 #
-# The extras, as declared in pyproject.toml:
-#   youtube  yt-dlp + youtube-transcript-api   caption fetching
+# The extras, as declared in pyproject.toml. Every distribution each one pulls
+# in is listed: an "and so on" here is what let two of these go stale.
+#   youtube  yt-dlp, curl-cffi, youtube-transcript-api, requests
+#            caption fetching. curl-cffi is the browser-impersonating transport
+#            translated automatic captions need; requests is imported directly
+#            by youtube.py to force an HTTP timeout (D-112)
 #   dev      pytest, jsonschema, openapi-spec-validator, ruff, mypy, httpx
 #   legacy   networkx + pyvis                  unskips the legacy/upstream tests
-#   mcp      the MCP server adapter
-#   ui       fastapi + uvicorn                 the local web layer
+#   mcp      the MCP server adapter (mcp)
+#   ui       fastapi, uvicorn, starlette       the local web layer. starlette is
+#            imported at module scope by the server and was undeclared until
+#            D-203 — the exact package this list omitted while naming two
 #
 # D-111: this file used to describe the `ui` layer as unfinished, and to say
 # that CI's test job installs `.[dev,legacy]`. `T-116` shipped `x2knwldg ui`,
 # and CI installs `.[dev,legacy,ui]` — so both statements were wrong, and no CI
 # job installed this file at all, which is why nothing said so. The
-# `requirements` job now does, and `tests/test_ui_scaffold.py` checks that the
-# extras named here are the ones pyproject declares and that the stale claim
-# has not come back — including as a quotation, so the guard cannot be talked
-# around.
+# `requirements` job now does.
+#
+# What guards this block, exactly: `tests/test_ui_scaffold.py` asserts that
+# every extra pyproject declares has a line here beginning `#  <extra-name>`,
+# and that the stale claim has not come back — including as a quotation, so the
+# guard cannot be talked around. It does **not** read the descriptions to the
+# right of the name, and this comment used to say it did. Under that claim the
+# `youtube` line named two of its four distributions and the `ui` line two of
+# its three, both for as long as the extras had had them.
 #
 # CI's test job installs `.[dev,legacy,ui]`. Add those extras here too if you
 # want the legacy/upstream tests and the whole API layer to run rather than skip.

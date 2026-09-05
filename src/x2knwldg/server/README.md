@@ -1,6 +1,6 @@
 # `x2knwldg.server` — the local read-only HTTP API
 
-Track B, `T-105`–`T-108`. Eleven `GET` endpoints, frozen in
+Track B, `T-105`–`T-108`. Thirteen `GET` endpoints, frozen in
 [`schemas/api/v1/openapi.json`](../../../schemas/api/v1/README.md), served over the
 repository seam of [ADR 0002](../../../docs/adr/0002-index-repository-seam.md).
 
@@ -36,7 +36,7 @@ opens a file, because serving bytes is what it is for. See *Path safety* below.
 
 1. **A route catches no `RepositoryError`.** `code` and `http_status` live on the exception
    (D-030), so the repository decides what kind of refusal it is and the API renders it. A
-   route that catches and re-raises puts the taxonomy in eleven places instead of one.
+   route that catches and re-raises puts the taxonomy in thirteen places instead of one.
 2. **Malformed is not absent.** A bad id is `400 invalid_id`; a well-formed id matching
    nothing is `404 not_found` (D-020). Collapsing them is what lets a lookup silently read
    something else. This is also why enum filters are plain strings here (D-058): a FastAPI
@@ -74,7 +74,7 @@ segment and no `globalId` contains a slash (D-056).
 `sqlite_repository()`, `client()`, `both_clients()`, `assert_contract()`, `assert_error()`.
 
 **Test against SQLite, not only against the oracle.** D-052 was a bug in which every request
-over `SqliteRepository` answered `503` — in production under uvicorn, on all eleven
+over `SqliteRepository` answered `503` — in production under uvicorn, on all thirteen
 endpoints — while every `MemoryRepository` test passed, because `sqlite3` binds a connection
 to its creating thread and a web server answers from a thread pool. A suite that reaches for
 the oracle by default was green against a server that could not serve one request.

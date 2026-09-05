@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://x2knwldg.local/schemas/extraction_bundle.schema.json",
   "title": "X2KNWLDG extraction bundle",
-  "description": "The bundle an extraction produces before it becomes canonical output. Knowledge unit ids must be usable as one segment of a three-part global id (D-011): no colon, no whitespace, no leading dot, so that '.' and '..' can never appear. src/x2knwldg/ids.py is the single implementation of that rule and validators.py enforces it at validation time (D-018).",
+  "description": "The bundle an extraction produces before it becomes canonical output, for **both** implemented media. One bundle describes one run and a run declares one medium (`artifacts.MEDIUM_PROFILES`), so the top-level `oneOf` is that dispatch: YouTube coverage is a timeline of `windows` and a claim cites seconds; Twitter coverage is a set of `items` and a claim cites a post id and a character span. This document was YouTube-only long after `apply-bundle` began accepting Twitter bundles, so every committed Twitter fixture \u2014 each of which the shipped gate passes \u2014 was refused here, and `mcp_server.extraction_schema_resource` served the refusal to agents as the contract. Knowledge unit ids must be usable as one segment of a three-part global id (D-011): no colon, no whitespace, no leading dot, so that '.' and '..' can never appear. src/x2knwldg/ids.py is the single implementation of that rule and validators.py enforces it at validation time (D-018).",
   "type": "object",
   "required": [
     "knowledge_units",
@@ -26,11 +26,11 @@
       }
     },
     "coverage": {
+      "$comment": "One coverage document with **both** shapes declared, and the top-level `allOf` branch saying which of them a given bundle must carry. `windows` is the YouTube timeline `validators.validate_coverage` walks; `items` is the Twitter set `validators.validate_item_coverage` compares. `required` here names only what both media carry, so the branch \u2014 not this clause \u2014 is what refuses a Twitter document for having no windows.",
       "type": "object",
       "required": [
         "status",
-        "audit_attempts",
-        "windows"
+        "audit_attempts"
       ],
       "properties": {
         "status": {
@@ -45,6 +45,12 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 3
+        },
+        "window_size_sec": {
+          "$comment": "Declared here for the first time, and it is required in the only sense the validator uses the word: `validators.validate_coverage` emits `missing_window_size` when a document claims `PASS` without it, and measures every window against it. So a bundle could validate here with zero errors and come back from `x2knwldg validate` as coverage `FAIL` \u2014 the same asymmetry D-092 and D-169 are about, one field along. Only the `apply-bundle` path hid it, because `artifacts._carry_coverage_scaffold_forward` restores the scaffold's value before any validator runs. `maximum` is `constants.COVERAGE_WINDOW_SEC`, the widest window the format has: an audit may subdivide a scaffolded window and may not widen one (D-164).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 300
         },
         "windows": {
           "type": "array",
@@ -152,11 +158,179 @@
             },
             "additionalProperties": true
           }
+        },
+        "basis": {
+          "$comment": "`validators.validate_item_coverage` refuses a document whose basis is not `items` (`coverage_basis_not_items`), because a time-window document read as an item document would report every post missing. Not constrained to a `const` here: the gate imposes the capture's value before validating, so a schema that refused a bundle stating something else would refuse a bundle `apply-bundle` accepts.",
+          "type": "string"
+        },
+        "source_type": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$comment": "Only `post_id` and `status` are required, and that is the validator's own rule rather than a relaxation of the window shape: `validate_item_coverage` refuses an entry with no post id or an unknown status, and checks the three lists only when they are present. `item_id` is minted by the scaffold and carried.",
+            "type": "object",
+            "required": [
+              "post_id",
+              "status"
+            ],
+            "properties": {
+              "item_id": {
+                "type": "string"
+              },
+              "post_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "$comment": "The window vocabulary is constants.COVERAGE_STATUSES. `pending` was missing while coverage.py wrote it into every window of a fresh run, so the schema described a document the code does not produce.",
+                "enum": [
+                  "pending",
+                  "covered",
+                  "uncovered",
+                  "omitted",
+                  "partial"
+                ]
+              },
+              "knowledge_units": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "omitted_items": {
+                "type": "array",
+                "items": {
+                  "$comment": "D-092: this was a bare object schema with no properties, so it accepted an entry keyed `reason` that validators.validate_coverage then rejected as `invalid_omission_reason` naming null - and the key names appeared only in validators.py and an archival spec the workflow never links. The vocabulary is constants.OMISSION_REASONS, asserted against it in tests/test_index_schemas.py.",
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "audience_reaction",
+                        "housekeeping",
+                        "intro_noninformational",
+                        "off_topic",
+                        "source_unavailable",
+                        "other_explained",
+                        "repetition",
+                        "small_talk",
+                        "sponsor",
+                        "transition",
+                        "unintelligible"
+                      ],
+                      "$comment": "The controlled vocabulary is constants.OMISSION_REASONS and tests/test_index_schemas.py asserts this enum equals it. `source_unavailable` joined for T-227 (D-225): an included post that was never observed has no content to audit, and the omission is minted by the pipeline rather than chosen by an auditor, so it is a named reason and not `other_explained`."
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "if": {
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "other_explained"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "type",
+                      "note"
+                    ],
+                    "properties": {
+                      "note": {
+                        "$comment": "`\\\\S` rather than minLength alone: validate_coverage tests str(note).strip(), so a note of only spaces is a missing explanation to it and would be an accepted one here. The two gates must not disagree.",
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "unresolved_items": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "excluded_items": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
         }
       },
       "additionalProperties": true
     }
   },
+  "allOf": [
+    {
+      "$comment": "The medium branch, and the reason it is a discriminator rather than a declared field: a bundle carries no `source_type` \u2014 the run does, in `metadata.json`, and that is what `artifacts._profile_for` dispatches on (D-240, D-243). What the bundle carries is the difference itself, so the branch reads it. `else` rather than a second `if` on `windows`, so a coverage document with neither is reported as a YouTube document missing `windows` instead of as matching no branch at all.",
+      "if": {
+        "type": "object",
+        "required": [
+          "coverage"
+        ],
+        "properties": {
+          "coverage": {
+            "type": "object",
+            "required": [
+              "items"
+            ]
+          }
+        }
+      },
+      "then": {
+        "$comment": "A Twitter/X run: item coverage, and a claim that cites a post id and a character span.",
+        "properties": {
+          "coverage": {
+            "required": [
+              "status",
+              "audit_attempts",
+              "items"
+            ]
+          },
+          "knowledge_units": {
+            "items": {
+              "$ref": "#/$defs/twitterUnit"
+            }
+          }
+        }
+      },
+      "else": {
+        "$comment": "A YouTube run: a timeline of windows, and a claim that cites seconds.",
+        "properties": {
+          "coverage": {
+            "required": [
+              "status",
+              "audit_attempts",
+              "windows"
+            ]
+          },
+          "knowledge_units": {
+            "items": {
+              "$ref": "#/$defs/youtubeUnit"
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "knowledgeUnit": {
       "type": "object",
@@ -243,7 +417,7 @@
       "additionalProperties": true,
       "allOf": [
         {
-          "$comment": "validators.validate_knowledge_units: `requires_provenance = source_class == \"source\" or kind in SOURCE_KINDS`, so the obligation follows the kind as well as the declaration and a unit cannot shed it by mislabelling itself. The schema required no `source` block at all, so a `source_class: \"source\"` unit without one validated here and came back `missing_source`.",
+          "$comment": "`validators.validate_knowledge_units`: `requires_provenance = source_class == \"source\" or kind in SOURCE_KINDS`, so the obligation follows the kind as well as the declaration and a unit cannot shed it by mislabelling itself. The obligation is medium-neutral \u2014 a provenance-bearing unit carries a `source` object in both media \u2014 so it is stated once here. *Which* fields that object must carry is the one thing that differs, and it is the top-level `oneOf`'s business (`validators.PROVENANCE_FIELDS`). The schema required no `source` block at all, so a `source_class: \"source\"` unit without one validated here and came back `missing_source`.",
           "if": {
             "anyOf": [
               {
@@ -297,19 +471,81 @@
             ],
             "properties": {
               "source": {
-                "type": "object",
-                "required": [
-                  "video_id",
-                  "segment_id",
-                  "start_sec",
-                  "end_sec",
-                  "evidence_excerpt"
-                ]
+                "type": "object"
               }
             }
           }
         }
       ]
+    },
+    "youtubeUnit": {
+      "$comment": "The YouTube provenance field set, applied under the same condition \u2014 referenced rather than restated, so the rule about *when* provenance is owed has one home.",
+      "allOf": [
+        {
+          "if": {
+            "$ref": "#/$defs/knowledgeUnit/allOf/0/if"
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "$ref": "#/$defs/youtubeSource"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "twitterUnit": {
+      "$comment": "The Twitter provenance field set, applied under the same condition \u2014 referenced rather than restated, so the rule about *when* provenance is owed has one home.",
+      "allOf": [
+        {
+          "if": {
+            "$ref": "#/$defs/knowledgeUnit/allOf/0/if"
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "$ref": "#/$defs/twitterSource"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "youtubeSource": {
+      "$comment": "`validators.PROVENANCE_FIELDS[\"youtube\"]`, and the shape `validate_provenance` reads.",
+      "type": "object",
+      "required": [
+        "video_id",
+        "segment_id",
+        "start_sec",
+        "end_sec",
+        "evidence_excerpt"
+      ]
+    },
+    "twitterSource": {
+      "$comment": "`validators.PROVENANCE_FIELDS[\"twitter\"]`. A post id and an exact character span, and **no seconds**: `WORKFLOW.md` \u00a7T3 puts it as \"a claim that carries `start_sec` is a claim in the wrong shape\". The excerpt is `text.canonical[start_char:end_char]` compared byte for byte \u2014 `validate_post_provenance`'s `evidence_excerpt_is_not_its_span` \u2014 because normalizing either side would discard the ZWNJ, NBSP and Persian digits a Persian post is made of (D-211). Offsets are codepoints and an empty span cites nothing, so `end_char` must exceed `start_char`; that comparison is `validate_post_provenance`'s, since JSON Schema compares no two fields.",
+      "type": "object",
+      "required": [
+        "post_id",
+        "start_char",
+        "end_char",
+        "evidence_excerpt"
+      ],
+      "properties": {
+        "post_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_char": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_char": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     },
     "relationship": {
       "type": "object",

@@ -100,6 +100,7 @@ from typing import Any
 
 from .. import synthesis
 from ..adapters import (
+    ADAPTERS,
     LIBRARY_DIR_NAME,
     AdapterError,
     IndexRecords,
@@ -107,6 +108,9 @@ from ..adapters import (
     adapt_run,
     project_relative,
     read_optional_json_or_reason,
+)
+from ..adapters import (
+    SCHEMA_VERSION as RECORD_SCHEMA_VERSION,
 )
 from ..io import discover_run_dirs, scrub_host_paths, sha256_file
 from ..io import run_dirs as io_run_dirs
@@ -172,6 +176,38 @@ _DIGEST_SEPARATOR = ":"
 #: token, so the digest still *changes* when the file becomes readable again.
 _UNHASHABLE = "unhashable"
 
+#: Suffixes whose **bytes** the cheap half hashes rather than merely stats.
+#:
+#: The prefilter was a prefilter for every file, and its agreement was treated
+#: as conclusive: ``_digest_of_files`` returned the *stored* content hash
+#: whenever ``(path, mtime_ns, size)`` matched, so the strong half was never
+#: computed and the stored records went stale behind an unchanged digest.
+#: Measured — rewrite ``knowledge_units.json`` with different bytes at the same
+#: size and restore its mtime (``rsync -t``, ``cp -p``, ``touch -r``, or a
+#: filesystem with coarse mtime granularity) and the refresh reports ``1
+#: unchanged of 1`` while a search for the *new* text returns a hit and
+#: ``/api/entities/{id}`` still returns the *old* record. The asymmetry is the
+#: tell: ``search.document_indexer`` re-reads every run's canonical files on
+#: every pass, so one build served new text from one endpoint and old records
+#: from another.
+#:
+#: The fix is not a "recent mtime" heuristic — the reproduction restores an
+#: arbitrarily *old* mtime, so no recency window catches it — and it is not
+#: hashing everything, because a run holds media and raw evidence whose bytes no
+#: record depends on. It is this: the files whose **content becomes a record**
+#: are hashed by the cheap half itself, so "the fingerprint matched" now means
+#: "no parsed file's bytes moved" rather than "nothing was touched". Everything
+#: else keeps ``(path, mtime_ns, size)``, which is exactly what the adapters ask
+#: of it: an artifact is ``available`` and ``bytes``, a vault note is a
+#: filename, and ``raw/source.*`` is an existence — none of them is a byte.
+#:
+#: Chosen by *suffix* rather than by a list of filenames on purpose. A named
+#: list goes stale the moment an adapter parses a new file, and it would go
+#: stale silently, which is the class of defect this whole module exists to
+#: refuse. Everything this project parses is JSON, so the rule is checkable
+#: against the tree rather than against anyone's memory.
+_HASHED_SUFFIXES = frozenset({".json"})
+
 #: The two library files ``adapt_library`` reads. Checked for damage here
 #: because it reports their damage and their absence identically.
 _LIBRARY_FILES = ("graph.json", "concepts.json")
@@ -236,6 +272,12 @@ class ScanReport:
     built_at: str | None = None
     library_reindexed: bool = False
     library_skipped_reason: str | None = None
+    #: Why an incremental refresh became a whole build, or ``None`` when it
+    #: stayed incremental (or was never asked to be). Reported rather than
+    #: merely done: a refresh that silently re-adapts every run costs a
+    #: measurable amount of time, and a reader who cannot see *why* has no way
+    #: to tell a schema migration from a filesystem that lost its mtimes.
+    full_rebuild_reason: str | None = None
 
     def __post_init__(self) -> None:
         if self.runs_indexed + self.runs_skipped != self.runs_discovered:
@@ -279,6 +321,7 @@ class ScanReport:
             "built_at": self.built_at,
             "library_reindexed": self.library_reindexed,
             "library_skipped_reason": self.library_skipped_reason,
+            "full_rebuild_reason": self.full_rebuild_reason,
         }
 
 
@@ -439,21 +482,36 @@ class _Digest:
 
 
 def _fingerprint(run_dir: Path, files: Sequence[Path]) -> str:
-    """The cheap half: ``(path, mtime_ns, size)`` for every file.
+    """The cheap half: ``(path, mtime_ns, size)``, except where bytes decide.
 
-    A prefilter and nothing more. It answers "nothing here has been touched"
-    without reading a byte, and its *disagreement* is never taken as evidence
-    that any content changed — that is what the strong half is for.
+    Cheap for the files a record only *counts* — an artifact's ``available``
+    and ``bytes``, a vault note's name, ``raw/source.*``'s existence — and
+    byte-exact for the files a record is *parsed out of*
+    (:data:`_HASHED_SUFFIXES`). Its *disagreement* is still never evidence that
+    content changed; what has changed is that its **agreement** is no longer
+    evidence that content did not. It was, and that is the defect: a rewrite at
+    the same size with a restored mtime went unnoticed for as long as the row
+    lived.
+
+    The strong half remains the confirmation. A touched file whose bytes are
+    identical still comes back unchanged — the fingerprint moves, the content
+    hash is recomputed, and it matches — which is the bargain canvas §13.1 asks
+    for, now with a prefilter that cannot be right for the wrong reason.
     """
     lines = []
     for path in files:
         relative = _relative(run_dir, path)
         try:
             stat = path.stat()
+            if path.suffix.lower() in _HASHED_SUFFIXES:
+                lines.append(f"{relative}\0{stat.st_size}\0{sha256_file(path)}")
+                continue
         except OSError as exc:
-            # A file that vanished between the walk and the stat is a change by
-            # definition, and naming the error keeps the token stable for as
-            # long as the condition lasts.
+            # A file that vanished between the walk and the stat — or one that
+            # cannot be opened to hash — is a change by definition, and naming
+            # the error keeps the token stable for as long as the condition
+            # lasts. The *problem* it deserves is recorded by
+            # `_content_hash`, which this mismatch is now about to send for.
             lines.append(f"{relative}\0{type(exc).__name__}")
             continue
         lines.append(f"{relative}\0{stat.st_mtime_ns}\0{stat.st_size}")
@@ -516,9 +574,12 @@ def _digest_of_files(base: Path, files: Sequence[Path], stored: str | None) -> _
     fingerprint = _fingerprint(base, files)
     stored_fingerprint, stored_content = _split(stored)
     if stored_fingerprint is not None and fingerprint == stored_fingerprint:
-        # Nothing was touched, so the stored content hash still describes the
-        # bytes on disk. Recomputing it would read every file in the run to
-        # learn what the row already says.
+        # No parsed file's bytes moved and nothing else was even touched, so the
+        # stored content hash still describes the run. Recomputing it would read
+        # the run's media and raw evidence to learn what the row already says.
+        # This early return is only sound because `_fingerprint` now hashes the
+        # files whose content the records are built from — see
+        # `_HASHED_SUFFIXES`.
         return _Digest(fingerprint, stored_content or "")
     content, problems = _content_hash(base, files)
     return _Digest(fingerprint, content, tuple(problems))
@@ -588,6 +649,41 @@ _INSERTS: Mapping[str, str] = {
 }
 
 
+def _insert(
+    connection: sqlite3.Connection,
+    statement: str,
+    params: Sequence[Any],
+    *,
+    model: str,
+    key: str,
+) -> None:
+    """One ``INSERT``, with a collision reported as damage rather than as a driver error.
+
+    Every write in this module goes through here. It did not: ``_insert_records``
+    caught ``sqlite3.IntegrityError`` and re-raised it as :class:`IndexCorrupt`
+    with a message a reader can act on, while ``_write_brief`` and
+    ``_write_source_relations`` issued bare ``connection.execute`` calls — so a
+    primary-key collision in either of those escaped as a raw driver exception
+    into ``_scan``'s ``except Exception``, and from there into ``index.message``
+    as ``IntegrityError: UNIQUE constraint failed: source_relations.identity``.
+    That is a sentence about SQLite, offered to someone holding a canonical
+    file. Three writers, one rule.
+
+    A collision must **fail** rather than be resolved by ``INSERT OR REPLACE``,
+    which is last-write-wins: the ``PRIMARY KEY`` on ``identity`` is what makes
+    the paging order total, and keeping the last writer would silently lose the
+    other record.
+    """
+    try:
+        connection.execute(statement, tuple(params))
+    except sqlite3.IntegrityError as exc:
+        raise IndexCorrupt(
+            f"the index cannot store {model} {key!r}: {exc}. "
+            "One record, one id — an index that kept the last writer would "
+            "silently lose the other record"
+        ) from exc
+
+
 def _insert_records(connection: sqlite3.Connection, records: IndexRecords) -> None:
     """Store every record verbatim, with its identity and its content digest.
 
@@ -606,22 +702,19 @@ def _insert_records(connection: sqlite3.Connection, records: IndexRecords) -> No
     for model, rows in families:
         statement = _INSERTS[model]
         for record in rows:
-            try:
-                connection.execute(
-                    statement,
-                    (
-                        identity(record, model),
-                        content_digest(record),
-                        json.dumps(record),
-                        *_column_values(record, model),
-                    ),
-                )
-            except sqlite3.IntegrityError as exc:
-                raise IndexCorrupt(
-                    f"the index cannot store {model} {identity(record, model)!r}: {exc}. "
-                    "One record, one id — an index that kept the last writer would "
-                    "silently lose the other record"
-                ) from exc
+            key = identity(record, model)
+            _insert(
+                connection,
+                statement,
+                (
+                    key,
+                    content_digest(record),
+                    json.dumps(record),
+                    *_column_values(record, model),
+                ),
+                model=model,
+                key=key,
+            )
 
 
 def _records_of(
@@ -694,7 +787,8 @@ def _write_brief(connection: sqlite3.Connection, run: _Run) -> None:
     """
     if run.source_id is None or run.brief is None:
         return
-    connection.execute(
+    _insert(
+        connection,
         "INSERT INTO source_briefs (source_id, state, reason, doc) VALUES (?, ?, ?, ?)",
         (
             run.source_id,
@@ -702,6 +796,8 @@ def _write_brief(connection: sqlite3.Connection, run: _Run) -> None:
             run.brief["reason"],
             None if run.brief["brief"] is None else json.dumps(run.brief["brief"]),
         ),
+        model="source_brief",
+        key=run.source_id,
     )
 
 
@@ -726,14 +822,18 @@ def _write_source_relations(connection: sqlite3.Connection, output_root: Path) -
 
     connection.execute("DELETE FROM source_relations")
     for relation in source_relations_document(output_root):
-        connection.execute(
+        key = identity(relation, "source_relation")
+        _insert(
+            connection,
             _INSERTS["source_relation"],
             (
-                identity(relation, "source_relation"),
+                key,
                 content_digest(relation),
                 json.dumps(relation),
                 *_column_values(relation, "source_relation"),
             ),
+            model="source_relation",
+            key=key,
         )
 
 
@@ -953,33 +1053,142 @@ def _library_damage(output_root: Path) -> str | None:
 # --------------------------------------------------------------------------
 
 
+def adapter_versions() -> str:
+    """What the code that writes records is, as one comparable string.
+
+    The record model version every adapter stamps onto its output
+    (``adapters.base.SCHEMA_VERSION``) and each registered adapter's own
+    ``version``, sorted and serialised — so a bump to either is a value that
+    differs from the one stored beside the rows it wrote.
+
+    This exists because an unchanged run is *not re-adapted*: its records are
+    whatever the pass that last adapted it produced. ``/api/status.adapters``
+    meanwhile reads ``version`` live off the class, so bumping an adapter made
+    the endpoint announce a version no stored record had been written at, with
+    nothing in the project able to notice. A version is only a version if
+    something compares it.
+
+    Sorted keys and no whitespace, because the string is compared with ``!=``
+    and a dictionary's insertion order is not a fact about the code.
+    """
+    return json.dumps(
+        {
+            "records": RECORD_SCHEMA_VERSION,
+            "adapters": {
+                adapter.source_type: adapter.version for adapter in ADAPTERS.values()
+            },
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+@dataclass(frozen=True)
+class _StoredState:
+    """The single ``index_state`` row, as the previous scan left it.
+
+    ``schema_version`` and ``adapter_versions`` are what the stored *rows* were
+    written by, and they are ``None`` for every database migrated up from a
+    version that recorded neither — which compares unequal to any current
+    version and therefore asks for the full build such a database needs.
+    """
+
+    state: str = "absent"
+    built_at: str | None = None
+    schema_version: int | None = None
+    adapter_versions: str | None = None
+
+
 def _write_state(
     connection: sqlite3.Connection,
     state: str,
     *,
     built_at: str | None = None,
     message: str | None = None,
+    schema_version: int | None = None,
+    adapter_versions: str | None = None,
 ) -> None:
-    """Set the single ``index_state`` row. Its ``CHECK`` enforces the singleton."""
+    """Set the single ``index_state`` row. Its ``CHECK`` enforces the singleton.
+
+    The two version columns are written on **every** call and never defaulted
+    from the row that is being replaced, because ``INSERT OR REPLACE`` writes a
+    whole row: a caller that omitted them would silently blank the record of
+    what wrote the rows, and a blanked record reads as "migrated up from an
+    older build" — a full rebuild nobody asked for. So each caller states which
+    generation the stored rows belong to: a scan that is still ``building``, or
+    one that failed and rolled back, carries the *previous* pass's versions
+    forward, because the rows are still that pass's rows.
+    """
     connection.execute(
-        "INSERT OR REPLACE INTO index_state (id, state, built_at, message) "
-        "VALUES (1, ?, ?, ?)",
-        (state, built_at, message),
+        "INSERT OR REPLACE INTO index_state "
+        "(id, state, built_at, message, schema_version, adapter_versions) "
+        "VALUES (1, ?, ?, ?, ?, ?)",
+        (state, built_at, message, schema_version, adapter_versions),
     )
 
 
-def _stored_state(connection: sqlite3.Connection) -> str:
-    return _stored_state_row(connection)[0]
-
-
-def _stored_state_row(connection: sqlite3.Connection) -> tuple[str, str | None]:
-    """``(state, built_at)`` as stored, or ``("absent", None)``."""
+def _stored_state_row(connection: sqlite3.Connection) -> _StoredState:
+    """The stored state, or the ``absent`` default for a database with no row."""
     row = connection.execute(
-        "SELECT state, built_at FROM index_state WHERE id = 1"
+        "SELECT state, built_at, schema_version, adapter_versions "
+        "FROM index_state WHERE id = 1"
     ).fetchone()
     if row is None:
-        return "absent", None
-    return row["state"], row["built_at"]
+        return _StoredState()
+    version = row["schema_version"]
+    return _StoredState(
+        state=row["state"],
+        built_at=row["built_at"],
+        schema_version=None if version is None else int(version),
+        adapter_versions=row["adapter_versions"],
+    )
+
+
+def _stale_build_reason(
+    stored: _StoredState, *, version: int, versions: str
+) -> str | None:
+    """Why the stored rows cannot be carried forward, or ``None``.
+
+    The incremental scan's question was "did any file move?", and its answer was
+    read as "is the index current". The two are not the same question, and the
+    gap between them was invisible by construction: a migration that creates a
+    table creates it *empty*, and no file in ``output/`` moves when it does.
+
+    Measured, on a populated schema-1 index: ``schema.migrate`` added
+    ``source_entities``, ``source_briefs`` and ``source_relations``, every run
+    then hashed identical, every run was ``unchanged``, and the scan committed
+    ``ready`` — ``discovered=3 indexed=3 unchanged=3 skipped=0``, ``message:
+    None`` — over a source layer holding nothing. ``/api/source-graph`` answered
+    0 nodes and ``source_neighborhood(...)`` returned ``None``, with the whole
+    stack reporting a healthy, fully indexed library. That is the silent zero
+    D-043 forbids, and the only escape was to delete the cache directory.
+
+    The adapter half is the same defect one step out: an unchanged run keeps the
+    records some earlier pass adapted, so a bump to an adapter's ``version`` or
+    to ``adapters.base.SCHEMA_VERSION`` leaves those records at the old shape
+    while ``/api/status.adapters`` reports the new version off the live class.
+
+    The reason is a sentence rather than a flag because it is carried onto
+    :attr:`ScanReport.full_rebuild_reason` and printed: a refresh that quietly
+    re-adapts every run is indistinguishable from one that is simply slow.
+    """
+    if stored.schema_version != version:
+        return (
+            f"the stored rows were written at schema version {stored.schema_version} "
+            f"and this index is now at {version}; a migration creates its tables "
+            "empty, and no file under output/ moves when it does, so an "
+            "incremental pass would report every run unchanged over a layer "
+            "holding nothing (D-043)"
+        )
+    if stored.adapter_versions != versions:
+        return (
+            "the stored rows were written by different adapter versions "
+            f"({stored.adapter_versions} rather than {versions}); an unchanged run "
+            "keeps the records the pass that adapted it produced, so carrying them "
+            "forward would serve one version's records while /api/status reports "
+            "another"
+        )
+    return None
 
 
 def _stored_runs(connection: sqlite3.Connection) -> dict[str, sqlite3.Row]:
@@ -1044,8 +1253,16 @@ def _scan(
         # incremental against, so a refresh over one degrades to a full build
         # rather than carrying rows forward on the strength of a state that
         # already says they cannot be trusted.
-        previous_state, previous_built_at = _stored_state_row(connection)
-        whole = not incremental or previous_state != "ready"
+        stored = _stored_state_row(connection)
+        previous_state, previous_built_at = stored.state, stored.built_at
+        versions = adapter_versions()
+        # Not "did any file move?" but "were these rows written by this code?".
+        # The first question alone is what let a schema migration leave the
+        # whole source layer empty behind a `ready` index — see
+        # `_stale_build_reason`.
+        stale = _stale_build_reason(stored, version=version, versions=versions)
+        whole = not incremental or previous_state != "ready" or stale is not None
+        full_rebuild_reason = stale if incremental and previous_state == "ready" else None
         # Committed on its own, before any work: a crash from here on reopens as
         # `building`, never as a `ready` half-full index.
         #
@@ -1062,7 +1279,17 @@ def _scan(
         # `building` with no `built_at` still means what it always meant: no
         # build has ever finished here, so there is nothing to serve.
         with connection:
-            _write_state(connection, "building", built_at=previous_built_at)
+            # The versions the *stored rows* were written by, carried forward:
+            # this scan has committed nothing yet, so blanking them here would
+            # make a killed build look like a database migrated up from an
+            # older one and cost the next pass a full rebuild.
+            _write_state(
+                connection,
+                "building",
+                built_at=previous_built_at,
+                schema_version=stored.schema_version,
+                adapter_versions=stored.adapter_versions,
+            )
         try:
             return _apply(
                 connection,
@@ -1072,6 +1299,8 @@ def _scan(
                 strict=strict,
                 index_documents=index_documents,
                 version=version,
+                versions=versions,
+                full_rebuild_reason=full_rebuild_reason,
             )
         except Exception as exc:
             # Reported, not swallowed — and D-085: the message is served
@@ -1100,28 +1329,60 @@ def _scan(
                         "ready",
                         built_at=previous_built_at,
                         message=f"the last scan failed and was rolled back: {message}",
+                        # `_apply` writes inside one transaction, so the rows
+                        # are the previous pass's rows and so are the versions
+                        # that describe them.
+                        schema_version=stored.schema_version,
+                        adapter_versions=stored.adapter_versions,
                     )
                 else:
-                    _write_state(connection, "error", message=message)
+                    _write_state(
+                        connection,
+                        "error",
+                        message=message,
+                        schema_version=stored.schema_version,
+                        adapter_versions=stored.adapter_versions,
+                    )
             raise
     finally:
         connection.close()
 
 
-def _apply(
-    connection: sqlite3.Connection,
+@dataclass(frozen=True)
+class _Library:
+    """What this scan decided about the ``library/`` fragment.
+
+    Its own value because the fragment has four possible fates and three of
+    them are not "these records": carried over from the last pass, dropped
+    because it resolves outside the project, dropped because its files are
+    damaged, and dropped because it is stale against the runs. Every one of
+    those is a *reason*, and D-043 is that a dropped thing is a named thing.
+    """
+
+    key: str
+    records: IndexRecords
+    digest: _Digest
+    reason: str | None
+    rebuilt: bool
+
+
+def _discover(
     *,
     project_root: Path,
     output_root: Path,
-    whole: bool,
+    previous: Mapping[str, sqlite3.Row],
     strict: bool,
-    index_documents: DocumentIndexer | None,
-    version: int,
-) -> ScanReport:
-    previous = {} if whole else _stored_runs(connection)
+) -> tuple[list[_Run], int, int]:
+    """Every run this scan meets, and how many directories it walked.
+
+    Returns ``(runs, discovered, aliases)``. The two counts are handed back
+    rather than recomputed from *runs*, because an alias is a discovered
+    directory too — D-158 — and ``ScanReport``'s own invariant is that every
+    discovered thing is accounted for in exactly one outcome.
+    """
     discovered, aliases = discover_run_dirs(output_root)
 
-    runs = []
+    runs: list[_Run] = []
     for alias, target in aliases:
         # D-158. Named rather than dropped: a run that vanishes from the
         # library with nothing said is the failure D-043 exists to prevent, and
@@ -1158,31 +1419,19 @@ def _apply(
                 strict=strict,
             )
         )
-    library_dir = output_root / LIBRARY_DIR_NAME
-    library_key, library_unindexable = _canonical_key(library_dir, project_root)
-    # The library keeps a `runs` row of its own, keyed by its own
-    # project-relative directory. It is not a run — `run_dirs` never yields it —
-    # but the row is exactly what the table is for: what the scanner remembers so
-    # it can decide "unchanged" without re-deriving. Without it, a
-    # `rebuild_library` that changed no run at all would leave the fragment as
-    # this scan last saw it, which is a stale answer arrived at cheaply.
-    seen = {run.canonical_dir for run in runs} | {library_key}
-    evicted = sorted(set(previous) - seen)
+    return runs, len(discovered), len(aliases)
 
-    # `library/` is a cross-source projection over every run, so any change to
-    # the records of any run can change it: one re-adapted, one gone, or one
-    # that *had* records and can no longer be indexed at all.
-    records_changed = (
-        whole
-        or bool(evicted)
-        or any(run.state == _REINDEXED for run in runs)
-        or any(run.state == _SKIPPED and run.had_records for run in runs)
-    )
-    # The runs' own records first: carried over from the index for the unchanged
-    # ones, freshly adapted for the rest. Reading the carried ones back matters
-    # because the checks below are project-wide — a duplicate `video_id` across
-    # two directories only shows up in the union, and the endpoint of a library
-    # edge may live in a run this scan never touched.
+
+def _combined_records(
+    connection: sqlite3.Connection, runs: Sequence[_Run]
+) -> IndexRecords:
+    """Every run's records: carried over for the unchanged, fresh for the rest.
+
+    Reading the carried ones back matters because the checks that follow are
+    project-wide — a duplicate ``video_id`` across two directories only shows up
+    in the union, and the endpoint of a library edge may live in a run this scan
+    never touched.
+    """
     combined = _records_of(
         connection,
         [run.source_id for run in runs if run.state == _UNCHANGED and run.source_id],
@@ -1190,26 +1439,46 @@ def _apply(
     for run in runs:
         if run.records is not None:
             combined = combined + run.records
+    return combined
 
-    prior_library = previous.get(library_key)
-    library_digest = _digest_of_files(
+
+def _library_fragment(
+    connection: sqlite3.Connection,
+    *,
+    project_root: Path,
+    output_root: Path,
+    prior: sqlite3.Row | None,
+    records_changed: bool,
+    runs_records: IndexRecords,
+) -> _Library:
+    """The ``library/`` fragment, or the named reason there is none.
+
+    The fragment keeps a ``runs`` row of its own, keyed by its own
+    project-relative directory. It is not a run — ``run_dirs`` never yields it —
+    but the row is exactly what that table is for: what the scanner remembers so
+    it can decide "unchanged" without re-deriving. Without one, a
+    ``rebuild_library`` that changed no run at all would leave the fragment as
+    the previous scan saw it, which is a stale answer arrived at cheaply.
+    """
+    library_dir = output_root / LIBRARY_DIR_NAME
+    library_key, library_unindexable = _canonical_key(library_dir, project_root)
+    digest = _digest_of_files(
         library_dir,
         [library_dir / name for name in _LIBRARY_FILES],
-        prior_library["digest"] if prior_library is not None else None,
+        prior["digest"] if prior is not None else None,
     )
-    rebuild_library_fragment = (
-        records_changed
-        or prior_library is None
-        or library_digest.content != _split(prior_library["digest"])[1]
+    rebuild = (
+        records_changed or prior is None or digest.content != _split(prior["digest"])[1]
     )
-    if not rebuild_library_fragment:
+
+    if not rebuild:
         # Nothing the fragment is derived from moved, so the stored records — or
         # the stored refusal — are still the answer.
-        library = _records_of(connection, [None])
-        # `rebuild_library_fragment` is false only when `prior_library` exists —
-        # it is one of the disjuncts that sets it — but the checker cannot see
-        # that, and neither can a reader in a hurry.
-        library_reason = prior_library["skipped_reason"] if prior_library is not None else None
+        records = _records_of(connection, [None])
+        # `rebuild` is false only when `prior` exists — it is one of the
+        # disjuncts that sets it — but the checker cannot see that, and neither
+        # can a reader in a hurry.
+        reason = prior["skipped_reason"] if prior is not None else None
     elif library_unindexable is not None:
         # D-078: the same class as a symlinked run. A `library/` that resolves
         # outside the project has no project-relative form, and this used to
@@ -1217,28 +1486,31 @@ def _apply(
         # under `strict` because `_library_damage` below is not either: the
         # fragment is a projection, and a project whose runs are all readable
         # is still a readable project.
-        library = IndexRecords()
-        library_reason = library_unindexable
+        records = IndexRecords()
+        reason = library_unindexable
     else:
-        library_reason = _library_damage(output_root)
-        if library_reason is not None:
-            library = IndexRecords()
+        reason = _library_damage(output_root)
+        if reason is not None:
+            records = IndexRecords()
         else:
-            library, library_reason = _checked_library(
-                adapt_library(library_dir, project_root), combined
+            records, reason = _checked_library(
+                adapt_library(library_dir, project_root), runs_records
             )
-    if library_reason is not None:
+    if reason is not None:
         # D-085/D-087: `_library_damage` builds its reason out of
         # `io.JsonReadError`, which names the file absolutely — and D-087 put
         # that reason on `/api/status`, so surfacing it without this would have
         # traded a silent zero for a host-path leak. The fragment's own
         # directory is offered as a replacement so the sentence still says
         # which file, and the catch-all takes care of the rest.
-        library_reason = _project_relative_reason(
-            library_reason, library_dir, library_key, project_root
-        )
-    combined = combined + library
+        reason = _project_relative_reason(reason, library_dir, library_key, project_root)
+    return _Library(
+        key=library_key, records=records, digest=digest, reason=reason, rebuilt=rebuild
+    )
 
+
+def _refuse_unpageable(combined: IndexRecords) -> None:
+    """Refuse a record set no honest page can be drawn from, before any write."""
     try:
         check_index_integrity(combined.by_model())
     except RepositoryError as exc:
@@ -1247,56 +1519,102 @@ def _apply(
             "drawn from these records"
         ) from exc
 
-    built_at = datetime.now(timezone.utc).isoformat()
+
+def _discard_everything(connection: sqlite3.Connection) -> None:
+    """What a whole build throws away, which is *whatever was stored*.
+
+    D-088: ``build_index``'s docstring promises exactly that, and this discarded
+    everything **except** the search corpus — ``documents`` and the two FTS5
+    tables were left to ``index_documents``, which defaults to ``None``. So
+    ``build_index(root)``, the default signature, rebuilt every record family and
+    left the corpus from the previous pass: measured, a unit's edited content was
+    unfindable while its deleted text was still being returned, with ``total``
+    counting it.
+
+    That is not the "half-populating" ``_commit`` rules out. It is the same
+    discard as every line above it, and it needs none of ``search``'s per-source
+    logic: ``delete-all`` is FTS5's own bulk command for retiring an
+    external-content index, so no old text has to be read back and this module
+    gains no dependency on the one that fills the tables. A hook, when there is
+    one, then repopulates from the records this scan committed.
+
+    ``_SOURCE_TABLES`` is discarded with the rest for the same reason: a family
+    left behind by the loop is exactly the defect D-088 records.
+    """
+    connection.execute("DELETE FROM runs")
+    for _model, table in MODELS:
+        connection.execute(f"DELETE FROM {table}")
+    for table in _SOURCE_TABLES:
+        connection.execute(f"DELETE FROM {table}")
+    connection.execute(
+        "INSERT INTO documents_trigrams (documents_trigrams) VALUES ('delete-all')"
+    )
+    connection.execute("DELETE FROM document_tokens")
+    connection.execute("DELETE FROM documents")
+
+
+def _evict_superseded(
+    connection: sqlite3.Connection,
+    *,
+    runs: Sequence[_Run],
+    previous: Mapping[str, sqlite3.Row],
+    evicted: Sequence[str],
+    rebuild_library_fragment: bool,
+) -> None:
+    """What an incremental pass removes before it writes.
+
+    Both loops evict by the id the **previous** scan recorded, so a run that
+    changed its ``video_id`` does not leave its old records behind under an id
+    nothing points at any more. A stored ``NULL`` means the run had no records
+    to evict — and must never be passed to :func:`_evict`, where ``None``
+    addresses the *library* fragment instead.
+    """
+    for key in evicted:
+        if previous[key]["source_id"] is not None:
+            _evict(connection, previous[key]["source_id"])
+        connection.execute("DELETE FROM runs WHERE canonical_dir = ?", (key,))
+    for run in runs:
+        prior = previous.get(run.canonical_dir)
+        if run.state != _UNCHANGED and prior is not None and prior["source_id"] is not None:
+            _evict(connection, prior["source_id"])
+    if rebuild_library_fragment:
+        _evict(connection, None)
+
+
+def _commit(
+    connection: sqlite3.Connection,
+    *,
+    output_root: Path,
+    runs: Sequence[_Run],
+    previous: Mapping[str, sqlite3.Row],
+    evicted: Sequence[str],
+    library: _Library,
+    combined: IndexRecords,
+    whole: bool,
+    built_at: str,
+    version: int,
+    versions: str,
+    index_documents: DocumentIndexer | None,
+) -> dict[str, str]:
+    """Every write of one scan, in one transaction. Returns what became unsearchable.
+
+    One transaction is what makes a crash honest: a reader during a build — or
+    after one that was killed — sees the previous generation whole, and a
+    failure rolls the lot back rather than leaving a half-full index claiming to
+    be complete.
+    """
+    unsearchable: dict[str, str] = {}
     with connection:
         if whole:
-            connection.execute("DELETE FROM runs")
-            for _model, table in MODELS:
-                connection.execute(f"DELETE FROM {table}")
-            # `T-254`. The source layer's tables are discarded with the rest:
-            # `build_index` promises to discard "whatever was stored", and a
-            # family left behind by that loop is exactly the defect D-088
-            # records for the search corpus.
-            for table in _SOURCE_TABLES:
-                connection.execute(f"DELETE FROM {table}")
-            # D-088: `build_index`'s docstring promises it discards "whatever
-            # was stored", and this loop discarded everything *except* the
-            # search corpus — `documents` and the two FTS5 tables were left to
-            # `index_documents`, which defaults to `None`. So
-            # `build_index(root)`, the default signature, rebuilt every record
-            # family and left the corpus from the previous pass: measured, a
-            # unit's edited content was unfindable while its deleted text was
-            # still being returned, with `total` counting it.
-            #
-            # This is not the "half-populating" the note below rules out. It is
-            # the same discard as the lines above, and it needs none of
-            # `search`'s per-source logic: `delete-all` is FTS5's own bulk
-            # command for retiring an external-content index, so no old text
-            # has to be read back and this module gains no dependency on the
-            # one that fills the tables. A hook, when there is one, then
-            # repopulates from the records this scan committed.
-            connection.execute(
-                "INSERT INTO documents_trigrams (documents_trigrams) VALUES ('delete-all')"
-            )
-            connection.execute("DELETE FROM document_tokens")
-            connection.execute("DELETE FROM documents")
+            _discard_everything(connection)
         else:
-            # Both loops evict by the id the *previous* scan recorded, so a run
-            # that changed its `video_id` does not leave its old records behind
-            # under an id nothing points at any more. A stored `NULL` means the
-            # run had no records to evict — and must never be passed to
-            # `_evict`, where `None` addresses the *library* fragment instead.
-            for key in evicted:
-                if previous[key]["source_id"] is not None:
-                    _evict(connection, previous[key]["source_id"])
-                connection.execute("DELETE FROM runs WHERE canonical_dir = ?", (key,))
-            for run in runs:
-                prior = previous.get(run.canonical_dir)
-                if run.state != _UNCHANGED and prior is not None:
-                    if prior["source_id"] is not None:
-                        _evict(connection, prior["source_id"])
-            if rebuild_library_fragment:
-                _evict(connection, None)
+            _evict_superseded(
+                connection,
+                runs=runs,
+                previous=previous,
+                evicted=evicted,
+                rebuild_library_fragment=library.rebuilt,
+            )
 
         for run in runs:
             if run.records is not None:
@@ -1306,21 +1624,18 @@ def _apply(
         # `T-254`. After the runs, because a relation names two of them, and on
         # every pass, because the file it is read from has no per-run digest.
         _write_source_relations(connection, output_root)
-        if rebuild_library_fragment:
-            _insert_records(connection, library)
+        if library.rebuilt:
+            _insert_records(connection, library.records)
         _write_run(
             connection,
             _Run(
-                library_key,
-                _REINDEXED if rebuild_library_fragment else _UNCHANGED,
-                library_digest,
-                reason=library_reason,
+                library.key,
+                _REINDEXED if library.rebuilt else _UNCHANGED,
+                library.digest,
+                reason=library.reason,
             ),
         )
 
-        # `source_id -> reason` for every source whose canonical files would
-        # not yield documents on this pass. Filled by the hook below.
-        unsearchable: dict[str, str] = {}
         # `documents` and the two external-content FTS5 tables belong to
         # `T-103`: keeping an external-content index in step with its content
         # table is that module's contract, and half-populating them here would
@@ -1331,18 +1646,41 @@ def _apply(
             # The hook's own report, **read** rather than discarded. It records
             # `source_id -> reason` for every source whose canonical files
             # would not yield documents, and writes the same marker into
-            # `runs.problems`. `incomplete_runs` below was built from the run
-            # objects, which were frozen before this line — so a source that
-            # became unsearchable *on this scan* was reported by nothing until
-            # the next one, and this scan said `discovered=3 indexed=3
-            # skipped=0` about an index that had just lost a source's search
-            # text. The module's own thesis is that the cheap path may skip
-            # work, never reporting.
+            # `runs.problems`. The run objects were frozen before this line — so
+            # a source that became unsearchable *on this scan* was reported by
+            # nothing until the next one, and this scan said `discovered=3
+            # indexed=3 skipped=0` about an index that had just lost a source's
+            # search text. The module's own thesis is that the cheap path may
+            # skip work, never reporting.
             report = index_documents(connection, combined)
             unsearchable.update(getattr(report, "unsearchable", None) or {})
 
-        _write_state(connection, "ready", built_at=built_at)
+        # The one place the versions are *advanced*: this scan committed these
+        # rows, so this is the code they were written by.
+        _write_state(
+            connection,
+            "ready",
+            built_at=built_at,
+            schema_version=version,
+            adapter_versions=versions,
+        )
+    return unsearchable
 
+
+def _assemble(
+    connection: sqlite3.Connection,
+    *,
+    runs: Sequence[_Run],
+    discovered: int,
+    aliases: int,
+    evicted: Sequence[str],
+    library: _Library,
+    unsearchable: Mapping[str, str],
+    built_at: str,
+    version: int,
+    full_rebuild_reason: str | None,
+) -> ScanReport:
+    """The report, with every run in exactly one outcome and nothing in silence."""
     skipped_runs = [
         {"relative_path": run.canonical_dir, "reason": run.reason}
         for run in runs
@@ -1366,13 +1704,13 @@ def _apply(
                     "problems": problems,
                 }
             )
-    if library_reason is not None:
-        skipped_runs.append({"relative_path": library_key, "reason": library_reason})
+    if library.reason is not None:
+        skipped_runs.append({"relative_path": library.key, "reason": library.reason})
     return ScanReport(
         # D-158: aliases are discovered directories too, and each is accounted
         # for as skipped. Leaving them out of the total would satisfy the
         # invariant by not counting the thing being reported.
-        runs_discovered=len(discovered) + len(aliases),
+        runs_discovered=discovered + aliases,
         runs_indexed=sum(1 for run in runs if run.state != _SKIPPED),
         runs_skipped=sum(1 for run in runs if run.state == _SKIPPED),
         runs_unchanged=sum(1 for run in runs if run.state == _UNCHANGED),
@@ -1389,8 +1727,93 @@ def _apply(
         ),
         index_version=version,
         built_at=built_at,
-        library_reindexed=rebuild_library_fragment,
-        library_skipped_reason=library_reason,
+        library_reindexed=library.rebuilt,
+        library_skipped_reason=library.reason,
+        full_rebuild_reason=full_rebuild_reason,
+    )
+
+
+def _apply(
+    connection: sqlite3.Connection,
+    *,
+    project_root: Path,
+    output_root: Path,
+    whole: bool,
+    strict: bool,
+    index_documents: DocumentIndexer | None,
+    version: int,
+    versions: str,
+    full_rebuild_reason: str | None = None,
+) -> ScanReport:
+    """One scan, in the six steps its own comment blocks already marked out.
+
+    This was 284 lines doing discovery, eviction, library staleness, the
+    integrity check, the write transaction and the report assembly in one body,
+    with the seams drawn as comments. They are functions now, and the order is
+    the contract: **nothing is written until the whole record set has been
+    refused or accepted**, because a refusal after a partial write is a
+    half-full index that reports itself complete.
+    """
+    previous: Mapping[str, sqlite3.Row] = {} if whole else _stored_runs(connection)
+    runs, discovered, aliases = _discover(
+        project_root=project_root,
+        output_root=output_root,
+        previous=previous,
+        strict=strict,
+    )
+
+    library_key, _ = _canonical_key(output_root / LIBRARY_DIR_NAME, project_root)
+    seen = {run.canonical_dir for run in runs} | {library_key}
+    evicted = sorted(set(previous) - seen)
+
+    # `library/` is a cross-source projection over every run, so any change to
+    # the records of any run can change it: one re-adapted, one gone, or one
+    # that *had* records and can no longer be indexed at all.
+    records_changed = (
+        whole
+        or bool(evicted)
+        or any(run.state == _REINDEXED for run in runs)
+        or any(run.state == _SKIPPED and run.had_records for run in runs)
+    )
+
+    combined = _combined_records(connection, runs)
+    library = _library_fragment(
+        connection,
+        project_root=project_root,
+        output_root=output_root,
+        prior=previous.get(library_key),
+        records_changed=records_changed,
+        runs_records=combined,
+    )
+    combined = combined + library.records
+    _refuse_unpageable(combined)
+
+    built_at = datetime.now(timezone.utc).isoformat()
+    unsearchable = _commit(
+        connection,
+        output_root=output_root,
+        runs=runs,
+        previous=previous,
+        evicted=evicted,
+        library=library,
+        combined=combined,
+        whole=whole,
+        built_at=built_at,
+        version=version,
+        versions=versions,
+        index_documents=index_documents,
+    )
+    return _assemble(
+        connection,
+        runs=runs,
+        discovered=discovered,
+        aliases=aliases,
+        evicted=evicted,
+        library=library,
+        unsearchable=unsearchable,
+        built_at=built_at,
+        version=version,
+        full_rebuild_reason=full_rebuild_reason,
     )
 
 

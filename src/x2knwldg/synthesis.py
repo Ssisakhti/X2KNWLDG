@@ -95,12 +95,43 @@ def canonical_input_digests(run_dir: Path) -> dict[str, str]:
 #: The canonical filename of a run's readable brief.
 BRIEF_FILENAME = "source_knowledge.json"
 
-#: The three states a brief can be in when a reader asks for one, and the
-#: vocabulary ``SourceKnowledgeAvailability`` publishes (`T-251`). ``stale`` is
-#: its own state rather than an error: the document exists and describes inputs
-#: whose digests have since moved, so it is shown with that said out loud rather
+#: Why there is no brief, when there is simply no document.
+#:
+#: One string, because three readers answer this question and two of them cannot
+#: call :func:`brief_state` to do it: ``MemoryRepository`` reaches a source whose
+#: run it cannot open, and ``SqliteRepository`` reaches a source the scan wrote
+#: no ``source_briefs`` row for. They said "the run this source names cannot be
+#: read" and "no source_knowledge.json" respectively — two sentences for one
+#: fact, from two implementations a whole test module exists to prove
+#: indistinguishable.
+NO_BRIEF_REASON = "no source_knowledge.json"
+
+#: The brief is current: the document is on disk and every digest it names still
+#: matches the run's canonical files.
+BRIEF_AVAILABLE = "available"
+
+#: There is no brief to show — no file, an unreadable one, or one that is not an
+#: object. Three absences, one answer, because a reader needs the same thing
+#: from all three; the *reason* tells them apart.
+BRIEF_UNAVAILABLE = "unavailable"
+
+#: The document exists and describes inputs whose digests have since moved. Its
+#: own state rather than an error: it is shown with that said out loud rather
 #: than withheld or silently trusted.
-BRIEF_STATES = ("available", "unavailable", "stale")
+BRIEF_STALE = "stale"
+
+#: The three states a brief can be in when a reader asks for one, and the
+#: vocabulary ``SourceKnowledgeAvailability`` publishes (`T-251`).
+#:
+#: This tuple had **zero** references anywhere in the tree — not even in this
+#: file, whose :func:`brief_state` spelled all three out as bare literals a few
+#: lines below it — while its docstring claimed to be the vocabulary the API
+#: publishes. A declared vocabulary nothing reads is not a single source of
+#: truth; it is a fourth place the strings are written down, and the one place
+#: that cannot be wrong because nothing consults it. So the states are named
+#: above, this tuple is built out of those names, and every producer in the
+#: package that this project owns returns one of them by constant.
+BRIEF_STATES = (BRIEF_AVAILABLE, BRIEF_UNAVAILABLE, BRIEF_STALE)
 
 
 def brief_state(run_dir: Path) -> dict[str, Any]:
@@ -126,18 +157,18 @@ def brief_state(run_dir: Path) -> dict[str, Any]:
     """
     path = Path(run_dir) / BRIEF_FILENAME
     if not path.exists():
-        return {"state": "unavailable", "reason": "no source_knowledge.json", "brief": None}
+        return {"state": BRIEF_UNAVAILABLE, "reason": NO_BRIEF_REASON, "brief": None}
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         return {
-            "state": "unavailable",
+            "state": BRIEF_UNAVAILABLE,
             "reason": f"source_knowledge.json cannot be read ({type(exc).__name__})",
             "brief": None,
         }
     if not isinstance(document, dict):
         return {
-            "state": "unavailable",
+            "state": BRIEF_UNAVAILABLE,
             "reason": "source_knowledge.json does not hold an object",
             "brief": None,
         }
@@ -152,13 +183,13 @@ def brief_state(run_dir: Path) -> dict[str, Any]:
             if not isinstance(recorded, dict) or recorded.get(field) != current[field]
         )
         return {
-            "state": "stale",
+            "state": BRIEF_STALE,
             "reason": (
                 "generated from inputs that have since changed: " + ", ".join(moved)
             ),
             "brief": document,
         }
-    return {"state": "available", "reason": None, "brief": document}
+    return {"state": BRIEF_AVAILABLE, "reason": None, "brief": document}
 
 
 def run_digest(run_dir: Path) -> str:

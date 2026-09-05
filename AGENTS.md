@@ -10,7 +10,8 @@ source of truth; do not infer support from roadmap text.
   `JSON`, or timestamped `TXT/MD` from the user.
 - **X/Twitter:** use the `capture` CLI path for public posts and same-author
   self-threads. For a thread, request its last post. Preserve authored text exactly;
-  provenance is a post id plus an exact character span.
+  provenance is a post id plus an exact character span, and the excerpt must re-slice
+  from that span verbatim.
 - **Medium, arbitrary websites, books, PDF, and EPUB:** not implemented. Do not claim
   they were ingested, adapt them as YouTube, or invent an ad hoc canonical format.
 
@@ -37,6 +38,11 @@ source of truth; do not infer support from roadmap text.
 - Keep `evidence_excerpt` verbatim in the source language; never translate or normalize it.
 - Keep source titles and acquisition metadata in their original form.
 - Do not translate schema keys, IDs, enum values, relation types, omission codes, or statuses.
+- Two of these fields are machine-checked and the rest are not: `validators` refuses a
+  source brief's `content` and a source relation's `rationale` when they carry no
+  Perso-Arabic character, and checks nothing else on this list. Hold to the policy anyway —
+  the primary extraction output is the part no exit code covers. `WORKFLOW.md` states the
+  boundary in full.
 
 ## Required completion discipline
 
@@ -45,7 +51,7 @@ source of truth; do not infer support from roadmap text.
 - Run no more than three total coverage-audit attempts.
 - Apply model output through `apply-bundle`; do not write canonical extraction files
   around the gate.
-- Run the validators before claiming success.
+- Run the validators **before finalization** and before claiming success.
 - Completion requires exit code `0`, with validation and coverage both `PASS`.
 - `PARTIAL` and `FAIL` are valid reported outcomes. Never coerce either to `PASS`.
 - Use the shared canonical files and commands so the result remains portable between
@@ -60,3 +66,10 @@ source of truth; do not infer support from roadmap text.
   run-local `vault/`. Obsidian compatibility means Markdown, YAML frontmatter, and
   wikilinks; it does not authorize editing a user's separate vault.
 - The local UI and API are read-only. Do not add a write path as an ingestion shortcut.
+
+## Tool boundary
+
+The optional MCP server exposes the current YouTube-oriented workflow and read/search
+tools. Use the local CLI for the implemented X/Twitter capture path. Do not reinterpret
+missing MCP functionality as missing canonical evidence, and do not invent a tool call for
+a source the project does not support.

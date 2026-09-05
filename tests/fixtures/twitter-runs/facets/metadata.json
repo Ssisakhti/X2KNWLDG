@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "pipeline_version": "0.1.0",
+  "video_id": "9000000000000000001",
+  "source_type": "twitter",
+  "source_url": "https://x.com/i/status/9000000000000000001",
+  "author_username": "x2k_fixture",
+  "title": "نمونهٔ ساختگی 🛰 و 𝕏 — این متن برای آزمونِ فاصلهٔ نویسه‌ای ساخته شده است. #فاصله —…",
+  "channel": "x2k_fixture",
+  "languages": [
+    "fa"
+  ],
+  "language": "fa",
+  "anchor": {
+    "post_id": "9000000000000000001",
+    "role": "single_post",
+    "terminal_claim": "none"
+  },
+  "item_count": 1,
+  "available_item_count": 1,
+  "order_basis": "single_item",
+  "completeness": {
+    "upward": {
+      "status": "complete",
+      "basis": "single_item"
+    },
+    "downward": {
+      "status": "not_applicable",
+      "reason": "a single post makes no claim about a conversation"
+    }
+  },
+  "capture_coverage_status": "PASS",
+  "external_references": [],
+  "acquired_at": "2026-01-01T00:00:00Z",
+  "imported_at": "2026-01-01T00:00:00+00:00",
+  "canonical_hashes": {
+    "capture.json": "864b9194c79e58fb5a926a36455f9a748c5b98cbbd24cf63947b068b093dc694"
+  },
+  "extraction": {
+    "model": "none — mechanical fixture extraction",
+    "fixture": true,
+    "note": "One quote unit per available post, cited by the span it was taken from."
+  },
+  "extracted_at": "2026-01-01T00:00:00+00:00",
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — the provider responses under raw/ were WRITTEN FOR THIS FIXTURE, not recorded: a synthetic account, a post id no snowflake has reached, and a facet list carrying one deliberately wrong offset. Nothing here is a claim about a real post or a real provider answer. Regenerate with tests/fixtures/twitter-runs/build_fixtures.py."
+}

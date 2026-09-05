@@ -44,8 +44,12 @@ export function ErrorState({ error, onRetry }: { error: ApiFailure; onRetry?: ()
           {error.message}
         </p>
       )}
-      <p className="notice__code">
-        {t("error.code")}: {error.code}
+      {/* The label is a word in the reader's language (`کد`), the code is a
+          machine value. `.notice__code` is an LTR isolate, so it may hold the
+          code and not the label — it used to hold both and reversed the
+          Persian. */}
+      <p>
+        {t("error.code")}: <span className="notice__code">{error.code}</span>
         {error.status !== null ? ` · HTTP ${error.status}` : ""}
       </p>
       {onRetry !== undefined && RETRYABLE.includes(error.code) && (

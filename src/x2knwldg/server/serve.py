@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import socket
 import webbrowser
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -94,7 +95,9 @@ def bind(host: str, port: int | None) -> tuple[socket.socket, Listening]:
     return sock, Listening(host=bound_host, port=bound_port)
 
 
-def build_app(project_root: Path, assets: Path) -> Any:
+def build_app(
+    project_root: Path, assets: Path, *, allowed_hosts: Sequence[str] | None = None
+) -> Any:
     """The API, with the built frontend mounted beneath it.
 
     ``create_app`` is left exactly as Track B froze it -- the mount happens
@@ -102,7 +105,7 @@ def build_app(project_root: Path, assets: Path) -> Any:
     unchanged and `test_the_served_surface_is_exactly_the_frozen_one` still
     compares like with like.
 
-    Order matters: the eleven ``/api`` routes are registered by ``create_app``
+    Order matters: the thirteen ``/api`` routes are registered by ``create_app``
     and the static mount is added last, so it can only ever catch what no API
     route claimed. ``html=True`` serves ``index.html`` for the root, which is
     all the frontend needs -- D-060 chose hash routing precisely so no
@@ -112,12 +115,19 @@ def build_app(project_root: Path, assets: Path) -> Any:
     escape it, which is canvas plan section 8.3 step 5 for this half of the
     surface; the byte channel enforces the same rule for canonical files
     against the project root (`T-108`).
+
+    *allowed_hosts* is forwarded rather than dropped. ``create_app``'s own
+    comment said the parameter exists "because ``serve.py`` knows what it
+    bound", and ``serve.py`` did not pass it: every caller in the program took
+    the default, so the D-103 allowlist was a constant with a parameter drawn
+    around it. ``None`` still means the loopback set, so nothing changes for a
+    caller that has nothing to add -- `test_ui_serving` is one.
     """
     from fastapi.staticfiles import StaticFiles
 
     from .app import create_app
 
-    app = create_app(project_root=Path(project_root))
+    app = create_app(project_root=Path(project_root), allowed_hosts=allowed_hosts)
     app.mount("/", StaticFiles(directory=str(assets), html=True), name="ui")
     return app
 
@@ -136,10 +146,29 @@ def serve(
     ``uvicorn`` starts without racing it: the connection queues in the kernel
     and is accepted as soon as the loop runs. That avoids a background thread
     whose only job would be to guess when the server is ready.
+
+    **The address it actually bound is in the D-103 allowlist**, which is the
+    wiring ``app.create_app``'s comment described and nobody had written. The
+    loopback names stay in it beside that address, and both halves are load
+    bearing:
+
+    * ``bind()`` resolves the *name* the user typed, so ``--host localhost``
+      produces ``Listening(host='127.0.0.1')`` or ``'::1'`` depending on what
+      ``getaddrinfo`` returns first. An allowlist of the bound address alone
+      would answer ``400`` to ``http://localhost:8931/`` -- the URL the user
+      asked for -- which is D-172's failure with a different cause.
+    * The bound address is added because it is the one fact only this function
+      has. Today ``cli.py`` refuses every non-loopback ``--host``, so the union
+      is the loopback set; if that refusal is ever relaxed for a LAN address,
+      the allowlist widens with the bind instead of silently refusing it.
     """
     import uvicorn
 
-    app = build_app(project_root, assets)
+    from .app import LOOPBACK_HOST_NAMES
+
+    app = build_app(
+        project_root, assets, allowed_hosts=[listening.host, *LOOPBACK_HOST_NAMES]
+    )
     config = uvicorn.Config(app, log_level="warning", access_log=False)
     server = uvicorn.Server(config)
     if open_browser:

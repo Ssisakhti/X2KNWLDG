@@ -19,15 +19,23 @@ import { describe, expect, it } from "vitest";
 
 import { PROVENANCE_CLASSES, RELATION_VOCABULARIES } from "../api/vocabulary";
 import {
-  EDGE_PROVENANCE_MARK,
+  edgeProvenanceMarks,
   EDGE_VOCABULARY_MARK,
   KIND_FAMILIES,
-  KIND_FAMILY_COLOUR,
+  kindFamilyColour,
   NODE_PROVENANCE_MARK,
-  UNRECOGNISED_EDGE_PROVENANCE_MARK,
+  unrecognisedEdgeProvenanceMark,
   UNRECOGNISED_PROVENANCE_MARK,
   UNRECOGNISED_VOCABULARY_MARK,
 } from "../map/mapStyle";
+
+// The three canvas ink tables are per stage now (`map/stage.ts`): no single
+// colour clears 4.5:1 on both `#fbfaf8` and `#17161a`, so there cannot be one
+// table. jsdom has no `matchMedia`, so `mapStage()` answers `light` here and
+// these bindings are the light stage's inks -- the values this suite always read.
+const EDGE_PROVENANCE_MARK = edgeProvenanceMarks("light");
+const KIND_FAMILY_COLOUR = kindFamilyColour("light");
+const UNRECOGNISED_EDGE_PROVENANCE_MARK = unrecognisedEdgeProvenanceMark("light");
 import { renderApp } from "../test/render";
 import { MapLegend } from "./MapLegend";
 
