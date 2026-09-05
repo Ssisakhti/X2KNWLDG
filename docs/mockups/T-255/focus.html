@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>T-255 — Source Focus (Directional Orbit)</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="workspace">
+  <header class="bar">
+    <span class="bar__brand" data-i18n="app.title"></span>
+    <nav class="bar__nav">
+      <button class="pill" data-i18n="nav.library"></button>
+      <button class="pill pill--on" data-i18n="nav.map"></button>
+    </nav>
+    <div class="modeswitch">
+      <span class="modeswitch__label" data-i18n="map.mode.label"></span>
+      <button class="pill" data-i18n="map.mode.knowledge"></button>
+      <button class="pill pill--on" data-i18n="map.mode.sources"></button>
+    </div>
+    <span class="bar__spacer"></span>
+    <span class="mono" id="route"></span>
+  </header>
+
+  <main class="stage" id="stage">
+    <svg class="stage__svg" id="svg"></svg>
+    <div class="stage__overlay" id="overlay"></div>
+
+    <div class="float float--focusbar">
+      <button class="pill" id="back"></button>
+      <span class="float__sep">|</span>
+      <span class="float__label" data-i18n="map.focus.title"></span>
+      <span class="mono" id="focusid"></span>
+      <span class="float__sep">·</span>
+      <span id="sides" style="color:var(--fg-muted);font-size:var(--text-sm)"></span>
+    </div>
+
+    <div class="float float--zoom">
+      <button class="iconbtn" id="zoomout">−</button>
+      <button class="iconbtn" id="zoomreset">⤢</button>
+      <button class="iconbtn" id="zoomin">+</button>
+    </div>
+
+    <!-- The one primary drawer, bounded and overlaying the stage. Its width is
+         subtracted from the orbit's field first, so it can never cover the
+         focused card — WCAG 2.2 AA "Focus Not Obscured", which is a real
+         failure T-211 found by measuring rather than by looking. -->
+    <aside class="drawer" id="drawer">
+      <div class="drawer__head">
+        <h2 class="drawer__title" data-i18n="source.basis.title"></h2>
+        <span class="bar__spacer"></span>
+        <span class="badge" id="basiscount"></span>
+        <button class="iconbtn" style="min-block-size:2rem;min-inline-size:2rem">×</button>
+      </div>
+      <div class="drawer__body" id="detail"></div>
+    </aside>
+  </main>
+</div>
+
+<script type="module">
+import { DATA, FIELD, DATASET, t, LOCALE, RTL, el, svg, bdi, cutToBudget, CHARS, BOX,
+         DRAWER_WIDTH, SCOPE_MARK, EDGE_WEIGHT, MAP_DIMMED_NODE_OPACITY,
+         badges, relationPill, mediumOf, briefStateOf, isSynthetic,
+         directionFrom, otherEnd } from "./render.js";
+
+document.documentElement.lang = LOCALE;
+document.body.dir = RTL ? "rtl" : "ltr";
+for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
+document.getElementById("back").textContent =
+  `${RTL ? "→" : "←"} ${t("map.mode.sources")}`;
+for (const [id, key] of [["zoomin", "map.zoomIn"], ["zoomout", "map.zoomOut"], ["zoomreset", "map.resetView"]]) {
+  document.getElementById(id).title = t(key);
+}
+
+const params = new URLSearchParams(location.search);
+const BOUND = params.get("bound") === "1";
+const WANTED = params.get("source")
+  ?? (DATASET === "dense" ? FIELD.hub : "youtube:fixture-pass");
+const body = BOUND && FIELD.bounded_focus ? FIELD.bounded_focus : FIELD.focus[WANTED];
+const CENTRE = body.source;
+const SOURCE_ID = CENTRE.source_id;
+const KNOWLEDGE = body.source_knowledge;
+
+document.getElementById("route").textContent = `#/map?of=sources&focus=${SOURCE_ID}`;
+document.getElementById("focusid").textContent = SOURCE_ID;
+document.getElementById("sides").textContent = RTL
+  ? `${body.incoming.length} ورودی · ${body.outgoing.length} خروجی`
+  : `${body.incoming.length} incoming · ${body.outgoing.length} outgoing`;
+
+const neighbours = new Map(body.neighbors.map((n) => [n.source_id, n]));
+const stage = document.getElementById("stage");
+const W = stage.clientWidth, H = stage.clientHeight;
+
+/* Three compositions, not one scaled three ways (T-211's rule, inherited).
+   Below the orbit's minimum width there is nothing to orbit: the answer is
+   fewer cards with counted omissions, never smaller text. */
+const MODE = W < 900 ? "stack" : W < 2000 ? "compact" : "full";
+const NARROW = MODE !== "full";
+document.documentElement.dataset.mode = MODE;
+
+const s = document.getElementById("svg");
+s.setAttribute("viewBox", `0 0 ${W} ${H}`);
+const overlay = document.getElementById("overlay");
+const drawer = document.getElementById("drawer");
+
+const { PRIMARY, CARD, perSide } = BOX[MODE];
+const DRAWER = NARROW ? 0 : DRAWER_WIDTH + 32;
+if (NARROW) drawer.style.display = "none";
+const ORIGIN = RTL ? DRAWER : 0;
+const FIELD_W = W - DRAWER;
+const cx = ORIGIN + FIELD_W / 2;
+const cy = H / 2;
+/* Incoming on the side reading starts from, so it mirrors with the script.
+   The records are untouched; only which side draws them changes. */
+const FLIP = RTL ? -1 : 1;
+
+const scale = Math.min(1, FIELD_W / 2280);
+const TOP_INSET = MODE === "full" ? 150 : 140;
+const bandY = Math.max(120, Math.min(520, H / 2 - TOP_INSET - (MODE === "full" ? 130 : 70)));
+/* The arm is a scaled constant OR the primary card's own half-width plus a
+   gap, whichever is larger — and the second half is the one that matters.
+   T-211's arm is the scaled constant alone, which works for a knowledge card
+   because a KU card is narrower than the arm at every tier. A source card
+   carries a brief and is 440–660 px wide, and at the `compact` tier the scaled
+   arm lands 56 px INSIDE the primary's own box: every neighbour was seated on
+   top of the focused card. A port inside the card it leaves is a geometric
+   impossibility rather than a tuning mistake, so it is stated as one. */
+/* Where a relationship's label lives is part of the composition, not a style.
+   At the `full` tier a pill rides its own edge, which is what makes the field
+   readable as a graph. At `compact` there is no clear run to ride: the arms are
+   short, the cards are close, and the seat search found no seat that was not on
+   a card or on a side label. So the pill belongs to the card there — in flow, in
+   its head — and the edge is left to carry direction alone. Three compositions,
+   not one scaled three ways. */
+const PILL_ON_PATH = MODE === "full";
+const armNear = Math.max((MODE === "compact" ? 260 : 430) * scale, PRIMARY.width / 2 + 32);
+const armFar = (MODE === "compact" ? 60 : 140) * scale;
+
+const incoming = body.incoming.slice(0, perSide);
+const outgoing = body.outgoing.slice(0, perSide);
+const omitted = (body.incoming.length - incoming.length)
+              + (body.outgoing.length - outgoing.length);
+
+/* ---- content helpers ---------------------------------------------------- */
+
+/** The KU ids a narrative element rests on, drawn rather than described. */
+function basedOn(ids) {
+  const wrap = el("span", "basedon");
+  for (const id of ids) wrap.appendChild(el("span", "basedon__chip", id));
+  return wrap;
+}
+
+/** The brief, or the honest statement that there is none. */
+function briefBlock(knowledge, { compact = false } = {}) {
+  const block = el("div", "brief");
+  if (knowledge.brief === null) {
+    block.appendChild(el("div", "brief__label", t("source.brief.title")));
+    const note = el("p", "brief__thesis",
+      knowledge.state === "unavailable"
+        ? t("source.brief.unavailableNote")
+        : t("source.brief.staleNote"));
+    note.style.color = "var(--fg-muted)";
+    note.style.fontSize = "var(--text-sm)";
+    block.appendChild(note);
+    if (knowledge.reason) block.appendChild(el("p", "mono", knowledge.reason));
+    return block;
+  }
+  const brief = knowledge.brief;
+  if (knowledge.state === "stale") {
+    const warn = el("p", "brief__label", t("source.brief.staleNote"));
+    warn.style.cssText = "text-transform:none;letter-spacing:0;color:var(--provenance-derived-fg);font-size:var(--text-xs)";
+    block.appendChild(warn);
+  }
+  block.appendChild(el("div", "brief__label", t("source.brief.thesis")));
+  const thesis = el("p", "brief__thesis");
+  const cut = cutToBudget(brief.thesis.content, CHARS.THESIS);
+  thesis.appendChild(bdi(cut.shown + (cut.truncated ? "…" : "")));
+  thesis.appendChild(basedOn(brief.thesis.based_on));
+  block.appendChild(thesis);
+
+  const points = compact ? brief.key_points.slice(0, 1) : brief.key_points;
+  if (points.length > 0) {
+    block.appendChild(el("div", "brief__label", t("source.brief.keyPoints")));
+    const list = el("ul", "brief__points");
+    for (const point of points) {
+      const item = el("li", "brief__point");
+      item.appendChild(el("span", "brief__id", point.id));
+      const text = el("span", "");
+      const cutPoint = cutToBudget(point.content, CHARS.POINT);
+      text.appendChild(bdi(cutPoint.shown + (cutPoint.truncated ? "…" : "")));
+      text.appendChild(basedOn(point.based_on));
+      item.appendChild(text);
+      list.appendChild(item);
+    }
+    block.appendChild(list);
+  }
+  const hidden = brief.key_points.length - points.length;
+  if (hidden > 0) {
+    block.appendChild(el("p", "card__cut", RTL
+      ? `${hidden} نکتهٔ دیگر در چکیدهٔ کامل.`
+      : `${hidden} more key point(s) in the full brief.`));
+  }
+  if (!compact && brief.limitations_or_tensions.length > 0) {
+    block.appendChild(el("div", "brief__label", t("source.brief.limitations")));
+    const list = el("ul", "brief__points");
+    for (const point of brief.limitations_or_tensions) {
+      const item = el("li", "brief__point");
+      item.appendChild(el("span", "brief__id", point.id));
+      const text = el("span", "");
+      text.appendChild(bdi(point.content));
+      text.appendChild(basedOn(point.based_on));
+      item.appendChild(text);
+      list.appendChild(item);
+    }
+    block.appendChild(list);
+  }
+  return block;
+}
+
+const cardBoxes = [];
+function frame(id, x, y, w, h, cls) {
+  const node = el("article", cls);
+  node.style.left = `${x}px`;
+  node.style.top = `${y}px`;
+  node.style.inlineSize = `${w}px`;
+  cardBoxes.push({ id, left: x, top: y, right: x + w, bottom: y + h });
+  return node;
+}
+
+function sourceCard(node, knowledge, x, y, w, h) {
+  const card = frame(node.source_id, x, y, w, h,
+    "card card--source card--primary card--sourceprimary");
+  const head = el("div", "card__head");
+  badges(node, head, { status: knowledge.brief?.status ?? null, state: knowledge.state });
+  card.appendChild(head);
+  const title = el("h2", "card__title");
+  const cut = cutToBudget(node.label, CHARS.TITLE_PRIMARY);
+  title.appendChild(bdi(cut.shown + (cut.truncated ? "…" : "")));
+  card.appendChild(title);
+  card.appendChild(briefBlock(knowledge, { compact: MODE !== "full" }));
+  const foot = el("div", "card__foot");
+  foot.append(el("span", "mono", node.source_id), el("span", "mono", node.canonical_path));
+  card.appendChild(foot);
+  return card;
+}
+
+/**
+ * A neighbour is a source, and its card says what that source is. It does NOT
+ * repeat the relationship: the edge's pill already carries that, and drawing
+ * both put two identical pills on every relationship — six edges reading as
+ * twelve, one of them floating beside a card it did not belong to.
+ * One relation, one pill; the card describes its own end.
+ */
+function neighbourCard(relation, node, x, y, w, h) {
+  const card = frame(node.source_id, x, y, w, h, "card card--source card--neighbour");
+  const head = el("div", "card__head");
+  if (!PILL_ON_PATH) head.appendChild(relationPill(relation, SOURCE_ID, { row: true, active: true }));
+  const medium = mediumOf(node);
+  const chip = el("span", "badge badge--medium");
+  chip.style.setProperty("--medium-hue", medium.hue);
+  chip.append(el("span", "badge__glyph", medium.glyph), " ", t(`source.medium.${node.source_type}`));
+  const state = briefStateOf(node.source_id);
+  head.append(chip, el("span", `badge badge--brief badge--brief-${state}`,
+    `${t("source.brief.state")}: ${t(`source.brief.${state}`)}`));
+  card.appendChild(head);
+  const title = el("p", "card__title");
+  const cut = cutToBudget(node.label, CHARS.TITLE_NEIGHBOUR);
+  title.appendChild(bdi(cut.shown + (cut.truncated ? "…" : "")));
+  card.appendChild(title);
+  const foot = el("div", "card__foot");
+  foot.append(el("span", "mono", node.source_id));
+  // The basis count is said once. Where the pill is in the card's head it is
+  // already there; where the pill is on the path the card is the only place
+  // that carries it.
+  if (PILL_ON_PATH) {
+    foot.append(el("span", "relpill__basis", `${relation.basis_total} ${t("source.basis.pairs")}`));
+  }
+  card.appendChild(foot);
+  return card;
+}
+
+/* ---- stack composition -------------------------------------------------- */
+function renderStack() {
+  stage.classList.add("stage--stack");
+  drawer.style.display = "none";
+  document.querySelector(".float--zoom").style.display = "none";
+  document.querySelector(".float--focusbar").classList.add("float--focusbar-stack");
+
+  const scroll = el("div", "stack-list");
+  const card = el("article", "card card--source card--stack-primary");
+  const head = el("div", "card__head");
+  badges(CENTRE, head, { status: KNOWLEDGE.brief?.status ?? null, state: KNOWLEDGE.state });
+  card.appendChild(head);
+  const title = el("h2", "card__title");
+  title.appendChild(bdi(CENTRE.label));
+  card.appendChild(title);
+  card.appendChild(briefBlock(KNOWLEDGE, { compact: true }));
+  scroll.appendChild(card);
+
+  scroll.appendChild(el("h2", "stack-list__title",
+    `${t("source.relations.title")} · ${body.incoming.length + body.outgoing.length}`));
+  for (const relation of [...body.incoming, ...body.outgoing]) {
+    const other = neighbours.get(otherEnd(relation, SOURCE_ID));
+    const row = el("article", "card card--source card--stack");
+    const cue = el("div", "card__head");
+    cue.appendChild(relationPill(relation, SOURCE_ID, { row: true }));
+    row.appendChild(cue);
+    const line = el("p", "card__title");
+    line.appendChild(bdi(cutToBudget(other?.label ?? "", CHARS.TITLE_NEIGHBOUR).shown));
+    row.appendChild(line);
+    scroll.appendChild(row);
+  }
+  stage.appendChild(scroll);
+}
+
+/* ---- the orbit ---------------------------------------------------------- */
+function place(list, dir) {
+  const n = list.length;
+  return list.map((relation, i) => {
+    const tpos = n === 1 ? 0 : (i / (n - 1)) * 2 - 1;
+    const y = cy + tpos * bandY;
+    const arm = armNear + armFar * (1 - Math.abs(tpos));
+    return { relation, y, portX: cx + dir * arm, dir };
+  });
+}
+
+let primary = null;
+const pillBoxes = [];
+
+if (MODE === "stack") {
+  renderStack();
+} else {
+  // Unrelated sources stay present and faint: present, never absent, never
+  // competing. A source the neighbourhood did not return is still in the
+  // library, and a stage that erased it would be saying it is not.
+  const drawn = new Set([SOURCE_ID, ...body.neighbors.map((n) => n.source_id)]);
+  const others = FIELD.graph.nodes.filter((n) => !drawn.has(n.source_id));
+  const gFaint = svg("g", { opacity: String(MAP_DIMMED_NODE_OPACITY * 0.6) });
+  others.forEach((node, index) => {
+    const step = (index + 1) / (others.length + 1);
+    const dot = svg("circle", {
+      cx: ORIGIN + 70 + step * (FIELD_W - 140),
+      cy: 100 + ((index % 3) * 26),
+      r: 5,
+    });
+    dot.setAttribute("fill", mediumOf(node).hue);
+    gFaint.appendChild(dot);
+  });
+  s.appendChild(gFaint);
+
+  const ring = armNear + armFar;
+  s.appendChild(svg("ellipse", {
+    cx, cy, rx: ring, ry: Math.min(bandY + 110, H / 2 - 24),
+    fill: "none", stroke: "var(--orbit-ring)", "stroke-width": 1, "stroke-dasharray": "2 10",
+  }));
+
+  for (const [dir, word, gloss] of [
+    [-1 * FLIP, t("source.relations.incoming"), t("source.relations.intoFocus")],
+    [1 * FLIP, t("source.relations.outgoing"), t("source.relations.outOfFocus")],
+  ]) {
+    const label = el("div", "sidelabel");
+    label.append(el("strong", "", word), el("span", "sidelabel__gloss", gloss));
+    label.style.left = `${cx + dir * (armNear + armFar * 0.5)}px`;
+    label.style.top = "98px";
+    overlay.appendChild(label);
+  }
+
+  primary = sourceCard(CENTRE, KNOWLEDGE,
+    cx - PRIMARY.width / 2, cy - PRIMARY.height / 2, PRIMARY.width, PRIMARY.height);
+  overlay.appendChild(primary);
+
+  const gEdges = svg("g");
+  const specs = [];
+  for (const spot of [...place(incoming, -1 * FLIP), ...place(outgoing, 1 * FLIP)]) {
+    const { relation, y, portX, dir } = spot;
+    const other = neighbours.get(otherEnd(relation, SOURCE_ID));
+    if (other === undefined) continue;
+    const x = dir === -1 ? portX - CARD.width : portX;
+    overlay.appendChild(neighbourCard(relation, other, x, y - CARD.height / 2, CARD.width, CARD.height));
+    specs.push({ relation, portX, y, dir });
+  }
+
+  /* What a pill may not sit on, measured rather than reserved. D-203's finding
+     applied here: a card's drawn rectangle is routinely taller than the box it
+     was seated in, and the side labels are not in the reservation set at all —
+     both were places a pill landed until this list was built from the DOM. */
+  const stageOrigin = stage.getBoundingClientRect();
+  const obstacles = [...stage.querySelectorAll(".card, .sidelabel, .ringlabel")]
+    .filter((node) => !drawer.contains(node))
+    .map((node) => {
+      const box = node.getBoundingClientRect();
+      return { left: box.left - stageOrigin.left, top: box.top - stageOrigin.top,
+               right: box.right - stageOrigin.left, bottom: box.bottom - stageOrigin.top };
+    });
+
+  const pointOn = (from, to, u) => {
+    const bend = (to.y - from.y) * 0.12;
+    const p1 = { x: from.x + (to.x - from.x) * 0.45, y: from.y + bend };
+    const p2 = { x: from.x + (to.x - from.x) * 0.55, y: to.y - bend };
+    const v = 1 - u;
+    return {
+      x: v * v * v * from.x + 3 * v * v * u * p1.x + 3 * v * u * u * p2.x + u * u * u * to.x,
+      y: v * v * v * from.y + 3 * v * v * u * p1.y + 3 * v * u * u * p2.y + u * u * u * to.y,
+    };
+  };
+
+  for (const { relation, portX, y, dir } of specs) {
+    const from = { x: cx + dir * (PRIMARY.width / 2), y: cy };
+    const to = { x: portX, y };
+    gEdges.appendChild(svg("path", {
+      d: `M${from.x},${from.y} C${from.x + (to.x - from.x) * 0.45},${from.y + (to.y - from.y) * 0.12} `
+       + `${from.x + (to.x - from.x) * 0.55},${to.y - (to.y - from.y) * 0.12} ${to.x},${to.y}`,
+      fill: "none", stroke: "var(--accent)", "stroke-width": EDGE_WEIGHT,
+      opacity: 0.85, "stroke-dasharray": SCOPE_MARK[relation.scope],
+    }));
+    for (const point of [from, to]) {
+      gEdges.appendChild(svg("circle", {
+        cx: point.x, cy: point.y, r: 4, fill: "var(--stage-ground)",
+        stroke: "var(--accent)", "stroke-width": 2,
+      }));
+    }
+
+    if (!PILL_ON_PATH) continue;
+    const pill = relationPill(relation, SOURCE_ID, { active: true });
+    overlay.appendChild(pill);
+    const size = pill.getBoundingClientRect();
+    const half = { w: size.width / 2 + 6, h: size.height / 2 + 4 };
+    let seated = null;
+    search:
+    for (const lift of [0, -34, 34, -62, 62, -92, 92, -124, 124, -158, 158]) {
+      for (const u of [0.56, 0.44, 0.66, 0.34, 0.74, 0.28, 0.82, 0.2, 0.88, 0.5]) {
+        const on = pointOn(from, to, u);
+        const at = { x: on.x, y: on.y + lift };
+        const box = { left: at.x - half.w, right: at.x + half.w,
+                      top: at.y - half.h, bottom: at.y + half.h };
+        if (box.left < ORIGIN + 8 || box.right > ORIGIN + FIELD_W - 8
+            || box.top < 8 || box.bottom > H - 8) continue;
+        const hitsCard = obstacles.some((b) =>
+          box.left < b.right && b.left < box.right && box.top < b.bottom && b.top < box.bottom);
+        const hitsPill = pillBoxes.some((b) =>
+          box.left < b.right && b.left < box.right && box.top < b.bottom && b.top < box.bottom);
+        if (!hitsCard && !hitsPill) { seated = { at, box, on, lift }; break search; }
+      }
+    }
+    if (seated === null) {
+      const at = pointOn(from, to, 0.56);
+      seated = { at, box: { left: at.x - half.w, right: at.x + half.w,
+                            top: at.y - half.h, bottom: at.y + half.h }, crowded: true };
+    }
+    if (seated.lift) {
+      gEdges.appendChild(svg("line", {
+        x1: seated.on.x, y1: seated.on.y, x2: seated.at.x,
+        y2: seated.at.y - Math.sign(seated.lift) * (size.height / 2),
+        stroke: "var(--border-strong)", "stroke-width": 1, "stroke-dasharray": "2 3",
+      }));
+    }
+    pill.style.left = `${seated.at.x}px`;
+    pill.style.top = `${seated.at.y}px`;
+    pillBoxes.push({ ...seated.box, id: `pill:${relation.id}`, crowded: seated.crowded === true });
+  }
+  s.appendChild(gEdges);
+
+  // What the stage or the response could not carry, counted rather than dropped.
+  if (omitted > 0 || body.truncated) {
+    const note = el("div", "float");
+    note.style.cssText = "position:absolute;inset-block-end:var(--space-4);inset-inline-start:var(--space-4);max-inline-size:460px";
+    note.appendChild(el("div", "float__label", t("source.bound.title")));
+    if (omitted > 0) {
+      const line = el("p", "", RTL
+        ? `${omitted} نسبت بیش از سهم صحنه؛ همه در فهرست معنایی می‌مانند.`
+        : `${omitted} beyond the stage's card budget · all of them remain in the list below.`);
+      line.style.cssText = "margin:0;font-size:var(--text-xs);color:var(--fg-muted)";
+      note.appendChild(line);
+    }
+    if (body.truncated) {
+      const line = el("p", "", t("source.bound.bothDirections"));
+      line.style.cssText = "margin:var(--space-1) 0 0;font-size:var(--text-xs);color:var(--fg-faint)";
+      note.appendChild(line);
+    }
+    stage.appendChild(note);
+  }
+}
+
+/* ---- the drawer: one relationship's basis, then every relationship ------ */
+const selected = body.incoming[0] ?? body.outgoing[0] ?? null;
+const detail = document.getElementById("detail");
+function section(title, ...children) {
+  const box = el("section", "section");
+  box.appendChild(el("h3", "section__title", title));
+  box.append(...children);
+  detail.appendChild(box);
+}
+
+if (selected === null) {
+  // A drawer titled "what this relationship rests on" over no relationship is
+  // a heading for something that is not there. The panel keeps its place and
+  // changes what it is called.
+  document.querySelector(".drawer__title").textContent = t("source.relations.title");
+  document.getElementById("basiscount").textContent = "0";
+  section(t("source.relations.title"), el("p", "statement", t("source.relations.none")));
+} else {
+  document.getElementById("basiscount").textContent =
+    t("source.basis.count", { returned: selected.basis_returned, total: selected.basis_total });
+
+  const head = el("div", "card__head");
+  head.appendChild(relationPill(selected, SOURCE_ID, { active: true, row: true }));
+  section(t("source.relations.title"), head,
+    (() => {
+      const pair = el("dl", "dl");
+      pair.append(
+        el("dt", "", t("source.relations.scope")),
+        el("dd", "", `${t(`source.relations.scope.${selected.scope}`)} — ${t("source.relations.scopeNote")}`),
+        el("dt", "", "from_source_id"), el("dd", "mono", selected.from_source_id),
+        el("dt", "", "to_source_id"), el("dd", "mono", selected.to_source_id),
+        el("dt", "", "id"), el("dd", "mono", selected.id),
+      );
+      return pair;
+    })());
+
+  const rationale = el("p", "rationale");
+  rationale.appendChild(bdi(selected.rationale));
+  section(t("source.basis.rationale"), rationale);
+
+  const list = el("ul", "basis");
+  for (const entry of selected.basis) {
+    const row = el("li");
+    row.append(
+      el("span", "mono", entry.from_ku_id),
+      el("span", "basis__arrow", RTL ? "←" : "→"),
+      el("span", "mono", entry.to_ku_id),
+      el("span", "basis__type", entry.relation_type),
+    );
+    list.appendChild(row);
+  }
+  const note = el("p", "", t("source.basis.note"));
+  note.style.cssText = "margin:var(--space-2) 0 0;font-size:var(--text-xs);color:var(--fg-faint)";
+  section(`${t("source.basis.pairs")} · ${t("source.basis.count", { returned: selected.basis_returned, total: selected.basis_total })}`,
+          list, note);
+}
+
+// Every returned relationship stays text-accessible, whether or not the stage
+// had room for it. This list is the stage's companion, not its summary.
+const companion = el("ul", "companion");
+for (const relation of [...body.incoming, ...body.outgoing]) {
+  const other = neighbours.get(otherEnd(relation, SOURCE_ID));
+  const row = el("li");
+  row.append(
+    el("span", "companion__side", t(`source.relations.${directionFrom(relation, SOURCE_ID)}`)),
+    el("strong", "relpill__vocab-name", relation.relation_type),
+    el("span", "", t(`source.relations.scope.${relation.scope}`)),
+    el("span", "mono", other?.source_id ?? otherEnd(relation, SOURCE_ID)),
+    el("span", "relpill__basis", `${relation.basis_total} ${t("source.basis.pairs")}`),
+  );
+  if (isSynthetic(relation)) row.append(el("span", "relpill__written", t("source.synthetic.mark")));
+  else row.append(el("span", "badge", t("source.gated.mark")));
+  companion.appendChild(row);
+}
+section(`${t("source.relations.title")} · ${body.incoming.length + body.outgoing.length}`, companion);
+
+const refusals = el("ul", "refusals");
+refusals.append(el("li", "", t("source.refusals.rank")), el("li", "", t("source.refusals.freshness")));
+section(t("source.refusals.title"), refusals);
+
+const technical = el("dl", "dl");
+for (const [key, value] of [["center_id", body.center_id], ["source_id", CENTRE.source_id],
+                            ["entity_type", CENTRE.entity_type], ["provenance_class", CENTRE.provenance_class],
+                            ["canonical_path", CENTRE.canonical_path], ["state", KNOWLEDGE.state],
+                            ["truncated", String(body.truncated)]]) {
+  technical.append(el("dt", "mono", key), el("dd", "mono", String(value)));
+}
+section(t("map.quickRead.technical"), technical);
+
+/* ---- self-check: the acceptance clauses, measured ----------------------- */
+/*
+ * Measured over the DRAWN rectangles, not the reserved ones.
+ *
+ * D-203 settled this for the Knowledge Map by trying it the other way: over 86
+ * real centres, 63 cards laid out taller than their reservation and none of
+ * them overlapped, so a box is a seating input rather than an upper bound over
+ * the card. The invariant a reader would notice is "no two things over the same
+ * pixels", and only the drawn rectangle can answer that. A source card is
+ * taller than a knowledge card and varies more — a brief is one to three
+ * sections — so the gap between reservation and reality is wider here, and the
+ * first draft of this check missed a relation pill sitting on a side label at
+ * the `compact` tier because both were outside the reservation set.
+ */
+const problems = [];
+// Stage surfaces only. The drawer is chrome and holds pills and cards of its
+// own; sweeping them in reported the drawer's own contents as clipped by the
+// field the drawer sits beside, which is a bug in the check rather than in the
+// picture — found by measuring the rectangle it complained about.
+const drawn = [
+  ...stage.querySelectorAll(".card, .chip, .relpill, .sidelabel, .ringlabel"),
+].filter((node) => !drawer.contains(node)).map((node) => {
+  const box = node.getBoundingClientRect();
+  const label = node.className.split(" ")[1] ?? node.className;
+  return {
+    id: `${label}:${(node.textContent ?? "").trim().slice(0, 24)}`,
+    left: box.left - stage.getBoundingClientRect().left,
+    top: box.top - stage.getBoundingClientRect().top,
+    right: box.right - stage.getBoundingClientRect().left,
+    bottom: box.bottom - stage.getBoundingClientRect().top,
+    node,
+  };
+});
+
+if (MODE !== "stack") {
+  for (let i = 0; i < drawn.length; i += 1) {
+    for (let j = i + 1; j < drawn.length; j += 1) {
+      const a = drawn[i], b = drawn[j];
+      // A pill sits ON its own card's head in the drawer, and the drawer is not
+      // the stage; only stage-level surfaces are compared.
+      if (a.node.contains(b.node) || b.node.contains(a.node)) continue;
+      if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) {
+        problems.push(`${a.id} overlaps ${b.id}`);
+      }
+    }
+  }
+  const stageBox = stage.getBoundingClientRect();
+  for (const chrome of stage.querySelectorAll(".float")) {
+    const rect = chrome.getBoundingClientRect();
+    const zone = { left: rect.left - stageBox.left, right: rect.right - stageBox.left,
+                   top: rect.top - stageBox.top, bottom: rect.bottom - stageBox.top };
+    for (const box of drawn) {
+      if (chrome.contains(box.node)) continue;
+      if (box.left < zone.right && zone.left < box.right
+          && box.top < zone.bottom && zone.top < box.bottom) {
+        problems.push(`${box.id} runs under ${chrome.className.replace("float ", "")}`);
+      }
+    }
+  }
+  if (!NARROW) {
+    const drawerBox = drawer.getBoundingClientRect();
+    const primaryBox = primary.getBoundingClientRect();
+    if (primaryBox.right > drawerBox.left && primaryBox.left < drawerBox.right) {
+      problems.push("the drawer covers the focused card");
+    }
+  }
+  for (const box of drawn) {
+    if (box.left < ORIGIN - 1 || box.top < -1
+        || box.right > ORIGIN + FIELD_W + 1 || box.bottom > H + 1) {
+      problems.push(`${box.id} is clipped`);
+    }
+  }
+  for (const pill of pillBoxes) {
+    if (pill.crowded) problems.push(`${pill.id} found no clear seat`);
+  }
+  const placed = incoming.length + outgoing.length;
+  if (placed + omitted !== body.incoming.length + body.outgoing.length) {
+    problems.push("placed + omitted !== returned");
+  }
+}
+window.__geometry = {
+  mode: MODE, cards: cardBoxes.length, pills: pillBoxes.length,
+  incoming: body.incoming.length, outgoing: body.outgoing.length,
+  omitted, truncated: body.truncated, problems,
+};
+if (problems.length > 0) console.error("GEOMETRY:", problems.join(" | "));
+</script>
+</body>
+</html>

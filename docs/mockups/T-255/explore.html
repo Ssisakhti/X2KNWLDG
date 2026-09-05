@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>T-255 — Source Explore</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="workspace">
+  <header class="bar">
+    <span class="bar__brand" data-i18n="app.title"></span>
+    <nav class="bar__nav">
+      <button class="pill" data-i18n="nav.library"></button>
+      <button class="pill pill--on" data-i18n="nav.map"></button>
+    </nav>
+    <!-- The Map mode switch. It is addressable: the route carries the mode, so
+         a source field is a link rather than a state a reload loses. -->
+    <div class="modeswitch">
+      <span class="modeswitch__label" data-i18n="map.mode.label"></span>
+      <button class="pill" data-i18n="map.mode.knowledge"></button>
+      <button class="pill pill--on" data-i18n="map.mode.sources"></button>
+    </div>
+    <span class="bar__spacer"></span>
+    <span class="mono" id="route"></span>
+  </header>
+
+  <main class="stage" id="stage">
+    <svg class="stage__svg" id="svg"></svg>
+    <div class="stage__overlay" id="overlay"></div>
+
+    <div class="float float--search">
+      <label class="searchbox">
+        <span aria-hidden="true">⌕</span>
+        <input placeholder="" id="searchinput" readonly>
+        <span class="kbd">/</span>
+      </label>
+    </div>
+
+    <div class="float float--status" id="status"></div>
+
+    <div class="float float--zoom">
+      <button class="iconbtn" id="zoomout">−</button>
+      <button class="iconbtn" id="zoomreset">⤢</button>
+      <button class="iconbtn" id="zoomin">+</button>
+    </div>
+
+    <div class="float float--legend">
+      <div class="float__label" data-i18n="map.legend.title" style="margin-block-end:var(--space-2)"></div>
+      <div class="legend__grid" id="legend"></div>
+      <p class="legend__note" id="legendnote"></p>
+    </div>
+  </main>
+</div>
+
+<script type="module">
+import { DATA, FIELD, DATASET, t, LOCALE, RTL, el, svg, bdi, cutToBudget, CHARS,
+         MEDIUM_MARK, BRIEF_MARK, SCOPE_MARK, EDGE_WEIGHT, NODE_PROVENANCE_MARK,
+         PROVENANCE_GLYPH, mediumOf, briefStateOf, isSynthetic } from "./render.js";
+
+document.documentElement.lang = LOCALE;
+document.body.dir = RTL ? "rtl" : "ltr";
+for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
+document.getElementById("searchinput").placeholder = t("map.search.title");
+document.getElementById("route").textContent = "#/map?of=sources";
+for (const [id, key] of [["zoomin", "map.zoomIn"], ["zoomout", "map.zoomOut"], ["zoomreset", "map.resetView"]]) {
+  document.getElementById(id).title = t(key);
+}
+
+const graph = FIELD.graph;
+const counts = graph.counts;
+const layout = await fetch("layout.json").then((r) => r.json());
+const positions = layout[DATASET];
+
+const stage = document.getElementById("stage");
+const W = stage.clientWidth, H = stage.clientHeight;
+const s = document.getElementById("svg");
+s.setAttribute("viewBox", `0 0 ${W} ${H}`);
+const overlay = document.getElementById("overlay");
+const bySourceId = new Map(graph.nodes.map((n) => [n.source_id, n]));
+
+// ---- the chrome is built FIRST, because the field is what is left over ----
+// `placeOrbit` refuses a card against the floating chrome rather than against
+// the stage edge, and a field is owed the same rule: the first draft laid the
+// graph out over the whole stage and put a source — the one with no
+// relationships, which forceAtlas2 flings furthest — underneath the legend.
+// A mark under a control is a mark the reader cannot see or click.
+
+const status = document.getElementById("status");
+const row = (label, value) => {
+  const line = el("div", "float__row");
+  line.append(el("span", "float__num", String(value)), el("span", "float__label", label));
+  return line;
+};
+status.append(
+  row(t("source.counts.returned"), counts.sources_returned),
+  row(t("source.counts.relations"), counts.relations_returned),
+  row(t("source.counts.omitted"), counts.relations_omitted),
+  row(t("source.counts.total"), counts.sources_total),
+);
+const extent = el("div", "float__row");
+extent.style.marginBlockStart = "var(--space-1)";
+const extentValue = el("span", "", graph.truncated ? t("map.state.partial") : t("map.state.complete"));
+extentValue.style.color = "var(--fg-muted)";
+extent.append(el("span", "float__label", t("map.state.extent")), extentValue);
+status.append(extent);
+
+const legend = document.getElementById("legend");
+for (const [medium, mark] of Object.entries(MEDIUM_MARK)) {
+  const line = el("div", "legend__item");
+  const mini = svg("svg", { width: 16, height: 16, viewBox: "0 0 16 16" });
+  const dot = svg("circle", { cx: 8, cy: 8, r: 5.5 });
+  dot.setAttribute("fill", mark.hue);
+  mini.appendChild(dot);
+  line.append(mini, el("span", "badge__glyph", mark.glyph),
+              el("span", "", t(`source.medium.${medium}`)));
+  legend.appendChild(line);
+}
+for (const state of ["available", "stale", "unavailable"]) {
+  const line = el("div", "legend__item");
+  const mini = svg("svg", { width: 16, height: 16, viewBox: "0 0 16 16" });
+  const mark = BRIEF_MARK[state];
+  if (mark.halo) {
+    const halo = svg("circle", { cx: 8, cy: 8, r: 7, fill: "none", "stroke-dasharray": "2 2" });
+    halo.setAttribute("stroke", "currentColor");
+    mini.appendChild(halo);
+  }
+  const dot = svg("circle", { cx: 8, cy: 8, r: 4.5 });
+  dot.setAttribute("fill", mark.fill ? "currentColor" : "none");
+  dot.setAttribute("stroke", "currentColor");
+  dot.setAttribute("stroke-width", "1.4");
+  mini.appendChild(dot);
+  line.append(mini, el("span", "", `${t("source.brief.state")}: ${t(`source.brief.${state}`)}`));
+  legend.appendChild(line);
+}
+for (const [scope, dash] of Object.entries(SCOPE_MARK)) {
+  const line = el("div", "legend__item");
+  const mini = svg("svg", { width: 22, height: 16, viewBox: "0 0 22 16" });
+  const rule = svg("line", { x1: 1, y1: 8, x2: 21, y2: 8, "stroke-width": 2, "stroke-dasharray": dash });
+  rule.setAttribute("stroke", "currentColor");
+  mini.appendChild(rule);
+  line.append(mini, el("span", "", `${t("source.relations.scope")}: ${t(`source.relations.scope.${scope}`)}`));
+  legend.appendChild(line);
+}
+document.getElementById("legendnote").textContent = t("source.refusals.rank");
+
+// The disclosure sits ABOVE the legend rather than on it: both are anchored to
+// the same corner, and stacking them is what keeps the legend readable.
+const written = graph.relations.filter(isSynthetic).length;
+if (written > 0) {
+  const banner = el("div", "float float--synthetic");
+  banner.append(el("div", "float__label", t("source.synthetic.title")));
+  banner.append(el("p", "", t("source.synthetic.note", { n: written, total: graph.relations.length })));
+  stage.appendChild(banner);
+  const legendBox = document.querySelector(".float--legend").getBoundingClientRect();
+  banner.style.insetBlockEnd = `${Math.round(legendBox.height) + 28}px`;
+}
+
+// Below the `full` tier the legend and the disclosure fold to their triggers.
+// Un-folded they cost the 1440x900 field two thirds of its height, which is
+// SPEC §5's `compact` rule arriving as a measurement rather than as a style.
+const TIER = W < 900 ? "stack" : W < 2000 ? "compact" : "full";
+if (TIER !== "full") {
+  for (const control of stage.querySelectorAll(".float--legend, .float--synthetic")) {
+    control.classList.add("float--folded");
+  }
+  const legendBox = document.querySelector(".float--legend").getBoundingClientRect();
+  const banner = document.querySelector(".float--synthetic");
+  if (banner !== null) banner.style.insetBlockEnd = `${Math.round(legendBox.height) + 20}px`;
+}
+
+/** The largest rectangle inside the stage that no floating control overlaps. */
+const stageBox = stage.getBoundingClientRect();
+const chrome = [...stage.querySelectorAll(".float")].map((node) => {
+  const box = node.getBoundingClientRect();
+  return { name: node.className, left: box.left - stageBox.left, top: box.top - stageBox.top,
+           right: box.right - stageBox.left, bottom: box.bottom - stageBox.top };
+});
+const GAP = 28;
+let field = { left: 24, top: 24, right: W - 24, bottom: H - 24 };
+for (const box of chrome) {
+  const anchoredTop = box.top < H / 2;
+  const anchoredStart = box.left < W / 2;
+  // Trim on the axis the control is smaller in: a wide, short control at the
+  // top costs vertical room, a tall narrow one at the side costs horizontal.
+  const costVertical = box.bottom - box.top <= box.right - box.left;
+  if (costVertical) {
+    if (anchoredTop) field.top = Math.max(field.top, box.bottom + GAP);
+    else field.bottom = Math.min(field.bottom, box.top - GAP);
+  } else if (anchoredStart) {
+    field.left = Math.max(field.left, box.right + GAP);
+  } else {
+    field.right = Math.min(field.right, box.left - GAP);
+  }
+}
+
+// A mark may not land where its own label cannot be drawn. The label is
+// centred on the mark and sits under it, so the field owes it half a label
+// width on each side and a label's height below — without this the two
+// extreme sources in every layout lost their titles to the stage edge, which
+// is the one place a title is most needed and least expected to be missing.
+const LABEL_HALF = Math.min(360, Math.round(W / 7)) / 2;
+field.left += LABEL_HALF;
+field.right -= LABEL_HALF;
+field.bottom -= 52;
+field.top += 18;
+
+// forceAtlas2 emits its own coordinate space; the field is normalised here
+// rather than in the generator, so `layout.json` stays the layout the
+// production path produced and nothing else.
+const xs = graph.nodes.map((n) => positions[n.global_id]?.x ?? 0);
+const ys = graph.nodes.map((n) => positions[n.global_id]?.y ?? 0);
+const span = (list) => {
+  const lo = Math.min(...list), hi = Math.max(...list);
+  return hi - lo < 1e-6 ? { lo: lo - 0.5, size: 1 } : { lo, size: hi - lo };
+};
+const sx = span(xs), sy = span(ys);
+const px = (n) => field.left + ((positions[n.global_id]?.x ?? 0) - sx.lo) / sx.size * (field.right - field.left);
+const py = (n) => field.top + ((positions[n.global_id]?.y ?? 0) - sy.lo) / sy.size * (field.bottom - field.top);
+// A mark sized for a 1280px stage disappears on a 2852px one, so the scale is
+// viewport-derived and the ratios in NODE_PROVENANCE_MARK are preserved.
+const MARK = Math.max(1, W / 1280) * 1.35;
+const R = NODE_PROVENANCE_MARK.source.size * 0.5 * MARK;
+
+// ---- edges ---------------------------------------------------------------
+// One weight for every relationship, and no arrow scaled by anything: a
+// relationship carries no confidence, no score and no rank (D-247), and
+// `basis_total` is a count. Direction is an arrowhead; scope is a dash.
+//
+// An edge whose other end is not on this page is NOT drawn to an invented
+// mark. It is counted and named instead — the page carries the relation, the
+// index holds the source, and the mark arrives with the next page.
+const gEdges = svg("g");
+let offPage = 0;
+for (const relation of graph.relations) {
+  const a = bySourceId.get(relation.from_source_id);
+  const b = bySourceId.get(relation.to_source_id);
+  if (a === undefined || b === undefined) { offPage += 1; continue; }
+  const x1 = px(a), y1 = py(a), x2 = px(b), y2 = py(b);
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const gap = R + 3 * MARK;
+  const ax = x2 - Math.cos(angle) * gap, ay = y2 - Math.sin(angle) * gap;
+  gEdges.appendChild(svg("line", {
+    x1: x1 + Math.cos(angle) * gap, y1: y1 + Math.sin(angle) * gap, x2: ax, y2: ay,
+    stroke: "var(--edge-faint)",
+    "stroke-width": EDGE_WEIGHT * Math.max(1, MARK * 0.55),
+    "stroke-linecap": "round",
+    "stroke-dasharray": SCOPE_MARK[relation.scope]
+      ? SCOPE_MARK[relation.scope].split(" ").map((n) => Number(n) * MARK * 0.7).join(" ")
+      : "",
+  }));
+  const head = 5 * MARK;
+  gEdges.appendChild(svg("path", {
+    d: `M0,0 L${-head},${head * 0.42} L${-head},${-head * 0.42} Z`,
+    transform: `translate(${ax},${ay}) rotate(${(angle * 180) / Math.PI})`,
+    fill: "var(--edge-faint)",
+  }));
+}
+s.appendChild(gEdges);
+
+// ---- nodes ---------------------------------------------------------------
+// Every source is one circle at one size. Medium is hue plus glyph; brief
+// state is fill plus a word in the legend. Run status is deliberately NOT on
+// the field: a status is a fact about a run, and a mark for it would be read
+// as a quality ranking of the source.
+const gNodes = svg("g");
+const markBoxes = [];
+for (const node of graph.nodes) {
+  const x = px(node), y = py(node);
+  const medium = mediumOf(node);
+  const state = briefStateOf(node.source_id);
+  const brief = BRIEF_MARK[state] ?? BRIEF_MARK.unavailable;
+  if (brief.halo) {
+    gNodes.appendChild(svg("circle", {
+      cx: x, cy: y, r: R + 4 * MARK * 0.6, fill: "none",
+      stroke: medium.hue, "stroke-width": 1.2 * MARK * 0.6,
+      "stroke-dasharray": `${2 * MARK} ${2.4 * MARK}`, opacity: 0.85,
+    }));
+  }
+  const circle = svg("circle", { cx: x, cy: y, r: R });
+  circle.setAttribute("fill", brief.fill ? medium.hue : "none");
+  circle.setAttribute("fill-opacity", "0.92");
+  circle.setAttribute("stroke", brief.fill ? "var(--stage-ground)" : medium.hue);
+  circle.setAttribute("stroke-width", String((brief.fill ? 1.6 : 2.2) * Math.max(1, MARK * 0.6)));
+  gNodes.appendChild(circle);
+  markBoxes.push({ id: node.source_id, left: x - R, right: x + R, top: y - R, bottom: y + R });
+}
+s.appendChild(gNodes);
+
+// ---- labels --------------------------------------------------------------
+// A source field is small — one node per acquired source, so tens rather than
+// thousands — and that changes which of T-211's two label rules survives.
+//
+// The GRID CELL rule does not: `labelGridCellSize` rations labels on an
+// 86-node knowledge field, and over ten sources it refused three labels there
+// was room for. A source's title is the one thing its mark cannot say, so the
+// ration is dropped and every source is a candidate.
+//
+// The OVERLAP rule does, unchanged and in both halves: a label may sit on no
+// other label, on no mark, and under no floating control, because "no text
+// collision" is an acceptance clause rather than a hope. Two seats are tried,
+// below the mark and then above it. What still cannot be placed is counted.
+const LABEL_W = Math.min(360, Math.round(W / 7)), LABEL_H = 40, GAP_L = 14;
+const labelBoxes = [];
+const overlaps = (a) => labelBoxes.some((b) =>
+  a.left < b.right + GAP_L && b.left - GAP_L < a.right &&
+  a.top < b.bottom + GAP_L && b.top - GAP_L < a.bottom);
+const underChrome = (a) => chrome.some((b) =>
+  a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom);
+let unplaced = 0;
+
+for (const node of graph.nodes) {
+  const x = px(node), y = py(node);
+  // Below the mark by default; above it when below is taken. Two seats is the
+  // difference between labelling seven sources and labelling all ten.
+  const seats = [y + R + 8 * MARK * 0.6, y - R - 8 * MARK * 0.6 - LABEL_H];
+  let placed = null;
+  for (const top of seats) {
+    const box = { left: x - LABEL_W / 2, right: x + LABEL_W / 2, top, bottom: top + LABEL_H };
+    const onMark = markBoxes.some((m) =>
+      m.id !== node.source_id &&
+      box.left - 6 < m.right && m.left < box.right + 6 &&
+      box.top - 6 < m.bottom && m.top < box.bottom + 6);
+    if (overlaps(box) || onMark || underChrome(box)
+        || box.left < 16 || box.right > W - 16 || box.bottom > H - 16 || box.top < 16) continue;
+    placed = box;
+    break;
+  }
+  if (placed === null) { unplaced += 1; continue; }
+  labelBoxes.push(placed);
+
+  const tag = el("div", "");
+  const { shown, truncated } = cutToBudget(node.label, CHARS.LABEL);
+  tag.appendChild(bdi(shown + (truncated ? "…" : "")));
+  const id = el("div", "mono", node.source_id);
+  id.style.fontSize = "10px";
+  tag.appendChild(id);
+  Object.assign(tag.style, {
+    position: "absolute", left: `${x}px`, top: `${placed.top}px`,
+    transform: "translateX(-50%)", inlineSize: `${LABEL_W}px`, textAlign: "center",
+    fontSize: "var(--text-sm)", lineHeight: "1.3", color: "var(--fg-muted)",
+    textShadow: "0 0 8px var(--stage-ground), 0 0 16px var(--stage-ground), 0 0 24px var(--stage-ground)",
+  });
+  overlay.appendChild(tag);
+}
+
+if (offPage > 0) {
+  const note = el("p", "", t("source.counts.offPage"));
+  note.style.cssText = "margin:var(--space-2) 0 0;font-size:var(--text-xs);color:var(--fg-faint);max-inline-size:44ch";
+  status.append(note);
+}
+if (unplaced > 0) {
+  const note = el("p", "", RTL
+    ? `${unplaced} برچسب جای روشنی نیافت و ترسیم نشد؛ هر منبع همچنان در فهرست معنایی هست.`
+    : `${unplaced} label(s) had no clear seat and were not drawn; every source remains in the semantic list.`);
+  note.style.cssText = "margin:var(--space-1) 0 0;font-size:var(--text-xs);color:var(--fg-faint);max-inline-size:44ch";
+  status.append(note);
+}
+
+// ---- self-check ----------------------------------------------------------
+// The same contract T-211's pages carry: a capture is refused while a clause
+// is violated, because `capture_source_mockups.ts` treats a console error as a
+// failed shot. Three clauses, and the third is the one this page learned the
+// hard way — a MARK under a control, not only a label.
+const problems = [];
+for (let i = 0; i < labelBoxes.length; i += 1) {
+  for (let j = i + 1; j < labelBoxes.length; j += 1) {
+    const a = labelBoxes[i], b = labelBoxes[j];
+    if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) {
+      problems.push("two labels overlap");
+    }
+  }
+}
+for (const box of [...labelBoxes, ...markBoxes]) {
+  for (const control of chrome) {
+    if (box.left < control.right && control.left < box.right
+        && box.top < control.bottom && control.top < box.bottom) {
+      problems.push(`${box.id ?? "a label"} runs under ${control.name.replace("float ", "")}`);
+    }
+  }
+}
+for (const box of markBoxes) {
+  if (box.left < 0 || box.top < 0 || box.right > W || box.bottom > H) {
+    problems.push(`${box.id} is clipped`);
+  }
+}
+if (graph.nodes.length !== counts.sources_returned) {
+  problems.push("a returned source was not drawn");
+}
+window.__geometry = {
+  nodes: graph.nodes.length, edges: graph.relations.length,
+  labels: labelBoxes.length, unplaced, offPage,
+  field: `${Math.round(field.right - field.left)}x${Math.round(field.bottom - field.top)}`,
+  problems,
+};
+if (problems.length > 0) console.error("GEOMETRY:", problems.join(" | "));
+</script>
+</body>
+</html>

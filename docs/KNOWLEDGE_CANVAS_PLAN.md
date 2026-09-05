@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0, 1, 2, 2.1 and 2.2 are complete. **Phase 2.3 / `T-250`, the Source Map, is under way: `T-251` froze the records, ids, bounds, API shapes and fixtures (D-251–D-256), `T-252` gave the per-run brief a prompt, a gate and a projection (D-257–D-261), `T-253` made cross-source relations discoverable, bounded and gated (D-262–D-268), `T-254` gave the layer three rebuildable tables and the two read-only endpoints (D-269–D-276), and `T-255` — the high-fidelity mockups — is claimed.** It adds one readable node per source and automatic, evidence-backed source relationships before Canvas. Phase 3 remains technically unblocked but is deliberately deferred until the Source Map gate closes (D-244–D-250; [ADR 0008](adr/0008-source-level-knowledge-map.md)).
+**Current stage:** Phases 0, 1, 2, 2.1 and 2.2 are complete. **Phase 2.3 / `T-250`, the Source Map, is under way: `T-251` froze the records, ids, bounds, API shapes and fixtures (D-251–D-256), `T-252` gave the per-run brief a prompt, a gate and a projection (D-257–D-261), `T-253` made cross-source relations discoverable, bounded and gated (D-262–D-268), `T-254` gave the layer three rebuildable tables and the two read-only endpoints (D-269–D-276), and `T-255` — the high-fidelity mockups — is drawn and awaiting the user's approval.** It adds one readable node per source and automatic, evidence-backed source relationships before Canvas. Phase 3 remains technically unblocked but is deliberately deferred until the Source Map gate closes (D-244–D-250; [ADR 0008](adr/0008-source-level-knowledge-map.md)).
 **Last updated:** 2026-09-05
 **Current scope:** personal, fully local execution on macOS; YouTube and public X/Twitter implemented
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -1175,7 +1175,7 @@ Acceptance criteria:
   remains explicitly unsupported.
 
 Execution is `T-251 → T-252 → T-253 → T-254 → T-255 → T-256 → T-257` in
-`PROJECT_MANAGEMENT.md` §5. **`T-251`–`T-254` are done** (D-251–D-276) and `T-255` is claimed.
+`PROJECT_MANAGEMENT.md` §5. **`T-251`–`T-254` are done** (D-251–D-276) and `T-255`'s pictures await approval.
 
 What `T-251` settled, and why each one is a decision rather than a detail:
 
@@ -1819,7 +1819,7 @@ An agent must not guess the answers to these if the decision would cause a notic
   endpoints — `GET /api/source-graph` and `GET /api/source-graph/neighborhood/{source_id}` —
   page over source nodes, count what they omit, bound every basis and state both counts, and
   leave every Knowledge Map payload where it was (D-269–D-276). `T-255`, the high-fidelity
-  mockups, is claimed; **nothing renders any of it yet**
+  mockups, is drawn and awaiting approval; **nothing renders any of it yet**
 - [ ] Canvas — Phase 3 / `T-301`: technically unblocked, now deliberately deferred until the
   Source Map phase gate closes
 - [ ] Pen annotations
@@ -1830,7 +1830,7 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**Phase 2.3 / Source Map is under way; `T-251`–`T-254` are done and `T-255` is claimed.** Every
+**Phase 2.3 / Source Map is under way; `T-251`–`T-254` are done and `T-255`'s mockups await approval.** Every
 canonical record exists, is gated and is served (D-251–D-276): one source node per run, a
 readable Persian brief per run, and qualified cross-source relations with knowledge-unit basis,
 behind two read-only endpoints over three rebuildable SQLite tables. The response shapes frozen
@@ -1844,7 +1844,10 @@ and sparse, and with no WebGL — approved before a line of production UI. Claim
 that the fixture corpus carries four source nodes and **one** relation, and that the private
 library carries one node and none, so the dense half of that list has no committed body to be
 drawn from: sourcing it, through the `T-252`/`T-253` gates or as openly-labelled synthetic data,
-is the task's first decision (`PROJECT_MANAGEMENT.md` §11). Do not skip to the UI
+was the task's first decision, and it was answered by measuring what real discovery can
+propose over committed fixtures — three pairs, all single-medium — so the dense field is ten real
+source nodes carrying thirteen openly-labelled written relationships
+([`docs/mockups/T-255/SPEC.md`](mockups/T-255/SPEC.md)). Do not skip to the UI
 (`T-256`); each task consumes the previous one's gate. The complete handoff is
 [`SOURCE_MAP_SPEC.md`](SOURCE_MAP_SPEC.md) §8 and `PROJECT_MANAGEMENT.md` §11. Canvas (`T-301`)
 follows the `T-257` phase gate.

@@ -473,6 +473,9 @@ on the strength of this endpoint alone (D-274).
 - cover dark/light, Persian/English, PASS/PARTIAL, dense/mixed relationships and no-WebGL;
 - obtain user approval before production UI work.
 
+The mockups are drawn: [`docs/mockups/T-255/`](mockups/T-255/SPEC.md), 20 captures over two
+compositions and an honest-states sheet, awaiting the user's approval.
+
 Claiming it measured what those fixtures can and cannot show. The corpus is four source nodes
 and **one** relation, and every committed container holds one relation or none, so *dense* and
 *mixed* have no committed body; `stale` is one edit and a re-scan away rather than present;
@@ -497,7 +500,7 @@ measurements are recorded in full in `PROJECT_MANAGEMENT.md` §5 and §11.
 - update `WORKFLOW.md` only for behavior that is now implemented and validated.
 
 The tasks are serial at the phase boundary: `T-251 → T-252 → T-253 → T-254 → T-255 →
-T-256 → T-257`. `T-251`–`T-254` are done; `T-255` is claimed. Implementation may parallelize internal tests only when the contract owner
+T-256 → T-257`. `T-251`–`T-254` are done; `T-255`'s mockups are drawn and awaiting approval. Implementation may parallelize internal tests only when the contract owner
 has already frozen the relevant shape.
 
 ## 9. Phase acceptance criteria

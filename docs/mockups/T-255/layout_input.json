@@ -1,0 +1,88 @@
+{
+ "served": {
+  "nodes": [
+   "twitter:2094039408081068233:source",
+   "youtube:fixture-fail:source",
+   "youtube:fixture-partial:source",
+   "youtube:fixture-pass:source"
+  ],
+  "edges": [
+   [
+    "twitter:2094039408081068233:source",
+    "youtube:fixture-pass:source"
+   ]
+  ]
+ },
+ "dense": {
+  "nodes": [
+   "twitter:1580541310636883972:source",
+   "twitter:1795393908886712425:source",
+   "twitter:2027781710667010262:source",
+   "twitter:2094037638856454625:source",
+   "twitter:2094039408081068233:source",
+   "twitter:20:source",
+   "twitter:999999999999999999:source",
+   "youtube:fixture-fail:source",
+   "youtube:fixture-partial:source",
+   "youtube:fixture-pass:source"
+  ],
+  "edges": [
+   [
+    "youtube:fixture-fail:source",
+    "twitter:1795393908886712425:source"
+   ],
+   [
+    "twitter:20:source",
+    "youtube:fixture-fail:source"
+   ],
+   [
+    "youtube:fixture-partial:source",
+    "youtube:fixture-pass:source"
+   ],
+   [
+    "twitter:2094037638856454625:source",
+    "twitter:2094039408081068233:source"
+   ],
+   [
+    "youtube:fixture-pass:source",
+    "twitter:2027781710667010262:source"
+   ],
+   [
+    "twitter:2094037638856454625:source",
+    "youtube:fixture-pass:source"
+   ],
+   [
+    "youtube:fixture-partial:source",
+    "twitter:2094037638856454625:source"
+   ],
+   [
+    "twitter:1580541310636883972:source",
+    "youtube:fixture-partial:source"
+   ],
+   [
+    "twitter:2027781710667010262:source",
+    "twitter:1580541310636883972:source"
+   ],
+   [
+    "youtube:fixture-pass:source",
+    "twitter:1795393908886712425:source"
+   ],
+   [
+    "twitter:2094039408081068233:source",
+    "twitter:2027781710667010262:source"
+   ],
+   [
+    "youtube:fixture-pass:source",
+    "youtube:fixture-fail:source"
+   ],
+   [
+    "twitter:2094039408081068233:source",
+    "youtube:fixture-pass:source"
+   ],
+   [
+    "twitter:1795393908886712425:source",
+    "twitter:20:source"
+   ]
+  ]
+ }
+}

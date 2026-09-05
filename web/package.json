@@ -22,6 +22,9 @@
     "typecheck:scripts": "tsc --noEmit --project scripts/tsconfig.json",
     "mockups:layout": "tsx scripts/mockup_layout.ts",
     "mockups:capture": "tsx scripts/capture_mockups.ts",
+    "mockups:source-layout": "tsx scripts/source_mockup_layout.ts",
+    "mockups:source-capture": "tsx scripts/capture_source_mockups.ts",
+    "mockups:source-review": "tsx scripts/source_review_sheet.ts",
     "mockups:review": "tsx scripts/review_sheet.ts",
     "mockups:baseline": "tsx scripts/capture_baseline.ts",
     "measure:orbit": "tsx scripts/measure_orbit.ts"
