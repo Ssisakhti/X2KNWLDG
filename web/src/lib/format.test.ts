@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  formatCount,
   formatBytes,
   formatConfidence,
   formatSeconds,
@@ -45,9 +46,14 @@ describe("formatConfidence", () => {
 
 describe("formatBytes and formatTimestamp", () => {
   it("scale bytes and refuse a missing count", () => {
-    expect(formatBytes(512)).toBe("512 B");
-    expect(formatBytes(2048)).toBe("2.0 KB");
+    // The unit is returned separately rather than baked into the string: it is
+    // a word, and this module has no translator. It used to read "512 B" under
+    // a Persian label.
+    expect(formatBytes(512)).toEqual({ amount: "512", unit: "B" });
+    expect(formatBytes(2048)).toEqual({ amount: "2.0", unit: "KB" });
+    expect(formatBytes(5 * 1024 * 1024)).toEqual({ amount: "5.0", unit: "MB" });
     expect(formatBytes(null)).toBeNull();
+    expect(formatBytes(-1)).toBeNull();
   });
 
   it("shows an unparseable timestamp as written rather than dropping it", () => {
@@ -88,5 +94,32 @@ describe("global ids", () => {
   it("returns null rather than guessing at a malformed id", () => {
     expect(splitGlobalId("youtube:only-two")).toBeNull();
     expect(sourceIdOf("nonsense")).toBeNull();
+  });
+});
+
+describe("counts, in the reader's own digits", () => {
+  it("writes a Persian reader's counts in the digits their dates already use", () => {
+    // The defect this closes: `formatTimestamp("…","fa")` has always produced
+    // Persian-Indic digits, while every count beside it was a bare JS number.
+    // One panel, two numeral systems.
+    expect(formatCount(1234, "fa")).toBe("۱٬۲۳۴");
+    expect(formatCount(4, "fa")).toBe("۴");
+    expect(formatCount(1234, "en")).toBe("1,234");
+  });
+
+  it("renders a zero, because a zero is a measurement", () => {
+    expect(formatCount(0, "fa")).toBe("۰");
+    expect(formatCount(0, "en")).toBe("0");
+  });
+
+  it("returns null for a count the data does not state", () => {
+    expect(formatCount(null, "en")).toBeNull();
+    expect(formatCount(undefined, "en")).toBeNull();
+    expect(formatCount(Number.NaN, "en")).toBeNull();
+    expect(formatCount(Number.POSITIVE_INFINITY, "en")).toBeNull();
+  });
+
+  it("falls back to the number itself rather than to nothing on a bad locale", () => {
+    expect(formatCount(7, "not a language tag")).toBe("7");
   });
 });

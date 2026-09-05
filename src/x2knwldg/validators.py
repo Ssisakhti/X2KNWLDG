@@ -20,10 +20,11 @@ from .constants import (
     # The one timing epsilon. Six independent copies were six chances to disagree.
     TIME_TOLERANCE_SEC,
 )
+from .coverage import spans_overlap
 from .ids import DEFAULT_SOURCE_TYPE, IdError, is_id_part, source_relation_id
 from .io import is_finite_seconds
 from .synthesis import SCHEMA_VERSION as SOURCE_KNOWLEDGE_SCHEMA_VERSION
-from .transcripts import clean_text, transcript_end_sec
+from .transcripts import clean_text, comparable_text, transcript_end_sec
 
 # An excerpt shorter than this cannot be evidence: a one- or two-character
 # fragment is a substring of almost every segment, so the "excerpt appears in
@@ -1142,8 +1143,34 @@ def validate_knowledge_units(document: Any) -> dict[str, Any]:
         if requires_derivation:
             if not isinstance(unit.get("derived_from"), list) or not unit.get("derived_from"):
                 errors.append({"code": "missing_derived_from", "unit": location})
+            elif isinstance(unit_id, str) and unit_id in unit["derived_from"]:
+                # A unit derived from itself. `validate_relationships` refuses
+                # the same shape as an edge — `unintentional_self_loop` — and
+                # this list is the same claim written in the unit rather than
+                # in an edge, so refusing it there and accepting it here was
+                # one rule with a hole in it. A derivation that rests on itself
+                # rests on nothing, and it is what lets a `derived` unit satisfy
+                # `missing_derived_from` while naming no source at all.
+                errors.append({"code": "unit_derived_from_itself", "unit": location})
             if not str(unit.get("derivation_note") or "").strip():
                 errors.append({"code": "missing_derivation_note", "unit": location})
+            if not requires_provenance and isinstance(unit.get("source"), dict):
+                # A `derived` unit has no source block, and nothing validates
+                # one: `validate_knowledge_units` reads `source` only when
+                # `requires_provenance`, and `validate_provenance` skips every
+                # unit whose `source_class` is not `source`. But `query.
+                # run_documents` reads `unit["source"]` for **every** unit, so
+                # an unchecked block reached the search corpus as an evidence
+                # excerpt and its `start_sec` became a `hit["start_sec"]` and a
+                # `&t=<n>s` deep link. A derived unit carrying
+                # `{"start_sec": 99999, "evidence_excerpt": "never said this"}`
+                # validated PASS and search answered with an invented timestamp
+                # into a real video — which CLAUDE.md forbids outright. There is
+                # no shape of `source` this validator could check on a derived
+                # unit, because the unit cites no moment; so the block is
+                # refused rather than validated. Its provenance is
+                # `derived_from` and `derivation_note`, both required above.
+                errors.append({"code": "derived_unit_with_source_block", "unit": location})
         if unit.get("kind") == "statistic":
             missing_numeric = [
                 field for field in ("value", "unit", "context") if unit.get(field) in (None, "")
@@ -1291,8 +1318,22 @@ def validate_provenance(
         # `_evidence_excerpt_error` returns non-`None` for anything that is not
         # a string, so the fallback is unreachable — written out rather than
         # asserted so the narrowing is visible to a reader and to the checker.
-        excerpt = clean_text(raw_excerpt if isinstance(raw_excerpt, str) else "").casefold()
-        segment_text = clean_text(str(segment.get("text") or "")).casefold()
+        # `comparable_text`, not `clean_text`. The segment's text is already
+        # *cleaned* — `transcripts._canonical_caption` ran `clean_text` over it
+        # when the cue was parsed, and the segmenter assembled the segment out
+        # of those canonical captions — so running the parse-time cleaner again
+        # decodes HTML entities a second time on both sides. A source that says
+        # `the token is &amp;amp; and nothing else` is stored as `the token is
+        # &amp; and nothing else`; re-cleaning turned that into `the token is &
+        # and nothing else`, so an excerpt reading exactly that — a string
+        # present in no canonical file of the run — was a substring of the
+        # doubly-decoded segment and came back as proven provenance. Two
+        # canonical strings may only be compared through a normalisation that is
+        # idempotent; `comparable_text` is `clean_text` with the one step that
+        # is not removed, so the markup and whitespace forgiveness this
+        # comparison has always granted is unchanged.
+        excerpt = comparable_text(raw_excerpt if isinstance(raw_excerpt, str) else "").casefold()
+        segment_text = comparable_text(str(segment.get("text") or "")).casefold()
         if excerpt not in segment_text:
             errors.append({"code": "evidence_excerpt_not_in_segment", "unit": unit_id})
     return _result(errors, warnings)
@@ -1314,6 +1355,27 @@ def validate_coverage(document: Any, transcript_end_sec: float) -> dict[str, Any
     if window_size is not None and (not _is_seconds(window_size) or window_size <= 0):
         errors.append({"code": "invalid_window_size", "value": window_size})
         window_size = None
+    elif _is_seconds(window_size) and window_size > COVERAGE_WINDOW_SEC:
+        # D-164 reopened one field along: the bound every window is measured
+        # against was read from the audited document itself, and nothing
+        # compared it to the format's own constant. So the document chose its
+        # own bound and then passed it — replacing four 300-second windows with
+        # a single `[0, 1188.32]` one declaring `"window_size_sec": 1188.32`
+        # validated PASS at exit 0 and finalized, writing a report, a graph and
+        # 35 vault files over a timeline audited in one stroke. `WORKFLOW.md`
+        # §4 says an audit may subdivide a scaffolded window and may not merge
+        # windows, and that rule is only enforceable while the widest window the
+        # format allows is a **constant** rather than a field the audited
+        # document supplies. Reported and then clamped, so every window below is
+        # still measured against something rather than skipped.
+        errors.append(
+            {
+                "code": "window_size_over_format_bound",
+                "value": window_size,
+                "max": COVERAGE_WINDOW_SEC,
+            }
+        )
+        window_size = COVERAGE_WINDOW_SEC
     elif window_size is None and document.get("status") == "PASS":
         # Absent, and the document claims PASS: the geometry cannot be checked,
         # and an unverifiable claim is a failure. Absent on a PARTIAL document
@@ -1587,15 +1649,82 @@ def validate_post_provenance(knowledge_document: Any, capture: Any) -> dict[str,
     return _result(errors, warnings)
 
 
+#: The only ``availability.reason`` a capture may state, and why there is only
+#: one (D-205, D-216).
+#:
+#: ``schemas/capture/v1`` caps ``tier`` at ``{0, 1}`` — Tier 2 is session
+#: cookies, which ADR 0007 decision 6 excludes, so a capture that claims it is
+#: unrepresentable rather than merely disallowed. Below Tier 2 the provider
+#: collapses deleted, suspended and protected into one message, so no measured
+#: route on this project can tell them apart. The schema still *lists* the three
+#: specific reasons, deliberately, because a future tier could distinguish them
+#: — which means the schema alone cannot refuse one, and a validator has to.
+TIER_INDETERMINATE_REASON = "not_determinable_at_this_tier"
+
+
+def validate_capture_availability(capture: Any) -> list[dict[str, Any]]:
+    """Every ``unavailable`` item states the only reason this tier can support.
+
+    An invariant the project has stated in three places — ``schemas/capture/v1``
+    's ``$comment``, its README, D-216 — and implemented in none. Grep for
+    ``availability.reason`` across ``src/``: it is *written* once, by
+    ``twitter.acquire``, and read by nothing. Every branch in the package tests
+    ``availability.state`` instead. ``tests/test_twitter_capture.py`` has a case
+    named for the rule, and what it actually asserts is that its own inline
+    ``assert`` raises — a test that would still pass if the whole of ``src/``
+    were deleted, because no production code was ever on the path.
+
+    So a capture could say ``{"state": "unavailable", "reason": "deleted"}`` and
+    pass every gate, and the run would carry a finding — *this post was deleted*
+    — that no route it used could have observed. That is a fabricated fact about
+    a real account, which is a heavier claim than the tombstone it replaces.
+    Absence is a violation too: a ``reason``-less unavailability states nothing,
+    and D-216 requires an unavailability to rest on the message that was
+    actually preserved.
+
+    Returned as a list so :func:`validate_item_coverage` can fold these in
+    beside its own errors; it is the one validator that runs on every Twitter
+    run — both at the ``apply-bundle`` gate and in ``validate`` — and already
+    takes the capture as its second argument.
+    """
+    errors: list[dict[str, Any]] = []
+    items = capture.get("items") if isinstance(capture, dict) else None
+    if not isinstance(items, list):
+        # The capture's shape is `twitter.extract`'s business; this validator
+        # has nothing to say about a document that carries no items at all.
+        return errors
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        availability = item.get("availability")
+        if not isinstance(availability, dict) or availability.get("state") != "unavailable":
+            continue
+        reason = availability.get("reason")
+        if reason != TIER_INDETERMINATE_REASON:
+            errors.append(
+                {
+                    "code": "unavailability_reason_beyond_tier",
+                    "post_id": item.get("post_id"),
+                    "reason": reason,
+                    "expected": TIER_INDETERMINATE_REASON,
+                }
+            )
+    return errors
+
+
 def validate_item_coverage(document: Any, capture: Any) -> dict[str, Any]:
     """Item-based coverage: every included post covered, omitted or unresolved.
 
     The counterpart of :func:`validate_coverage`, and the shape of the argument
     is different in one important way. A timeline is *continuous*, so that
     validator walks a cursor and refuses a gap. An item set is **enumerated** —
-    the capture says exactly which posts it included — so the check is not
-    geometric but a set comparison, and it is exact rather than tolerant: there
-    is no epsilon on "which posts".
+    the capture's ``items`` are exactly the posts that were acquired — so the
+    check is not geometric but a set comparison, and it is exact rather than
+    tolerant: there is no epsilon on "which posts".
+
+    The expected set is read from ``capture["items"]`` and never from
+    ``capture["coverage"]["included_post_ids"]``; the comment on that line says
+    what the second one let through.
 
     ``PASS`` is impossible while any expected item is unaccounted for, which is
     the acceptance clause ``T-227`` is written against.
@@ -1610,21 +1739,33 @@ def validate_item_coverage(document: Any, capture: Any) -> dict[str, Any]:
         errors.append({"code": "coverage_basis_not_items", "value": document.get("basis")})
     entries = document["items"]
     errors.extend(_audit_attempt_errors(document))
+    # A capture invariant rather than a coverage one, folded in here because
+    # this is the validator every Twitter run passes through with the capture in
+    # hand. See :func:`validate_capture_availability`.
+    errors.extend(validate_capture_availability(capture))
 
-    included = [
-        post_id
-        for post_id in (
-            capture.get("coverage", {}).get("included_post_ids", [])
-            if isinstance(capture, dict)
-            else []
-        )
-        if isinstance(post_id, str)
-    ]
     capture_items = {
         item["post_id"]: item
         for item in (capture.get("items") or [] if isinstance(capture, dict) else [])
         if isinstance(item, dict) and isinstance(item.get("post_id"), str)
     }
+    # The expected set is the capture's **items**, not
+    # `capture.coverage.included_post_ids`. That list is a self-declared field
+    # of the very document being audited, so the audit was asking the audited
+    # document which posts it had to account for: on the committed
+    # `self-thread` fixture, deleting one id from `included_post_ids`,
+    # restamping `metadata.canonical_hashes["capture.json"]`, and then dropping
+    # that post's coverage entry and its source unit produced a `validate_run`
+    # of `PASS` with zero errors and zero warnings — while the post was still an
+    # item of the capture, still carrying text, and covered by nothing.
+    #
+    # `twitter.extract.create_pending_coverage` already mints exactly one entry
+    # per `capture["items"]`, unavailable posts included (they are minted
+    # `omitted` with `source_unavailable`), so this is the set the scaffold has
+    # always produced — the validator was checking a weaker one. `items` is what
+    # `validate` re-derives from the preserved bytes under `raw/`, which is why
+    # it is the half of the capture that cannot be quietly edited.
+    included = list(capture_items)
 
     unresolved = 0
     seen: list[str] = []
@@ -1845,10 +1986,16 @@ def validate_coverage_links(coverage: Any, units: Any) -> list[dict[str, Any]]:
     * A named unit must exist.
     * A ``PASS`` must account for every ``source`` unit.
     * A named ``source`` unit's evidence must **overlap the window that names
-      it**, and a ``covered`` window must have at least one such unit — or an
-      accounted omission, which is the other honest way for a window to be
-      covered without a citation. ``derived`` units carry no timing and can
-      never anchor a window; they may still be named beside one that does.
+      it** by more than the timing epsilon, and a ``covered`` window must have
+      at least one such unit — or an accounted omission, which is the other
+      honest way for a window to be covered without a citation. ``derived``
+      units carry no timing and can never anchor a window; they may still be
+      named beside one that does.
+
+      "By more than the epsilon" is the correction, not the rule: the tolerance
+      used to be applied in the permissive direction, so a unit touching an edge
+      from outside anchored the window it contributed nothing to. See
+      ``coverage.spans_overlap`` and the comment at the call below.
 
     One implementation, called by ``pipeline.validate_run`` and by
     ``artifacts.apply_extraction_bundle``, which each carried a partial copy.
@@ -1905,7 +2052,21 @@ def validate_coverage_links(coverage: Any, units: Any) -> list[dict[str, Any]]:
                 # `validate_provenance` reports the unusable timing itself; it
                 # simply cannot anchor a window.
                 continue
-            if unit_end > start - TIME_TOLERANCE_SEC and unit_start < end + TIME_TOLERANCE_SEC:
+            # D-164, corrected: this read `unit_end > start - TIME_TOLERANCE_SEC
+            # and unit_start < end + TIME_TOLERANCE_SEC`, which applies the
+            # epsilon in the **permissive** direction — it widens the window by
+            # a hundredth of a second at each edge, so a unit that merely
+            # touches an edge from *outside* anchored it. A `covered` window
+            # could therefore contain zero seconds of the evidence it cites: on
+            # the committed `bsmUh5bTNZ4` run a window spanning 509.599-639.92,
+            # 130 seconds and 444 spoken words, was anchored by a unit ending at
+            # exactly 509.599 and one starting at exactly 639.92, and `validate`
+            # returned all six sections PASS at exit 0. `coverage.spans_overlap`
+            # takes the tolerance as the overlap **required**, so the epsilon
+            # can only make the test stricter, and one function now answers
+            # "does this fall inside that window" for both this validator and
+            # the caption scaffold that mints the windows.
+            if spans_overlap(unit_start, unit_end, start, end, tolerance=TIME_TOLERANCE_SEC):
                 anchored = True
             else:
                 errors.append(

@@ -4,7 +4,7 @@
 repository decides what kind of refusal it is and the API renders it. That is
 the whole rule here — no route may catch a repository error and pick a
 different status for the same refusal, because then the taxonomy would live in
-eleven places instead of one.
+thirteen places instead of one.
 
 One thing routes *do* raise themselves, because the repository cannot:
 :class:`NotFound` — the repository returns ``None`` for absence rather than
@@ -165,7 +165,14 @@ async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
 
 
 def install(app) -> None:
-    """Register the three handlers on *app*."""
+    """Register the five handlers on *app*.
+
+    Three when this was written, and five since: `RequestValidationError` and
+    the catch-all `Exception` were added and the count was not. It is spelled
+    out rather than dropped because the number is the point — every refusal
+    this app can make has to reach one of these, and a handler that is *not*
+    here answers off-contract.
+    """
     app.add_exception_handler(RepositoryError, handle_repository_error)
     app.add_exception_handler(ApiError, handle_api_error)
     app.add_exception_handler(RequestValidationError, handle_validation_error)

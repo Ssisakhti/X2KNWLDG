@@ -34,7 +34,12 @@ from typing import Any
 import pytest
 
 from x2knwldg.artifacts import _carry_coverage_scaffold_forward, apply_extraction_bundle
-from x2knwldg.constants import COVERAGE_WINDOW_SEC, DERIVED_KINDS, SOURCE_KINDS
+from x2knwldg.constants import (
+    COVERAGE_WINDOW_SEC,
+    DERIVED_KINDS,
+    SOURCE_KINDS,
+    TIME_TOLERANCE_SEC,
+)
 from x2knwldg.ids import source_relation_id
 from x2knwldg.pipeline import PipelineError
 from x2knwldg.validators import (
@@ -743,6 +748,17 @@ UNIT_CODES: list[tuple[str, Any]] = [
     ("missing_derived_from", _units(_derived_unit(derived_from=[]))),
     ("missing_derivation_note", _units(_derived_unit(derivation_note=""))),
     ("unknown_derived_source", _units(_derived_unit(derived_from=["KU-999999"]))),
+    # A derivation that rests on itself rests on nothing. `derived_from` is the
+    # unit-shaped spelling of the edge `validate_relationships` already refuses
+    # as `unintentional_self_loop`.
+    ("unit_derived_from_itself", _units(_derived_unit(derived_from=["KU-D-0001"]))),
+    # A `derived` unit cites no moment, so nothing can check a `source` block on
+    # one — and nothing did, while `query.run_documents` read it and built a
+    # deep link out of it.
+    (
+        "derived_unit_with_source_block",
+        _units(_source_unit(), _derived_unit(source=_source(start_sec=99999.0, end_sec=99999.0))),
+    ),
 ]
 
 RELATIONSHIP_CODES: list[tuple[str, Any]] = [
@@ -821,6 +837,10 @@ COVERAGE_CODES: list[tuple[str, Any]] = [
     # D-164: the window geometry, and the summary that used to be write-only.
     ("missing_window_size", _coverage(status="PASS", audit_attempts=1)),
     ("invalid_window_size", _coverage(window_size_sec=0)),
+    (
+        "window_size_over_format_bound",
+        _coverage(window_size_sec=COVERAGE_WINDOW_SEC + 1),
+    ),
     (
         "window_wider_than_window_size",
         _coverage(
@@ -988,6 +1008,19 @@ def test_a_bundle_cannot_name_the_bound_it_is_measured_against(tmp_path: Path) -
 
     Both halves are asserted here: that the two documents differ only in the
     field, and that the carry-forward is what closes it.
+
+    The middle assertion used to read ``== "PASS"``, with the note "the
+    validator measures the document against itself; the guard is upstream". It
+    was wrong, and it was wrong in the direction that matters: an upstream guard
+    is a guard on the one path that runs it. `apply-bundle` carries the scaffold
+    forward, and `x2knwldg validate` does not — so a `coverage.json` that names
+    ``window_size_sec: 1188.32`` and merges four windows into one, written by
+    any means other than that gate, validated `PASS` at exit 0 **and then
+    finalized**, writing a report, a graph and 35 vault files over a timeline
+    audited in a single stroke. The format's bound is a constant, not a field
+    the audited document supplies, so the validator states it too. The
+    carry-forward is still asserted below, because a bundle should be refused
+    before it is written and not only when it is read back.
     """
     honest = _coverage(
         status="PASS",
@@ -1003,8 +1036,14 @@ def test_a_bundle_cannot_name_the_bound_it_is_measured_against(tmp_path: Path) -
         window_size_sec=1795.0,
         windows=[_window(window_id="CW-0001", start_sec=0.0, end_sec=1795.0)],
     )
-    assert validate_coverage(claimed, 1795.0)["status"] == "PASS", (
-        "the validator measures the document against itself; the guard is upstream"
+    measured = validate_coverage(claimed, 1795.0)
+    assert measured["status"] == "FAIL", (
+        "a document may not name the ruler it is measured against"
+    )
+    # Both: the ruler is refused, and the window is still measured — against
+    # the constant the document tried to replace.
+    assert {"window_size_over_format_bound", "window_wider_than_window_size"} <= _codes(
+        measured
     )
 
     # Upstream is the carry-forward, and it has to overwrite rather than fill in.
@@ -1047,6 +1086,75 @@ def test_a_bundle_applied_without_a_scaffold_still_cannot_name_its_own_bound(
     narrower: dict[str, Any] = {"window_size_sec": 120, "windows": []}
     _carry_coverage_scaffold_forward(run_dir, narrower)
     assert narrower["window_size_sec"] == 120, "subdividing is honest work"
+
+
+def test_a_scaffold_missing_the_key_still_clamps_the_bundle(tmp_path: Path) -> None:
+    """The word "unconditionally" in the docstring, checked against the code.
+
+    `_carry_coverage_scaffold_forward` said ``window_size_sec`` is carried
+    unconditionally "and that word is the whole guard", and then wrote ``if
+    "window_size_sec" in previous:`` — with the clamping ``else`` reachable only
+    when the previous document was not a mapping *at all*. So four inputs, three
+    of them right: an absent file clamped, a dict carrying the key clamped, a
+    non-dict clamped, and a readable ``coverage.json`` that was a perfectly good
+    object with that one key **removed** fell through both arms and left the
+    bundle's declared 1795 standing. Deleting the scaffold was safer than
+    emptying one field of it, which is the wrong way round for a file that is
+    supposed to be the run's own record.
+    """
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    scaffold = _coverage(
+        status="pending",
+        audit_attempts=0,
+        windows=[_window(window_id="CW-0001", status="pending")],
+    )
+    scaffold.pop("window_size_sec", None)
+    assert "window_size_sec" not in scaffold
+    (run_dir / "coverage.json").write_text(json.dumps(scaffold), encoding="utf-8")
+
+    claimed: dict[str, Any] = {"window_size_sec": 1795.0, "windows": []}
+    _carry_coverage_scaffold_forward(run_dir, claimed)
+    assert claimed["window_size_sec"] == COVERAGE_WINDOW_SEC, (
+        "a scaffold that has lost the field is not a licence to name it"
+    )
+
+    # The other three paths, asserted here as well so the four cannot drift
+    # apart again: a non-dict scaffold, a dict that does carry the key, and a
+    # bundle that declares nothing.
+    (run_dir / "coverage.json").write_text("[]", encoding="utf-8")
+    not_a_mapping: dict[str, Any] = {"window_size_sec": 1795.0, "windows": []}
+    _carry_coverage_scaffold_forward(run_dir, not_a_mapping)
+    assert not_a_mapping["window_size_sec"] == COVERAGE_WINDOW_SEC
+
+    scaffold["window_size_sec"] = 120
+    (run_dir / "coverage.json").write_text(json.dumps(scaffold), encoding="utf-8")
+    carried: dict[str, Any] = {"window_size_sec": 1795.0, "windows": []}
+    _carry_coverage_scaffold_forward(run_dir, carried)
+    assert carried["window_size_sec"] == 120, "the scaffold's own narrower bound wins"
+
+    silent: dict[str, Any] = {"windows": []}
+    _carry_coverage_scaffold_forward(run_dir, silent)
+    assert silent["window_size_sec"] == 120
+
+
+def test_a_scaffold_that_names_a_bound_over_the_format_is_clamped_too(
+    tmp_path: Path,
+) -> None:
+    """The clamp applies to the scaffold's value, not only to the bundle's.
+
+    A ``coverage.json`` minted by some earlier build with a wider window is
+    still not a licence to audit at that width today, and it is exactly as
+    editable as the bundle is.
+    """
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "coverage.json").write_text(
+        json.dumps({"window_size_sec": 1795.0, "windows": []}), encoding="utf-8"
+    )
+    coverage: dict[str, Any] = {"window_size_sec": 300, "windows": []}
+    _carry_coverage_scaffold_forward(run_dir, coverage)
+    assert coverage["window_size_sec"] == COVERAGE_WINDOW_SEC
 
 
 def test_every_window_naming_the_same_first_unit_cannot_claim_pass() -> None:
@@ -1143,11 +1251,25 @@ def _post_units(*units: dict[str, Any], **overrides: Any) -> dict[str, Any]:
     return document
 
 
-def _item(post_id: str = POST_ID, *, available: bool = True, text: Any = POST_TEXT) -> dict[str, Any]:
+def _item(
+    post_id: str = POST_ID,
+    *,
+    available: bool = True,
+    text: Any = POST_TEXT,
+    reason: str = "not_determinable_at_this_tier",
+) -> dict[str, Any]:
     item: dict[str, Any] = {
         "post_id": post_id,
         "availability": {"state": "available" if available else "unavailable"},
     }
+    if not available:
+        # What `twitter.acquire` actually writes, and the only value a capture
+        # at tier 0 or 1 can honestly carry. It was absent from this helper
+        # while no production code read the field; now that
+        # `validate_capture_availability` does, an unavailable item without one
+        # is the *defect* rather than the fixture, so the honest fixture states
+        # it and the case below is the one that lies.
+        item["availability"]["reason"] = reason
     if available and text is not None:
         item["text"] = {"canonical": text, "form": "authored"}
     return item
@@ -1312,6 +1434,36 @@ ITEM_COVERAGE_CODES: list[tuple[str, Any, Any]] = [
         "included_post_without_coverage",
         _item_coverage(items=[]),
         _capture(),
+    ),
+    (
+        # And the same clause where the capture's *self-declared*
+        # `included_post_ids` no longer names the post. The expected set is the
+        # capture's items, so emptying that list cannot empty the obligation.
+        "included_post_without_coverage",
+        _item_coverage(items=[]),
+        _capture(
+            coverage={
+                "status": "PASS",
+                "expected_item_count": 1,
+                "included_post_ids": [],
+                "omitted_items": [],
+            }
+        ),
+    ),
+    (
+        # Tier 0 and tier 1 collapse deleted, suspended and protected into one
+        # message, so naming one of them is a finding no route observed.
+        "unavailability_reason_beyond_tier",
+        _item_coverage(
+            items=[
+                _coverage_item(
+                    status="omitted",
+                    knowledge_units=[],
+                    omitted_items=[{"type": "source_unavailable"}],
+                )
+            ]
+        ),
+        _capture(items=[_item(available=False, reason="deleted")]),
     ),
     (
         "unavailable_post_not_omitted",
@@ -1969,3 +2121,270 @@ def test_a_source_time_outside_its_own_segment_is_named() -> None:
     )
     assert result["status"] == "FAIL"
     assert "source_time_outside_segment" in _codes(result)
+
+
+# ---------------------------------------------------------------------------
+# 12. The 2026-09-05 audit — six holes, each of which returned exit `0`
+# ---------------------------------------------------------------------------
+#
+# Every case below was executed against the committed tree before it was fixed
+# and produced a `PASS`. They are grouped here rather than folded into the code
+# catalogues above because a catalogue entry proves a branch *fires*; these
+# prove the specific document that used to get through no longer does.
+
+
+def test_a_covered_window_must_contain_seconds_of_the_evidence_it_cites() -> None:
+    """The epsilon pointed the wrong way, so touching an edge counted as being inside.
+
+    ``validate_coverage_links`` tested overlap as ``unit_end > start -
+    TIME_TOLERANCE_SEC and unit_start < end + TIME_TOLERANCE_SEC``: the
+    tolerance *widened* the window by a hundredth of a second at each edge, so a
+    unit lying entirely outside it, touching only its boundary, anchored it. The
+    geometry below is the shape found on the committed ``bsmUh5bTNZ4`` run —
+    130 seconds and 444 spoken words between a unit that ends exactly where the
+    window starts and one that starts exactly where it ends — and it validated
+    with all six sections `PASS` at exit 0.
+    """
+    coverage = _coverage(
+        window_size_sec=300,
+        windows=[
+            _window(
+                window_id="CW-0003",
+                start_sec=509.599,
+                end_sec=639.92,
+                knowledge_units=["KU-000013", "KU-000014"],
+            )
+        ],
+    )
+    units = _units(
+        _source_unit(id="KU-000013", source=_source(start_sec=477.919, end_sec=509.599)),
+        _source_unit(id="KU-000014", source=_source(start_sec=639.92, end_sec=660.399)),
+    )
+    codes = {error["code"] for error in validate_coverage_links(coverage, units["units"])}
+    assert "covered_window_without_evidence_in_it" in codes, (
+        "a window whose every citation lies outside it is covered by nothing"
+    )
+    assert {"coverage_unit_outside_window"} <= codes
+
+
+def test_a_unit_touching_a_window_edge_from_inside_still_anchors_it() -> None:
+    """The stricter bound must not manufacture a false negative.
+
+    An honest audit subdivides at caption boundaries, so a unit whose evidence
+    ends a fraction of a second inside the window is the normal case and is
+    still evidence. Only *zero* real overlap is refused.
+    """
+    coverage = _coverage(
+        window_size_sec=300,
+        windows=[_window(window_id="CW-0001", start_sec=0.0, end_sec=300.0)],
+    )
+    units = _units(_source_unit(source=_source(start_sec=283.919, end_sec=298.56)))
+    assert validate_coverage_links(coverage, units["units"]) == []
+
+
+def test_one_predicate_answers_the_window_question_for_both_readers() -> None:
+    """``coverage.caption_in_window`` and the validator ask the same question.
+
+    They used to answer it with two hand-written expressions, which is how one
+    of them acquired an epsilon pointing the wrong way. Both now call
+    ``coverage.spans_overlap``, and the only difference between them is the
+    tolerance each passes — stated as an argument rather than baked into a
+    second copy of the comparison.
+    """
+    from x2knwldg.coverage import caption_in_window, spans_overlap
+
+    # Zero tolerance: the caption scaffold's own rule, unchanged.
+    assert spans_overlap(0.0, 5.0, 0.0, 300.0)
+    assert not spans_overlap(300.0, 310.0, 0.0, 300.0)
+    assert caption_in_window(
+        {"start_sec": 0.0, "end_sec": 5.0}, 0.0, 300.0, False
+    ) is spans_overlap(0.0, 5.0, 0.0, 300.0)
+
+    # The tolerance may only ever make the test stricter: a span sharing less
+    # than the epsilon with the window is not inside it.
+    assert not spans_overlap(295.0, 300.0, 300.0, 600.0, tolerance=TIME_TOLERANCE_SEC)
+    assert not spans_overlap(300.0, 305.0, 0.0, 300.0, tolerance=TIME_TOLERANCE_SEC)
+    assert spans_overlap(299.0, 305.0, 0.0, 300.0, tolerance=TIME_TOLERANCE_SEC)
+
+
+def test_a_coverage_document_may_not_declare_a_window_wider_than_the_format() -> None:
+    """`window_size_sec` is a constant of the format, not a field of the document.
+
+    Replacing four 300-second windows with one ``[0, 1188.32]`` that declares
+    ``"window_size_sec": 1188.32`` validated `PASS` at exit 0 and then
+    *finalized*: a report, a graph and 35 vault files over a timeline audited in
+    one stroke. WORKFLOW.md §4 permits subdividing a scaffolded window and
+    forbids merging windows, and that rule is only enforceable while the widest
+    window is a number the document cannot choose.
+    """
+    merged = _coverage(
+        status="PASS",
+        audit_attempts=1,
+        window_size_sec=1188.32,
+        windows=[_window(window_id="CW-0001", start_sec=0.0, end_sec=1188.32)],
+    )
+    result = validate_coverage(merged, 1188.32)
+    assert result["status"] == "FAIL"
+    assert "window_size_over_format_bound" in _codes(result)
+    # Clamped rather than abandoned, so the window is still measured.
+    assert "window_wider_than_window_size" in _codes(result)
+    over = next(
+        error for error in result["errors"] if error["code"] == "window_size_over_format_bound"
+    )
+    assert over["max"] == COVERAGE_WINDOW_SEC
+
+
+def test_the_scaffolded_bound_is_accepted_unchanged() -> None:
+    """The bound the scaffold mints is exactly the bound, and passes."""
+    honest = _coverage(
+        status="PASS",
+        audit_attempts=1,
+        window_size_sec=COVERAGE_WINDOW_SEC,
+        windows=[_window(window_id="CW-0001", start_sec=0.0, end_sec=TRANSCRIPT_END)],
+    )
+    assert validate_coverage(honest, TRANSCRIPT_END)["status"] == "PASS"
+
+
+def test_a_derived_unit_may_not_carry_a_source_block() -> None:
+    """The block nothing validated, that search then published as a deep link.
+
+    ``validate_knowledge_units`` reads ``source`` only when the unit owes
+    provenance, and ``validate_provenance`` skips every unit whose
+    ``source_class`` is not ``source`` — so this block was checked by neither,
+    while ``query.run_documents`` read it for every unit and turned its
+    ``start_sec`` into a ``&t=99999s`` link and its excerpt into search text.
+    """
+    document = _units(
+        _source_unit(),
+        _derived_unit(
+            source={
+                "video_id": "OTHER",
+                "segment_id": "seg_000001",
+                "start_sec": 99999,
+                "end_sec": 99999,
+                "evidence_excerpt": "never said this",
+            }
+        ),
+    )
+    result = validate_knowledge_units(document)
+    assert result["status"] == "FAIL"
+    assert "derived_unit_with_source_block" in _codes(result)
+    # And the honest derived unit — the one that carries no block at all — is
+    # untouched.
+    assert validate_knowledge_units(_units(_source_unit(), _derived_unit()))["status"] == "PASS"
+
+
+def test_a_unit_cannot_be_derived_from_itself() -> None:
+    """``derived_from: ["KU-9"]`` on ``KU-9``.
+
+    ``validate_relationships`` refuses the same claim written as an edge
+    (``unintentional_self_loop``); the list on the unit was the spelling nothing
+    checked, and it satisfies ``missing_derived_from`` while naming no source.
+    """
+    result = validate_knowledge_units(
+        _units(_source_unit(), _derived_unit(derived_from=["KU-D-0001"]))
+    )
+    assert result["status"] == "FAIL"
+    assert "unit_derived_from_itself" in _codes(result)
+
+
+def test_an_excerpt_is_compared_against_the_stored_text_not_a_re_cleaned_one() -> None:
+    """``clean_text`` is a decoder, and decoding twice invents a third string.
+
+    The caption's authored text says ``&amp;amp;``; the canonical file stores
+    ``&amp;``. ``validate_provenance`` used to clean both sides again, which
+    decoded the stored ``&amp;`` to ``&`` — so an excerpt reading ``&``, a
+    string that appears in no file of the run, was a substring of the
+    doubly-decoded segment and came back as proven provenance.
+    """
+    from x2knwldg.transcripts import clean_text, comparable_text
+
+    authored = "the token is &amp;amp; and nothing else"
+    stored = clean_text(authored)
+    assert stored == "the token is &amp; and nothing else"
+    assert clean_text(stored) != stored, "the parse-time cleaner is not idempotent"
+    assert comparable_text(stored) == stored, "the comparison normaliser must be"
+
+    transcript = {"captions": [{"segment_id": "cap_000001", "start_sec": 0.0, "end_sec": 10.0, "text": stored}]}
+    segments = {"segments": [{"segment_id": "seg_000001", "start_sec": 0.0, "end_sec": 10.0, "text": stored}]}
+    forged = _units(
+        _source_unit(source=_source(evidence_excerpt="the token is & and nothing else"))
+    )
+    result = validate_provenance(forged, transcript, segments, VIDEO_ID)
+    assert result["status"] == "FAIL"
+    assert "evidence_excerpt_not_in_segment" in _codes(result)
+
+    # The excerpt that really is in the file still passes, verbatim.
+    honest = _units(_source_unit(source=_source(evidence_excerpt=stored)))
+    assert validate_provenance(honest, transcript, segments, VIDEO_ID)["status"] == "PASS"
+
+
+def test_a_post_cannot_be_dropped_from_the_audit_by_editing_the_capture() -> None:
+    """The expected set came from a self-declared field of the audited document.
+
+    Delete a post id from ``capture.coverage.included_post_ids``, drop that
+    post's coverage entry and its source unit, restamp the capture's canonical
+    hash, and the run validated `PASS` with zero errors and zero warnings —
+    while the post was still an item of the capture, still carrying text, and
+    covered by nothing.
+    """
+    capture = _capture(
+        items=[_item(), _item(OTHER_POST_ID)],
+        coverage={
+            "status": "PASS",
+            "expected_item_count": 2,
+            # The edit: one item quietly missing from the self-declared list.
+            "included_post_ids": [POST_ID],
+            "omitted_items": [],
+        },
+    )
+    document = _item_coverage(items=[_coverage_item()])
+    result = validate_item_coverage(document, capture)
+    assert result["status"] == "FAIL"
+    missing = next(
+        error for error in result["errors"] if error["code"] == "included_post_without_coverage"
+    )
+    assert missing["post_ids"] == [OTHER_POST_ID]
+
+
+def test_an_unavailable_post_may_not_name_a_reason_this_tier_cannot_see() -> None:
+    """The invariant three documents state and no code enforced.
+
+    ``availability.reason`` was written once, by ``twitter.acquire``, and read
+    by nothing: every branch in ``src/`` tests ``availability.state`` instead.
+    So a capture could report *this post was deleted* — a claim about a real
+    account that no route below Tier 2 can make — and pass every gate.
+    """
+    from x2knwldg.validators import validate_capture_availability
+
+    for reason in ("deleted", "suspended", "protected"):
+        errors = validate_capture_availability(_capture(items=[_item(available=False, reason=reason)]))
+        assert [error["code"] for error in errors] == ["unavailability_reason_beyond_tier"], reason
+
+    # Absent is a violation too: an unavailability that states nothing rests on
+    # nothing, and D-216 requires it to rest on the message actually preserved.
+    silent = _capture(items=[{"post_id": POST_ID, "availability": {"state": "unavailable"}}])
+    assert [error["code"] for error in validate_capture_availability(silent)] == [
+        "unavailability_reason_beyond_tier"
+    ]
+
+    # The honest tombstone, and an available post, are both left alone.
+    assert validate_capture_availability(_capture(items=[_item(available=False)])) == []
+    assert validate_capture_availability(_capture()) == []
+
+
+def test_the_availability_invariant_runs_on_every_twitter_run() -> None:
+    """A rule implemented in a function nothing calls is still not implemented."""
+    capture = _capture(items=[_item(available=False, reason="deleted")])
+    coverage = _item_coverage(
+        items=[
+            _coverage_item(
+                status="omitted",
+                knowledge_units=[],
+                omitted_items=[{"type": "source_unavailable"}],
+            )
+        ]
+    )
+    result = validate_item_coverage(coverage, capture)
+    assert result["status"] == "FAIL"
+    assert "unavailability_reason_beyond_tier" in _codes(result)

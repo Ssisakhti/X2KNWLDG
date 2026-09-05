@@ -139,6 +139,18 @@ export function VirtualList<T>({
    */
   const pending = useRef<number | null>(scrollToIndex);
   const enforced = useRef<number | null>(null);
+  /*
+   * True only while this component is itself assigning `scrollTop`.
+   *
+   * `enforced` alone is not enough, because it cannot be written until the
+   * assignment has returned — and the `scroll` event the assignment provokes
+   * may be delivered before that. A browser dispatches it on the next frame,
+   * so `enforced` wins the race there; nothing in the platform promises it,
+   * and an event delivered synchronously would read the *previous* `enforced`
+   * and retire the request. This flag removes the race rather than betting on
+   * it: an event raised while we are the one scrolling is ours by construction.
+   */
+  const applying = useRef(false);
 
   useEffect(() => {
     pending.current = scrollToIndex;
@@ -150,14 +162,43 @@ export function VirtualList<T>({
     if (target === null || container.current === null) return;
     if (target < 0 || target >= items.length) return;
     const top = offsets[target] ?? 0;
-    enforced.current = top;
+    applying.current = true;
     container.current.scrollTop = top;
-    setScrollTop(top);
+    /*
+     * What the element *took*, not what it was asked for — and that difference
+     * is a defect this effect had, not a nicety.
+     *
+     * A browser clamps an out-of-range `scrollTop` to `scrollHeight -
+     * clientHeight` and then fires a `scroll` event carrying the clamped
+     * value. Recording the requested `top` in `enforced` meant `handleScroll`
+     * compared the clamped number against the requested one, found them more
+     * than a pixel apart, and concluded the reader had scrolled somewhere we
+     * did not put them — retiring `pending` on the very first attempt.
+     *
+     * That retirement is fatal here rather than cosmetic, because
+     * `offsets[target]` is a gross under-estimate until the rows above the
+     * target have been measured: the whole reason D-080 re-applies the
+     * position as measurements land. Deep-linking a caption in the last
+     * screenful of a long transcript therefore landed roughly 30,000px short
+     * and stayed there. Reading the value back makes the comparison a
+     * comparison of like with like, and lets the re-application converge as
+     * the runway grows.
+     *
+     * jsdom cannot see any of this: its `scrollTop` is a plain data property
+     * that neither clamps nor fires an event, which is why the suite stayed
+     * green through it.
+     */
+    const applied = container.current.scrollTop;
+    applying.current = false;
+    enforced.current = applied;
+    setScrollTop(applied);
   }, [scrollToIndex, offsets, items.length]);
 
   const handleScroll = useCallback((top: number) => {
     setScrollTop(top);
     if (pending.current === null) return;
+    // Our own assignment, still in progress. Not the reader scrolling away.
+    if (applying.current) return;
     if (enforced.current !== null && Math.abs(top - enforced.current) <= 1) return;
     // Somewhere we did not put them. The request is answered; stop enforcing it.
     pending.current = null;
@@ -172,6 +213,31 @@ export function VirtualList<T>({
       setVersion((value) => value + 1);
     }
   }, []);
+
+  /*
+   * One stable ref callback per row index.
+   *
+   * `ref={(element) => measure(index, element)}` is a fresh function on every
+   * render, so React detached and re-attached every windowed row on every
+   * commit and re-read `offsetHeight` for each — a forced synchronous layout
+   * apiece. Measured over 500 rows: 22 reads on mount and 28 more from a
+   * single scroll event. The callbacks are cached by index rather than by item
+   * because `measure` records by index, which is also why the cache never
+   * needs invalidating: index `n` always means "the n-th row".
+   */
+  const refs = useRef(new Map<number, (element: HTMLDivElement | null) => void>());
+  const refFor = useCallback((index: number) => {
+    const cached = refs.current.get(index);
+    if (cached !== undefined) return cached;
+    const callback = (element: HTMLDivElement | null) => measure(index, element);
+    refs.current.set(index, callback);
+    return callback;
+    // `measure` is itself a `useCallback` with no dependencies, so this list
+    // never changes and the cached callbacks stay valid for the component's
+    // life. Named rather than suppressed, because a `measure` that later grew
+    // a dependency would have to invalidate this cache too.
+  }, [measure]);
+
 
   /*
    * The list contract lives here, and it did not (D-203).
@@ -203,7 +269,7 @@ export function VirtualList<T>({
     rows.push(
       <div
         key={itemKey(item, index)}
-        ref={(element) => measure(index, element)}
+        ref={refFor(index)}
         role="listitem"
         aria-setsize={items.length}
         aria-posinset={index + 1}

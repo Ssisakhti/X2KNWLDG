@@ -28,6 +28,22 @@ and vault note. It is part of the canonical workflow, not a per-run preference:
   values in their canonical machine-readable form. The Persian rule governs narrative
   knowledge, not the wire format.
 
+**What a validator checks, and what it does not.** The policy applies to every field listed
+above; the validators reach two of them. `validators._narrative_script_error` refuses text
+containing no Perso-Arabic character at all, and it has exactly two call sites: a source
+brief's statement `content`, in `validate_source_knowledge`, and a source relation's
+`rationale`, in `validate_source_relations`. Everything else — a knowledge unit's `content`
+and `normalized_statement`, a `derivation_note`, an omission's `note`, every human-readable
+coverage note — is policy that no exit code enforces. That is a statement about the guards,
+not a licence: an English extraction is a policy violation whether or not a validator
+notices, and the primary extraction output is precisely where nothing does.
+
+Even where it runs, it is a **script** check and not a language check. Text with no
+Perso-Arabic character cannot be the Persian this policy requires, and that is the whole of
+what a refusal proves — it says nothing about whether Perso-Arabic text is good Persian, and
+a check that claimed otherwise would be inventing a verdict. Mixed text passes, which it
+must: an English technical term in parentheses is the spelling this policy asks for.
+
 ## 1. Acquire the transcript
 
 Preferred order:
@@ -97,8 +113,14 @@ A window's audit is checked against the window (D-164), so three rules bind:
   evidence **overlaps that window's own span**, or account for what it left out
   in `omitted_items`. A `derived` unit carries no timing and can never anchor a
   window.
-- `summary` is derived from the windows and is recomputed on apply. Do not
-  hand-write it.
+- `summary` is **optional in the bundle**, and derived from the windows wherever
+  it appears. `apply-bundle` recomputes it —
+  `artifacts._carry_coverage_scaffold_forward` replaces whatever the bundle
+  stated, and the Twitter path does the same — so there is nothing to gain by
+  writing one. Outside the gate the rule is stricter rather than absent: a
+  `coverage.json` edited by hand into disagreement with its own windows is
+  `coverage_summary_disagrees_with_windows` from `validate`, compared field by
+  field, not a silent correction (D-164). Omit it.
 
 ## 5. Apply and finalize
 
@@ -108,6 +130,13 @@ three **required** keys and one **optional** one, and the schema sets
 here: this table used to omit `extraction_metadata` while saying "exactly three… no other
 top-level key is accepted", so an agent following it silently dropped the provenance record
 the pipeline does consume (D-189).
+
+The schema describes **both** implemented media and branches between them on the coverage
+document it is handed — `windows` for the run below, `items` for §T5 — because a bundle
+carries no `source_type` of its own. Validating against it is optional and always has been:
+`jsonschema` is a `dev` extra and the package applies no JSON Schema at runtime, so
+`apply-bundle` is the gate that decides, and the schema is what an agent can check itself
+against beforehand.
 
 | Bundle key | Required | Comes from | Note |
 |---|---|---|---|
@@ -120,13 +149,26 @@ Then run:
 
 ```bash
 x2knwldg apply-bundle output/<video-id> extraction_bundle.json
+x2knwldg validate output/<video-id>
 x2knwldg finalize output/<video-id>
 ```
+
+Three commands, and `validate` is the middle one because `CLAUDE.md` and `AGENTS.md` both
+require validation **before finalization** and before any claim of success. This block
+listed two for long enough that §T5 pointed back at it saying "the same three commands" —
+`README.md` and §T5 were right and this was the one out of step.
 
 Completion may be claimed only when validation and coverage both report `PASS` — which is
 exactly **exit code `0`**. `PARTIAL` exits `3` and `FAIL` exits `4`: both are real results to
 report, and neither is completion. The full table is in
 [`README.md` § Exit codes](README.md#exit-codes), and `x2knwldg --help` prints it.
+
+Three commands operate over the whole project rather than one run, and none of them belongs
+to a pass above: `x2knwldg status` lists every local run and its standing verdict,
+`x2knwldg search "<query>"` searches canonical knowledge first and then exact captions, and
+`x2knwldg rebuild-library` rebuilds the cumulative graph and concept registry. Every
+subcommand and flag is in [`README.md` § Command reference](README.md#command-reference);
+these three were reachable from the CLI and named in no document at all.
 
 ---
 
@@ -215,8 +257,23 @@ again over a capture that is not itself `PASS`.
 
 ## T5. Apply and finalize
 
-The bundle is the same shape as §5, with one difference: `coverage` carries `items`
-rather than `windows`. Then the same three commands:
+The bundle is the same shape as §5 — same three required keys, same optional
+`extraction_metadata`, same refusal of anything else — and differs in **three** places,
+all of them consequences of the citation unit rather than three separate rules:
+
+| Where | YouTube (§5) | Here |
+|---|---|---|
+| `coverage` | `windows`, a walk along a timeline | `items`, a set comparison over the posts the capture included |
+| `coverage.basis` | absent | `items`, and imposed from the capture rather than accepted from the bundle |
+| a source unit's `source` | `video_id`, `segment_id`, `start_sec`, `end_sec`, `evidence_excerpt` | `post_id`, `start_char`, `end_char`, `evidence_excerpt` |
+
+`window_size_sec` has no counterpart and no entry has a span. This section said "one
+difference" while the published schema encoded all three as YouTube-only requirements, so
+a bundle the gate accepts was refused by the schema `mcp_server.extraction_schema_resource`
+serves as the contract — five refusals for a single post, 41 for a ten-post thread. The
+schema now branches; the difference is still worth reading here first.
+
+Then the same three commands:
 
 ```bash
 x2knwldg apply-bundle output/<post-id> extraction_bundle.json
@@ -271,9 +328,15 @@ tunnel. No credential, cookie, token or browser profile is read, stored or sent;
 account pool and no evasion logic exists here, by decision ([ADR
 0007](docs/adr/0007-twitter-acquisition-boundary.md)). Nothing is sent to any third-party
 mirror — FxTwitter is not implemented and would be opt-in with a visible statement that
-the post id and normal network metadata leave the machine. Provider bytes are sanitized
-and then **scanned** for credential material before being written, in that order, because
-a redactor is not evidence that redaction worked. No provider name, version or binary
+the post id and normal network metadata leave the machine. Provider bytes are checked for
+credential material **inside the post's own text first** — a hit there is a refusal with
+nothing written, because a post whose authored text contains something like `ct0=` cannot
+be both redacted on disk and preserved byte for byte in `capture.json`, and silently
+redacting it produced a run that could never validate and a diagnosis that blamed the
+operator's evidence. Only then are the envelope's bytes sanitized and **scanned** again
+before being written, in that order, because a redactor is not evidence that redaction
+worked. `capture.json` itself is never redacted: `items[].text.canonical` is preserved
+exactly, and the refusal above is what makes that safe. No provider name, version or binary
 digest reaches an index record or the read surfaces (D-238) — the acquisition record lives
 in `capture.json`, which anyone can open.
 
@@ -281,6 +344,7 @@ in `capture.json`, which anyone can open.
 
 | Exit | What happened | What to do |
 |---|---|---|
+| `1` | `AcquisitionError: … authored text …` — the provider's answer carries credential-shaped text **inside a post**, so it can be preserved or redacted but not both | A statement about the provider's answer, not about your run. Nothing was written. Re-read the post; if its author really wrote a token, the post cannot be captured under this rule |
 | `7` `PROVIDER_UNAVAILABLE` | The pinned binary is missing, or the binary at that path is not the pinned build. **Nothing ran** | Install the pinned build, or pass `--xcli <path>`. Never work around it by relaxing the pin |
 | `8` `PROVIDER_UNREACHABLE` | The read could not be completed and **nothing was learned** — tunnel down, timeout, or rate limit | Wait and retry. The stderr envelope says which, so the wait can be the right length |
 | `9` `PROVIDER_DRIFT` | The provider answered and the answer was unusable | Do not retry in a loop. The provider's output shape moved; that is a code change, not a network event. Never reported for a network failure |

@@ -1,15 +1,28 @@
-"""The application factory. Eleven read-only ``GET`` routes over one repository.
+"""The application factory. Thirteen read-only ``GET`` routes over one repository.
 
 What this file owns: creating the app, holding the repository on
 ``app.state``, registering the error handlers, and including the routers. What
 it deliberately does not own: any route. Each router lives in its own module
-under ``routes/`` so that the eleven endpoints could be written concurrently
-without contending on one file.
+under ``routes/`` so that the endpoints could be written concurrently without
+contending on one file.
+
+Eleven when Track B froze the surface, and thirteen since `T-254` added the
+source graph. The count is written out here rather than left implicit because
+it is the number every guard in the layer is asserted against — and it was
+still "eleven" in a dozen docstrings for two tasks after it stopped being true.
 
 ``docs_url`` is off. The frozen document in ``schemas/api/v1/openapi.json`` is
 the contract; a second one generated from the code at runtime would be a second
 source of truth, and the one that drifts is always the generated one. The
 served ``/api/openapi.json`` reads the frozen file from disk instead.
+
+That route is the **fourteenth** thing this app serves and the one the frozen
+document does not declare: a contract cannot list the request for itself
+without describing its own retrieval as part of the surface it describes. The
+exemption is written down in three places rather than left to be discovered —
+the document's own ``description``, this docstring, and
+``test_api_hardening.test_the_served_surface_is_exactly_the_frozen_one``, which
+walks the real router and compares against ``frozen | {"/api/openapi.json"}``.
 """
 
 from __future__ import annotations
@@ -26,6 +39,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..repository.base import IndexRepository
 from . import errors
+from .conditional import if_none_match
 from .deps import build_repository
 from .envelope import error_body
 from .head import HeadAsGet
@@ -191,17 +205,30 @@ def create_app(
 
     # D-103. Installed before the routers so a rebound name is refused at the
     # boundary rather than after a route has read the index. `allowed_hosts` is
-    # a parameter because `serve.py` knows what it bound and the tests know
-    # what they call; the default is the loopback set and never `*`.
+    # a parameter because `serve.serve()` knows what it bound and passes it, and
+    # because the tests know what they call; the default is the loopback set and
+    # never `*`. The comment used to promise that wiring and there was none:
+    # `grep -rn allowed_hosts` returned these lines and nothing else, so the
+    # parameter had exactly one value in the whole program and `--host` could
+    # not have widened the allowlist if it had ever been allowed to widen.
     app.add_middleware(
         LoopbackHostMiddleware,
         allowed_hosts=list(allowed_hosts if allowed_hosts is not None else LOOPBACK_HOST_NAMES),
     )
 
-    # After the host check (added above, so it stays the outermost of the two)
-    # and before routing: a `HEAD` has to become a `GET` for the router to
-    # match it at all. See `head.py` for why this is a middleware rather than
-    # eleven `methods=["GET", "HEAD"]` decorators.
+    # Before routing: a `HEAD` has to become a `GET` for the router to match it
+    # at all. See `head.py` for why this is a middleware rather than thirteen
+    # `methods=["GET", "HEAD"]` decorators.
+    #
+    # Added *after* the host check and therefore **outside** it: Starlette's
+    # `add_middleware` inserts at index 0, so the last one added is the
+    # outermost, and `app.user_middleware` reads `[HeadAsGet,
+    # LoopbackHostMiddleware]`. This comment said the opposite — "after the host
+    # check (added above, so it stays the outermost of the two)" — which is a
+    # false statement about ordering in the one file where ordering is
+    # load-bearing. Nothing depends on which way round these two run (a `HEAD`
+    # from a rebound name is refused either way), and that is exactly why the
+    # error could sit here: the next pair of middlewares will not be so lucky.
     app.add_middleware(HeadAsGet)
 
     errors.install(app)
@@ -220,6 +247,13 @@ def create_app(
         a byte — and this used to re-read 51,883 bytes and run a ``json.loads``
         on every request, with no cache and no validator, so a client polling
         the contract paid for it every time and could never be told "unchanged".
+
+        The revalidation itself was then wrong in three ways, because it was an
+        ``==`` against the strong tag: a client sending the tag back as weak
+        (``W/"a8dd…"``), as a list (``"a8dd…", "x"``), or as ``*`` was answered
+        ``200`` and the whole document. RFC 9110 §13.1.2 makes all three a
+        match. ``conditional.if_none_match`` is the comparison the specification
+        defines, shared with the byte channel so there is one statement of it.
         """
         if not _FROZEN_SPEC.is_file():
             # The frozen envelope, not FastAPI's `{"detail": ...}` — the shape
@@ -236,7 +270,7 @@ def create_app(
                 ),
             )
         body, etag = _frozen_spec_bytes()
-        if request.headers.get("if-none-match") == etag:
+        if if_none_match(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers={"ETag": etag})
         return Response(
             content=body,

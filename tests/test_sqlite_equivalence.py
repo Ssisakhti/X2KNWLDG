@@ -67,7 +67,7 @@ from typing import Any
 import pytest
 
 from x2knwldg import query as query_module
-from x2knwldg.adapters import AdapterError
+from x2knwldg.adapters import AdapterError, adapt_run
 from x2knwldg.index import (
     DATABASE_DIRNAME,
     HIT_TYPES,
@@ -83,6 +83,7 @@ from x2knwldg.index import (
 )
 from x2knwldg.index.search import document_indexer, search_retrieval
 from x2knwldg.library import rebuild_library
+from x2knwldg.query import run_documents
 from x2knwldg.repository import (
     MAX_LIMIT,
     EntityQuery,
@@ -100,8 +101,32 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_RUNS = PROJECT_ROOT / "tests" / "fixtures" / "runs"
 ALL_FIXTURES = ("pass-run", "partial-run", "fail-run")
 
-SAMPLE_ID = "pqlWNihgdjI"
-SAMPLE_DIR = PROJECT_ROOT / "output" / SAMPLE_ID
+
+
+def _discovered_sample() -> Path:
+    """The real ingested run this machine has, or a path that does not exist.
+
+    ``SAMPLE_DIR`` was ``output/pqlWNihgdjI`` — one video id, hard-coded in five
+    test modules — and ``output/`` is gitignored. So every test gated on it
+    skipped in CI *and* on the developer's own machine, whose ``output/`` holds a
+    different run entirely: thirteen tests, the whole real-data half of the
+    equivalence proof, running nowhere at all. A suite that runs nowhere proves
+    nothing, and it does not announce that either.
+
+    Discovered rather than named, so it is whatever this machine actually
+    ingested; the first in directory order, so two runs still give one stable
+    answer. ``library/`` and ``synthesis/`` are excluded by construction —
+    neither holds a ``metadata.json``, which is what makes a directory a run.
+
+    A machine with no ``output/`` at all still gets a ``Path``, so the module
+    imports and the skip is decided by the same ``exists`` check as before.
+    """
+    runs = sorted(path.parent for path in (PROJECT_ROOT / "output").glob("*/metadata.json"))
+    return runs[0] if runs else PROJECT_ROOT / "output" / "no-run-has-been-ingested"
+
+
+SAMPLE_DIR = _discovered_sample()
+SAMPLE_ID = SAMPLE_DIR.name
 LIBRARY_DIR = PROJECT_ROOT / "output" / "library"
 
 #: The fixture runs by the ``video_id`` their metadata *declares*. A fixture's
@@ -136,16 +161,20 @@ FIXTURE_COUNTS_WITHOUT_LIBRARY = {
 #: what §7's eviction has to arrive at, and §6's addition has to start from.
 TWO_RUN_COUNTS = {"sources": 2, "artifacts": 36, "entities": 5, "relations": 6}
 
-#: The real sample plus the committed ``output/library/``, measured.
-SAMPLE_COUNTS = {"sources": 1, "artifacts": 85, "entities": 86, "relations": 118}
-
-#: Measured on the real sample, read off the cache-free oracle. A token-only
-#: FTS index returns 3, 10 and 162 for these (see ``index/search`` on the
-#: ``機習`` recall hole and the two disjuncts of ``SearchDocument.score``).
-#: `the` moved 253 -> 258 when `derivation_note` joined the searchable field
-#: set (D-047). `learning` and `model` are unmoved, which is the point: the
-#: widening added 25 tokens out of 1095, not a new corpus.
-SAMPLE_SEARCH_TOTALS = {"learning": 4, "model": 19, "the": 258}
+#: The scale the real sample is here to provide, as a floor rather than a
+#: measurement.
+#:
+#: This was ``{"sources": 1, "artifacts": 85, "entities": 86, "relations":
+#: 118}`` — the exact shape of one video id that is on no machine in this
+#: project any more, so every test asserting it skipped everywhere and the
+#: numbers went unchecked rather than being checked and found wrong. Exactness
+#: was never what the real sample was for: the fixture corpus above exhausts the
+#: filter *logic* in its own right, and what real data adds is more records than
+#: a page holds, more edges than a neighbourhood walks, and a hit list hundreds
+#: long. That is a floor, and a floor is true of whatever run a machine has
+#: ingested. The equality that still matters — index against cache-free oracle —
+#: is asserted against the oracle itself, which is what "measured" meant.
+SAMPLE_SCALE = {"sources": 1, "artifacts": 20, "entities": 20, "relations": 20}
 
 def searchable_tokens(value: object) -> set[str]:
     """The tokens ``query.rank_documents`` matches on, for a measurement.
@@ -456,6 +485,29 @@ class Plan:
 FIXTURE_PLAN = Plan()
 
 
+_UNSEARCHABLE_NOTE = re.compile(
+    r"\s*\(?\d+ indexed sources? could not be read for search, so a search total "
+    r"over them is unknown rather than zero\)?"
+)
+
+
+def _without_unsearchable_note(message: str | None) -> str | None:
+    """*message* without the SQLite-only count of unsearchable sources.
+
+    ``SqliteRepository`` annotates ``index.message`` with how many indexed
+    sources carry the searchability marker in their ``runs`` row. The oracle
+    keeps no such row and can never produce the sentence, so comparing it would
+    assert a difference the contract requires rather than one it forbids —
+    which is exactly the reasoning that excludes ``built_at``, ``index_version``
+    and ``runs``. What is left after it is removed is the part both must agree
+    on.
+    """
+    if message is None:
+        return None
+    stripped = _UNSEARCHABLE_NOTE.sub("", message).strip()
+    return stripped or None
+
+
 def snapshot(repo: Any, probes: Probes, plan: Plan = FIXTURE_PLAN) -> dict[str, Any]:
     """Everything the frozen contract lets a client observe, as one mapping.
 
@@ -469,8 +521,9 @@ def snapshot(repo: Any, probes: Probes, plan: Plan = FIXTURE_PLAN) -> dict[str, 
     artifacts = probes.artifacts[:: plan.artifact_stride]
 
     status = repo.status().payload()
-    # Three fields are excluded here and asserted separately, each because a
-    # frozen document requires the two implementations to differ:
+    # The whole `index` object is lifted out and its fields put back one at a
+    # time, because three of them a frozen document *requires* the two
+    # implementations to differ on:
     #
     # `built_at` and `index_version` — `repository/README.md` requires the
     # SQLite path to report them from the migration table and the last build,
@@ -481,11 +534,24 @@ def snapshot(repo: Any, probes: Probes, plan: Plan = FIXTURE_PLAN) -> dict[str, 
     # implementation that actually scanned a filesystem. `MemoryRepository`
     # omits it rather than claiming `skipped: []`, which would assert it looked.
     #
+    # `message` was the *fourth*, and it was not on that list: the comment above
+    # this said "three fields are excluded" while the code dropped the object
+    # and put back only `state`, so `index.message` — the channel D-086 made
+    # the only statement that a scan failed and rolled back — was compared by
+    # nothing at all. It is compared now, less the one annotation
+    # `SqliteRepository._message_with_unsearchable` appends and the oracle
+    # cannot produce: that count is about rows in a `runs` table the oracle has
+    # no equivalent of, and it is pinned on its own in
+    # `tests/test_sqlite_repository.py`.
+    #
     # Every other field of the payload must agree exactly.
     seen["status"] = {
         key: value for key, value in status.items() if key not in ("index", "runs")
     }
     seen["status.index.state"] = status["index"]["state"]
+    seen["status.index.message"] = _without_unsearchable_note(
+        status["index"].get("message")
+    )
 
     for filters, limit in itertools.product(plan.source_filters, plan.limits):
         seen[f"list_sources({_label(filters)}) limit={limit}"] = page_shapes(
@@ -1204,7 +1270,25 @@ def _sample_project(root: Path) -> Path:
     return root
 
 
-SAMPLE_SOURCE = f"youtube:{SAMPLE_ID}"
+def _sample_source() -> str:
+    """The id the sample run's own ``Source`` record carries.
+
+    Built by ``adapt_run`` rather than as ``f"youtube:{SAMPLE_ID}"``: a
+    directory name is deliberately not a source id anywhere in this project —
+    ``pass-run/`` declares ``fixture-pass`` — and the medium is not necessarily
+    YouTube either now that Twitter runs exist. A machine with no sample gets a
+    well-formed id naming nothing, which is what every plan below wants of it.
+    """
+    if not (SAMPLE_DIR / "metadata.json").exists():
+        return UNKNOWN_SOURCE
+    try:
+        records = adapt_run(SAMPLE_DIR, PROJECT_ROOT)
+    except Exception:  # pragma: no cover - a sample the adapter refuses
+        return UNKNOWN_SOURCE
+    return str(records.sources[0]["id"]) if records.sources else UNKNOWN_SOURCE
+
+
+SAMPLE_SOURCE = _sample_source()
 
 #: What the real corpus is asked, and it is a **sample** rather than the whole
 #: cross product — stated here rather than quietly narrowed. Exhausting the
@@ -1227,12 +1311,34 @@ SAMPLE_PLAN = Plan(
     entity_filters=one_at_a_time(entity_dimensions((None, SAMPLE_SOURCE, UNKNOWN_SOURCE))),
     relation_filters=one_at_a_time(relation_dimensions((None, SAMPLE_SOURCE, UNKNOWN_SOURCE))),
     graph_filters=one_at_a_time(graph_dimensions((None, SAMPLE_SOURCE, UNKNOWN_SOURCE))),
-    search_queries=("learning", "model", "the", "機習", "100%", "ab"),
+    # Six queries reaching six different code paths. They are not chosen for
+    # what they *find* in any particular run — the totals are compared against
+    # the oracle, not against a number — and `SAMPLE_QUERIES` below adds words
+    # drawn from the run itself so the comparison cannot be vacuous.
+    search_queries=("the", "a", "機習", "100%", "ab", "-the"),
     search_scopes=(None, SAMPLE_SOURCE),
     search_limits=(50,),
     center_stride=9,
     artifact_stride=5,
 )
+
+
+def _sample_queries(count: int = 3) -> list[str]:
+    """The commonest words of the sample's own text, longest first.
+
+    Drawn from the run so that a comparison over it cannot be vacuous: two
+    readers that both find nothing agree perfectly. A hard-coded ``learning``
+    is a word some other machine's sample does not contain, which is how the
+    old totals stopped meaning anything before they stopped being run.
+    """
+    if not (SAMPLE_DIR / "metadata.json").exists():
+        return []
+    counted: dict[str, int] = {}
+    for document in run_documents(SAMPLE_DIR):
+        for token in document.tokens:
+            if len(token) >= 4:
+                counted[token] = counted.get(token, 0) + 1
+    return sorted(counted, key=lambda token: (-counted[token], token))[:count]
 
 
 @requires_fts5
@@ -1242,18 +1348,50 @@ def test_the_real_sample_reads_the_same_through_the_index_as_through_the_files(
 ) -> None:
     root = _sample_project(tmp_path)
     report = built(root)
-    assert report.payload()["counts"] == SAMPLE_COUNTS
+    counts = report.payload()["counts"]
+    short = {
+        family: counts[family]
+        for family, floor in SAMPLE_SCALE.items()
+        if counts[family] < floor
+    }
+    assert not short, (
+        "the real sample is here for scale the fixtures cannot give, and this "
+        f"one is below the floor for {short}"
+    )
 
+    queries = [*SAMPLE_PLAN.search_queries, *_sample_queries()]
     with opened(sqlite_factory(root)) as repo:
-        page = repo.graph(GraphQuery(limit=MAX_LIMIT))
-        assert (len(page.nodes), len(page.edges), page.truncated) == (86, 118, False)
-        for query, total in SAMPLE_SEARCH_TOTALS.items():
-            assert repo.search(SearchQuery(q=query, limit=MAX_LIMIT)).total == total
+        indexed_graph = repo.graph(GraphQuery(limit=MAX_LIMIT))
+        indexed_totals = {
+            query: repo.search(SearchQuery(q=query, limit=MAX_LIMIT)).total
+            for query in queries
+        }
         probes = probes_of(repo)
         indexed = snapshot(repo, probes, SAMPLE_PLAN)
 
     with opened(memory_factory(root)) as oracle:
+        oracle_graph = oracle.graph(GraphQuery(limit=MAX_LIMIT))
+        oracle_totals = {
+            query: oracle.search(SearchQuery(q=query, limit=MAX_LIMIT)).total
+            for query in queries
+        }
         oracle_view = snapshot(oracle, probes, SAMPLE_PLAN)
+
+    # The graph and the search totals were three hard-coded numbers measured on
+    # a run no machine in this project still has. What they were *for* is that
+    # the cache answers what the canonical files answer, so that is what is
+    # asserted — against the oracle, on whatever run this machine ingested.
+    assert (len(indexed_graph.nodes), len(indexed_graph.edges)) == (
+        len(oracle_graph.nodes),
+        len(oracle_graph.edges),
+    )
+    assert indexed_graph.truncated is oracle_graph.truncated
+    assert indexed_totals == oracle_totals
+    vacuous = [query for query in _sample_queries() if not indexed_totals[query]]
+    assert not vacuous, (
+        f"these queries were drawn from the sample and reached nothing: {vacuous}"
+    )
+
     differing = [key for key in indexed if indexed[key] != oracle_view[key]]
     assert not differing, (
         f"the index and the canonical files disagree on {len(differing)} of "
@@ -1328,37 +1466,57 @@ def test_not_indexing_context_costs_no_reachable_word() -> None:
 
     ``context`` is left out of the searchable field set, and the reason is that
     it is fully redundant: every token it holds already appears in the unit's
-    own ``content`` or ``normalized_statement``. Measured on the real sample,
-    where **9** units carry one, the set difference is empty — so there exists
-    no query that indexing ``context`` would newly answer.
+    own ``content`` or ``normalized_statement``. Measured on the sample this was
+    written against, where 9 units carried one, the set difference was empty —
+    so there exists no query that indexing ``context`` would newly answer.
 
     This is the test that turns the deferral from an opinion into a fact, and it
     is the one that will speak up if that stops being true: a future extraction
     whose ``context`` carries vocabulary of its own makes this fail, and the
     deferral then has a real cost to weigh rather than none.
+
+    Every run on the machine is measured, not one named directory. The committed
+    fixtures join the real sample, so the deferral is checked against whatever
+    extraction exists here — and when **nothing** carries a ``context``, that is
+    said out loud rather than passing as an empty set difference, because "no
+    field to measure" and "the field costs nothing" are not the same finding.
     """
-    units = json.loads((SAMPLE_DIR / "knowledge_units.json").read_text(encoding="utf-8"))
-    captions = json.loads((SAMPLE_DIR / "transcript.json").read_text(encoding="utf-8"))
+    runs = [
+        path.parent
+        for path in sorted((PROJECT_ROOT / "output").glob("*/knowledge_units.json"))
+    ] + [
+        path.parent for path in sorted(FIXTURE_RUNS.glob("*/knowledge_units.json"))
+    ]
 
     searchable: set[str] = set()
-    for caption in captions.get("captions", []):
-        searchable |= searchable_tokens(caption.get("text"))
     carried = 0
     context_tokens: set[str] = set()
-    for unit in units.get("units", []):
-        source = unit.get("source") or {}
-        searchable |= (
-            searchable_tokens(unit.get("content"))
-            | searchable_tokens(unit.get("normalized_statement"))
-            | searchable_tokens(source.get("evidence_excerpt"))
-            | searchable_tokens(unit.get("kind"))
-            | searchable_tokens(unit.get("derivation_note"))
-        )
-        if unit.get("context"):
-            carried += 1
-            context_tokens |= searchable_tokens(unit.get("context"))
+    for run in runs:
+        units = json.loads((run / "knowledge_units.json").read_text(encoding="utf-8"))
+        transcript = run / "transcript.json"
+        if transcript.exists():
+            captions = json.loads(transcript.read_text(encoding="utf-8"))
+            for caption in captions.get("captions", []):
+                searchable |= searchable_tokens(caption.get("text"))
+        for unit in units.get("units", []):
+            source = unit.get("source") or {}
+            searchable |= (
+                searchable_tokens(unit.get("content"))
+                | searchable_tokens(unit.get("normalized_statement"))
+                | searchable_tokens(source.get("evidence_excerpt"))
+                | searchable_tokens(unit.get("kind"))
+                | searchable_tokens(unit.get("derivation_note"))
+            )
+            if unit.get("context"):
+                carried += 1
+                context_tokens |= searchable_tokens(unit.get("context"))
 
-    assert carried, "the sample is expected to carry `context` on some units"
+    if not carried:
+        pytest.skip(
+            f"no unit in the {len(runs)} run(s) on this machine carries a `context`, "
+            "so D-047's measurement has nothing to measure. This is a fact about "
+            "the extractions present, not about the deferral"
+        )
     assert context_tokens - searchable == set(), (
         "`context` now holds vocabulary nothing else does, so leaving it out of "
         "the field set has a cost — re-weigh D-047 rather than deleting this test"
@@ -1380,6 +1538,7 @@ def test_not_storing_segment_text_costs_no_reachable_word() -> None:
     caption_tokens: set[str] = set()
     for caption in captions.get("captions", []):
         caption_tokens |= searchable_tokens(caption.get("text"))
+    assert caption_tokens, "the premise: this run has captions to concatenate"
     segment_tokens: set[str] = set()
     for segment in segments.get("segments", []):
         segment_tokens |= searchable_tokens(segment.get("text"))
@@ -1579,19 +1738,37 @@ def test_no_build_no_refresh_and_no_query_touched_a_canonical_file(tmp_path: Pat
     assert not changed, f"the canonical files moved: {changed[:5]}"
 
 
-def test_the_twin_global_id_helpers_answer_identically(tmp_path: Path) -> None:
-    """The two functions T-104's equivalence claim rests on.
+def test_the_global_id_helper_has_exactly_one_implementation() -> None:
+    """The twins are one function now, and this is what stops them budding again.
 
     ``parse_source_id`` sat **outside** the ``try`` in
     ``repository.memory._unit_global_id`` and **inside** it in
     ``index.search._unit_global_id``, so an unparseable stored ``source_id``
-    raised ``IdError`` out of one twin and returned ``None`` from the other.
-    Unreachable today — every stored id was built by ``ids.py`` — but a
-    coincidence is not an invariant, and this is the pair the whole equivalence
-    proof is built on.
+    raised ``IdError`` out of one twin and returned ``None`` from the other —
+    the pair this whole module's equivalence claim is built on. The divergence
+    was *found* rather than caught, because two copies is precisely the shape
+    nothing can catch. Both call ``repository.unit_global_id`` now, so identity
+    is the assertion: equal behaviour over cases is what two implementations
+    can be argued into, and one implementation is what they cannot drift out
+    of.
     """
-    from x2knwldg.index.search import _unit_global_id as indexed
-    from x2knwldg.repository.memory import _unit_global_id as oracle
+    from x2knwldg.index import search as index_search
+    from x2knwldg.repository import memory as oracle_module
+    from x2knwldg.repository import unit_global_id
+
+    assert index_search.unit_global_id is unit_global_id
+    assert not hasattr(index_search, "_unit_global_id")
+    assert not hasattr(oracle_module, "_unit_global_id")
+
+
+def test_the_global_id_helper_answers_a_stored_id_no_parser_accepts() -> None:
+    """``None``, never an exception and never a plausible string.
+
+    A stored id that will not parse is index damage that must cost its own
+    hit's ``global_id`` and not the search: a string that resolves to nothing
+    is worse than an absence.
+    """
+    from x2knwldg.repository import unit_global_id as build
 
     cases = [
         (None, "KU-000001"),
@@ -1606,7 +1783,144 @@ def test_the_twin_global_id_helpers_answer_identically(tmp_path: Path) -> None:
         (":", "KU-000001"),
     ]
     for source_id, local_id in cases:
-        assert oracle(source_id, local_id) == indexed(source_id, local_id), (
-            source_id,
-            local_id,
-        )
+        built = build(source_id, local_id)
+        assert built is None or isinstance(built, str), (source_id, local_id)
+    assert build("youtube:vid1", "KU-000001") == "youtube:vid1:KU-000001"
+    assert build("not-a-source-id", "KU-000001") is None
+    assert build(None, "KU-000001") is None
+
+
+@requires_fts5
+def test_the_snapshot_actually_compares_the_index_message(tmp_path: Path) -> None:
+    """The exclusion list said three and the code excluded four.
+
+    ``snapshot`` dropped the whole ``status["index"]`` object and put back only
+    ``state``, so ``index.message`` — the channel D-086 made the *only*
+    statement that a scan failed and was rolled back — was compared by nothing.
+    A guard on the guard: if the key stops being observed, this says so.
+    """
+    root = project(tmp_path)
+    built(root)
+    with opened(sqlite_factory(root)) as repo:
+        probes = probes_of(repo)
+        observed = snapshot(repo, probes)
+    assert "status.index.message" in observed
+    assert observed["status.index.message"] is None, "a clean build has nothing to say"
+
+
+def test_the_unsearchable_note_is_the_only_thing_stripped_from_a_message() -> None:
+    """The exclusion must not become a licence to drop the whole sentence."""
+    rolled_back = "the last scan failed and was rolled back: IndexCorrupt: two runs"
+    note = (
+        "2 indexed sources could not be read for search, so a search total over "
+        "them is unknown rather than zero"
+    )
+    assert _without_unsearchable_note(rolled_back) == rolled_back
+    assert _without_unsearchable_note(f"{rolled_back} ({note})") == rolled_back
+    assert _without_unsearchable_note(note) is None
+    assert _without_unsearchable_note(None) is None
+
+
+# --------------------------------------------------------------------------
+# 12. Persian — the shape this project's knowledge actually has
+#
+# The committed fixtures hold no non-Latin text at all: the only non-ASCII
+# anywhere under `tests/fixtures/runs/` is an em-dash. The project's permanent
+# output-language policy is that every `content`, `normalized_statement`,
+# summary and `derivation_note` is written in Persian, so the equivalence proof
+# above was a proof over text this library does not contain.
+#
+# Persian is right-to-left, joins its letters, carries its own digits, and uses
+# a zero-width non-joiner inside ordinary words — four distinct ways for a fold,
+# a tokeniser, a GLOB escape or a length check to go wrong on text nobody
+# looked at. A run is rewritten into it here rather than a query merely added,
+# because a parity test where both readers find nothing agrees perfectly.
+# --------------------------------------------------------------------------
+
+#: What one fixture unit is restated as. The English original is kept in the
+#: `derivation_note` — the field D-047 made searchable — so a query has to find
+#: two scripts in one record.
+PERSIAN_STATEMENT = "واحد دانش باید شواهدی (evidence) را که بر آن استوار است حمل کند."
+PERSIAN_UNITS = "مدل‌های زبانی بزرگ و شبکهٔ عصبی عمیق"
+
+
+def _in_persian(root: Path) -> str:
+    """Restate ``pass-run``'s first unit in Persian, and return its global id."""
+    path = root / "output" / "pass-run" / "knowledge_units.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    unit = document["units"][0]
+    unit["content"] = f"{PERSIAN_STATEMENT} {PERSIAN_UNITS}"
+    unit["normalized_statement"] = PERSIAN_STATEMENT
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    return f"{PASS_SOURCE}:{unit['id']}"
+
+
+#: Each one is a distinct way Persian breaks a Latin-only implementation.
+PERSIAN_QUERIES = (
+    "دانش",         # a whole word, tokenised
+    "شواهدی",       # another, adjacent to a parenthesised English gloss
+    "مدل",          # a prefix of `مدل‌های`, split at the zero-width non-joiner
+    "های",          # and its suffix
+    "شبکه",         # a prefix of `شبکهٔ`, whose next codepoint is a combining mark
+    "واحد دانش",     # two words, where the phrase bonus applies
+    "دانش واحد",     # the same two reordered, where it does not
+    "evidence",     # the English gloss inside the Persian sentence
+)
+
+
+@requires_fts5
+def test_persian_knowledge_reads_the_same_through_the_index_as_through_the_files(
+    tmp_path: Path,
+) -> None:
+    root = project(tmp_path)
+    global_id = _in_persian(root)
+    built(root)
+
+    found: dict[str, int | None] = {}
+    with opened(sqlite_factory(root)) as repo, opened(memory_factory(root)) as oracle:
+        for query in PERSIAN_QUERIES:
+            indexed = repo.search(SearchQuery(q=query, limit=MAX_LIMIT))
+            answered = oracle.search(SearchQuery(q=query, limit=MAX_LIMIT))
+            assert [hit.get("id") for hit in indexed.items] == [
+                hit.get("id") for hit in answered.items
+            ], query
+            assert indexed.total == answered.total, query
+            found[query] = indexed.total
+
+        # And the record itself round-trips: a stored `content` is served byte
+        # for byte, never re-folded or re-normalised on the way out.
+        entity = repo.get_entity(global_id)
+        assert entity is not None and entity["label"] == PERSIAN_STATEMENT
+        assert oracle.get_entity(global_id) == entity
+
+    vacuous = [query for query, total in found.items() if not total]
+    assert not vacuous, (
+        "these Persian queries found nothing, so their agreement proves nothing: "
+        f"{vacuous}"
+    )
+
+
+@requires_fts5
+def test_persian_survives_a_refresh_and_a_cache_deletion(tmp_path: Path) -> None:
+    """A rebuild is byte-identical over non-Latin text too.
+
+    The digests, the FTS5 corpus and the record round-trip all pass through
+    ``json.dumps`` and back; a default ``ensure_ascii`` somewhere would still
+    produce *equal* text, but a stray encode would not, and nothing else in this
+    suite would notice.
+    """
+    root = project(tmp_path)
+    _in_persian(root)
+    built(root)
+    with opened(sqlite_factory(root)) as repo:
+        probes = probes_of(repo)
+        before = snapshot(repo, probes)
+
+    assert refreshed(root).runs_unchanged == 3, "a Persian run rehashed unequal to itself"
+    with opened(sqlite_factory(root)) as repo:
+        assert snapshot(repo, probes) == before
+
+    shutil.rmtree(root / DATABASE_DIRNAME)
+    built(root)
+    with opened(sqlite_factory(root)) as repo:
+        assert snapshot(repo, probes) == before

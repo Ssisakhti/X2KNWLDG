@@ -676,3 +676,119 @@ def test_a_backend_that_seeks_for_itself_builds_the_identical_page(
     assert page_from_window(
         exact[:3], resumed, "indexed_relation", total=len(ordered)
     ) == repo.list_relations(resumed)
+
+
+# --------------------------------------------------------------------------
+# Every way `decode_cursor` refuses, exercised one at a time
+#
+# The refusals were covered in aggregate — a handful of junk strings through one
+# parametrised case — which proves *that* junk is refused and not that each
+# branch is reachable and says something different. A branch nothing reaches is
+# a branch that can be broken silently.
+# --------------------------------------------------------------------------
+
+
+def _signed(body: dict[str, Any]) -> str:
+    """A token signed exactly as this process signs one.
+
+    Deliberately the *real* signature: these cases are about the checks that run
+    **after** authentication, and an unsigned token would be refused before
+    reaching any of them — which is what made them look covered.
+    """
+    from x2knwldg.repository.base import _token
+
+    return _token(body)
+
+
+@pytest.mark.parametrize(
+    "label,token,expected",
+    [
+        ("not a string at all", None, "cursor must be a non-empty string"),
+        ("an empty string", "", "cursor must be a non-empty string"),
+        ("over the contract's cap", "a" * (MAX_CURSOR_LENGTH + 1), "longer than"),
+        ("no signature separator", "abcdef", "not a cursor this repository issued"),
+        ("an empty body", ".abcdef", "not a cursor this repository issued"),
+        ("an empty signature", "abcdef.", "not a cursor this repository issued"),
+        ("a body that is not base64", "!!!!.abcdef", "not a cursor this repository issued"),
+    ],
+)
+def test_each_way_a_token_is_not_a_token_is_refused_on_its_own(
+    label: str, token: Any, expected: str
+) -> None:
+    with pytest.raises(InvalidQuery) as refused:
+        decode_cursor(token, "0" * 16)
+    assert expected in str(refused.value), label
+
+
+def test_a_signed_token_whose_body_is_not_an_object_is_refused() -> None:
+    """The MAC proves this process signed it; it does not prove it is a cursor."""
+    with pytest.raises(InvalidQuery) as refused:
+        decode_cursor(_signed(["not", "an", "object"]), "0" * 16)  # type: ignore[arg-type]
+    assert "not a cursor this repository issued" in str(refused.value)
+
+
+def test_a_signed_token_carrying_no_position_is_refused() -> None:
+    """Neither a whole key nor a prefix-and-digest pair: it names no position."""
+    with pytest.raises(InvalidQuery) as refused:
+        decode_cursor(_signed({"f": "0" * 16}), "0" * 16)
+    assert "not a cursor this repository issued" in str(refused.value)
+
+    # A prefix with no digest is the same absence: the pair is what re-finds a
+    # key too long to carry whole, and half of it cannot.
+    with pytest.raises(InvalidQuery):
+        decode_cursor(_signed({"f": "0" * 16, "p": "youtube:x:KU-1"}), "0" * 16)
+
+
+def test_a_signed_token_for_another_query_is_refused_rather_than_re_anchored() -> None:
+    """Re-anchoring would return a page of a collection nobody asked for.
+
+    It would also look like data rather than like an error, which is the worse
+    half.
+    """
+    with pytest.raises(InvalidQuery) as refused:
+        decode_cursor(_signed({"f": "1" * 16, "k": "youtube:x:KU-1"}), "0" * 16)
+    assert "issued for a different query" in str(refused.value)
+
+
+def test_a_tampered_signature_is_refused_even_with_a_valid_body() -> None:
+    """The offset a search cursor carries reaches real work, so it is authenticated."""
+    token = _signed({"f": "0" * 16, "k": "youtube:x:KU-1"})
+    body, _, mac = token.rpartition(".")
+    flipped = ("b" if mac[0] != "b" else "c") + mac[1:]
+    with pytest.raises(InvalidQuery) as refused:
+        decode_cursor(f"{body}.{flipped}", "0" * 16)
+    assert "not a cursor this repository issued" in str(refused.value)
+
+
+@pytest.mark.parametrize("key", ["", "not-a-number", "1.5", "-1", "-000001"])
+def test_a_signed_search_cursor_carrying_a_bad_offset_is_refused(key: str) -> None:
+    """``search_offset`` refuses rather than clamps.
+
+    A cursor this process signed can still name an offset it never issued — a
+    negative one, or one that is not a number — and clamping it to zero would
+    silently re-serve the first page for a request that asked for something
+    else. Both implementations read the offset through this one function.
+    """
+    from x2knwldg.repository import search_offset
+
+    query = SearchQuery(q="the", limit=5)
+    tampered = SearchQuery(
+        q="the", limit=5, cursor=_signed({"f": query.fingerprint, "k": key})
+    )
+    with pytest.raises(InvalidQuery) as refused:
+        search_offset(tampered)
+    assert "not a cursor this repository issued" in str(refused.value)
+
+
+def test_a_signed_search_cursor_carrying_a_real_offset_is_honoured(
+    repo: MemoryRepository,
+) -> None:
+    """Refusing the bad ones must not cost the good ones."""
+    from x2knwldg.repository import search_offset
+
+    query = SearchQuery(q="the", limit=5)
+    resumed = SearchQuery(
+        q="the", limit=5, cursor=_signed({"f": query.fingerprint, "k": "5"})
+    )
+    assert search_offset(resumed) == 5
+    assert search_offset(query) == 0

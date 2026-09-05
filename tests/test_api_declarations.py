@@ -65,10 +65,14 @@ REQUIRED_QUERY = {"q": "evidence"}
 
 #: A header parameter has no slot in the declarations — the generated
 #: `Endpoints` entries carry `path`, `method`, `params`, `query` and `response`
-#: and nothing else. `Range` is the only one the contract defines, and
-#: `tests/test_api_media.py` owns its behaviour. Named here so the omission is a
-#: decision on the record rather than something this test quietly overlooks.
-UNDECLARED_HEADERS = {"Range"}
+#: and nothing else. All four the contract defines belong to `getArtifactMedia`
+#: and to the transport rather than to the payload: `Range`, and the three
+#: preconditions that were added when the byte channel grew validators
+#: (`If-None-Match`, `If-Modified-Since`, `If-Range`). `tests/test_api_media.py`
+#: owns their behaviour. Named here so the omission stays a decision on the
+#: record rather than something this test quietly overlooks — and so that a
+#: header on any *other* path is still a failure.
+UNDECLARED_HEADERS = {"Range", "If-None-Match", "If-Modified-Since", "If-Range"}
 
 
 @pytest.fixture(scope="module")
@@ -550,3 +554,86 @@ def test_an_unpackaged_spec_still_answers_in_the_frozen_envelope(
         body = response.json()
         assert "detail" not in body
         h.assert_error(response, 404, "not_found")
+
+
+# --------------------------------------------------------------------------
+# 6. The revalidation itself — RFC 9110 §13.1.2
+# --------------------------------------------------------------------------
+#
+# `If-None-Match` was compared with `==` against the strong tag, so of the four
+# forms the specification defines only one worked. Measured against the frozen
+# document:
+#
+#     If-None-Match: "a8dd…"        -> 304
+#     If-None-Match: W/"a8dd…"      -> 200, 71186 bytes
+#     If-None-Match: "a8dd…", "x"   -> 200
+#     If-None-Match: *              -> 200
+#
+# A cache is free to store a validator as weak and a client is free to send a
+# list; either one re-downloaded the whole contract on every poll — the exact
+# cost the `ETag` was added to remove.
+
+
+@h.requires_fastapi
+@pytest.mark.parametrize("form", ["strong", "weak", "list", "star", "spaced"])
+def test_every_form_of_if_none_match_the_rfc_defines_revalidates(
+    tmp_path: Path, form: str
+) -> None:
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        etag = client.get("/api/openapi.json").headers["etag"]
+        sent = {
+            "strong": etag,
+            "weak": f"W/{etag}",
+            "list": f'"another-document", {etag}',
+            "star": "*",
+            "spaced": f"  {etag}  ",
+        }[form]
+        response = client.get("/api/openapi.json", headers={"If-None-Match": sent})
+        assert response.status_code == 304, (form, sent, response.status_code)
+        assert response.content == b""
+        assert response.headers["etag"] == etag
+
+
+@h.requires_fastapi
+@pytest.mark.parametrize("sent", ['"not-this-document"', 'W/"not-this-document"', '""'])
+def test_a_tag_for_another_document_still_gets_the_document(tmp_path: Path, sent: str) -> None:
+    """The tautology check: a comparison that always matches serves nothing at all."""
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        response = client.get("/api/openapi.json", headers={"If-None-Match": sent})
+        assert response.status_code == 200, sent
+        assert response.json()["openapi"].startswith("3.1")
+
+
+@h.requires_fastapi
+def test_the_two_routes_that_revalidate_share_one_comparison(tmp_path: Path) -> None:
+    """The contract document and the byte channel must not disagree about a tag.
+
+    D-101 is the standing rule — one statement of a rule, imported — and the
+    weak/strong distinction is exactly the kind of sentence a second copy gets
+    backwards. `conditional.if_none_match` is that statement; this asserts both
+    callers behave as it does rather than asserting which line they call.
+    """
+    from x2knwldg.server.conditional import if_none_match
+
+    assert if_none_match('W/"x"', '"x"') is True
+    assert if_none_match('"a", "x"', '"x"') is True
+    assert if_none_match("*", '"x"') is True
+    assert if_none_match('"a"', '"x"') is False
+    assert if_none_match(None, '"x"') is False
+    assert if_none_match("", '"x"') is False
+
+    root = h.project(tmp_path)
+    with h.client(h.memory_repository(root)) as client:
+        spec_tag = client.get("/api/openapi.json").headers["etag"]
+        source_id = client.get("/api/sources").json()["data"][0]["id"]
+        artifacts = client.get(f"/api/sources/{source_id}").json()["data"]["artifacts"]
+        local = next(a for a in artifacts if a.get("path") and a.get("available"))
+        media_tag = client.get(f"/api/media/{local['id']}").headers["etag"]
+        for path, tag in (
+            ("/api/openapi.json", spec_tag),
+            (f"/api/media/{local['id']}", media_tag),
+        ):
+            assert client.get(path, headers={"If-None-Match": f"W/{tag}"}).status_code == 304, path
+            assert client.get(path, headers={"If-None-Match": "*"}).status_code == 304, path

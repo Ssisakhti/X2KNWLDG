@@ -12,7 +12,7 @@ query, ask, envelope the answer — and everything interesting is in what is
 * **No refusal is re-labelled.** ``InvalidId``, ``InvalidQuery`` and
   ``IndexUnavailable`` carry their own status (D-030) and propagate to the
   handler registered in ``errors.install``. A route that caught one and chose a
-  different status would put the taxonomy in eleven places.
+  different status would put the taxonomy in thirteen places.
 * **No record is reshaped.** ``Page.page_info()`` and ``SourceDetail.payload()``
   are already the frozen objects; the envelope is added around them and nothing
   is added inside them.
@@ -30,13 +30,21 @@ that the source exists and has nothing, so these two routes ask
 :class:`~x2knwldg.server.errors.NotFound` when it is ``None``. The frozen
 document lists ``404`` on both paths; this is what produces it.
 
-The enum-valued filters (``status``, ``source_type``, ``provenance_class``,
-``kind``, ``relation_vocabulary``, ``min_confidence``) are declared as plain
-strings and validated by the query dataclasses rather than re-stated as
-framework enums. Those vocabularies are ``constants.py``'s — ``kind`` alone is
-thirty-one values — and a second copy in a route is the copy that goes stale.
-The refusal is identical either way: ``InvalidQuery`` renders as ``400
-invalid_request``.
+The closed-vocabulary filters (``status``, ``provenance_class``, ``kind``,
+``relation_vocabulary``) are declared as plain strings and validated by the
+query dataclasses rather than re-stated as framework enums. Those vocabularies
+are ``constants.py``'s — ``kind`` alone is thirty-one values — and a second copy
+in a route is the copy that goes stale. The refusal is identical either way:
+``InvalidQuery`` renders as ``400 invalid_request``.
+
+``source_type`` is **not** one of them, and this paragraph used to list it as
+though it were. ``common.schema.json#/$defs/sourceType`` is an open pattern,
+``^[a-z][a-z0-9_]*$``, and says so in its own words: "open by design: adding a
+source type must not require a schema change". An adapter namespace arrives by
+adding an adapter — ``twitter`` did, on a surface frozen when only ``youtube``
+existed — so ``?source_type=nonexistent_type`` is a well-formed filter matching
+nothing, and ``200`` with an empty page is the true answer to it, not a
+refusal. Reading the old sentence, the ``200`` looked like a missing check.
 """
 
 from __future__ import annotations

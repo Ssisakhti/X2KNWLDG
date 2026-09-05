@@ -59,11 +59,14 @@ function LocatorDetail({ locator }: { locator: Locator }) {
         entries={[
           {
             label: t("reader.units.locator"),
-            value: (
-              <Mono>
-                {t("text.range", { start: locator.start_char, end: locator.end_char })}
-              </Mono>
-            ),
+            // Not `Mono`: `.mono` is `direction: ltr; unicode-bidi: isolate`,
+            // for "an identifier or a path" that must not be reordered by the
+            // paragraph around it. The Persian `text.range` *begins with a
+            // Persian word* (`نویسه‌های {start}–{end}`), so sealing it into an
+            // LTR isolate ran it backwards against every neighbouring cell.
+            // The digits inside need no help: the bidi algorithm places them
+            // correctly in an RTL run on its own.
+            value: t("text.range", { start: locator.start_char, end: locator.end_char }),
           },
           {
             label: t("reader.units.locatorPost"),

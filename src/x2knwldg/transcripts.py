@@ -134,11 +134,53 @@ def parse_timestamp(value: str) -> float:
 
 
 def clean_text(value: str) -> str:
-    """Strip caption markup, leaving ordinary text — ``<`` and ``>`` included — alone."""
+    """Strip caption markup, leaving ordinary text — ``<`` and ``>`` included — alone.
+
+    A **parse-time** cleaner, applied once, when a cue is first read. It is not
+    idempotent and cannot be: ``html.unescape`` is a *decoding* step, and
+    decoding an already-decoded string decodes it again. A cue whose authored
+    text reads ``the token is &amp;amp; and ...`` is stored canonically as
+    ``the token is &amp; and ...``, and cleaning that a second time yields
+    ``the token is & and ...`` — a third string that appears in no file of the
+    run. :func:`comparable_text` is what compares two already-cleaned strings;
+    see its docstring for the excerpt this let through.
+    """
     value = _CAPTION_MARKUP.sub("", value)
+    # Before the fold, and never again afterwards: unescaping can *produce* an
+    # angle bracket (``&lt;b&gt;`` becomes ``<b>``), and a second markup pass
+    # over the result would eat text the source really wrote.
     value = html.unescape(value)
+    return _fold_invisibles(value)
+
+
+def _fold_invisibles(value: str) -> str:
+    """Drop zero-width characters and collapse whitespace. Idempotent by construction."""
     value = value.replace("\u200b", "").replace("\ufeff", "")
     return " ".join(value.split()).strip()
+
+
+def comparable_text(value: str) -> str:
+    """*value* normalised for comparing two strings that are **already canonical**.
+
+    :func:`clean_text` minus its one non-idempotent step, and that subtraction
+    is the whole point. ``validators.validate_provenance`` used to run the full
+    ``clean_text`` over both the evidence excerpt and the segment text it was
+    matched against — but a segment's text was cleaned once already, when
+    ``_canonical_caption`` parsed the cue it was assembled from. The second
+    ``html.unescape`` therefore decoded it twice: a source that says ``the token
+    is &amp;amp; and nothing else`` is stored as ``the token is &amp; and
+    nothing else``, and an excerpt reading ``the token is & and nothing else``
+    — a string present in no canonical file of the run — became a substring of
+    the doubly-decoded segment and was reported as proven provenance. Two
+    canonical strings may only be compared through a normalisation that is
+    idempotent, or the comparison is not about the files.
+
+    Markup stripping and the whitespace fold stay, because both *are*
+    idempotent and because they are what forgives a quotation the line break or
+    the stray ``<i>`` a model wraps around real content. Entity decoding is the
+    only step removed.
+    """
+    return _fold_invisibles(_CAPTION_MARKUP.sub("", value))
 
 
 def _canonical_caption(

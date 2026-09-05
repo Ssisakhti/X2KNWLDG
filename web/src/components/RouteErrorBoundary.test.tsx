@@ -88,11 +88,22 @@ describe("navigating away from a view that threw", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/api/sources/")) {
-          // `data: null` is not a `SourceDetail`; the view throws reading it.
-          return new Response(JSON.stringify({ api_version: "v1", schema_version: "1.0" }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
+          /*
+           * `data: null` is not a `SourceDetail`; the view throws reading it.
+           *
+           * The envelope itself is well formed on purpose. This used to omit
+           * `data` entirely, which `ApiClient.call` now refuses as a malformed
+           * envelope — an `ApiFailure` the loader catches and renders as an
+           * error state, so the view never rendered and the boundary this test
+           * is about was never reached. That refusal is deliberate and is
+           * tested in `api/client.test.ts`; the subject *here* is that a
+           * boundary, once tripped, clears on navigation, so the throw has to
+           * come from somewhere the client cannot vet — the record's own shape.
+           */
+          return new Response(
+            JSON.stringify({ api_version: "v1", schema_version: "1.0", data: null }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
         }
         return new Response(
           JSON.stringify({

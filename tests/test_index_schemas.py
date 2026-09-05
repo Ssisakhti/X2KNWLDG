@@ -53,8 +53,32 @@ from x2knwldg.pipeline import import_transcript  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = PROJECT_ROOT / "schemas" / "v1"
-SAMPLE_ID = "pqlWNihgdjI"
-SAMPLE_DIR = PROJECT_ROOT / "output" / SAMPLE_ID
+
+
+def _discovered_sample() -> Path:
+    """The real ingested run this machine has, or a path that does not exist.
+
+    ``SAMPLE_DIR`` was ``output/pqlWNihgdjI`` — one video id, hard-coded in five
+    test modules — and ``output/`` is gitignored. So every test gated on it
+    skipped in CI *and* on the developer's own machine, whose ``output/`` holds a
+    different run entirely: thirteen tests, the whole real-data half of the
+    equivalence proof, running nowhere at all. A suite that runs nowhere proves
+    nothing, and it does not announce that either.
+
+    Discovered rather than named, so it is whatever this machine actually
+    ingested; the first in directory order, so two runs still give one stable
+    answer. ``library/`` and ``synthesis/`` are excluded by construction —
+    neither holds a ``metadata.json``, which is what makes a directory a run.
+
+    A machine with no ``output/`` at all still gets a ``Path``, so the module
+    imports and the skip is decided by the same ``exists`` check as before.
+    """
+    runs = sorted(path.parent for path in (PROJECT_ROOT / "output").glob("*/metadata.json"))
+    return runs[0] if runs else PROJECT_ROOT / "output" / "no-run-has-been-ingested"
+
+
+SAMPLE_DIR = _discovered_sample()
+SAMPLE_ID = SAMPLE_DIR.name
 LIBRARY_DIR = PROJECT_ROOT / "output" / "library"
 FIXTURE_RUNS = PROJECT_ROOT / "tests" / "fixtures" / "runs"
 
@@ -925,12 +949,21 @@ def test_every_prompt_returns_a_key_the_bundle_schema_accepts() -> None:
     # different contract. Checking them here would report the schemas disagreeing
     # when in fact they describe different things; each has a test below that
     # holds it to the schema it actually has.
+    #
+    # **`prompts/twitter/` is walked too, and it was not.** This globbed
+    # `prompts/*.md` only, so the two medium-specific prompts were never held to
+    # the schema at all — which is precisely how the Twitter path came to
+    # instruct a model to emit a `source` block the bundle schema forbade, and
+    # to go on doing so while every gate stayed green. A prompt that names a
+    # bundle key belongs here whatever directory it lives in.
     prompts = [
         path
-        for path in sorted((PROJECT_ROOT / "prompts").glob("*.md"))
-        if path.name not in SYNTHESIS_PROMPTS
+        for path in sorted(
+            [*(PROJECT_ROOT / "prompts").glob("*.md"), *(PROJECT_ROOT / "prompts" / "twitter").glob("*.md")]
+        )
+        if path.name not in SYNTHESIS_PROMPTS and path.name != "README.md"
     ]
-    assert len(prompts) == 5, [path.name for path in prompts]
+    assert len(prompts) == 7, [path.name for path in prompts]
 
     declared: dict[str, set[str]] = {}
     for path in prompts:
@@ -946,9 +979,14 @@ def test_every_prompt_returns_a_key_the_bundle_schema_accepts() -> None:
         if keys:
             declared[path.name] = keys
 
-    # `prompts/05` states its output in prose — "return a complete coverage
-    # object" — rather than with a JSON contract, so it has no key to compare.
+    # `prompts/05` and `prompts/twitter/05` state their output in prose —
+    # "return a complete coverage object" — rather than with a JSON contract, so
+    # neither has a key to compare. The Twitter extraction prompt does, and it
+    # is the one this list gained: `01_post_extraction.md` tells the agent to
+    # return `knowledge_units`, so the schema has to accept that key for the
+    # medium the prompt is written for.
     assert sorted(declared) == [
+        "01_post_extraction.md",
         "01_segment_extraction.md",
         "02_normalize_deduplicate.md",
         "03_relationships.md",

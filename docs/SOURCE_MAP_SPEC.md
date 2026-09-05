@@ -363,9 +363,10 @@ the source-level contract medium-neutral so a future book adapter does not chang
 - `tests/fixtures/source-map/` holds three briefs across both media (including a `PARTIAL`),
   three containers (one relation, none, bounded) and 22 invalid documents, each with a sidecar
   naming its single lie and whether the schema or a later gate refuses it;
-- eight source-graph response shapes are frozen as OpenAPI **components with no new paths**, and
-  `types.d.ts` is regenerated; the served surface is still exactly eleven `GET` endpoints, and
-  `T-254` added the two operations (D-254).
+- eight source-graph response shapes were frozen as OpenAPI **components with no new paths**,
+  and `types.d.ts` regenerated; the served surface stayed at eleven `GET` endpoints until
+  `T-254` added the two operations that return them, and it is **thirteen** now (D-254). This
+  line kept the freeze in the present tense after that.
 
 **The frozen bounds.** Measured by `tools/measure_source_bounds.py`, not chosen (D-255):
 

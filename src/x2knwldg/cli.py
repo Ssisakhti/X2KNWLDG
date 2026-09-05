@@ -372,6 +372,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--tunnel-note", help="Free text recorded beside via_tunnel, e.g. the egress it uses"
     )
 
+    index_parser = commands.add_parser(
+        "index",
+        help="Build or refresh the local SQLite index",
+        description=(
+            "Bring the rebuildable index under .x2knwldg/ up to date with output/. "
+            "Incremental by default: a run whose canonical files have not moved is "
+            "carried over rather than re-adapted. The report names every run that was "
+            "skipped and every run indexed with a gap, so a count never omits a run "
+            "in silence (D-043). The index holds nothing that is not derivable from "
+            "the canonical files, so deleting it loses nothing."
+        ),
+    )
+    index_parser.add_argument(
+        "--root",
+        type=Path,
+        help="Project root. Defaults to $X2KNWLDG_PROJECT_ROOT, then the working directory",
+    )
+    index_parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help=(
+            "Discard the stored rows and re-adapt every run, rather than carrying "
+            "unchanged runs over. The escape hatch for an index nothing else can "
+            "explain — and the one that used to require knowing to delete .x2knwldg/"
+        ),
+    )
+
     ui_parser = commands.add_parser(
         "ui", help="Serve the local Knowledge Canvas on loopback"
     )
@@ -689,6 +716,73 @@ def _run_capture(args: argparse.Namespace) -> int:
     return verdict_exit_code(result.coverage_status)
 
 
+def _scan_index(root: Path, *, rebuild: bool = False):
+    """Build or refresh the index at *root*, with the search corpus wired.
+
+    One call site for both commands, because the pairing is the part that gets
+    forgotten. ``index_documents`` is what fills ``documents`` and the two FTS5
+    tables; without it the scan still produces a complete, correct index of
+    sources, artifacts, entities and relations — and ``/api/search`` answers
+    ``0`` for every query, because the corpus it searches was never written.
+    Nothing else about the result looks wrong, which is exactly why the two
+    travel together here rather than in each caller's memory.
+
+    Imported inside the function: ``index`` reaches the whole adapter and
+    scanner layer, and ``import x2knwldg.cli`` must stay cheap and
+    dependency-free (ADR 0001 invariant 5).
+    """
+    from .index.scanner import build_index, refresh_index
+    from .index.search import document_indexer
+
+    scan = build_index if rebuild else refresh_index
+    return scan(root, index_documents=document_indexer(root))
+
+
+def _run_index(args: argparse.Namespace) -> int:
+    """``x2knwldg index`` — the command that had no name.
+
+    ``refresh_index`` was reachable from exactly one place: step 4 of
+    ``_run_ui``. So a project whose index had gone stale for a reason a refresh
+    would not notice — before this branch existed, a schema migration was one —
+    could only be repaired by knowing that ``.x2knwldg/`` is a cache and
+    deleting it. That is a fix nothing in the CLI, the help text or the UI ever
+    mentions, and "delete the undocumented directory" is not a recovery
+    procedure.
+
+    ``--rebuild`` is the same escape, named: it discards the stored rows and
+    re-adapts every run. It stays useful even now that a migration and an
+    adapter bump force a whole build on their own, because the class of reason
+    an incremental scan cannot see is open-ended, and the cost of being wrong
+    about it is a library that reports itself healthy while serving nothing.
+
+    Exit ``0`` when the scan committed, ``1`` when it refused — and a refusal is
+    a refusal of *this scan*, never of the canonical files, which the index
+    never writes.
+    """
+    root = project_root(args.root)
+    if not root.is_dir():
+        raise PipelineError(f"Project root does not exist: {root}")
+
+    # `RepositoryError` covers everything the store refuses — a duplicate id
+    # across two runs, a library graph naming a deleted run, a SQLite without
+    # FTS5, a database from a newer schema. Each already carries an actionable
+    # sentence, so this reports it through the documented stderr envelope
+    # rather than through a traceback.
+    from .repository import RepositoryError
+
+    try:
+        report = _scan_index(root, rebuild=args.rebuild)
+    except RepositoryError as exc:
+        _fail("ERROR", str(exc), error=type(exc).__name__)
+        return EXIT_ERROR
+
+    payload = report.payload()
+    payload["root"] = str(root)
+    payload["rebuilt"] = bool(args.rebuild)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return EXIT_OK
+
+
 def _missing_ui_dependencies() -> list[str]:
     """Names from the `ui` extra that are not importable."""
     return _missing_dependencies(UI_DEPENDENCIES)
@@ -764,17 +858,11 @@ def _run_ui(args: argparse.Namespace) -> int:
         )
         return EXIT_UI_NOT_BUILT
 
-    from .index.scanner import refresh_index
-    from .index.search import document_indexer
-
-    # `index_documents` is what fills `documents` and the FTS5 tables. Without
-    # it the scan still produces a complete, correct index of sources,
-    # artifacts, entities and relations -- and `/api/search` answers `0` for
-    # every query, because the corpus it searches was never written. Nothing
-    # else about the UI looks wrong, which is exactly why this has to be wired
-    # here rather than remembered: `T-103` pairs the two, and every other
-    # caller in the tree passes them together.
-    report = refresh_index(root, index_documents=document_indexer(root))
+    # The same scan `x2knwldg index` runs, through the same helper: two callers
+    # wiring `index_documents` by hand is two places it can be forgotten, and
+    # forgetting it costs `/api/search` every hit while nothing else looks
+    # wrong.
+    report = _scan_index(root)
 
     sock, listening = ui.bind(args.host, args.port)
     print(
@@ -904,6 +992,8 @@ def main(argv: list[str] | None = None) -> int:
 
             print(json.dumps(rebuild_library(args.output), ensure_ascii=False, indent=2))
             return EXIT_OK
+        if args.command == "index":
+            return _run_index(args)
         if args.command == "capture":
             return _run_capture(args)
         if args.command == "ui":

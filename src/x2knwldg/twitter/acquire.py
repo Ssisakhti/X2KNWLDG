@@ -45,6 +45,7 @@ way through leaves the directory exactly as it was (D-090).
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -102,6 +103,24 @@ _HOSTS = frozenset(
         "mobile.twitter.com",
     }
 )
+
+#: What a post id is, and the only rule either branch of :func:`parse_reference`
+#: applies. Two defects met here, and both are why it is one compiled pattern
+#: rather than two hand-written tests:
+#:
+#: * the ``> 25 digits`` bound guarded the **bare-id** branch alone, so
+#:   ``https://x.com/u/status/<200 digits>`` returned a 200-character "post id"
+#:   that went on to name a run directory and to be handed to the pinned binary
+#:   as ``argv``;
+#: * ``str.isdigit()`` is not ASCII-only. ``parse_reference("١٢٣٤٥")`` returned
+#:   ``'١٢٣٤٥'`` — Arabic-Indic digits are ``isdigit()`` — and the refusal came
+#:   much later out of ``resolve_run_dir`` as *"Invalid video ID"*, which names
+#:   the wrong medium at the wrong seam. In a Persian-first project a
+#:   Persian-digit paste is not an exotic input.
+#:
+#: 25 is the bound the first branch already carried: a snowflake id is 19
+#: digits today and the field is 64 bits, so 25 is generous and still finite.
+POST_ID = re.compile(r"[0-9]{1,25}")
 
 
 class AcquisitionError(Exception):
@@ -180,8 +199,13 @@ def parse_reference(reference: str) -> str:
     if not candidate:
         raise AcquisitionError("No post reference given.")
     if candidate.isdigit():
-        if len(candidate) > 25:
-            raise AcquisitionError(f"Not a post id: {reference!r} is longer than 25 digits.")
+        # `isdigit()` opens the branch; `POST_ID` decides it. The two disagree
+        # for every non-ASCII decimal digit, and disagreeing here — rather than
+        # in `resolve_run_dir`, four frames later, about a video — is the point.
+        if not POST_ID.fullmatch(candidate):
+            raise AcquisitionError(
+                f"Not a post id: {reference!r}. A post id is 1 to 25 ASCII digits."
+            )
         return candidate
 
     url = candidate if "//" in candidate else f"https://{candidate}"
@@ -197,7 +221,10 @@ def parse_reference(reference: str) -> str:
     for marker in ("status", "statuses"):
         if marker in segments:
             index = segments.index(marker)
-            if index + 1 < len(segments) and segments[index + 1].isdigit():
+            # The same `POST_ID` the bare-id branch applies. It used to be
+            # `isdigit()` with no bound at all here, which is how a 200-digit
+            # path segment became a run directory name.
+            if index + 1 < len(segments) and POST_ID.fullmatch(segments[index + 1]):
                 return segments[index + 1]
             break
     raise AcquisitionError(
@@ -214,6 +241,19 @@ def parse_record(read: Read) -> dict[str, Any]:
     cannot normalize. That is the case the pin exists for — a provider whose
     output shape moved — and it is reported as such rather than as a fact about
     the post or about the network.
+
+    **The record must be the post that was asked for.** Nothing checked that,
+    and two things downstream assume it. ``_assemble`` looked the anchor up with
+    a bare ``next(record for record in records if record["id"] == anchor_id)``:
+    a provider answering a redirect, or unrolling a retweet into the post it
+    quotes, raised ``StopIteration`` — a type in neither ``_run_capture``'s
+    except list nor ``cli.USER_FACING_ERRORS``, so ``capture`` died on a raw
+    traceback instead of exiting ``9 PROVIDER_DRIFT``. And ``_preserve_reads``
+    pairs bytes to records by ``record["id"]``, so a record under a different id
+    silently produced an item with no preserved evidence at all — a claim about
+    a post the run holds no bytes for. Both are one missing comparison, so the
+    comparison is made once, here, where the record arrives:
+    :attr:`Read.post_id` is the id this seam requested.
     """
     try:
         parsed = json.loads(read.stdout.decode("utf-8"))
@@ -247,6 +287,13 @@ def parse_record(read: Read) -> dict[str, Any]:
     post_id = record.get("id")
     if not isinstance(post_id, str) or not post_id.isdigit():
         raise ProviderDrift(f"The record carries no usable post id: {post_id!r}")
+    if post_id != read.post_id:
+        raise ProviderDrift(
+            f"The provider was asked for post {read.post_id} and answered with post "
+            f"{post_id}. A redirect, or a retweet unrolled into what it quotes, is still "
+            "an answer about a different post: preserving it would put bytes in raw/ that "
+            "no item cites, and citing it would name a post nobody asked for."
+        )
     author = record.get("author") or {}
     missing = [
         name
@@ -507,6 +554,16 @@ def _preserve_reads(
     recorded in ``routes_read`` instead, which is why a failed read is never
     dropped from the capture. Pairing is by :attr:`Read.post_id`, so bytes and
     post can never be matched to each other by inference.
+
+    Every refusal :mod:`~x2knwldg.twitter.evidence` can raise is re-raised as an
+    :class:`AcquisitionError`, because all three are user-facing answers and
+    none of them was reachable through the CLI's documented envelope: they are
+    bare ``Exception`` subclasses, ``cli._run_capture`` catches only the
+    acquisition hierarchy, and ``cli.USER_FACING_ERRORS`` does not list them
+    either — so a post whose authored text trips a credential pattern, a
+    surviving leak, and a re-acquisition over existing evidence all exited on a
+    raw traceback rather than as ``{"status": "ERROR"}``. The message is carried
+    through unchanged; only the type is widened to one the caller catches.
     """
     stdout_by_id = {read.post_id: read.stdout for read in reads if read.ok and read.stdout}
     raw_dir = run_dir / RAW_DIR_NAME
@@ -518,7 +575,7 @@ def _preserve_reads(
         if raw is None:
             continue
         preserved.append(
-            evidence_module.prepare(
+            _prepare_evidence(
                 raw=raw,
                 destination=raw_dir / f"{tier.route}_{post_id}.json",
                 relative_to=relative_to,
@@ -540,7 +597,7 @@ def _preserve_reads(
                 "nothing to preserve as evidence of it."
             )
         preserved.append(
-            evidence_module.prepare(
+            _prepare_evidence(
                 raw=read.error_text.encode("utf-8"),
                 destination=raw_dir / f"{tier.route}_{read.post_id}.unavailable.txt",
                 relative_to=relative_to,
@@ -548,6 +605,24 @@ def _preserve_reads(
             )
         )
     return preserved
+
+
+#: The three ways :func:`x2knwldg.twitter.evidence.prepare` refuses. Each is a
+#: complete, user-facing sentence about why nothing was written, and none of
+#: them is an acquisition failure this module could describe better.
+_EVIDENCE_REFUSALS = (
+    evidence_module.AuthoredTextRedaction,
+    evidence_module.CredentialLeak,
+    evidence_module.EvidenceConflict,
+)
+
+
+def _prepare_evidence(**kwargs: Any) -> evidence_module.PreservedEvidence:
+    """:func:`evidence.prepare`, with its refusals inside this module's hierarchy."""
+    try:
+        return evidence_module.prepare(**kwargs)
+    except _EVIDENCE_REFUSALS as exc:
+        raise AcquisitionError(str(exc)) from exc
 
 
 def _assemble(
@@ -618,7 +693,19 @@ def _assemble(
             },
         }
 
-    anchor_record = next(record for record in records if record["id"] == anchor_id)
+    anchor_record = next(
+        (record for record in records if record["id"] == anchor_id), None
+    )
+    if anchor_record is None:
+        # `parse_record` compares every record against the id it was requested
+        # under, so reaching this means the *walk* lost the anchor rather than
+        # the provider substituting for it. Either way the capture would be
+        # anchored at a post it does not contain, and the bare `next()` that
+        # used to stand here raised `StopIteration` out of a public function.
+        raise ProviderDrift(
+            f"The captured records do not include the anchor {anchor_id}, so this capture "
+            "would be anchored at a post it does not carry."
+        )
     has_parent = bool(anchor_record.get("reply_to"))
     omitted: list[dict[str, Any]] = []
 

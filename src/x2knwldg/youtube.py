@@ -229,11 +229,19 @@ def fetch_native_transcript(url: str, preferred_languages: list[str] | None = No
                     f"(preferred: {preferred}; available: {available_languages})"
                 )
             if selected_language is None:
-                if manual:
-                    selected_language = next(iter(manual))
-                    use_manual = True
-                else:
-                    selected_language = next(iter(automatic))
+                # Reached only when the caller passed an *empty* preference
+                # list, which is the documented way to say "any language". Any
+                # is not the same as whichever, and `next(iter(...))` answered
+                # with whatever order yt-dlp happened to build the dict in — so
+                # the same video could be ingested in Spanish today and German
+                # tomorrow, with `metadata.language` recording the accident
+                # rather than a decision. Sorted, so "any" is at least the same
+                # any on every run and a re-ingestion is comparable with the
+                # first one. Manual still wins over automatic: that is a
+                # judgement about caption quality, not about ordering.
+                pool = manual if manual else automatic
+                use_manual = bool(manual)
+                selected_language = sorted(pool)[0]
             output_template = str(Path(directory) / "captions")
             options = ydl_options(
                 **impersonation,
@@ -245,7 +253,16 @@ def fetch_native_transcript(url: str, preferred_languages: list[str] | None = No
             )
             with YoutubeDL(options) as ydl:
                 ydl.extract_info(url, download=True)
-            files = list(Path(directory).glob("captions*.json3"))
+            # `sorted`, because `glob` yields in directory order and `files[0]`
+            # then decides which track becomes *the* transcript by whatever the
+            # filesystem happened to return first. yt-dlp names the file
+            # `captions.<lang>.json3`, and a directory that ends up holding more
+            # than one — a re-run into the same temporary directory, a language
+            # tag yt-dlp spells two ways — silently picked one. The transcript
+            # is the evidence every claim in the run is checked against, so
+            # which file it came from cannot be an accident of enumeration
+            # order.
+            files = sorted(Path(directory).glob("captions*.json3"))
             if not files:
                 raise PipelineError("yt-dlp did not produce a JSON3 caption file")
             data = _read_caption_file(files[0])
@@ -285,7 +302,23 @@ def fetch_native_transcript(url: str, preferred_languages: list[str] | None = No
             if not items:
                 raise PipelineError("yt-dlp caption file contained no usable timed events")
             return items, {"video_id": video_id, "language": selected_language, "url": url}
+    except PipelineError:
+        # This module's own refusals are already the precise answer, and they
+        # were being overwritten. "None of the preferred YouTube caption
+        # languages are available (preferred: ['en']; available: ['de', 'fr'])"
+        # names a fact the operator can act on — pass `--preferred-language de`,
+        # or supply a transcript — and the `MAX_CAPTIONS` bound says the track
+        # is not a transcript at all. Both were caught by the broad handler
+        # below and re-reported as "Native YouTube captions unavailable", which
+        # is the one thing that was *not* true: the captions were there and this
+        # module declined them. A refusal this module worded on purpose is
+        # raised as worded.
+        raise
     except Exception as ytdlp_error:
+        # Everything else: yt-dlp's own hierarchy, its HTTP stack, a missing
+        # `yt_dlp` import. Those really do mean the captions could not be had,
+        # and the message carries both attempts because either could be the
+        # reason.
         raise PipelineError(
             f"Native YouTube captions unavailable (API: {api_error}; yt-dlp: {ytdlp_error})"
         ) from ytdlp_error

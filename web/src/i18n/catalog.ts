@@ -120,6 +120,10 @@ export const en = {
   "library.unitsScopeNote":
     "The frozen contract filters knowledge units per source, so each source below was queried separately and reports its own total.",
 
+  "bytes.B": "bytes",
+  "bytes.KB": "KB",
+  "bytes.MB": "MB",
+  "map.legend.summary": "{shapes} shapes, {hues} hues",
   "search.label": "Search",
   "search.placeholder": "Search knowledge units and transcripts",
   "search.submit": "Search",
@@ -621,6 +625,10 @@ export const fa: Messages = {
   "library.unitsScopeNote":
     "قرارداد منجمد، واحدهای دانش را به‌ازای هر منبع صافی می‌کند؛ پس هر منبع جداگانه پرس‌وجو شده و مجموع خودش را گزارش می‌کند.",
 
+  "bytes.B": "بایت",
+  "bytes.KB": "کیلوبایت",
+  "bytes.MB": "مگابایت",
+  "map.legend.summary": "{shapes} شکل، {hues} رنگ",
   "search.label": "جست‌وجو",
   "search.placeholder": "جست‌وجو در واحدهای دانش و رونویس‌ها",
   "search.submit": "جست‌وجو",

@@ -4,7 +4,7 @@
     "title": "X2KNWLDG local API — v1",
     "version": "1.0.0",
     "summary": "The frozen read-only HTTP contract of the Knowledge Canvas local web layer.",
-    "description": "Freezes canvas plan §15 (T-005). The API is a **reader**. Every response body is a record the adapters in `src/x2knwldg/adapters/` already produce from canonical files under `output/<source-id>/`, wrapped in a versioned envelope — this document defines no second shape for anything the index model already describes, and `$ref`s `schemas/v1/` rather than restating it.\n\nFour rules the server may not break:\n\n1. **Status is copied, never computed.** Every status in a response is the `Source.status` block verbatim, `UNKNOWN` included. The API has no more right to compute a run status than the UI does (ADR 0001 invariant 2).\n2. **A missing artifact is reported, never masked.** An artifact absent at index time carries `available: false`, and `/api/media` answers `404 unavailable`. No placeholder, no fabricated bytes (canvas plan §15).\n3. **An externally supplied id is resolved, never sanitised.** Every path parameter that names a run goes through `pipeline.resolve_run_dir`, which rejects rather than rewrites (D-020, risk R14). A malformed id is `400 invalid_id`; a well-formed id with nothing behind it is `404 not_found`.\n4. **v1 is read-only.** There is no endpoint that writes to `output/`, and none at all that writes to `output/<id>/raw/`, which is immutable evidence (ADR 0001 invariant 1). Board persistence is Phase 3 and is deliberately not frozen here (D-027).\n\nLoopback-only binding, path-traversal hardening, and range requests are `T-108`; they are operational obligations that this document states but cannot enforce.",
+    "description": "Freezes canvas plan §15 (T-005). The API is a **reader**. Every response body is a record the adapters in `src/x2knwldg/adapters/` already produce from canonical files under `output/<source-id>/`, wrapped in a versioned envelope — this document defines no second shape for anything the index model already describes, and `$ref`s `schemas/v1/` rather than restating it.\n\nFour rules the server may not break:\n\n1. **Status is copied, never computed.** Every status in a response is the `Source.status` block verbatim, `UNKNOWN` included. The API has no more right to compute a run status than the UI does (ADR 0001 invariant 2).\n2. **A missing artifact is reported, never masked.** An artifact absent at index time carries `available: false`, and `/api/media` answers `404 unavailable`. No placeholder, no fabricated bytes (canvas plan §15).\n3. **An externally supplied id is resolved, never sanitised.** Every path parameter that names a run goes through `pipeline.resolve_run_dir`, which rejects rather than rewrites (D-020, risk R14). A malformed id is `400 invalid_id`; a well-formed id with nothing behind it is `404 not_found`.\n4. **v1 is read-only.** There is no endpoint that writes to `output/`, and none at all that writes to `output/<id>/raw/`, which is immutable evidence (ADR 0001 invariant 1). Board persistence is Phase 3 and is deliberately not frozen here (D-027).\n\nLoopback-only binding, path-traversal hardening, and range requests are `T-108`; they are operational obligations that this document states but cannot enforce.\n\nThree facts about the **served** surface that this document deliberately does not declare as paths or operations. They are written down here so that a reader of the contract is not left to discover them from a running server:\n\n1. **`GET /api/openapi.json` is served, and is not one of the paths below.** It returns this document byte for byte, with an `ETag` and a `304` on revalidation. It is excluded because a contract that declared the request for itself would describe its own retrieval as part of the surface it describes. The exclusion is asserted rather than assumed: `test_the_served_surface_is_exactly_the_frozen_one` walks the real router and compares what it finds against these paths *plus that one*, so a route added with `include_in_schema=False`, or any mount, fails the guard.\n2. **`HEAD` is answered on every path below and declares no `head` operation.** RFC 9110 defines `HEAD` as `GET` without a body, so it needs no second declaration; one ASGI middleware honours it for every route, and the `Content-Length`, `Content-Range` and `Accept-Ranges` a `HEAD` carries are exactly the ones its `GET` would have carried — range probes included. A reader who sees only the declared `405` should read this sentence rather than conclude the method is refused.\n3. **`GET /api/status` declares `503` and cannot raise it itself.** `status()` reports an unbuilt index as the state `absent` rather than refusing, precisely so that a UI can tell 'never indexed' from 'the server is broken'. The `503` stays declared because it stays reachable: a repository that fails while being asked what it is renders through the shared handler, on this path as on every other.",
     "license": {
       "name": "MIT"
     }
@@ -373,7 +373,7 @@
           "artifacts"
         ],
         "summary": "The bytes of one artifact",
-        "description": "The byte channel for every artifact, canonical JSON and the Markdown report included — the API serves the file as written and never reinterprets, reformats, or summarises canonical content.\n\nRead-only in every case. `raw/` artifacts are served but carry `immutable: true` and have no write endpoint in any version (ADR 0001 invariant 1). An `external` artifact — a YouTube video — has no bytes here: it answers `404 unavailable`, and the client uses `Artifact.url` (canvas plan §15: never assume a local media file exists).\n\nRange requests are supported (T-108).",
+        "description": "The byte channel for every artifact, canonical JSON and the Markdown report included — the API serves the file as written and never reinterprets, reformats, or summarises canonical content.\n\nRead-only in every case. `raw/` artifacts are served but carry `immutable: true` and have no write endpoint in any version (ADR 0001 invariant 1). An `external` artifact — a YouTube video — has no bytes here: it answers `404 unavailable`, and the client uses `Artifact.url` (canvas plan §15: never assume a local media file exists).\n\nRange requests are supported (T-108).\n\nConditional requests are supported. Every `200` and `206` carries a strong `ETag`, a `Last-Modified` and `Cache-Control: no-cache` — store it, but revalidate before reusing it, because a canonical file is rewritten by a re-ingest and no server can promise a lifetime for that. A client that already holds the representation revalidates with `If-None-Match` (or `If-Modified-Since`) and is answered `304`. A `Range` may be guarded with `If-Range`; when the guard does not match, the range is ignored and the whole representation is sent.",
         "parameters": [
           {
             "$ref": "#/components/parameters/ArtifactIdPath"
@@ -386,17 +386,74 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "description": "Entity tags the client already holds. Compared with the **weak** comparison function of RFC 9110 §13.1.2, so `W/\"…\"` matches `\"…\"`; a comma-separated list and `*` are both honoured. A match is `304`, and outranks `Range`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Modified-Since",
+            "in": "header",
+            "required": false,
+            "description": "HTTP-date of the client's copy. Consulted only when there is no `If-None-Match`, which is the precedence RFC 9110 §13.2.2 fixes. An unparseable date is ignored rather than refused.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Range",
+            "in": "header",
+            "required": false,
+            "description": "Guards the `Range`: an entity tag, compared **strongly** so a `W/` tag never matches, or the exact `Last-Modified` date. When it does not match, the `Range` is ignored and the whole representation is sent with `200` — never `416`.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "The whole artifact. `Content-Type` is `Artifact.media_type` when one is registered, and `application/octet-stream` when it is not — a media type is stated, never guessed.",
+            "description": "The whole artifact. `Content-Type` is `Artifact.media_type` when one is registered, and `application/octet-stream` when it is not — a media type is stated, never guessed.\n\nIt is also **allowlisted**, which the earlier wording did not say: a registered type outside the set this channel serves — the adapters' own table, plus the whole `audio/`, `video/` and `image/` families, less `image/svg+xml` — is answered `404 unavailable` rather than sent. The UI is served from `/` on this same origin, so a record stating `text/html` would otherwise run there. Such a record is a damaged one; refusing it is not the same as guessing a replacement for it.",
             "headers": {
               "Accept-Ranges": {
                 "schema": {
                   "type": "string"
                 },
                 "description": "`bytes`."
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Bytes in the body: the whole artifact on a `200`, the range's length on a `206`."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`nosniff`. The UI is served from `/` on this same origin, so a sniffed type would decide what a document *runs as*."
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "A strong entity tag for the bytes on disk. Strong because `If-Range` accepts nothing weaker: splicing a byte range onto a merely *equivalent* representation builds a file that never existed."
+              },
+              "Last-Modified": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The file's modification time as an IMF-fixdate. One-second resolution, so it is the supplementary validator; the `ETag` is the one `If-Range` is checked against."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`no-cache` — store the response and revalidate before reusing it. Not `max-age`: a canonical file changes when the user re-runs the pipeline, which is not a schedule."
               }
             },
             "content": {
@@ -414,12 +471,44 @@
               "Content-Range": {
                 "schema": {
                   "type": "string"
-                }
+                },
+                "description": "`bytes <first>-<last>/<complete-length>`."
               },
               "Accept-Ranges": {
                 "schema": {
                   "type": "string"
-                }
+                },
+                "description": "`bytes`."
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Bytes in the body: the whole artifact on a `200`, the range's length on a `206`."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`nosniff`. The UI is served from `/` on this same origin, so a sniffed type would decide what a document *runs as*."
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "A strong entity tag for the bytes on disk. Strong because `If-Range` accepts nothing weaker: splicing a byte range onto a merely *equivalent* representation builds a file that never existed."
+              },
+              "Last-Modified": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The file's modification time as an IMF-fixdate. One-second resolution, so it is the supplementary validator; the `ETag` is the one `If-Range` is checked against."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`no-cache` — store the response and revalidate before reusing it. Not `max-age`: a canonical file changes when the user re-runs the pipeline, which is not a schedule."
               }
             },
             "content": {
@@ -428,6 +517,41 @@
                   "type": "string",
                   "format": "binary"
                 }
+              }
+            }
+          },
+          "304": {
+            "description": "The client's copy is current: `If-None-Match` matched, or `If-Modified-Since` was not passed. No body, and no `Content-Length`. Returned in preference to a `206` when both a validator and a `Range` are sent — there is no point sending part of a representation the client holds all of.",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`bytes`."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`nosniff`. The UI is served from `/` on this same origin, so a sniffed type would decide what a document *runs as*."
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "A strong entity tag for the bytes on disk. Strong because `If-Range` accepts nothing weaker: splicing a byte range onto a merely *equivalent* representation builds a file that never existed."
+              },
+              "Last-Modified": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The file's modification time as an IMF-fixdate. One-second resolution, so it is the supplementary validator; the `ETag` is the one `If-Range` is checked against."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`no-cache` — store the response and revalidate before reusing it. Not `max-age`: a canonical file changes when the user re-runs the pipeline, which is not a schedule."
               }
             }
           },
@@ -447,6 +571,26 @@
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
+              }
+            },
+            "headers": {
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`bytes */<complete-length>` — required by RFC 9110 on a 416, and the reason the refusal is useful: the client learns the real length and can ask again."
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`bytes`."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`nosniff`. The UI is served from `/` on this same origin, so a sniffed type would decide what a document *runs as*."
               }
             }
           },

@@ -324,6 +324,36 @@ export function mapLayoutIterations(
 export const MAP_FOCUS_MARGIN = 1.2;
 
 /**
+ * How much room the *overview* leaves around the whole graph.
+ *
+ * Wider than `MAP_FOCUS_MARGIN`, and the difference is the floating chrome.
+ * D-153 makes this route a viewport workspace: the graph fills the stage and
+ * every control floats over it — the search rail over the top inline-start
+ * corner, the filters over the top inline-end, the zoom group and the legend
+ * over the bottom two. A fit computed against the bare stage puts marks, and
+ * the labels that trail them, underneath those panels. On the committed
+ * fixture corpus two of the Source Map's four nodes landed under chrome, one
+ * of them squarely behind "Zoom in" where it could be neither read nor
+ * clicked.
+ *
+ * A single scalar rather than four measured insets, deliberately. The chrome's
+ * rectangles are already measured for *card* placement (`T-212`), but a camera
+ * ratio is one number applied about a centre: it cannot be inset
+ * asymmetrically without moving the centre off the graph's own middle, which is
+ * the thing `frame` is careful to keep.
+ *
+ * **1.3 is measured, and the bound above it is the label policy.** Marks shrink
+ * as `1 / sqrt(ratio)` and `labelRenderedSizeThreshold` is 6 against a smallest
+ * mark of 6.1 px at rest (`labelPolicy.ts`), so an overview that zooms out too
+ * far is silent by design — "quiet until you look closer" (D-122). At 1.6 the
+ * Source Map's four nodes all cleared the chrome and *none* of them was
+ * labelled, which trades one unreadable state for another. At 1.3, on a
+ * 1440x900 stage over the committed corpus, all four are clear of the chrome
+ * and all four still speak.
+ */
+export const MAP_OVERVIEW_MARGIN = 1.3;
+
+/**
  * The closest a framing gesture will ever go, as a camera ratio.
  *
  * A focus with one neighbour beside it -- or none at all -- has an extent at
@@ -501,7 +531,11 @@ export class MapSession<E = IndexedRelation> {
    * nothing to frame" -- a node the renderer does not hold has no position,
    * and inventing one would point the camera at empty space.
    */
-  frame(centreId: string, neighbours: Iterable<string> = []): boolean {
+  frame(
+    centreId: string,
+    neighbours: Iterable<string> = [],
+    margin: number = MAP_FOCUS_MARGIN,
+  ): boolean {
     const renderer = this.renderer;
     if (renderer === null) return false;
     const centre = renderer.nodeDisplay(centreId);
@@ -546,7 +580,7 @@ export class MapSession<E = IndexedRelation> {
       view !== null && view.width > 0 && view.height > 0 && view.ratio > 0
         ? view.ratio * Math.max(spanX / view.width, spanY / view.height)
         : Math.max(spanX, spanY);
-    const ratio = Math.max(needed * MAP_FOCUS_MARGIN, MAP_FOCUS_MIN_RATIO);
+    const ratio = Math.max(needed * margin, MAP_FOCUS_MIN_RATIO);
     // The middle of what has to be visible, not the focus itself: a focus at
     // the edge of its own neighbourhood would otherwise leave half of it off
     // the stage, which is the state this method exists to end.
@@ -554,6 +588,35 @@ export class MapSession<E = IndexedRelation> {
       .getCamera()
       .animate({ x: (minX + maxX) / 2, y: (minY + maxY) / 2, ratio }, cameraAnimation());
     return true;
+  }
+
+  /**
+   * Show the whole graph, once, when there is nothing to focus.
+   *
+   * The gap this closes: the Map opened on whatever camera the renderer
+   * happened to start at, so the reader's first impression of a library was a
+   * mostly empty field with the graph pushed into one part of it and some of
+   * it under the floating chrome. Nothing was broken — every mark was
+   * reachable through the DOM companion, and pan and zoom worked — but the
+   * picture did not answer the one question an overview exists to answer.
+   *
+   * Built on `frame` rather than beside it: framing a set of nodes is one
+   * problem, and `frame` already measures the visible extent instead of
+   * treating a camera ratio as a framed distance (the defect its own comment
+   * records). The whole graph is just the largest such set, so this is
+   * `frame` over every node with the overview's wider margin.
+   *
+   * `false` when there is no renderer or no node — a library with nothing in
+   * it has no overview, and saying so is this method's honest answer rather
+   * than a camera moved to nowhere.
+   */
+  fitAll(): boolean {
+    const graph = this.graph;
+    if (this.renderer === null || graph === null || graph.order === 0) return false;
+    const ids = graph.nodes();
+    const first = ids[0];
+    if (first === undefined) return false;
+    return this.frame(first, ids.slice(1), MAP_OVERVIEW_MARGIN);
   }
 
   /**
@@ -635,8 +698,23 @@ export class MapSession<E = IndexedRelation> {
     this.renderer?.getCamera().zoomOut(cameraAnimation());
   }
 
-  /** Back to the framed whole graph, which is where a reload starts. */
+  /**
+   * Back to the framed whole graph, which is where a reload starts.
+   *
+   * That sentence is the contract, and `fitAll` is what now makes it true.
+   * This used to be the camera's bare `reset()`, which is Sigma's own default
+   * position — and while the Map opened on that same default the two agreed by
+   * accident. Once a cold open framed the whole graph (`fitAll`), "where a
+   * reload starts" moved and `reset()` did not, so pressing "Reset the view"
+   * left the reader somewhere they had never been — caught by comparing the
+   * drawn picture before a zoom and after a reset, which is the only way a
+   * canvas can be asked whether two cameras agree.
+   *
+   * The camera's `reset` is still the fallback, for the graph `fitAll` cannot
+   * frame — no renderer, or no nodes — where it is the only answer available.
+   */
   resetView(): void {
+    if (this.fitAll()) return;
     this.renderer?.getCamera().reset(cameraAnimation());
   }
 

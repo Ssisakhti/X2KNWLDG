@@ -49,6 +49,59 @@ provider code or binaries are copied or distributed with X2KNWLDG—the licensin
 analysis and this notice must be revisited. This notice records the current operational
 boundary; it does not replace the provider's license text or constitute legal advice.
 
+## The Python package's optional dependencies
+
+The core distribution declares **no** runtime dependency (ADR 0001 invariant 5), and CI's
+`core package without extras` job fails if one creeps in. Every distribution below arrives
+only through an optional extra a user installs by name — `pip install '.[youtube]'` and so
+on — and none of them is copied, vendored, linked, or redistributed with this repository.
+
+Recorded because this file claims to record what X2KNWLDG depends on and named not one of
+them, while every package in the browser bundle had a row. That asymmetry has a cause
+rather than an excuse: `tests/test_ui_scaffold.py` walks `package-lock.json` and fails on
+the next package that reaches the bundle without a row here, and **nothing walks
+`pyproject.toml`** — so the npm half stayed complete and the Python half was never written.
+The same defect D-203 recorded for the frontend, on the other half of the repository. Eight
+of the sixteen are not MIT, which is the condition the Playwright section below already had
+to provide for.
+
+These are **ranges**, not pins, and there is no Python lockfile: `pyproject.toml` states a
+floor and the resolver chooses. A licence checked at one version does not speak for a later
+one, so each row records the constraint the project declares *and* the version that
+constraint resolved to when the row was checked.
+
+Verified 2026-09-05, against the resolved versions in the project's own virtual
+environment:
+
+| Extra | Distribution | Declared | Checked at | Licence | Upstream |
+|---|---|---|---|---|---|
+| `youtube` | `yt-dlp` | `>=2024.1.0` | 2026.8.19 | Unlicense | [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) |
+| `youtube` | `curl-cffi` | `>=0.11` | 0.16.3 | MIT | [lexiforest/curl_cffi](https://github.com/lexiforest/curl_cffi) |
+| `youtube` | `youtube-transcript-api` | `>=1.0` | 1.2.4 | MIT | [jdepoix/youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) |
+| `youtube` | `requests` | `>=2.25` | 2.34.2 | Apache-2.0 | [psf/requests](https://github.com/psf/requests) |
+| `mcp` | `mcp` | `>=2,<3` | 2.1.1 | MIT | [modelcontextprotocol/python-sdk](https://github.com/modelcontextprotocol/python-sdk) |
+| `ui` | `fastapi` | `>=0.115,<1` | 0.141.1 | MIT | [fastapi/fastapi](https://github.com/fastapi/fastapi) |
+| `ui` | `uvicorn` | `>=0.30,<1` | 0.52.4 | BSD-3-Clause | [Kludex/uvicorn](https://github.com/Kludex/uvicorn) |
+| `ui` | `starlette` | `>=0.37,<1` | 1.6.0 | BSD-3-Clause | [Kludex/starlette](https://github.com/Kludex/starlette) |
+| `legacy` | `networkx` | `>=3.0` | 3.6.1 | BSD-3-Clause | [networkx/networkx](https://github.com/networkx/networkx) |
+| `legacy` | `pyvis` | `>=0.3.2` | 0.3.2 | BSD-3-Clause | [WestHealth/pyvis](https://github.com/WestHealth/pyvis) |
+| `dev` | `pytest` | `>=8.0` | 9.1.1 | MIT | [pytest-dev/pytest](https://github.com/pytest-dev/pytest) |
+| `dev` | `ruff` | `>=0.6` | 0.16.5 | MIT | [astral-sh/ruff](https://github.com/astral-sh/ruff) |
+| `dev` | `mypy` | `>=1.11` | 2.3.1 | MIT | [python/mypy](https://github.com/python/mypy) |
+| `dev` | `jsonschema` | `>=4.18` | 4.26.0 | MIT | [python-jsonschema/jsonschema](https://github.com/python-jsonschema/jsonschema) |
+| `dev` | `openapi-spec-validator` | `>=0.7` | 0.9.0 | Apache-2.0 | [python-openapi/openapi-spec-validator](https://github.com/python-openapi/openapi-spec-validator) |
+| `dev` | `httpx` | `>=0.27` | 0.28.1 | BSD-3-Clause | [encode/httpx](https://github.com/encode/httpx) |
+
+None of the eight non-MIT rows is copyleft. Apache-2.0 and BSD-3-Clause attach attribution
+and notice terms to redistribution of *their* files, which this project does not do; the
+Unlicense is a public-domain dedication and attaches none. `pyvis` publishes the licence as
+"BSD" in its metadata and ships the three-clause text, including the non-endorsement
+clause, which is what the row records.
+
+`ruff` and `mypy` are development tools rather than libraries: nothing imports them, and
+they reach neither the package nor the bundle. They are listed because `pyproject.toml`
+declares them and this table is about that file.
+
 ## The frontend's application framework (`web/`, Track C)
 
 The Library, the Reader and the Map are a React application routed by React

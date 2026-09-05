@@ -25,6 +25,7 @@ length.
 | `edit` | `capture_shapes.edited_post_capture()` | `PASS` | `PASS` | An edit history read as content, or the prior ids fetched |
 | `tombstone` | `fail-unavailable-post` | `FAIL` | `PARTIAL` | Zero source claims and nothing invented from an item with no author, timestamp or text — and `FAIL` surviving into the canonical outputs |
 | `quote` | `pass-quote-post` | `PASS` | `PASS` | A quoted post becoming embedded content or a fetch. It stays an external reference in `metadata.json` (ADR 0007 decision 8) |
+| `facets` | `pass-facets-astral` | `PASS` | `PASS` | The span guard's own case: a Persian post carrying astral characters, with one facet at correct **codepoint** offsets, the same link at **UTF-16** offsets (in bounds, wrong, and dropped), and a mention handle that is a strict prefix of another. **The one case whose `raw/` bytes were written rather than recorded** — every other row's are real measured provider bytes |
 
 Two of these read differently from the plan that ordered them, and the fixtures
 follow the code and the decision records rather than the plan's earlier wording:

@@ -130,9 +130,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import ids
 from ..query import SearchDocument, rank_documents, run_documents
-from ..repository import SearchQuery
+from ..repository import SearchQuery, unit_global_id
 from .errors import StoreError
 from .repository import SearchCandidates
 from .schema import SEARCH_PROBLEM_PREFIX
@@ -252,26 +251,22 @@ def as_api_hit(hit: Mapping[str, Any], source_id: str | None) -> dict[str, Any]:
     whose id cannot form a global id gets ``None`` rather than a plausible
     string that resolves to nothing.
 
-    This construction exists in two places, and the second one is not a comment
-    asking the reader to keep them in step: ``tests/test_sqlite_search.py``
-    asserts hit-for-hit equality with ``MemoryRepository.search`` over the
-    fixture corpus, so a divergence fails a test rather than reaching a client.
+    The *id* is built by ``repository.unit_global_id``, which both readers now
+    call. It was a private copy here and another in ``repository.memory``, and
+    the two had already diverged — ``parse_source_id`` inside one ``try`` and
+    outside the other, so an unparseable stored ``source_id`` raised out of one
+    twin and returned ``None`` from the other. That is the pair ``T-104``'s
+    equivalence claim rests on, and the divergence was found rather than caught,
+    because nothing could catch it. The *hit shape* around it is still built in
+    two places, and that is covered by measurement:
+    ``tests/test_sqlite_search.py`` asserts hit-for-hit equality with
+    ``MemoryRepository.search`` over the fixture corpus.
     """
     enriched = dict(hit)
     enriched["source_id"] = source_id
     if hit.get("type") == KNOWLEDGE_UNIT_HIT:
-        enriched["global_id"] = _unit_global_id(source_id, hit.get("id"))
+        enriched["global_id"] = unit_global_id(source_id, hit.get("id"))
     return enriched
-
-
-def _unit_global_id(source_id: str | None, local_id: Any) -> str | None:
-    if source_id is None:
-        return None
-    try:
-        parsed = ids.parse_source_id(source_id)
-        return ids.make_global_id(parsed.source_type, parsed.external_id, local_id).value
-    except ids.IdError:
-        return None
 
 
 # --------------------------------------------------------------------------

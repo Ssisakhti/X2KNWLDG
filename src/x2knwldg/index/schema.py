@@ -321,10 +321,45 @@ _MIGRATION_2 = (
     "CREATE INDEX source_relations_by_to ON source_relations (to_source_id)",
 )
 
+# --------------------------------------------------------------------------
+# Migration 3 — what the stored rows were written *by*
+#
+# The incremental scan asked one question — "did any file move?" — and treated
+# the answer as the whole of "is the index current". It is not. Migration 2
+# created `source_entities`, `source_briefs` and `source_relations` **empty**
+# beside a populated schema-1 index, and `index_state` was untouched by it: the
+# next `refresh_index` hashed identical files, called every run `unchanged`,
+# and committed `ready` over three empty tables. Measured — `discovered=3
+# indexed=3 unchanged=3 skipped=0`, `state: ready`, `message: None`, while
+# `/api/source-graph` answered 0 nodes and `source_neighborhood(...)` returned
+# `None`. A healthy report over an empty layer is the silent zero D-043
+# forbids, and the only escape was knowing to delete the cache directory.
+#
+# The same class, one step further out: a run whose records are carried over
+# unchanged was adapted by the code of *some earlier pass*, so bumping an
+# adapter's `version` or `adapters.base.SCHEMA_VERSION` leaves those records at
+# the old shape while `/api/status.adapters` reports the new version, read live
+# from the class. Two columns, so the answer is "the rows were written by this
+# schema and these adapters" rather than "no file moved since".
+#
+# `ALTER TABLE ... ADD COLUMN` rather than a new table: the singleton
+# `index_state` row is already the one thing a scan reads before deciding, and
+# a second table would be a second thing that can be stale. Both are nullable,
+# because every database migrating up to here has rows written by code that
+# recorded neither — and `NULL` compares unequal to every current version,
+# which is precisely the full build such a database needs.
+# --------------------------------------------------------------------------
+
+_MIGRATION_3 = (
+    "ALTER TABLE index_state ADD COLUMN schema_version INTEGER",
+    "ALTER TABLE index_state ADD COLUMN adapter_versions TEXT",
+)
+
 #: ``(version, statements)`` in ascending order. The tuple is the ledger.
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2),
+    (3, _MIGRATION_3),
 )
 
 #: The version a fresh database reaches. Derived, never typed twice.
@@ -419,7 +454,7 @@ def connect(
     # writer takes an exclusive lock over the whole database, so a reader
     # during a build gets `database is locked` — which `_index_state` maps to
     # `state='error'` with no counts, and `payload()` renders as
-    # `sources: 0, artifacts: 0`. Two `x2knwldg serve` processes are enough:
+    # `sources: 0, artifacts: 0`. Two `x2knwldg ui` processes are enough:
     # the second one's startup `refresh_index` holds the lock at commit while
     # the first answers `/api/status`. WAL lets readers read the last committed
     # generation *while* a build writes, which is both faster and truthful —
@@ -431,7 +466,29 @@ def connect(
     # it is executed on every connect anyway because a fresh clone, a deleted
     # cache and a database created by an older version all reach this line.
     # `busy_timeout` is per connection and must be.
-    connection.execute("PRAGMA journal_mode = WAL")
+    #
+    # D-159's own remedy could reproduce D-159's symptom. Converting a database
+    # that is not already in WAL needs an exclusive lock on it, so this
+    # statement raises `database is locked` whenever another connection holds a
+    # write transaction — measured: `journal_mode=delete` on disk plus a writer
+    # in `BEGIN IMMEDIATE` made `connect` raise, and `SqliteRepository.open`
+    # answer `state: error, message: the index cannot be opened: database is
+    # locked`. That is exactly the honest-endpoint failure WAL was introduced to
+    # remove, arriving out of the line that introduces it. `busy_timeout` is no
+    # help and is not a reordering away from being one: SQLite fails a
+    # journal-mode transition immediately rather than waiting, measured at
+    # 0.000s with the pragma set before it.
+    #
+    # So a failed conversion is *tolerated*. The mode is persistent, so the
+    # next connect that meets an idle database converts it and every connect
+    # after that inherits it; until then the classic rollback journal serves
+    # reads correctly, only less concurrently. Reporting the index broken
+    # because it could not be made faster would trade a performance property
+    # for the one property this project will not trade.
+    try:
+        connection.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.OperationalError:
+        pass
     connection.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     return connection
 

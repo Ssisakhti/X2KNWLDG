@@ -33,7 +33,27 @@ from x2knwldg.adapters import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_RUNS = PROJECT_ROOT / "tests" / "fixtures" / "runs"
-SAMPLE_DIR = PROJECT_ROOT / "output" / "pqlWNihgdjI"
+def _discovered_sample() -> Path:
+    """The real ingested run this machine has, or a path that does not exist.
+
+    ``SAMPLE_DIR`` was ``output/pqlWNihgdjI`` — one video id, hard-coded in five
+    test modules — and ``output/`` is gitignored, so every test gated on it
+    skipped in CI *and* on the developer's own machine, whose ``output/`` holds
+    a different run entirely. A suite that runs nowhere proves nothing, and it
+    does not announce that either.
+
+    Discovered rather than named, so it is whatever this machine actually
+    ingested; the first in directory order, so two runs still give one stable
+    answer. ``library/`` and ``synthesis/`` are excluded by construction —
+    neither holds a ``metadata.json``, which is what makes a directory a run.
+
+    See ``tests/test_repository.py``, where this rule is stated at length.
+    """
+    runs = sorted(path.parent for path in (PROJECT_ROOT / "output").glob("*/metadata.json"))
+    return runs[0] if runs else PROJECT_ROOT / "output" / "no-run-has-been-ingested"
+
+
+SAMPLE_DIR = _discovered_sample()
 LIBRARY_DIR = PROJECT_ROOT / "output" / "library"
 
 requires_library = pytest.mark.skipif(

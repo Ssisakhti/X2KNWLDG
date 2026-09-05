@@ -32,12 +32,12 @@ import { edgeAttributes, nodeAttributes } from "./graphProjection";
 import { MAP_LABEL_CHARS, MAP_LABEL_ELLIPSIS, isTruncated } from "./labelPolicy";
 import {
   EDGE_INTERACTION,
-  EDGE_PROVENANCE_MARK,
+  edgeProvenanceMarks,
   EDGE_VOCABULARY_MARK,
   EMPTY_VIEW_STATE,
   KIND_FAMILIES,
   KIND_FAMILY,
-  KIND_FAMILY_COLOUR,
+  kindFamilyColour,
   MAP_DIMMED_EDGE_OPACITY,
   MAP_DIMMED_NODE_OPACITY,
   MAP_EDGE_FIELD_SCALE,
@@ -51,7 +51,7 @@ import {
   MapStyle,
   NODE_INTERACTION,
   NODE_PROVENANCE_MARK,
-  UNRECOGNISED_EDGE_PROVENANCE_MARK,
+  unrecognisedEdgeProvenanceMark,
   UNRECOGNISED_PROVENANCE_MARK,
   UNRECOGNISED_VOCABULARY_MARK,
   edgeInteraction,
@@ -69,6 +69,14 @@ import {
   type MapInteraction,
   type MapViewState,
 } from "./mapStyle";
+
+// The three canvas ink tables are per stage now (`map/stage.ts`): no single
+// colour clears 4.5:1 on both `#fbfaf8` and `#17161a`, so there cannot be one
+// table. jsdom has no `matchMedia`, so `mapStage()` answers `light` here and
+// these bindings are the light stage's inks -- the values this suite always read.
+const EDGE_PROVENANCE_MARK = edgeProvenanceMarks("light");
+const KIND_FAMILY_COLOUR = kindFamilyColour("light");
+const UNRECOGNISED_EDGE_PROVENANCE_MARK = unrecognisedEdgeProvenanceMark("light");
 
 const KU1 = "youtube:pqlWNihgdjI:KU-000001";
 const KU2 = "youtube:pqlWNihgdjI:KU-000002";
@@ -253,7 +261,7 @@ describe("edges", () => {
       expect(style.head).not.toBe(EDGE_VOCABULARY_MARK[vocabulary].head);
     }
     expect(edgeVocabularyMark(undefined)).toBe(UNRECOGNISED_VOCABULARY_MARK);
-    expect(edgeProvenanceMark("")).toBe(UNRECOGNISED_EDGE_PROVENANCE_MARK);
+    expect(edgeProvenanceMark("")).toEqual(UNRECOGNISED_EDGE_PROVENANCE_MARK);
   });
 
   it("separates parallel edges instead of drawing one line for two relations", () => {

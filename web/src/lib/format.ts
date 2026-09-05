@@ -24,11 +24,54 @@ export function formatConfidence(value: number | null | undefined): string | nul
   return value.toFixed(2);
 }
 
-export function formatBytes(value: number | null | undefined): string | null {
+/**
+ * A size, as a number and the unit it is in.
+ *
+ * Returns the two parts rather than a string, because the unit is a word the
+ * reader's catalogue owns and the number is not. This used to build
+ * `"${value} B"` inline, so a Persian reader read `1.4 MB` under the label
+ * `بایت` — three untranslated units reaching the screen from a module with no
+ * access to a translator, which is exactly why the split is here rather than a
+ * `locale` parameter.
+ */
+export function formatBytes(
+  value: number | null | undefined,
+): { amount: string; unit: "B" | "KB" | "MB" } | null {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value < 1024) return { amount: String(value), unit: "B" };
+  if (value < 1024 * 1024) return { amount: (value / 1024).toFixed(1), unit: "KB" };
+  return { amount: (value / (1024 * 1024)).toFixed(1), unit: "MB" };
+}
+
+/**
+ * A count, in the digits *locale* writes numbers with.
+ *
+ * `formatTimestamp` below has always gone through `Intl`, so a Persian reader's
+ * "built at" reads `۱۴ شهریور ۱۴۰۵، ۲۰:۱۶` -- Persian-Indic digits, Jalali
+ * calendar. Every count beside it was interpolated as a bare JS number, which
+ * React stringifies with Latin digits whatever the locale, so the same panel
+ * said `منابع: 4` three lines above `۱۴ شهریور`. Two numeral systems in one
+ * panel is not a style preference either way; it is the UI disagreeing with
+ * itself about which language it is written in.
+ *
+ * This is deliberately **not** applied to identifiers, ids, schema versions,
+ * enum values or timecodes. CLAUDE.md keeps those in their canonical
+ * machine-readable form, and a `global_id` re-spelled in Persian digits is a
+ * different string. It is for quantities the reader is meant to read as
+ * quantities -- how many sources, how many edges, how many were skipped.
+ *
+ * Null in, null out, for `format.ts`'s standing rule: a count the canonical
+ * data does not state is rendered as a stated absence, never as a zero.
+ */
+export function formatCount(value: number | null | undefined, locale: string): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  try {
+    return new Intl.NumberFormat(locale).format(value);
+  } catch {
+    // An environment that cannot answer for this locale is not a reason to
+    // render nothing: the number itself is still the honest answer.
+    return String(value);
+  }
 }
 
 /**

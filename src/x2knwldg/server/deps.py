@@ -23,7 +23,7 @@ def repository(request: Request) -> IndexRepository:
     """The repository this app serves from.
 
     Held on ``app.state`` rather than resolved per request: opening the index is
-    a file operation, and doing it eleven times a page-load would turn a cache
+    a file operation, and doing it thirteen times a page-load would turn a cache
     into a cost. It also keeps cursors coherent — ``encode_cursor`` signs with a
     per-process key, so tokens are only interchangeable within one process
     anyway.

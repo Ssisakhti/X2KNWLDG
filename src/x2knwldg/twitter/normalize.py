@@ -49,7 +49,45 @@ decides whether extraction wants them; acquisition does not need them.
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+
+def _offsets(indices: Any, length: int) -> tuple[int, int] | None:
+    """A facet's ``indices`` as a usable half-open span, or ``None``.
+
+    Every rejection here was reachable and two of them were measured, because
+    the guard below did ``text[start:end] != original`` on whatever the provider
+    put in the list:
+
+    * ``indices: [-5, -1]`` slices *from the end of the string*, so a facet
+      claiming a negative offset re-sliced to its own ``original`` and passed —
+      and then wrote ``"start_char": -5`` into the capture, which
+      ``schemas/capture/v1/`` declares ``minimum: 0`` and which nothing applies
+      at runtime. A negative index is not a span into this text; it is a
+      different span into this text, silently.
+    * ``indices: ["0", 3]`` and ``indices: [None, 3]`` raised a bare
+      ``TypeError`` out of the slice, so one malformed facet took the whole
+      acquisition down while the malformed facets *beside* it — a missing
+      ``original``, a list of the wrong length — were dropped as designed. One
+      shape of bad data, two behaviours.
+    * a span running past the end of the text, or ending before it starts, is
+      not a span either. Python slicing clamps both and would hand back a
+      shorter string that could still equal a short ``original``.
+
+    ``bool`` is refused with the other non-integers on purpose: ``True`` is an
+    ``int`` in Python and ``text[True:3]`` is a legal slice, which is exactly
+    the kind of accident this function exists to stop being silent.
+    """
+    if not isinstance(indices, list) or len(indices) != 2:
+        return None
+    start, end = indices
+    for value in (start, end):
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+    if not 0 <= start <= end <= length:
+        return None
+    return start, end
 
 
 def entities_from(text: str, facets: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -62,17 +100,38 @@ def entities_from(text: str, facets: list[dict[str, Any]]) -> list[dict[str, Any
 
     Indices are codepoint offsets — proven against a post carrying astral emoji,
     where the UTF-16 reading is shifted and mangled. Every span is re-sliced here
-    and a facet that does not slice back to its own ``original`` is dropped rather
-    than trusted, so a provider change cannot quietly write a wrong offset into a
-    committed fixture.
+    against :func:`_offsets`-validated bounds, and a facet that does not slice
+    back to its own ``original`` is dropped rather than trusted, so a provider
+    change cannot quietly write a wrong offset into a committed fixture.
+
+    The bounds check is not decoration. Until
+    ``tests/fixtures/twitter-runs/facets/`` existed, **no committed fixture
+    carried a facet at all** — the five ``__xcli_guest`` spike files report
+    ``facets: 0`` — so this loop body had zero test execution while its own
+    docstring said the guard had been "proven against a post carrying astral
+    emoji". It had never run. That fixture is what runs it.
+
+    **Stated plainly, because it is easy to misread this function's status:**
+    no *acquisition* call site passes facets today. ``acquire._assemble`` calls
+    :func:`post_from` with three arguments, so the qualified local route
+    produces mention spans and nothing else — which is the measured limit of
+    that route (D-218), not a gap here. The callers that do pass facets are the
+    two fixture builders and the corroborating route ``T-225`` will add. The
+    function is therefore live code on a path this project already exercises and
+    already commits the output of, and it is kept rather than gated because
+    deleting the guard would mean re-deriving it under ``T-225`` — at which
+    point it would be new, untested code standing between a provider's offsets
+    and a stored corpus.
     """
     out: list[dict[str, Any]] = []
     for facet in facets:
-        indices = facet.get("indices") or []
         original = facet.get("original")
-        if len(indices) != 2 or not original:
+        if not isinstance(original, str) or not original:
             continue
-        start, end = indices
+        offsets = _offsets(facet.get("indices"), len(text))
+        if offsets is None:
+            continue
+        start, end = offsets
         if text[start:end] != original:
             continue
         kind = "url" if facet.get("type") in {"url", "media"} else facet.get("type")
@@ -91,21 +150,51 @@ def entities_from(text: str, facets: list[dict[str, Any]]) -> list[dict[str, Any
     return sorted(out, key=lambda e: e["start_char"])
 
 
+#: What may follow a handle and still end it. X allows ``[A-Za-z0-9_]`` in a
+#: handle, so anything outside that set is a boundary — punctuation, whitespace,
+#: an emoji, RTL text, or the end of the post.
+_HANDLE_CHARS = re.compile(r"[A-Za-z0-9_]")
+
+
 def mentions_from(text: str, record: dict[str, Any]) -> list[dict[str, Any]]:
     """Mention spans, located in the authored text by the handle itself.
 
     x-cli lists mentions as bare handles with no offsets, so the span is found
     rather than read. Only an unambiguous single occurrence is recorded; a handle
     appearing twice is left out rather than guessed at.
+
+    "Unambiguous" has to include the **right-hand boundary**, and it did not.
+    ``text.find("@" + handle)`` matches a prefix, and the occurrence count is
+    taken over the same prefix, so a post reading
+    ``@NASARoman is getting ready…`` against ``entities.mentions == ["NASA",
+    "NASARoman"]`` — one post mentioning one account whose handle contains
+    another's — produced a mention span claiming ``@NASA`` at characters 0–5.
+    That span is a *false citation about authored text*, and nothing downstream
+    catches it: ``extract._rederivation_errors`` excludes entities from the
+    comparison by design (a corroborated capture carries spans one response
+    cannot supply), so the wrong offsets would have survived every ``validate``
+    the run ever ran.
+
+    So the match must end where the handle ends. Both the location and the
+    ambiguity test use the bounded form, because counting one way and locating
+    the other is how the two came to disagree in the first place.
     """
     out: list[dict[str, Any]] = []
     for handle in (record.get("entities") or {}).get("mentions") or []:
-        if not isinstance(handle, str):
+        if not isinstance(handle, str) or not handle:
             continue
         needle = f"@{handle}"
-        first = text.find(needle)
-        if first < 0 or text.count(needle) != 1:
+        starts = [
+            index
+            for index in _occurrences(text, needle)
+            # A handle is over when the next character cannot be part of one.
+            # End of string counts, which is why the slice is taken rather than
+            # the character indexed.
+            if not _HANDLE_CHARS.match(text[index + len(needle) : index + len(needle) + 1])
+        ]
+        if len(starts) != 1:
             continue
+        first = starts[0]
         out.append(
             {
                 "kind": "mention",
@@ -115,6 +204,16 @@ def mentions_from(text: str, record: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def _occurrences(text: str, needle: str) -> list[int]:
+    """Every start index of *needle* in *text*, overlaps included."""
+    found: list[int] = []
+    index = text.find(needle)
+    while index >= 0:
+        found.append(index)
+        index = text.find(needle, index + 1)
+    return found
 
 
 def post_from(

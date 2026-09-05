@@ -383,13 +383,30 @@ def _title(capture: dict[str, Any]) -> str:
 
 
 def initialize_run(run_dir: Path) -> dict[str, Any]:
-    """Write ``metadata.json`` and ``coverage.json`` for an acquired capture.
+    """Write the four canonical files an acquired capture starts a run with.
 
     The analogue of ``pipeline.import_transcript``, and shorter for a reason:
     there is no transcript to parse, no segmentation to compute and no integrity
     check to run over captions, because the capture already carries its item
-    boundaries and its own digests. What is left is to declare what the run is
-    and to scaffold the audit that has not happened.
+    boundaries and its own digests. What is left is to declare what the run is,
+    to scaffold the audit that has not happened, and to write the two empty
+    knowledge documents that say — in the canonical shape, rather than by their
+    absence — that nothing has been extracted yet.
+
+    Those two used to be missing, and the state ``WORKFLOW.md`` §T1 describes
+    was therefore unvalidatable. §T1 says ``capture`` leaves *an initialized
+    run*, "scaffolded to ``PARTIAL``", and §T7 documents ``3 PARTIAL`` for "an
+    unaudited run"; but :func:`validate_run` reads all four documents
+    unconditionally, so ``x2knwldg capture <id>`` followed immediately by
+    ``x2knwldg validate output/<id>`` exited ``1 ERROR`` with "Missing JSON
+    file: …/knowledge_units.json". The YouTube path never had this hole because
+    ``import_transcript`` writes the same two scaffolds in its own
+    ``write_group`` (``pipeline.py:446``), which is exactly what is copied here
+    — the same document shape ``apply_bundle`` later replaces, so the empty run
+    and the extracted run differ in content and not in structure.
+
+    All four land through one :func:`~x2knwldg.io.write_group`, so a run is
+    initialized whole or not at all (D-090).
 
     Refuses a run that already has canonical outputs rather than rewriting them.
     """
@@ -398,7 +415,18 @@ def initialize_run(run_dir: Path) -> dict[str, Any]:
     source_id = capture["anchor"]["post_id"]
     if not is_id_part(source_id):
         raise ExtractionError(f"The capture's anchor is not a usable run id: {source_id!r}")
-    if (run_dir / "metadata.json").exists() or (run_dir / "coverage.json").exists():
+    # All four, not the two this used to name: the scaffolds are canonical
+    # outputs too, and a run holding a `knowledge_units.json` alone is a run
+    # something has already written to.
+    if any(
+        (run_dir / name).exists()
+        for name in (
+            "metadata.json",
+            "knowledge_units.json",
+            "relationships.json",
+            "coverage.json",
+        )
+    ):
         raise RunAlreadyInitialized(
             f"{run_dir} already has canonical outputs. Re-initializing would discard a "
             "coverage audit; move or version the run instead."
@@ -408,9 +436,27 @@ def initialize_run(run_dir: Path) -> dict[str, Any]:
     canonical_hashes = {CAPTURE_FILENAME: sha256_text(capture_text)}
     coverage = create_pending_coverage(capture)
     metadata = _metadata(capture, canonical_hashes)
+    # The same two documents `apply_bundle` writes, with empty bodies. Both
+    # carry `video_id` because that is the key every canonical document in this
+    # project is addressed by, whatever the medium; `source_type` is on the
+    # units document alone because it is what `validate_knowledge_units`
+    # dispatches provenance on (D-226).
+    units_document = {
+        "schema_version": "1.0",
+        "video_id": source_id,
+        "source_type": SOURCE_TYPE,
+        "units": [],
+    }
+    relationships_document = {
+        "schema_version": "1.0",
+        "video_id": source_id,
+        "relationships": [],
+    }
     write_group(
         [
             (run_dir / "metadata.json", dumps_json(metadata)),
+            (run_dir / "knowledge_units.json", dumps_json(units_document)),
+            (run_dir / "relationships.json", dumps_json(relationships_document)),
             (run_dir / "coverage.json", dumps_json(coverage)),
         ]
     )
@@ -703,8 +749,6 @@ def _rederivation_errors(
     they are not re-derivable from a response and are excluded rather than
     compared against a guess.
     """
-    import json
-
     errors: list[dict[str, Any]] = []
     records: dict[str, dict[str, Any]] = {}
     for raw in preserved.values():

@@ -51,7 +51,7 @@ The two exceptions are deliberate, and both are grounded in code that already ex
 3. **An id is resolved, never sanitised.** Every path parameter naming a run goes through
    `pipeline.resolve_run_dir` (D-020, risk R14). `T-108` must use that resolver and not
    invent a second rule.
-4. **v1 is read-only.** Eleven endpoints, all `GET`. Nothing writes to `output/`, and
+4. **v1 is read-only.** Thirteen endpoints, all `GET`. Nothing writes to `output/`, and
    nothing at all writes to `output/<id>/raw/`.
 
 `tests/test_api_contract.py` asserts each of these against the document, and asserts the
@@ -211,7 +211,7 @@ python tools/generate_api_types.py
 - `T-115` — contract tests against the frozen schema; `tests/test_api_contract.py` is their
   starting point.
 - `T-007` — ✅ delivered: [`src/x2knwldg/repository/`](../../../src/x2knwldg/repository/README.md)
-  is the interface behind the API. Ten methods serve these eleven endpoints, returning pages of
+  is the interface behind the API. Ten methods serve these thirteen endpoints, returning pages of
   the same v1 records; the cursor encoding is its business alone, and the API passes the token
   through unparsed. `MemoryRepository` already answers the whole document from the adapters, and
   §5 of `tests/test_api_contract.py` validates what it returns against these components.

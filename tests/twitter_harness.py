@@ -80,6 +80,15 @@ if entry.get("stdout") is not None:
     sys.stdout.write(entry["stdout"])
 if entry.get("stdout_filler"):
     sys.stdout.write("x" * entry["stdout_filler"])
+if entry.get("stream"):
+    # Writes slowly and for a long time, so a parent that only measures the
+    # output *after* the child exits waits for all of it. The parent is
+    # expected to kill this long before the loop ends.
+    stream = entry["stream"]
+    for _ in range(stream["iterations"]):
+        sys.stdout.write("x" * stream["chunk"])
+        sys.stdout.flush()
+        time.sleep(stream["delay"])
 if entry.get("stderr"):
     sys.stderr.write(entry["stderr"])
 raise SystemExit(entry.get("exit", 0))
@@ -98,7 +107,9 @@ def make_stub(
 
     *posts* maps a post id to a response: ``exit``, and any of ``stdout``,
     ``stdout_file``, ``stdout_filler`` (that many bytes of filler, for the size
-    bound), ``stderr`` and ``sleep`` (for the timeout).
+    bound), ``stream`` (``{chunk, iterations, delay}`` — filler written slowly
+    and for a long time, for the size bound applied *while* the child runs),
+    ``stderr`` and ``sleep`` (for the timeout).
     """
     directory.mkdir(parents=True, exist_ok=True)
     binary = directory / "x"

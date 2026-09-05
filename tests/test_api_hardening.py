@@ -2,7 +2,7 @@
 
 The per-route test files check their own refusals. This one checks the
 properties that must hold *everywhere*, because a rule enforced in ten routes
-and forgotten in the eleventh is not enforced:
+and forgotten in the thirteenth is not enforced:
 
 * no path parameter can escape the project root;
 * no response body names a host path;
@@ -228,7 +228,7 @@ def test_an_indexed_path_pointing_outside_the_root_is_refused(tmp_path: Path) ->
 
 
 def _every_response(client):
-    """One call to each of the eleven endpoints, valid and invalid."""
+    """One call to each of the thirteen endpoints, valid and invalid."""
     yield client.get("/api/status")
     yield client.get("/api/sources")
     yield client.get("/api/sources?limit=0")
@@ -241,8 +241,13 @@ def _every_response(client):
     yield client.get("/api/search?q=knowledge")
     yield client.get("/api/search")
     yield client.get("/api/graph")
-    yield client.get("/api/graph?depth=9")
     yield client.get("/api/graph/neighborhood/nope")
+    # `depth` belongs to the neighborhood, not to `/api/graph`. This line read
+    # `/api/graph?depth=9` and therefore probed nothing: `/api/graph` declares
+    # no `depth`, so the parameter was ignored and the response was an ordinary
+    # page — a depth-rejection probe in appearance and a duplicate of the line
+    # above it in fact. Sent where the bound exists, it is a `400`.
+    yield client.get("/api/graph/neighborhood/nope?depth=9")
     yield client.get("/api/source-graph")
     yield client.get("/api/source-graph?limit=0")
     yield client.get("/api/source-graph/neighborhood/nope")
@@ -387,25 +392,105 @@ def test_every_endpoint_answers_over_sqlite_not_only_over_memory(tmp_path: Path)
 # --------------------------------------------------------------------------
 
 
+#: The one path this app serves that the frozen document does not declare.
+#: Written down here, and in the document's own ``description``, so the
+#: exemption is a decision on the record rather than a hole in a guard.
+UNDECLARED_ROUTES = {"/api/openapi.json"}
+
+
+def _router_paths(router: Any, prefix: str = "") -> set[str]:
+    """Every path the *real* router will match, mounts and hidden routes included.
+
+    ``app.routes`` cannot simply be read: this FastAPI wraps each included
+    router in an ``_IncludedRouter`` that carries no ``.path`` of its own and
+    holds the real routes on ``.original_router``, with the prefix on
+    ``.include_context``. So the walk descends, carrying the prefix down.
+    """
+    found: set[str] = set()
+    for route in getattr(router, "routes", ()):
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            context = getattr(route, "include_context", None)
+            found |= _router_paths(included, prefix + getattr(context, "prefix", ""))
+            continue
+        path = getattr(route, "path", None)
+        if path is not None:
+            found.add(prefix + path)
+    return found
+
+
 def test_the_served_surface_is_exactly_the_frozen_one(served: Path) -> None:
-    """Eleven paths, all ``GET``. Not ten, and not twelve."""
+    """Thirteen paths, all ``GET``, plus the one exemption. Not twelve, and not fourteen.
+
+    This used to compare ``set(app.openapi()["paths"])`` against the frozen
+    document, and the two agreed for a reason that made the guard blind: the
+    generated document is built from the routes that opted *into* it, so
+    ``GET /api/openapi.json`` — declared ``include_in_schema=False`` — was
+    invisible to it, and walking ``app.routes`` instead found only that one,
+    because every declared route hides inside an ``_IncludedRouter``. Fourteen
+    things are served; each discovery method saw exactly the half the other
+    missed, and nothing in the suite saw all of them. A future route added with
+    ``include_in_schema=False``, or any ``app.mount``, would have been served
+    with no contract entry and this test would have stayed green.
+
+    Walking the real router closes it, and the exemption is now spelled rather
+    than implied: ``/api/openapi.json`` is named in :data:`UNDECLARED_ROUTES`
+    here and in the document's own ``description``, and anything else that
+    appears fails.
+    """
     from x2knwldg.repository import MemoryRepository
     from x2knwldg.server.app import create_app
 
     frozen = set(json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))["paths"])
     app = create_app(repository=MemoryRepository.from_project(served))
 
-    # Read from the schema FastAPI generates, not by walking `app.routes`:
-    # this version wraps an included router in an `_IncludedRouter` that
-    # carries no `.path`, so walking the list found nothing and the test
-    # passed vacuously in the direction that mattered — it would have reported
-    # every endpoint missing, or, with a laxer assertion, missed a stray one.
-    # The generated document is also the right thing to compare: it is what the
-    # app says it serves.
-    served_paths = set(app.openapi()["paths"])
-    assert served_paths == frozen, (
-        f"missing: {sorted(frozen - served_paths)}; extra: {sorted(served_paths - frozen)}"
+    served_paths = _router_paths(app.router)
+    expected = frozen | UNDECLARED_ROUTES
+    assert served_paths == expected, (
+        f"missing: {sorted(expected - served_paths)}; extra: {sorted(served_paths - expected)}"
     )
+    # And the generated document still carries exactly the declared thirteen,
+    # which is what `types.d.ts` and every contract test are built from.
+    assert set(app.openapi()["paths"]) == frozen
+
+
+def test_the_walk_can_actually_see_a_route_the_generated_document_hides(served: Path) -> None:
+    """The tautology check for the guard above.
+
+    A surface test that cannot see the route it was rewritten to see is the
+    same vacuous pass in a new shape, so the thing it must detect is added and
+    detected.
+    """
+    from x2knwldg.repository import MemoryRepository
+    from x2knwldg.server.app import create_app
+
+    app = create_app(repository=MemoryRepository.from_project(served))
+    before = _router_paths(app.router)
+
+    @app.get("/api/not-in-the-contract", include_in_schema=False)
+    def _stowaway() -> dict[str, str]:  # pragma: no cover - never called
+        return {}
+
+    assert "/api/not-in-the-contract" not in app.openapi()["paths"], (
+        "the generated document is supposed to be blind to this — that is the defect"
+    )
+    assert _router_paths(app.router) - before == {"/api/not-in-the-contract"}
+
+
+def test_the_exemption_is_written_down_in_the_contract_itself() -> None:
+    """A reader of the document must not have to run the server to learn this.
+
+    ``GET /api/openapi.json`` answers a status the contract declares on no path
+    (``304``) and is declared nowhere in it. That is a decision — a contract
+    that declared the request for itself would describe its own retrieval — and
+    a decision that lives only in a test is one the next reader re-litigates.
+    """
+    spec = json.loads(h.OPENAPI_PATH.read_text(encoding="utf-8"))
+    description = spec["info"]["description"]
+    for path in UNDECLARED_ROUTES:
+        assert path not in spec["paths"], f"{path} is declared; drop it from the exemption"
+        assert path in description, f"{path} is served and the document does not mention it"
+    assert "HEAD" in description, "HEAD is answered on every path and declared on none"
 
 
 #: The keys of a parameter schema that are *bounds* rather than prose. The
@@ -657,12 +742,34 @@ def test_head_is_answered_wherever_get_is(served: Path) -> None:
             assert head.headers["content-length"] == get.headers["content-length"], template
             assert head.content == b"", f"{template}: HEAD is GET without the body"
 
+            # And with a `Range`, which is the request this middleware exists
+            # for. This test sent none, so it could not see that `/api/media`
+            # answered `HEAD Range: bytes=0-1` with `200` and the whole file's
+            # length where its own `GET` answered `206` and two bytes — and a
+            # player reads that as "ranges unsupported". RFC 9110 §9.3.2 wants
+            # the header fields the `GET` would have sent, on every path: the
+            # twelve that ignore `Range` must answer identically with it and
+            # without it, and the one that honours it must honour it here too.
+            ranged_head = client.head(path + query, headers={"Range": "bytes=0-1"})
+            ranged_get = client.get(path + query, headers={"Range": "bytes=0-1"})
+            assert ranged_head.status_code == ranged_get.status_code, template
+            assert ranged_head.headers.get("content-range") == ranged_get.headers.get(
+                "content-range"
+            ), template
+            assert ranged_head.headers["content-length"] == ranged_get.headers[
+                "content-length"
+            ], template
+            assert ranged_head.content == b"", template
+
 
 def test_head_declares_no_operation_of_its_own(served: Path) -> None:
     """``HEAD`` is ``GET`` without the body, so it needs no second declaration.
 
     Adding ``"HEAD"`` to each route's ``methods`` would have made FastAPI
-    generate eleven new ``head`` operations the frozen contract does not carry.
+    generate thirteen new ``head`` operations the frozen contract does not
+    carry. The decision is stated in the document's ``description`` so that a
+    reader who sees only the declared ``405`` is not left to infer it —
+    ``test_the_exemption_is_written_down_in_the_contract_itself`` checks that.
     """
     from x2knwldg.server.app import create_app
 
@@ -741,7 +848,7 @@ def test_every_endpoint_declares_the_statuses_the_host_check_can_produce() -> No
             assert "400" in declared, f"{verb.upper()} {path}"
             assert "500" in declared, f"{verb.upper()} {path}"
             # The same reasoning, applied to the other refusal every path can
-            # produce: the router answers `405` on all eleven, and the frozen
+            # produce: the router answers `405` on all thirteen, and the frozen
             # document declared it on none.
             assert "405" in declared, f"{verb.upper()} {path}"
 
@@ -771,3 +878,149 @@ def test_the_refusal_happens_before_a_route_reads_the_index(tmp_path: Path) -> N
         for path in ("/api/status", "/api/sources", "/api/search?q=x", "/api/openapi.json"):
             response = client.get(path, headers={"Host": "evil.example.com"})
             assert response.status_code == 400, (path, response.status_code)
+
+
+def test_the_server_allowlists_the_address_it_actually_bound(tmp_path: Path, monkeypatch) -> None:
+    """`create_app`'s comment promised this wiring and there was none.
+
+    It said "`allowed_hosts` is a parameter because `serve.py` knows what it
+    bound and the tests know what they call". `grep -rn allowed_hosts src tests
+    web tools` returned the four lines inside `app.py` and nothing else:
+    `serve.build_app` called `create_app(project_root=...)` with no
+    `allowed_hosts`, and so did the harness. The parameter had exactly one value
+    in the whole program, and `--host` could not have widened the allowlist if
+    the CLI's loopback refusal were ever relaxed.
+
+    Asserted at the seam rather than through a live server: what has to be true
+    is that the address `bind()` reported reaches `create_app`.
+    """
+    pytest.importorskip("uvicorn")
+
+    import uvicorn
+
+    from x2knwldg.server import serve as serve_module
+
+    captured: dict[str, Any] = {}
+
+    def record(project_root, assets, *, allowed_hosts=None):
+        captured["allowed_hosts"] = allowed_hosts
+        return object()
+
+    class _Server:
+        def __init__(self, config: object) -> None:
+            pass
+
+        def run(self, sockets: object = None) -> None:
+            captured["ran"] = True
+
+    monkeypatch.setattr(serve_module, "build_app", record)
+    monkeypatch.setattr(uvicorn, "Config", lambda *args, **kwargs: object())
+    monkeypatch.setattr(uvicorn, "Server", _Server)
+
+    sock, listening = serve_module.bind("127.0.0.1", None)
+    serve_module.serve(
+        project_root=tmp_path,
+        assets=tmp_path,
+        sock=sock,
+        listening=listening,
+        open_browser=False,
+    )
+
+    assert captured["ran"], "the fake server never ran; the test proved nothing"
+    allowed = captured["allowed_hosts"]
+    assert allowed is not None, "serve() still drops the parameter"
+    assert listening.host in allowed, f"the bound address is not in {allowed}"
+
+
+def test_the_bound_address_never_costs_the_loopback_names(tmp_path: Path) -> None:
+    """`bind()` resolves the *name* the user typed, so the allowlist keeps both.
+
+    `--host localhost` binds `127.0.0.1` or `::1` depending on what
+    `getaddrinfo` returns first, so an allowlist of the bound address alone
+    would answer `400` to `http://localhost:8931/` — the URL the user asked for.
+    That is D-172's failure with a different cause, and it is why `serve()`
+    passes the union rather than the address alone.
+    """
+    from x2knwldg.server.app import LOOPBACK_HOST_NAMES, create_app
+
+    root = h.project(tmp_path)
+    app = create_app(
+        repository=h.memory_repository(root),
+        allowed_hosts=["127.0.0.1", *LOOPBACK_HOST_NAMES],
+    )
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(app, base_url="http://127.0.0.1", raise_server_exceptions=False) as client:
+        for host in ("127.0.0.1", "localhost", "[::1]", "::1"):
+            assert client.get("/api/status", headers={"Host": host}).status_code == 200, host
+        assert client.get("/api/status", headers={"Host": "evil.example.com"}).status_code == 400
+
+
+def test_a_narrowed_allowlist_is_actually_narrower(tmp_path: Path) -> None:
+    """The tautology check: a parameter that changes nothing is not wired up."""
+    from x2knwldg.server.app import create_app
+
+    root = h.project(tmp_path)
+    app = create_app(repository=h.memory_repository(root), allowed_hosts=["127.0.0.1"])
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(app, base_url="http://127.0.0.1", raise_server_exceptions=False) as client:
+        assert client.get("/api/status", headers={"Host": "127.0.0.1"}).status_code == 200
+        assert client.get("/api/status", headers={"Host": "localhost"}).status_code == 400
+
+
+def test_the_host_check_is_the_inner_of_the_two_middlewares(tmp_path: Path) -> None:
+    """Starlette's `add_middleware` inserts at index 0, so the last added is outermost.
+
+    `app.py`'s comment said the opposite — "after the host check (added above,
+    so it stays the outermost of the two)" — which is a false statement about
+    ordering in the one file where ordering is load-bearing. Nothing depends on
+    which way round these two run today, and that is exactly why it could sit
+    there unnoticed; the order is asserted so the comment cannot drift from it
+    again.
+    """
+    from x2knwldg.server.app import create_app
+
+    app = create_app(repository=h.memory_repository(h.project(tmp_path)))
+    assert [middleware.cls.__name__ for middleware in app.user_middleware] == [
+        "HeadAsGet",
+        "LoopbackHostMiddleware",
+    ]
+    # And the outer one still lets the inner one refuse: a `HEAD` from a
+    # rebound name is a 400, not a 405 and not a 200.
+    with h.client(h.memory_repository(h.project(tmp_path / "second"))) as client:
+        assert client.head("/api/status", headers={"Host": "evil.example.com"}).status_code == 400
+
+
+def test_install_registers_a_handler_for_every_refusal_the_app_can_make(tmp_path: Path) -> None:
+    """`install`'s docstring said "the three handlers" and registered five.
+
+    `RequestValidationError` and the catch-all `Exception` were added and the
+    sentence was not, so a reader counting handlers from the docstring would
+    conclude that a validation failure and an unforeseen exception answer
+    off-contract — which is the one thing this module exists to prevent. The
+    count is asserted against the code so the sentence cannot go stale again.
+    """
+    from fastapi.exceptions import RequestValidationError
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    from x2knwldg.repository.base import RepositoryError
+    from x2knwldg.server import errors
+    from x2knwldg.server.app import create_app
+
+    app = create_app(repository=h.memory_repository(h.project(tmp_path)))
+    registered = {
+        RepositoryError,
+        errors.ApiError,
+        RequestValidationError,
+        StarletteHTTPException,
+        Exception,
+    }
+    assert registered <= set(app.exception_handlers), sorted(
+        str(missing) for missing in registered - set(app.exception_handlers)
+    )
+    assert "five handlers" in (errors.install.__doc__ or ""), (
+        f"the docstring names a different number than the {len(registered)} it registers"
+    )

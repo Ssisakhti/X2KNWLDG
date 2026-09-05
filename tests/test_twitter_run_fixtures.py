@@ -58,6 +58,7 @@ EXPECTED: dict[str, tuple[str, str]] = {
     "edit": ("PASS", "PASS"),
     "tombstone": ("FAIL", "PARTIAL"),
     "quote": ("PASS", "PASS"),
+    "facets": ("PASS", "PASS"),
 }
 
 

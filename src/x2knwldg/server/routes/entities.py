@@ -53,9 +53,9 @@ That is the answer ``T-108`` fixed for every id-taking route, and it is not the
 ``400`` the *segment* cases get.
 
 Making it a ``400`` would mean declaring a second, ``:path`` route per endpoint.
-That was tried and reverted: the served surface is exactly the eleven frozen
+That was tried and reverted: the served surface is exactly the thirteen frozen
 paths — ``test_api_hardening.test_the_served_surface_is_exactly_the_frozen_one``
-says "not ten, and not twelve" — and a route the contract does not declare is a
+says "not twelve, and not fourteen" — and a route the contract does not declare is a
 contract change, which this task is not. Nothing is lost that matters: no
 ``globalId`` contains a slash (``common.schema.json#/$defs/idPart`` excludes one
 so ids split unambiguously), so such a request cannot name an entity; nothing is

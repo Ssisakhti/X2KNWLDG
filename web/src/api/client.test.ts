@@ -128,3 +128,55 @@ describe("a successful call", () => {
     expect(response.data.counts.sources).toBe(1);
   });
 });
+
+describe("a 200 whose shape the contract does not permit", () => {
+  /*
+   * The defect: `call` ended in `(await response.json()) as Operation<K>`, so a
+   * malformed 200 became a typed object by assertion and failed later, at the
+   * point of use. `MapFilters.tsx:100` reads `data.page.next_cursor` **during
+   * render**, so the whole Map route was replaced by `RouteErrorBoundary`; and
+   * where the same read sat inside an async loader the `TypeError` was caught
+   * and reported to the reader as "The server refused this request. Code:
+   * internal" — blaming a server that had answered 200.
+   *
+   * Only the envelope is checked. The records inside are the frozen contract's
+   * business and are pinned by `tests/test_api_contract.py`.
+   */
+  it("refuses a body with no data envelope, as an internal failure", async () => {
+    const client = new ApiClient({
+      fetch: respond(200, { api_version: "v1", schema_version: "1.0" }),
+    });
+    await expect(client.call("getStatus")).rejects.toMatchObject({ code: "internal" });
+  });
+
+  it("refuses a malformed page cursor", async () => {
+    const client = new ApiClient({
+      fetch: respond(200, {
+        api_version: "v1",
+        schema_version: "1.0",
+        data: [],
+        page: { limit: 50, next_cursor: 42, total: 0 },
+      }),
+    });
+    await expect(client.call("listSources")).rejects.toMatchObject({ code: "internal" });
+  });
+
+  it("says the client rejected the shape, so the message does not blame the server", async () => {
+    const client = new ApiClient({
+      fetch: respond(200, { api_version: "v1", schema_version: "1.0" }),
+    });
+    await expect(client.call("getStatus")).rejects.toThrow(/did not carry a data envelope/);
+  });
+
+  it("still accepts a well-formed page whose cursor is null", async () => {
+    const client = new ApiClient({
+      fetch: respond(200, {
+        api_version: "v1",
+        schema_version: "1.0",
+        data: [],
+        page: { limit: 50, next_cursor: null, total: 0 },
+      }),
+    });
+    await expect(client.call("listSources")).resolves.toBeTruthy();
+  });
+});

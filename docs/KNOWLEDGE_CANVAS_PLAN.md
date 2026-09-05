@@ -906,10 +906,20 @@ GET  /api/media/{artifact_id}
 GET  /api/search?q=...
 GET  /api/graph
 GET  /api/graph/neighborhood/{entity_id}
+GET  /api/source-graph                      # added by T-254: the Source Map's node page
+GET  /api/source-graph/neighborhood/{source_id}   # added by T-254
 ```
 
-Eleven endpoints, all `GET`. **v1 is read-only** — nothing writes to `output/`, and nothing
+Thirteen endpoints, all `GET`. **v1 is read-only** — nothing writes to `output/`, and nothing
 at all to `output/<id>/raw/`.
+
+The last two are the **only** widening this contract has had, and they were a contract change
+before they were an implementation: `T-251` froze their response shapes as components with no
+paths, and `T-254` added the paths that return them (D-254). This list stood at eleven for two
+tasks after that, in a section whose own opening says the names are no longer provisional — so
+it read as an authoritative freeze while `openapi.json` served two operations it did not
+mention. Point-in-time uses of "eleven" elsewhere — D-254's own row, `docs/adr/0002` — are
+history and are left alone.
 
 The board endpoints are **reserved and deliberately not frozen** (D-027): boards are
 Phase 3 and have no record schema yet, and a contract written for a shape that does not
@@ -931,11 +941,18 @@ API rules:
   sanitised (D-020, [ADR 0003](adr/0003-reject-unsafe-identifiers.md) — which supersedes
   ADR 0001 invariant 8, the one place that said to sanitise). A malformed id is
   `400 invalid_id`, not `404`.
-- The four HTTP codes above are the whole taxonomy **for HTTP**. Boundaries that are not
-  HTTP — the MCP server — add `invalid_request` for an argument refused before anything is
-  read where no identifier is involved (two tool parameters are *paths*, not ids), and
-  `internal_error` as the boundary's own catch. Reporting a refused path as `invalid_id`
-  would name something the request never contained (D-044).
+- The four HTTP codes above are not the whole taxonomy. The closed vocabulary is
+  `constants.ERROR_CODES`, which the frozen `openapi.json` publishes as `ErrorCode` and both
+  boundaries read: `invalid_id`, `invalid_request`, `not_found`, `unavailable`,
+  `index_unavailable` and `internal`. `invalid_request` is the refusal of an argument where
+  no identifier is involved — two MCP tool parameters are *paths*, not ids — and reporting a
+  refused path as `invalid_id` would name something the request never contained (D-044). It
+  is **not** MCP-only: `openapi.json` declares it on the `405` of all thirteen operations.
+  The boundary's own catch is spelled `internal`. This paragraph taught `internal_error`,
+  which is the D-184 defect itself — a second copy of the taxonomy in `mcp_server.py` that
+  had already drifted from the enum the HTTP contract publishes, so an agent reading an MCP
+  reply got a code outside the vocabulary. `constants.py` is the single home and records the
+  misspelling as the defect.
 - Mutations, when Phase 3 introduces them, must be atomic: write to a temp file, then
   replace safely. `io.write_json` already is.
 
@@ -1482,12 +1499,21 @@ shown honestly rather than synthesized in the UI.
 
 ## 19. Recorded decisions
 
-This table is the canonical index of decisions and answers "what was decided". The reasoning, rejected alternatives, and consequences are recorded in `docs/adr/`. The ADR convention is described in `docs/adr/README.md`.
+The reasoning, rejected alternatives, and consequences are recorded in `docs/adr/`. The ADR convention is described in `docs/adr/README.md`.
 
-**This mirror is behind.** It runs to D-219 and then jumps; D-220–D-232 and D-235–D-243
-remain recorded in `docs/PROJECT_MANAGEMENT.md` §6 only, which is the complete ledger and the
-one to read. Later rows appear here when they change this document's roadmap; they are not
-evidence that the skipped range was backfilled.
+**This is not the index. `docs/PROJECT_MANAGEMENT.md` §6 is** — grep there first. This table
+is complete only through **D-045**; after that it carries rows when they change this
+document's roadmap and skips the rest, and a row's absence here is not evidence that the
+decision does not exist. The gaps, measured rather than remembered: D-046–D-116,
+D-155–D-190, D-208–D-209, D-220–D-232, D-235–D-239, D-241–D-243 and D-277 onward. Most of
+those are cited from `src/`, `web/src/`, `tests/` or `schemas/`, so an agent that grepped
+only this table found nothing for a decision the code names in a dozen places.
+
+This note used to say the table "runs to D-219 and then jumps", naming two short ranges as
+the whole of the gap, and to call §6 "the complete ledger" — which it is not either. §6
+holds every row from D-011 on **except D-031–D-036**; together with D-001–D-010, those
+sixteen rows are what lives here and nowhere else, and are the only reason to read this
+table for a decision rather than that one.
 
 Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/0001-local-web-ui.md).
 

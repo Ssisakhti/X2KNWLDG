@@ -7,12 +7,12 @@ before it asks for a range, and ``405`` is a status the frozen document declares
 on no path.
 
 Adding ``"HEAD"`` to each route's ``methods`` would have worked and would also
-have made FastAPI *generate* eleven new ``head`` operations, which the frozen
+have made FastAPI *generate* thirteen new ``head`` operations, which the frozen
 contract does not declare and ``types.d.ts`` does not carry. RFC 9110 defines
 ``HEAD`` as ``GET`` without the body, so it needs no declaration of its own: the
 published surface is unchanged and the server simply honours the method the
 specification already defines over it. Doing that in one ASGI middleware also
-means the rule cannot be forgotten on the twelfth route.
+means the rule cannot be forgotten on the fourteenth route.
 """
 
 from __future__ import annotations
@@ -22,6 +22,16 @@ from typing import Any
 #: Set on the ASGI scope for a request that arrived as ``HEAD``. A route reads
 #: it where knowing costs less than producing a body nobody will receive —
 #: ``routes/media.py`` answers the length without opening the file.
+#:
+#: **It is not a licence to answer a different question.** ``routes/media.py``
+#: read this key *before* computing the requested byte range and then answered
+#: ``200`` with the whole file's length, so ``HEAD`` with ``Range: bytes=0-9``
+#: reported ``200``/``508`` where ``GET`` reported ``206``/``bytes 0-9/508``.
+#: RFC 9110 §9.3.2 requires the header fields a ``GET`` would have sent, and a
+#: player probing with ``HEAD Range: bytes=0-1`` — the discovery named three
+#: paragraphs above — read that as "ranges unsupported" and downloaded the
+#: whole artifact. The branch is below the range arithmetic now: what this key
+#: may skip is the body, and only the body.
 HEAD_SCOPE_KEY = "x2knwldg.head_request"
 
 

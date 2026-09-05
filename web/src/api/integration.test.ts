@@ -3,7 +3,7 @@
  *
  * A mock agrees with whatever the frontend assumed, which is why the brief for
  * this track says to prefer the real API: `create_app(project_root=...)`
- * serves all eleven endpoints over the committed run fixtures, and it
+ * serves all thirteen endpoints over the committed run fixtures, and it
  * disagrees when this code is wrong.
  *
  * Skipped unless `X2KNWLDG_API_BASE` names a running server, so `npm test`

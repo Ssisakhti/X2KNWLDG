@@ -6,6 +6,48 @@ from typing import Any
 from .constants import COVERAGE_WINDOW_SEC
 
 
+def spans_overlap(
+    span_start: float,
+    span_end: float,
+    start: float,
+    end: float,
+    *,
+    tolerance: float = 0.0,
+) -> bool:
+    """Does ``[span_start, span_end]`` share real time with the window ``[start, end)``?
+
+    One statement of "does this thing fall inside that window", because there
+    used to be two and they had already drifted apart. This function was the
+    body of :func:`caption_in_window` — a strict half-open test with no epsilon
+    — while ``validators.validate_coverage_links`` asked the same question as
+    ``unit_end > start - TIME_TOLERANCE_SEC and unit_start < end +
+    TIME_TOLERANCE_SEC``. The second spelling applies the epsilon in the
+    **permissive** direction: it widens the window by a hundredth of a second at
+    each edge, so a unit that merely *touches* an edge from outside counts as
+    evidence inside it. On the committed ``bsmUh5bTNZ4`` run that let a window
+    spanning 509.599–639.92 — 130 seconds and 444 spoken words — be reported
+    ``covered``, anchored by a unit ending at exactly 509.599 and one starting at
+    exactly 639.92, neither of which contributes a single second of the evidence
+    the window claims. ``x2knwldg validate`` returned six PASS sections and exit
+    ``0`` over it.
+
+    *tolerance* is how much overlap is required rather than how much slack is
+    granted, so the epsilon can only ever make the test **stricter**. Each caller
+    passes what its own inputs justify:
+
+    * ``0.0`` for captions, because ``create_pending_coverage`` mints the window
+      edges from the very caption timings it is placing, so the two sides of the
+      comparison are the same numbers and an epsilon would only misplace a
+      caption that sits exactly on a boundary.
+    * ``TIME_TOLERANCE_SEC`` for a knowledge unit's evidence, whose bounds are
+      authored by a model pass and round-tripped through JSON, and where an
+      overlap thinner than the epsilon is indistinguishable from no overlap at
+      all. Requiring more than the epsilon is what refuses an edge-touching
+      citation; granting it was the defect.
+    """
+    return span_end > start + tolerance and span_start < end - tolerance
+
+
 def caption_in_window(caption: dict[str, Any], start: float, end: float, is_last: bool) -> bool:
     """Does this caption belong to the window ``[start, end)``?
 
@@ -14,12 +56,17 @@ def caption_in_window(caption: dict[str, Any], start: float, end: float, is_last
     from every window and its content was never audited. Zero-length captions are
     placed by position instead; the final window owns its own right edge so
     nothing falls off the end.
+
+    The overlap itself is :func:`spans_overlap` at zero tolerance, which is the
+    predicate this function has always applied — see that docstring for why the
+    validator's copy of it needs a different one and why that difference is
+    stated rather than left to two implementations to keep in step.
     """
     caption_start = caption["start_sec"]
     caption_end = caption["end_sec"]
     if caption_end <= caption_start:
         return start <= caption_start < end or (is_last and caption_start == end)
-    return caption_end > start and caption_start < end
+    return spans_overlap(caption_start, caption_end, start, end)
 
 
 def create_pending_coverage(

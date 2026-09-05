@@ -727,10 +727,18 @@ def test_a_scaffolded_run_projects_its_posts_and_no_knowledge(tmp_path: Path) ->
     kinds = {artifact["kind"] for artifact in records.artifacts}
     assert "capture" in kinds and "post" in kinds
     assert source["artifact_ids"] == [artifact["id"] for artifact in records.artifacts]
-    # A run that has not been finalized has neither, and T-230 is what writes
-    # them (D-234). Listing them as permanently unavailable artifacts would
-    # read as damage rather than as a stage not yet reached.
-    assert not {"graph", "report"} & kinds
+    # T-230 writes both for both media (D-234, D-240), so they are addressable
+    # here exactly as they are for a video. A run that has not been finalized
+    # has neither *file* yet, and that is what `available: false` states — the
+    # same answer a YouTube run at the same stage gives, rather than an id the
+    # Reader cannot resolve.
+    assert {"graph", "report"} <= kinds
+    unfinalized = {
+        artifact["kind"]: artifact["available"]
+        for artifact in records.artifacts
+        if artifact["kind"] in {"graph", "report"}
+    }
+    assert unfinalized == {"graph": False, "report": False}
     # And nothing from the time-based medium leaked in: a post is the segment.
     assert not {"transcript", "segments"} & kinds
 
@@ -800,3 +808,69 @@ def test_an_uninitialized_capture_is_not_discoverable_at_all(tmp_path: Path) -> 
 
     stage(tmp_path, load("pass-single-post-en"))
     assert adapt_project(tmp_path).sources == []
+
+
+# ---------------------------------------------------------------------------
+# The state §T1 describes, and whether it can be validated
+# ---------------------------------------------------------------------------
+
+
+def test_an_initialized_run_can_be_validated_and_reports_PARTIAL(tmp_path: Path) -> None:
+    """WORKFLOW.md §T1's "initialized run … scaffolded to PARTIAL", checked.
+
+    ``initialize_run`` wrote ``metadata.json`` and ``coverage.json`` only, while
+    ``validate_run`` reads all four canonical documents unconditionally. So the
+    documented state could not be validated at all: ``capture`` then ``validate``
+    exited ``1 ERROR`` with "Missing JSON file: …/knowledge_units.json" where
+    §T7's table documents ``3 PARTIAL`` for an unaudited run. The YouTube path
+    never had the hole because ``import_transcript`` writes the same two empty
+    scaffolds.
+    """
+    run_dir = stage(tmp_path, load("pass-single-post-en"))
+    extract.initialize_run(run_dir)
+
+    units = json.loads((run_dir / "knowledge_units.json").read_text(encoding="utf-8"))
+    edges = json.loads((run_dir / "relationships.json").read_text(encoding="utf-8"))
+    anchor = load("pass-single-post-en")["anchor"]["post_id"]
+    assert units == {
+        "schema_version": "1.0",
+        "video_id": anchor,
+        "source_type": "twitter",
+        "units": [],
+    }
+    assert edges == {"schema_version": "1.0", "video_id": anchor, "relationships": []}
+
+    result = extract.validate_run(run_dir)
+    assert result["status"] == "PARTIAL"
+    assert result["capture"]["status"] == "PASS"
+    # The audit document itself is the scaffold, unaudited: that is what makes
+    # the run PARTIAL, and the section above only says the document is well
+    # formed. `capture` reporting PASS for its *coverage* still leaves the run
+    # at PARTIAL, which is §T1's point.
+    coverage = json.loads((run_dir / "coverage.json").read_text(encoding="utf-8"))
+    assert coverage["status"] == "PARTIAL"
+    assert coverage["audit_attempts"] == 0
+    assert result["coverage"]["errors"] == []
+
+
+def test_the_scaffold_is_written_whole_or_not_at_all(tmp_path: Path) -> None:
+    """All four through one ``write_group`` (D-090), and a second call refuses.
+
+    The refusal used to name ``metadata.json`` and ``coverage.json`` only, so a
+    run holding a scaffolded ``knowledge_units.json`` alone was re-initializable
+    over the top of it.
+    """
+    run_dir = stage(tmp_path, load("pass-single-post-en"))
+    extract.initialize_run(run_dir)
+
+    for name in ("metadata.json", "knowledge_units.json", "relationships.json", "coverage.json"):
+        assert (run_dir / name).is_file(), name
+
+    for name in ("metadata.json", "knowledge_units.json", "relationships.json", "coverage.json"):
+        for other in ("metadata.json", "knowledge_units.json", "relationships.json", "coverage.json"):
+            if other != name:
+                (run_dir / other).unlink()
+        with pytest.raises(extract.RunAlreadyInitialized):
+            extract.initialize_run(run_dir)
+        (run_dir / name).unlink()
+        extract.initialize_run(run_dir)

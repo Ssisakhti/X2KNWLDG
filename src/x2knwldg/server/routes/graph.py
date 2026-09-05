@@ -30,11 +30,14 @@ What this module does **not** do is as much of its job as what it does:
   rewritten and never joined onto a path (ADR 0003 / D-020); a well-formed id
   naming nothing is the ``404``, and the two are never collapsed.
 
-``depth`` is the one bound declared here as well as in the query object, for
-the reason ``params`` gives for ``limit``: a value outside ``1..3`` is refused
-before any work happens. It is never clamped — answering ``depth=4`` with
-``depth=3`` would answer a question the client did not ask, and the response
-echoes ``depth`` back, so the client would be told a bound it never set.
+``depth`` is bounded here as well as in the query object, for the reason
+``params`` gives for ``limit``: a value outside ``1..3`` is refused before any
+work happens. It is never clamped — answering ``depth=4`` with ``depth=3`` would
+answer a question the client did not ask, and the response echoes ``depth``
+back, so the client would be told a bound it never set. The declaration itself
+is ``params.depth_param``, not a ``Query(...)`` written out below: it was the
+one bound in that module that a route still restated, and a restated bound is
+the one that drifts from the document the drift guard reads.
 """
 
 from __future__ import annotations
@@ -47,7 +50,7 @@ from ...repository import GraphQuery, IndexRepository, NeighborhoodQuery
 from ..deps import repository
 from ..envelope import envelope
 from ..errors import NotFound
-from ..params import MAX_DEPTH, MIN_DEPTH, cursor_param, limit_param
+from ..params import cursor_param, depth_param, limit_param
 
 router = APIRouter(tags=["graph"])
 
@@ -115,12 +118,7 @@ def get_neighborhood(
         ...,
         description="Three-part global id, `<source_type>:<external_id>:<local_id>`.",
     ),
-    depth: int = Query(
-        MIN_DEPTH,
-        ge=MIN_DEPTH,
-        le=MAX_DEPTH,
-        description="Hops from the centre.",
-    ),
+    depth: int = depth_param(),
     limit: int = limit_param(),
     relation_vocabulary: str | None = _relation_vocabulary_param(),
     repo: IndexRepository = Depends(repository),
