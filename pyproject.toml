@@ -14,6 +14,10 @@ dependencies = []
 [project.optional-dependencies]
 youtube = [
   "yt-dlp>=2024.1.0",
+  # YouTube may require browser impersonation for translated automatic-caption
+  # endpoints. Without this transport, yt-dlp can list the English track but
+  # fail to download it with HTTP 429.
+  "curl-cffi>=0.11",
   "youtube-transcript-api>=1.0",  # 1.x instance API: youtube.py calls api.fetch()/api.list()
   # D-112: `youtube.py` imports `requests` directly — `_BoundedSession`
   # subclasses `requests.Session` to force a default HTTP timeout, because
