@@ -1839,13 +1839,26 @@ def test_the_map_is_addressable_and_linked() -> None:
     declared route and something that links to it. A Map reachable only by
     typing the fragment is a Map `T-206`'s URL grammar would have nothing to
     hang selection and filters off.
+
+    `T-256` made ``/map`` two Maps, so the route's element is a dispatch rather
+    than a view. What this asserts is therefore the property rather than the
+    spelling: one declared route, something linking to it, and a dispatch that
+    reaches **both** views. Pinning ``<MapView />`` here would have made adding
+    a second mode look like breaking the first.
     """
     app = (WEB / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert re.search(r'path="/map"\s+element=\{<MapView\s*/>\}', app), (
-        "App.tsx no longer routes /map to the Map view"
+    assert re.search(r'path="/map"\s+element=\{<\w+\s*/>\}', app), (
+        "App.tsx no longer declares a /map route"
     )
     shell = (WEB / "src" / "components" / "Shell.tsx").read_text(encoding="utf-8")
     assert 'to="/map"' in shell, "the Shell no longer links to the Map"
+
+    route = (WEB / "src" / "views" / "MapRoute.tsx").read_text(encoding="utf-8")
+    for view in ("MapView", "SourceMapView"):
+        assert view in route, f"the /map route no longer reaches {view}"
+    # The mode is read from the URL, not from state: that is what makes a
+    # Source Map a link rather than something a reload loses.
+    assert "parseMapState" in route, "the /map route no longer reads its mode from the URL"
 
 
 def test_the_application_constructs_the_renderer_in_exactly_one_module() -> None:

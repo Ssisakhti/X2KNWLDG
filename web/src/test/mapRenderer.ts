@@ -34,6 +34,7 @@ import type {
   MapRenderer,
   MapRendererFactory,
 } from "../map/mapSession";
+import type { IndexedRelation } from "../api/contract";
 import type { MapGraph } from "../map/graphProjection";
 
 /** Where an unlisted node is reported to be: inside any plausible stage. */
@@ -60,8 +61,8 @@ export interface FakeRenderer extends MapRenderer {
   framings: MapCameraTarget[];
 }
 
-export interface FakeRendererHarness {
-  factory: MapRendererFactory;
+export interface FakeRendererHarness<E = IndexedRelation> {
+  factory: MapRendererFactory<E>;
   /** Every call every renderer made, in order, across creations and kills. */
   events: string[];
   /** The renderer created most recently, or `null` before the first. */
@@ -70,7 +71,7 @@ export interface FakeRendererHarness {
   all: FakeRenderer[];
 }
 
-export function fakeRenderers(
+export function fakeRenderers<E = IndexedRelation>(
   options: {
     /** Refuse to be created, as a browser with no WebGL2 does. */
     failOnCreate?: boolean;
@@ -83,13 +84,16 @@ export function fakeRenderers(
      */
     display?: Record<string, MapPoint>;
   } = {},
-): FakeRendererHarness {
+): FakeRendererHarness<E> {
   const events: string[] = [];
   const all: FakeRenderer[] = [];
   const points = options.points ?? {};
   const display = options.display ?? {};
 
-  const factory: MapRendererFactory = (graph: MapGraph) => {
+  // Generic over the edge record for the reason the real factory is: `T-256`
+  // gave the session a second caller whose edges are source relations, and this
+  // fake reads no edge attribute at all.
+  const factory: MapRendererFactory<E> = (graph: MapGraph<E>) => {
     if (options.failOnCreate === true) {
       events.push("refused");
       throw new Error("WebGL2 is not available in this browser.");

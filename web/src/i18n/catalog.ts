@@ -415,6 +415,105 @@ export const en = {
   "player.noEmbed": "No embeddable player is known for this source type.",
   "player.localTitle": "Local media",
 
+  /*
+   * The Source Map (`T-256`).
+   *
+   * Proposed by `T-255` and approved with its compositions (D-277). Two rules
+   * govern this block and both are the phase's rather than this file's.
+   *
+   * A brief's narrative is Persian in the canonical record, so the *chrome*
+   * below is translated and the *content* it frames is not: an English UI shows
+   * English labels around a Persian brief. That is the output-language policy,
+   * and a translation of a brief here would be a second, unsourced statement of
+   * what a source says.
+   *
+   * Nothing here names a confidence, a score, a rank or a freshness, because no
+   * record carries one (D-247, D-274). `source.refusals.*` is where the Map
+   * says so out loud, on the surface rather than only in a specification.
+   */
+  "map.mode.label": "What this Map is of",
+  "map.mode.knowledge": "Knowledge",
+  "map.mode.sources": "Sources",
+  "map.mode.switch": "What this Map is of",
+  "map.mode.knowledgeNote": "Knowledge units and the concepts over them.",
+  "map.mode.sourcesNote": "One node per acquired source, and the relationships among them.",
+  "source.map.title": "Source Map",
+  "source.map.subtitle":
+    "One node per acquired source. Selecting one shows its brief and the relationships it stands in, each with the knowledge-unit pairs it rests on.",
+  "source.map.stageLabel": "Source graph, drawn",
+  "source.map.companion":
+    "The drawing is one view of the list in this panel. Every source here can be focused, read and opened without a pointer and without a drawn graph.",
+  "source.map.outline": "Every source this Map holds",
+  "source.map.nothingFocused": "Nothing is focused. Choose a source to read its brief.",
+  "source.one": "Source",
+  "source.medium.youtube": "YouTube",
+  "source.medium.twitter": "X / Twitter",
+  "source.medium.unknown": "Unrecognised medium",
+  "source.status": "Run status",
+  "source.openReader": "Open this source in the Reader",
+  "source.openKnowledge": "Show this source's knowledge units",
+  "source.brief.title": "Source brief",
+  "source.brief.thesis": "Thesis",
+  "source.brief.keyPoints": "Key points",
+  "source.brief.limitations": "Limitations and tensions",
+  "source.brief.basedOnOne": "Supported by {count} knowledge unit",
+  "source.brief.basedOnMany": "Supported by {count} knowledge units",
+  "source.brief.state": "Brief",
+  "source.brief.available": "current",
+  "source.brief.stale": "stale",
+  "source.brief.unavailable": "none",
+  "source.brief.staleNote":
+    "This brief was generated from inputs that have since changed. It is shown as it was written, with its state saying so — it is not withheld and it is not refreshed.",
+  "source.brief.unavailableNote":
+    "This source has no brief. That is a normal and possibly permanent condition, not a shortfall: a run that did not pass cannot have one.",
+  "source.brief.statusNote": "A brief can never claim more than the run it was written from.",
+  "source.brief.loading": "Reading this source's brief…",
+  "source.relations.title": "Source relationships",
+  "source.relations.incoming": "incoming",
+  "source.relations.outgoing": "outgoing",
+  "source.relations.none":
+    "This source relates to no other source in the library. It is a node with no edges, not a node that failed to load.",
+  "source.relations.count": "{incoming} incoming · {outgoing} outgoing",
+  "source.relations.scope": "Scope",
+  "source.relations.scope.partial": "partial",
+  "source.relations.scope.broad": "broad",
+  "source.relations.scopeNote":
+    "Scope qualifies the claim; it does not measure it. There is no third value and no percentage.",
+  "source.relations.select": "Show what this relationship rests on",
+  "source.relations.selected": "Showing what this relationship rests on",
+  "source.basis.title": "What this relationship rests on",
+  "source.basis.pairs": "Knowledge-unit pairs",
+  "source.basis.count": "{returned} of {total} carried in this response",
+  "source.basis.rationale": "Why the pass proposed it",
+  "source.basis.note":
+    "A basis is what keeps a source-level verdict from overclaiming: the relationship means these pairs, and nothing wider.",
+  "source.basis.truncated":
+    "This response carried {returned} of {total} pairs. The rest are in the canonical record, not lost.",
+  "source.basis.openUnit": "Open {id} in the Reader",
+  "source.counts.returned": "Sources returned",
+  "source.counts.relations": "Relationships returned",
+  "source.counts.omitted": "Relationships omitted",
+  "source.counts.total": "Sources in the index",
+  "source.counts.summary": "{sources} sources · {relations} relationships",
+  "source.counts.offPage":
+    "One or more relationships name a source this page does not carry. They are on a later page, not missing — so no mark is drawn for them here.",
+  "source.counts.omittedNote":
+    "An omitted relationship is one the bound cut, or one naming a source the index does not hold. Both are counted; neither is drawn.",
+  "source.bound.title": "What this response did not carry",
+  "source.bound.bothDirections":
+    "The limit binds both directions together in id order, so a bound can never empty one side while the other is short of it.",
+  "source.bound.stage": "{count} beyond the stage's card budget · all of them remain in the list.",
+  "source.unknown.title": "No source in this library has that id",
+  "source.unknown.note":
+    "The id is well formed and the index does not hold it. Absence is an answer, not an error in the request.",
+  "source.refusals.title": "What this Map will not tell you",
+  "source.refusals.rank":
+    "A relationship carries no confidence, no score and no rank. Every edge is drawn at one weight and every source at one size, because a basis count is a count.",
+  "source.refusals.freshness":
+    "This response says nothing about whether a relationship is still current, so nothing here shows a freshness mark beside an edge.",
+  "source.empty":
+    "The index holds no source, so there is nothing to draw. This is not a drawing that failed.",
+
   "time.at": "at {time}",
   "time.range": "{start} – {end}",
   "text.range": "characters {start}–{end}",
@@ -816,6 +915,89 @@ export const fa: Messages = {
   "player.seekPending": "بارگذاری پخش‌کننده از {time} آغاز خواهد شد.",
   "player.noEmbed": "برای این نوع منبع پخش‌کنندهٔ توکاری شناخته نیست.",
   "player.localTitle": "رسانهٔ محلی",
+
+  /* The Source Map (`T-256`). See the `en` block for what governs these. */
+  "map.mode.label": "این نقشه از چیست",
+  "map.mode.knowledge": "دانش",
+  "map.mode.sources": "منابع",
+  "map.mode.switch": "این نقشه از چیست",
+  "map.mode.knowledgeNote": "واحدهای دانش و مفهوم‌هایی که بر آن‌ها ساخته شده‌اند.",
+  "map.mode.sourcesNote": "یک گره برای هر منبعِ گردآوری‌شده، و نسبت‌های میان آن‌ها.",
+  "source.map.title": "نقشهٔ منابع",
+  "source.map.subtitle":
+    "یک گره برای هر منبعِ گردآوری‌شده. با گزینش هر منبع، چکیده و نسبت‌هایی که در آن ایستاده است دیده می‌شود؛ هر نسبت همراه با جفت‌های واحد دانشی که بر آن تکیه دارد.",
+  "source.map.stageLabel": "گراف منابع، ترسیم‌شده",
+  "source.map.companion":
+    "ترسیم، یکی از نماهای فهرستِ همین بخش است. هر منبع را می‌توان بدون اشاره‌گر و بدون گرافِ ترسیم‌شده کانون کرد، خواند و گشود.",
+  "source.map.outline": "همهٔ منابعی که این نقشه در خود دارد",
+  "source.map.nothingFocused": "چیزی کانون نشده است. منبعی را برگزینید تا چکیده‌اش خوانده شود.",
+  "source.one": "منبع",
+  "source.medium.youtube": "یوتیوب",
+  "source.medium.twitter": "ایکس / توییتر",
+  "source.medium.unknown": "رسانهٔ ناشناخته",
+  "source.status": "وضعیت اجرا",
+  "source.openReader": "گشودن این منبع در خوانشگر",
+  "source.openKnowledge": "نمایش واحدهای دانشِ این منبع",
+  "source.brief.title": "چکیدهٔ منبع",
+  "source.brief.thesis": "گزارهٔ اصلی",
+  "source.brief.keyPoints": "نکته‌های کلیدی",
+  "source.brief.limitations": "محدودیت‌ها و تنش‌ها",
+  "source.brief.basedOnOne": "بر پایهٔ {count} واحد دانش",
+  "source.brief.basedOnMany": "بر پایهٔ {count} واحد دانش",
+  "source.brief.state": "چکیده",
+  "source.brief.available": "به‌روز",
+  "source.brief.stale": "کهنه",
+  "source.brief.unavailable": "ندارد",
+  "source.brief.staleNote":
+    "این چکیده از ورودی‌هایی ساخته شده که پس از آن تغییر کرده‌اند. همان‌گونه که نوشته شده نمایش داده می‌شود و وضعیتش همین را می‌گوید — نه پنهان می‌شود و نه از نو ساخته.",
+  "source.brief.unavailableNote":
+    "این منبع چکیده ندارد. این وضعیتی عادی و چه‌بسا دائمی است، نه کاستی: اجرایی که نپذیرفته باشد نمی‌تواند چکیده داشته باشد.",
+  "source.brief.statusNote": "چکیده هرگز نمی‌تواند بیش از اجرایی که از آن نوشته شده ادعا کند.",
+  "source.brief.loading": "در حال خواندن چکیدهٔ این منبع…",
+  "source.relations.title": "نسبت‌های میان منابع",
+  "source.relations.incoming": "ورودی",
+  "source.relations.outgoing": "خروجی",
+  "source.relations.none":
+    "این منبع با هیچ منبع دیگری در کتابخانه نسبتی ندارد. گرهی بدون یال است، نه گرهی که بارگذاری‌اش ناکام مانده.",
+  "source.relations.count": "{incoming} ورودی · {outgoing} خروجی",
+  "source.relations.scope": "گستره",
+  "source.relations.scope.partial": "جزئی",
+  "source.relations.scope.broad": "فراگیر",
+  "source.relations.scopeNote":
+    "گستره ادعا را مقید می‌کند، نه آنکه آن را بسنجد. مقدار سومی وجود ندارد و درصدی در کار نیست.",
+  "source.relations.select": "نمایش آنچه این نسبت بر آن تکیه دارد",
+  "source.relations.selected": "آنچه این نسبت بر آن تکیه دارد، نمایش داده می‌شود",
+  "source.basis.title": "این نسبت بر چه تکیه دارد",
+  "source.basis.pairs": "جفت‌های واحد دانش",
+  "source.basis.count": "{returned} از {total} در این پاسخ",
+  "source.basis.rationale": "چرا این نسبت پیشنهاد شده",
+  "source.basis.note":
+    "این پایه همان چیزی است که نمی‌گذارد داوری در سطح منبع بیش از حد ادعا کند: نسبت یعنی همین جفت‌ها، و نه بیش از آن.",
+  "source.basis.truncated":
+    "این پاسخ {returned} جفت از {total} جفت را در بر داشت. باقی در سند متعارف هستند، نه گم‌شده.",
+  "source.basis.openUnit": "گشودن {id} در خوانشگر",
+  "source.counts.returned": "منابع بازگردانده‌شده",
+  "source.counts.relations": "نسبت‌های بازگردانده‌شده",
+  "source.counts.omitted": "نسبت‌های کنارگذاشته",
+  "source.counts.total": "منابع در نمایه",
+  "source.counts.summary": "{sources} منبع · {relations} نسبت",
+  "source.counts.offPage":
+    "یک یا چند نسبت، منبعی را نام می‌برند که این صفحه ندارد. آن منابع در صفحه‌ای دیگرند، نه گم‌شده — پس هیچ نشانه‌ای برایشان در اینجا ترسیم نمی‌شود.",
+  "source.counts.omittedNote":
+    "نسبتِ کنارگذاشته یا آن است که کران بریده، یا آن که منبعی را نام می‌برد که نمایه ندارد. هر دو شمرده می‌شوند و هیچ‌کدام ترسیم نمی‌شود.",
+  "source.bound.title": "آنچه این پاسخ در بر نداشت",
+  "source.bound.bothDirections":
+    "کران بر هر دو جهت با هم و به ترتیب شناسه اعمال می‌شود، پس هیچ‌گاه یک سو خالی نمی‌شود در حالی که سوی دیگر هنوز جا دارد.",
+  "source.bound.stage": "{count} نسبت بیش از سهم صحنه · همه در فهرست می‌مانند.",
+  "source.unknown.title": "هیچ منبعی در این کتابخانه چنین شناسه‌ای ندارد",
+  "source.unknown.note":
+    "شناسه درست‌ساخت است و نمایه آن را ندارد. نبود، خودْ پاسخ است، نه خطایی در درخواست.",
+  "source.refusals.title": "آنچه این نقشه نمی‌گوید",
+  "source.refusals.rank":
+    "هیچ نسبتی اطمینان، امتیاز یا رتبه ندارد. همهٔ یال‌ها با یک ضخامت و همهٔ منابع با یک اندازه ترسیم می‌شوند، چون شمارِ پایه فقط یک شمار است.",
+  "source.refusals.freshness":
+    "این پاسخ چیزی دربارهٔ به‌روز بودنِ یک نسبت نمی‌گوید، پس در اینجا هیچ نشانهٔ تازگی کنار یال‌ها دیده نمی‌شود.",
+  "source.empty": "نمایه هیچ منبعی ندارد، پس چیزی برای ترسیم نیست. این یک ترسیمِ ناکام نیست.",
 
   "time.at": "در {time}",
   "time.range": "{start} – {end}",

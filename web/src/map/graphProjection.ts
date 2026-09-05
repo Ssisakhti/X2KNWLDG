@@ -51,12 +51,23 @@ export interface MapNodeAttributes {
   record: EntityRef;
 }
 
-/** What a drawn edge carries: its relation record, verbatim. */
-export interface MapEdgeAttributes {
-  record: IndexedRelation;
+/**
+ * What a drawn edge carries: its relation record, verbatim.
+ *
+ * The type parameter is `T-256`'s and its default is why nothing else moved:
+ * the Knowledge Map's edges are `IndexedRelation`s and say so by saying
+ * nothing, while the Source Map's are `SourceRelationSummary`s. One graph shape
+ * for two record families, rather than a union that would make every reader of
+ * an edge narrow a record it already knows the type of.
+ */
+export interface MapEdgeAttributes<R = IndexedRelation> {
+  record: R;
 }
 
-export type MapGraph = MultiDirectedGraph<MapNodeAttributes, MapEdgeAttributes>;
+export type MapGraph<E = IndexedRelation> = MultiDirectedGraph<
+  MapNodeAttributes,
+  MapEdgeAttributes<E>
+>;
 
 export function createMapGraph(): MapGraph {
   return new MultiDirectedGraph<MapNodeAttributes, MapEdgeAttributes>();

@@ -1597,3 +1597,223 @@ input {
 .shell__skip:focus {
   transform: translateY(0);
 }
+
+/* ---------------------------------------------------------------------------
+ * The Source Map (`T-256`)
+ *
+ * Additive to the workspace above, not a second one: `.map`, `.map__float`,
+ * `.map__canvas`, `.map__drawer` and `.map__endrail` are the field `T-212`
+ * built and are reused as they stand. What is below is the surfaces the Source
+ * Map has and the Knowledge Map does not.
+ *
+ * Two project rules hold here as everywhere: provenance and every other
+ * distinction is drawn in more than one channel (ADR 0001 invariant 10), and
+ * box properties are logical rather than physical (D-012), so `dir="rtl"` needs
+ * no second stylesheet.
+ * ------------------------------------------------------------------------- */
+
+/*
+ * The Source Map's drawer scrolls itself.
+ *
+ * The Knowledge Map's does not need to: `MapQuickRead` and `MapRelatedList`
+ * each bound their own height, so the column never outgrows the rail. This one
+ * holds a card, a list and a basis panel, and a brief is exactly as long as the
+ * record is — so with a real Persian brief the foot of the card, the
+ * relationships and the whole basis were below the viewport with no way to
+ * reach them. Found by running it, not by a test.
+ */
+.map--sources .map__drawer {
+  /* Fills the rail and scrolls inside it. Bottom-aligned and auto-height, the
+     card, the relationships and the basis were a 347 px column at the foot of a
+     912 px rail with the top two thirds empty — measured on the running build,
+     which is the only place a rail has a height. */
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.modeswitch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  flex-wrap: wrap;
+}
+.modeswitch__label {
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-inline-end: var(--space-1);
+}
+.button--on {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+  font-weight: 560;
+}
+
+/* Medium: the hue arrives as a custom property from the style table, so the
+   canvas and the DOM cannot come to disagree about which hue a medium is. */
+.badge--medium {
+  color: var(--medium-hue, var(--fg-muted));
+  background: color-mix(in srgb, var(--medium-hue, var(--fg-muted)) 12%, var(--bg-raised));
+  border-color: color-mix(in srgb, var(--medium-hue, var(--fg-muted)) 45%, transparent);
+}
+
+/* Brief state: a border style as well as a word, so the three states differ
+   without relying on the reader seeing a hue. */
+.badge--brief { border-style: solid; }
+.badge--brief-available { color: var(--provenance-source-fg); background: var(--provenance-source-bg); }
+.badge--brief-stale {
+  color: var(--provenance-derived-fg);
+  background: var(--provenance-derived-bg);
+  border-style: dashed;
+}
+.badge--brief-unavailable {
+  color: var(--fg-faint);
+  background: transparent;
+  border-style: dotted;
+}
+
+/* ---- the one readable source card -------------------------------------- */
+.sourcecard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-raised);
+  border: var(--border-width) solid var(--border);
+  border-inline-start: var(--rail-width) solid var(--provenance-source-fg);
+  border-radius: var(--radius-md);
+}
+.sourcecard__head { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.sourcecard__title { margin: 0; font-size: var(--text-lg); line-height: var(--leading-tight); }
+.sourcecard__brief { display: flex; flex-direction: column; gap: var(--space-2); }
+.sourcecard__label {
+  margin: 0;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-faint);
+}
+.sourcecard__thesis { margin: 0; font-size: var(--text-md); line-height: var(--leading-normal); }
+.sourcecard__points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.sourcecard__points li { display: flex; gap: var(--space-2); font-size: var(--text-sm); line-height: var(--leading-normal); }
+.sourcecard__foot { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; font-size: var(--text-xs); }
+
+/* Every narrative element names the knowledge units under it. That is one of
+   the phase's acceptance clauses, so it is drawn rather than described. */
+.basedon { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-inline-start: var(--space-1); }
+.basedon__chip {
+  font-size: var(--text-xs);
+  color: var(--provenance-source-fg);
+  background: var(--provenance-source-bg);
+  border: var(--border-width) solid color-mix(in srgb, var(--provenance-source-fg) 35%, transparent);
+  border-radius: var(--radius-sm);
+  padding-inline: 4px;
+}
+
+/* ---- relationship pills and rows --------------------------------------- */
+.relpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  border: var(--border-width) solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+}
+.relpill__vocab { font-family: var(--font-mono); font-weight: 560; }
+.relpill__dir { font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
+.relpill__focus { color: var(--fg-faint); }
+.relpill__scope {
+  color: var(--fg-faint);
+  border-inline-start: var(--border-width) solid var(--border);
+  padding-inline-start: 6px;
+}
+.relpill__basis { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+
+.relationlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.relationlist li { display: flex; flex-direction: column; gap: var(--space-1); }
+.relationlist__select,
+.relationlist__other {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font: inherit;
+  text-align: start;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+}
+.relationlist__select { cursor: pointer; }
+.relationlist__select--on { border-color: var(--accent); background: var(--bg-hover); }
+.relationlist__other { cursor: pointer; font-size: var(--text-sm); color: var(--fg-muted); }
+/* A relationship the stage had no room for is still a row, and says so. */
+[data-source-relation-placed="false"] .relationlist__select { border-inline-start: 2px dotted var(--border-strong); }
+
+/* ---- the basis panel ---------------------------------------------------- */
+.basis { display: flex; flex-direction: column; gap: var(--space-2); }
+.basis__rationale {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--fg-muted);
+  padding-inline-start: var(--space-3);
+  border-inline-start: var(--rail-width) solid var(--border-strong);
+}
+.basis__pairs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.basis__pairs li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  padding-block: 2px;
+  border-block-end: var(--border-width) solid var(--border);
+}
+.basis__arrow { font-family: var(--font-mono); color: var(--accent); }
+.basis__type { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-faint); }
+
+/* ---- the semantic companion --------------------------------------------- */
+.sourceoutline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.sourceoutline__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  inline-size: 100%;
+  font: inherit;
+  text-align: start;
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: inherit;
+  cursor: pointer;
+}
+.sourceoutline__row--on { border-color: var(--accent); background: var(--bg-hover); }
+.sourceoutline__marks { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+.sourceoutline__title { font-size: var(--text-sm); line-height: var(--leading-normal); }
+
+/* ---- refusals, on the surface rather than only in a specification ------- */
+.refusals { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.refusals li {
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  padding-inline-start: var(--space-3);
+  border-inline-start: 2px dotted var(--border-strong);
+}
+.notice--stale {
+  border-inline-start: var(--rail-width) dashed var(--provenance-derived-fg);
+  font-size: var(--text-xs);
+}

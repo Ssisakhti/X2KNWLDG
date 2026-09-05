@@ -15,6 +15,8 @@ import { describe, expect, it } from "vitest";
 import {
   MAP_PATH,
   NO_MAP_STATE,
+  modeOf,
+  parseMapMode,
   graphFiltersOf,
   mapPath,
   parseFocus,
@@ -28,6 +30,8 @@ import {
 const KU = "youtube:pqlWNihgdjI:KU-000001";
 const CONCEPT = "library:concepts:C-000001";
 const SOURCE = "youtube:pqlWNihgdjI";
+/** A source node's own three-part id: the Source Map's selection (`T-256`). */
+const SOURCE_NODE = "youtube:pqlWNihgdjI:source";
 
 describe("mapPath", () => {
   it("is the bare route when the state says nothing", () => {
@@ -72,6 +76,9 @@ describe("mapPath", () => {
 
   it("round-trips every field through the parser", () => {
     const state = {
+      // The mode round-trips with the rest, and `sources` rather than
+      // `knowledge` because the default is never written (`T-256`).
+      mode: "sources",
       focus: CONCEPT,
       source: SOURCE,
       provenance: "derived",
@@ -83,6 +90,47 @@ describe("mapPath", () => {
     expect(sameMapState(parsed, state)).toBe(true);
     // And again, so a second trip through the grammar is a fixed point.
     expect(mapPath(parsed)).toBe(path);
+  });
+});
+
+describe("the mode (`T-256`)", () => {
+  it("reads the one value it writes, and ignores anything else", () => {
+    expect(parseMapMode("sources")).toBe("sources");
+    expect(parseMapMode("knowledge")).toBe("knowledge");
+    // Ignored rather than repaired: reading `source` as `sources` would switch
+    // a reader to a Map they did not ask for.
+    expect(parseMapMode("source")).toBeNull();
+    expect(parseMapMode("SOURCES")).toBeNull();
+    expect(parseMapMode(null)).toBeNull();
+  });
+
+  it("means the Knowledge Map when the URL says nothing", () => {
+    expect(modeOf(parseMapState(""))).toBe("knowledge");
+    expect(modeOf(parseMapState("?of=nonsense"))).toBe("knowledge");
+    expect(modeOf(parseMapState("?of=sources"))).toBe("sources");
+  });
+
+  it("never writes the default, because this grammar spells no defaults", () => {
+    expect(mapPath({ mode: "knowledge" })).toBe("/map");
+    expect(mapPath({ mode: null })).toBe("/map");
+    expect(mapPath({ mode: "sources" })).toBe("/map?of=sources");
+  });
+
+  it("carries a selection and the filters across the switch, in one URL", () => {
+    const path = mapPath({ mode: "sources", focus: SOURCE_NODE, source: SOURCE });
+    expect(parseMapState(path.slice(path.indexOf("?")))).toMatchObject({
+      mode: "sources",
+      focus: SOURCE_NODE,
+      source: SOURCE,
+    });
+  });
+
+  it("counts a mode change as a change, so Back undoes it", () => {
+    const knowledge = parseMapState("");
+    const sources = parseMapState("?of=sources");
+    expect(sameMapState(knowledge, sources)).toBe(false);
+    // And two spellings of the same thing are the same thing.
+    expect(sameMapState(knowledge, parseMapState("?of=knowledge"))).toBe(true);
   });
 });
 
@@ -190,6 +238,7 @@ describe("graphFiltersOf", () => {
   it("is an identity over the three parameters the operation declares", () => {
     expect(
       graphFiltersOf({
+        mode: null,
         focus: KU,
         source: SOURCE,
         provenance: "source",

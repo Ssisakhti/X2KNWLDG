@@ -106,7 +106,8 @@ import {
 } from "sigma/rendering";
 
 import { MAP_LABEL_SETTINGS } from "./labelPolicy";
-import type { MapGraph } from "./graphProjection";
+import type { IndexedRelation } from "../api/contract";
+import type { MapEdgeAttributes, MapGraph, MapNodeAttributes } from "./graphProjection";
 import type {
   MapNodeEvent,
   MapPoint,
@@ -115,7 +116,12 @@ import type {
   MapRendererFactory,
   MapVisibleExtent,
 } from "./mapSession";
-import { MAP_SIZE_SETTINGS, MapStyle, mapStyle } from "./mapStyle";
+import {
+  MAP_SIZE_SETTINGS,
+  type MapEdgeDisplay,
+  type MapNodeDisplay,
+  mapStyle,
+} from "./mapStyle";
 
 /**
  * The shapes, paths and extremities `mapStyle.ts` draws with.
@@ -145,9 +151,28 @@ export const MAP_PRIMITIVES = {
   },
 } as const;
 
-/** A renderer factory over one style table. */
-export function sigmaRendererFor(style: MapStyle): MapRendererFactory {
-  return (graph: MapGraph, container: HTMLElement): MapRenderer => {
+/**
+ * A renderer factory over one style table.
+ *
+ * The table is taken structurally rather than as a `MapStyle`, because `T-256`
+ * built a second one — `SourceStyle` — whose reducers answer over source
+ * records. What Sigma needs from either is two functions, and that is what this
+ * asks for. The graph's edge record is a parameter for the same reason.
+ */
+export interface MapStyleTable<N, E> {
+  readonly nodeReducer: (
+    key: string,
+    data: unknown,
+    attributes: N,
+    state: { isHovered: boolean },
+  ) => MapNodeDisplay;
+  readonly edgeReducer: (key: string, data: unknown, attributes: E) => MapEdgeDisplay;
+}
+
+export function sigmaRendererFor<E = IndexedRelation>(
+  style: MapStyleTable<MapNodeAttributes, MapEdgeAttributes<E>>,
+): MapRendererFactory<E> {
+  return (graph: MapGraph<E>, container: HTMLElement): MapRenderer => {
     const sigma = new Sigma(graph, container, {
       primitives: MAP_PRIMITIVES,
       settings: {

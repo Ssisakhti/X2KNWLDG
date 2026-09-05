@@ -500,7 +500,7 @@ measurements are recorded in full in `PROJECT_MANAGEMENT.md` §5 and §11.
 - update `WORKFLOW.md` only for behavior that is now implemented and validated.
 
 The tasks are serial at the phase boundary: `T-251 → T-252 → T-253 → T-254 → T-255 →
-T-256 → T-257`. `T-251`–`T-254` are done; `T-255`'s mockups are drawn and awaiting approval. Implementation may parallelize internal tests only when the contract owner
+T-256 → T-257`. `T-251`–`T-256` are done; `T-257` is the phase gate. Implementation may parallelize internal tests only when the contract owner
 has already frozen the relevant shape.
 
 ## 9. Phase acceptance criteria

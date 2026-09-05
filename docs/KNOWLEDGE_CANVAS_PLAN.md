@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0, 1, 2, 2.1 and 2.2 are complete. **Phase 2.3 / `T-250`, the Source Map, is under way: `T-251` froze the records, ids, bounds, API shapes and fixtures (D-251–D-256), `T-252` gave the per-run brief a prompt, a gate and a projection (D-257–D-261), `T-253` made cross-source relations discoverable, bounded and gated (D-262–D-268), `T-254` gave the layer three rebuildable tables and the two read-only endpoints (D-269–D-276), and `T-255` — the high-fidelity mockups — is drawn and awaiting the user's approval.** It adds one readable node per source and automatic, evidence-backed source relationships before Canvas. Phase 3 remains technically unblocked but is deliberately deferred until the Source Map gate closes (D-244–D-250; [ADR 0008](adr/0008-source-level-knowledge-map.md)).
+**Current stage:** Phases 0, 1, 2, 2.1 and 2.2 are complete. **Phase 2.3 / `T-250`, the Source Map, is under way: `T-251` froze the records, ids, bounds, API shapes and fixtures (D-251–D-256), `T-252` gave the per-run brief a prompt, a gate and a projection (D-257–D-261), `T-253` made cross-source relations discoverable, bounded and gated (D-262–D-268), `T-254` gave the layer three rebuildable tables and the two read-only endpoints (D-269–D-276), `T-255`'s compositions were approved (D-277), and `T-256` built the Source Map at `#/map?of=sources` (D-278–D-280); `T-257`, the phase gate, is what is left.** It adds one readable node per source and automatic, evidence-backed source relationships before Canvas. Phase 3 remains technically unblocked but is deliberately deferred until the Source Map gate closes (D-244–D-250; [ADR 0008](adr/0008-source-level-knowledge-map.md)).
 **Last updated:** 2026-09-05
 **Current scope:** personal, fully local execution on macOS; YouTube and public X/Twitter implemented
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -1175,7 +1175,7 @@ Acceptance criteria:
   remains explicitly unsupported.
 
 Execution is `T-251 → T-252 → T-253 → T-254 → T-255 → T-256 → T-257` in
-`PROJECT_MANAGEMENT.md` §5. **`T-251`–`T-254` are done** (D-251–D-276) and `T-255`'s pictures await approval.
+`PROJECT_MANAGEMENT.md` §5. **`T-251`–`T-256` are done** (D-251–D-280) and `T-257` is the phase gate.
 
 What `T-251` settled, and why each one is a decision rather than a detail:
 
@@ -1818,8 +1818,8 @@ An agent must not guess the answers to these if the decision would cause a notic
   (D-262–D-268). And `T-254` is **done**: three rebuildable SQLite tables and two read-only
   endpoints — `GET /api/source-graph` and `GET /api/source-graph/neighborhood/{source_id}` —
   page over source nodes, count what they omit, bound every basis and state both counts, and
-  leave every Knowledge Map payload where it was (D-269–D-276). `T-255`, the high-fidelity
-  mockups, is drawn and awaiting approval; **nothing renders any of it yet**
+  leave every Knowledge Map payload where it was (D-269–D-276). `T-255`'s compositions are
+  approved and `T-256` renders them; **the phase gate `T-257` is what is left**
 - [ ] Canvas — Phase 3 / `T-301`: technically unblocked, now deliberately deferred until the
   Source Map phase gate closes
 - [ ] Pen annotations
@@ -1830,7 +1830,7 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**Phase 2.3 / Source Map is under way; `T-251`–`T-254` are done and `T-255`'s mockups await approval.** Every
+**Phase 2.3 / Source Map is under way; `T-251`–`T-256` are done and `T-257` is the phase gate.** Every
 canonical record exists, is gated and is served (D-251–D-276): one source node per run, a
 readable Persian brief per run, and qualified cross-source relations with knowledge-unit basis,
 behind two read-only endpoints over three rebuildable SQLite tables. The response shapes frozen
