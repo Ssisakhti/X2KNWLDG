@@ -635,6 +635,93 @@
           }
         }
       }
+    },
+    "/api/source-graph": {
+      "get": {
+        "operationId": "getSourceGraph",
+        "tags": [
+          "source-graph"
+        ],
+        "summary": "One node per acquired source, and the relations among them",
+        "description": "The Source Map's topology (`T-254`). Nodes are `EntityRef` records with `entity_type: \"source\"` — one per acquired run, whatever its status, so a `FAIL` run is a source that exists rather than a source the Map omits.\n\nPaged over **nodes**, exactly as `/api/graph` is: paging over relations would drop a source that relates to nothing, and a source that relates to nothing is a real source. A relation is carried when both of its endpoints are nodes of this graph and at least one of them is on this page, so a relation never names an endpoint the client has no node for.\n\n`counts` states returned, omitted and total separately, because they answer three different questions and collapsing them is how a bounded result comes to look like a complete one.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of source nodes with the relations among them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceGraphResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
+    },
+    "/api/source-graph/neighborhood/{source_id}": {
+      "get": {
+        "operationId": "getSourceNeighborhood",
+        "tags": [
+          "source-graph"
+        ],
+        "summary": "One selected source, its readable brief and its qualified relations",
+        "description": "What the Source Focus composition is drawn from (`T-254`): the selected source's own `EntityRef`, its `source_knowledge` availability, and its relations split by direction with a bounded page of each one's basis.\n\nThe path parameter is the **two-part source id**, not the three-part global id of the source node; `center_id` echoes the node's global id back so a client that batches requests cannot mis-attribute a response.\n\n`limit` bounds the relations this body carries across both directions, and `truncated` says when it bound them. A relation's basis is bounded separately by `constants.MAX_SOURCE_RELATION_BASIS`, and both `basis_total` and `basis_returned` are stated, so a truncated basis is never presented as the whole of it.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceIdPath"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The selected source and its qualified relations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceNeighborhoodResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/IndexUnavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1555,6 +1642,301 @@
           },
           "data": {
             "$ref": "#/components/schemas/NeighborhoodPayload"
+          }
+        }
+      },
+      "SourceKnowledgeAvailability": {
+        "description": "Whether a source's readable brief is available, and why not when it is not. A brief is a gated derived artifact that may simply not have been generated yet, and an absent one must not reach the client as an empty successful brief — 'this source has no thesis and no key points' is a claim about the source, and it would be false. `state` carries the distinction and `brief` is null whenever the state is `unavailable`. `stale` is its own state rather than an error: the brief exists and describes inputs whose digests have since moved, so it is carried with that said out loud rather than withheld or silently trusted — `stale` is the one state other than `available` in which `brief` is a document. (`T-254` sharpened these two sentences, which had frozen in contradiction with each other: the first said a brief is null in every state but `available`, the second that a stale one is shown rather than withheld. Serving it is what makes `stale` differ from `unavailable` by more than a word.)",
+        "type": "object",
+        "required": [
+          "state",
+          "brief",
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "enum": [
+              "available",
+              "unavailable",
+              "stale"
+            ]
+          },
+          "brief": {
+            "description": "The generated brief, or null when there is not one to show.",
+            "oneOf": [
+              {
+                "$ref": "../../synthesis/v1/source_knowledge.schema.json"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "description": "Why the brief is unavailable or stale, project-relative and free of host paths (D-030, D-051). Null when `state` is `available`.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      },
+      "SourceRelationSummary": {
+        "description": "One source relation as the Source Explore graph needs it: direction, type, scope and how many grounds stand behind it — but not the grounds themselves. `basis_total` is required here precisely because the basis is absent: an edge pill reads `critiques · 3 grounds`, and a summary that omitted the count would let a relation resting on one pair and one resting on forty draw identically. The count is a count, never a strength, a confidence or a rank (D-247).",
+        "type": "object",
+        "required": [
+          "id",
+          "from_source_id",
+          "to_source_id",
+          "relation_type",
+          "scope",
+          "provenance_class",
+          "basis_total"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/sourceRelationId"
+          },
+          "from_source_id": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/sourceId"
+          },
+          "to_source_id": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/sourceId"
+          },
+          "relation_type": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/sourceRelationType"
+          },
+          "scope": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/sourceRelationScope"
+          },
+          "provenance_class": {
+            "description": "Always `derived` for an automatic source relation.",
+            "const": "derived"
+          },
+          "basis_total": {
+            "description": "How many knowledge-unit pairs the stored relation rests on.",
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "SourceRelationDetail": {
+        "description": "One source relation with its Persian rationale and a bounded page of its basis. The two counts are both required and are not the same number: `basis_total` is what the canonical record holds, `basis_returned` is what is in this body. A response that carried only the second would present a truncated basis as the whole of it, which is the overclaim risk R27 names, arriving through the API instead of through the model. `basis` is capped at `maxItems`, the value of constants.MAX_SOURCE_RELATION_BASIS, for the reason `GraphPayload.edges` is capped: an unbounded array in a response is an unbounded response.",
+        "type": "object",
+        "required": [
+          "id",
+          "from_source_id",
+          "to_source_id",
+          "relation_type",
+          "scope",
+          "provenance_class",
+          "rationale",
+          "basis",
+          "basis_total",
+          "basis_returned"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/sourceRelationId"
+          },
+          "from_source_id": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/sourceId"
+          },
+          "to_source_id": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/sourceId"
+          },
+          "relation_type": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/sourceRelationType"
+          },
+          "scope": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/sourceRelationScope"
+          },
+          "provenance_class": {
+            "const": "derived"
+          },
+          "rationale": {
+            "$ref": "../../synthesis/v1/primitives.schema.json#/$defs/narrativeText"
+          },
+          "basis": {
+            "description": "The grounds carried in this body, in the stored order. Mixed and contrary grounds are included rather than filtered: hiding them would make the relation read cleaner than the evidence is.",
+            "type": "array",
+            "items": {
+              "$ref": "../../synthesis/v1/source_relation.schema.json#/$defs/basisPair"
+            },
+            "maxItems": 200
+          },
+          "basis_total": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "basis_returned": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "SourceGraphPayload": {
+        "description": "The source topology: one node per acquired source, and the relations among them. The nodes are `EntityRef` records with `entity_type: \"source\"` — the same addressable handle every other entity uses, so a source selection resolves the way a knowledge unit selection does. Chapters, posts in a self-thread, transcript segments, knowledge units and concepts are not nodes here; that is the whole point of the second Map mode (D-244).",
+        "type": "object",
+        "required": [
+          "nodes",
+          "relations",
+          "truncated",
+          "counts"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/entity_ref.schema.json"
+            }
+          },
+          "relations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceRelationSummary"
+            },
+            "maxItems": 5000
+          },
+          "truncated": {
+            "description": "True when `limit` cut the result short. Stated rather than implied, exactly as `GraphPayload.truncated` is.",
+            "type": "boolean"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/SourceGraphCounts"
+          }
+        }
+      },
+      "SourceGraphCounts": {
+        "description": "Returned, omitted and total, counted separately. Three numbers rather than one because they answer three different questions, and collapsing them is how a bounded result comes to look like a complete one. `sources_total` may be null, which means not counted — never zero, the same rule `PageInfo.total` carries.",
+        "type": "object",
+        "required": [
+          "sources_returned",
+          "relations_returned",
+          "relations_omitted",
+          "sources_total"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "sources_returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "relations_returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "relations_omitted": {
+            "description": "Relations the bound left out of this body. Counted, never silent — the same discipline the synthesis file's `candidates.omitted` carries upstream.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "sources_total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      },
+      "SourceGraphResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data",
+          "page"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SourceGraphPayload"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "SourceNeighborhoodPayload": {
+        "description": "One selected source, its readable brief, and its qualified relations in both directions. `incoming` and `outgoing` are separate arrays rather than one list with a direction flag, because direction is what the Focus composition places on the left and the right and what the semantic companion list has to state in text — and a client that has to derive it by comparing `to_source_id` with `center_id` is a client that can derive it wrongly.",
+        "type": "object",
+        "required": [
+          "center_id",
+          "source",
+          "source_knowledge",
+          "incoming",
+          "outgoing",
+          "neighbors",
+          "truncated"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "center_id": {
+            "$ref": "../../v1/common.schema.json#/$defs/globalId"
+          },
+          "source": {
+            "description": "The selected source's own `EntityRef`, echoed back.",
+            "$ref": "../../v1/entity_ref.schema.json"
+          },
+          "source_knowledge": {
+            "$ref": "#/components/schemas/SourceKnowledgeAvailability"
+          },
+          "incoming": {
+            "description": "Relations whose `to_source_id` is the selected source.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceRelationDetail"
+            }
+          },
+          "outgoing": {
+            "description": "Relations whose `from_source_id` is the selected source.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceRelationDetail"
+            }
+          },
+          "neighbors": {
+            "description": "The `EntityRef` of every source named by a returned relation, so no relation names an endpoint the client has no node for. ADR 0002 is emphatic that an edge to a node the page will not show asserts a node that does not exist.",
+            "type": "array",
+            "items": {
+              "$ref": "../../v1/entity_ref.schema.json"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SourceNeighborhoodResponse": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "schema_version",
+          "data"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "schema_version": {
+            "$ref": "../../v1/common.schema.json#/$defs/schemaVersion"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SourceNeighborhoodPayload"
           }
         }
       }

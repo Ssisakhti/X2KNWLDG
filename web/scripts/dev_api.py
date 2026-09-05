@@ -9,11 +9,31 @@ server is written against both.
 
 Two modes:
 
-* ``--fixtures`` (the default) copies the committed ``PASS`` / ``PARTIAL`` /
-  ``FAIL`` run fixtures into a scratch project outside the repository, builds
-  the SQLite index over it, and serves that. Nothing under ``output/`` or
-  ``tests/`` is written, and the fixtures themselves are copied rather than
-  edited in place because a run's ``raw/`` is immutable evidence.
+* ``--fixtures`` (the default) copies committed run fixtures into a scratch
+  project outside the repository, builds the SQLite index over it, and serves
+  that. Nothing under ``output/`` or ``tests/`` is written, and the fixtures
+  themselves are copied rather than edited in place because a run's ``raw/`` is
+  immutable evidence.
+
+  The set it copies is ``tests/source_map_corpus.py``'s, and that is a `T-257`
+  decision rather than an accident (D-281). The browser gate walks **two** Maps
+  over one served library now, and the Source Map's three record families -- a
+  source node, a readable brief, an accepted cross-source relation -- exist in
+  no smaller committed set: over the three ``PASS``/``PARTIAL``/``FAIL`` runs
+  alone, ``/api/source-graph`` answers three nodes, no brief and no relation, so
+  every Source Map clause the gate exists to check would have nothing to walk.
+  The corpus is a strict superset of those three runs plus one Twitter run, and
+  it is *built from the committed runs' own bytes* -- real unit ids, real
+  digests -- rather than written here.
+
+  What that costs is stated rather than left implied. The Knowledge Map's
+  forty-seven scenarios now walk a library one run larger than the one `T-209`
+  recorded. They pass unchanged, because every number they assert on is read
+  back out of the payload the page was answered with rather than typed into a
+  test -- which is the property ``gate.ts`` was written for, and, over a library
+  that now carries briefs and source relations, is also the browser end of
+  D-249: the source layer reached the server without moving anything the
+  Knowledge Map draws.
 * ``--project-root PATH`` serves an existing project, so the UI can be
   developed against real ingested sources.
 
@@ -39,10 +59,13 @@ from pathlib import Path
 
 WEB = Path(__file__).resolve().parents[1]
 PROJECT = WEB.parent
-FIXTURES = PROJECT / "tests" / "fixtures" / "runs"
-FIXTURE_RUNS = ("pass-run", "partial-run", "fail-run")
 
 sys.path.insert(0, str(PROJECT / "src"))
+# ``tests/`` is on the path for ``source_map_corpus`` alone, which is where the
+# five-record-family fixture project is already defined and generated from the
+# committed runs' own bytes. Copying its ``LAYOUT`` into this script would be a
+# second corpus that can drift from the one every Python test asserts against.
+sys.path.insert(0, str(PROJECT / "tests"))
 
 
 def _scratch_root() -> Path:
@@ -62,16 +85,19 @@ def _scratch_root() -> Path:
 
 
 def build_fixture_project(destination: Path) -> Path:
-    """A scratch project holding copies of the committed run fixtures."""
-    from x2knwldg.library import rebuild_library
+    """A scratch project holding copies of the committed run fixtures.
+
+    All five record families, because the gate walks two Maps: four runs across
+    both media, three gated briefs, one accepted cross-source relation, and one
+    run with no brief at all -- which is the ``unavailable`` state and a normal
+    condition rather than a shortfall.
+    """
+    import source_map_corpus
 
     if destination.exists():
         shutil.rmtree(destination)
-    output = destination / "output"
-    output.mkdir(parents=True)
-    for name in FIXTURE_RUNS:
-        shutil.copytree(FIXTURES / name, output / name)
-    rebuild_library(output)
+    destination.mkdir(parents=True)
+    source_map_corpus.build(destination)
     return destination
 
 
@@ -101,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
         # pre-create it — or be handed it. `mkdtemp` under a per-user parent
         # keeps the path stable enough to find and owned by whoever ran this.
         root = build_fixture_project(_scratch_root())
-        print(f"serving the committed run fixtures from {root}")
+        print(f"serving the committed source-map fixture corpus from {root}")
     else:
         root = args.project_root.expanduser().resolve()
         print(f"serving {root}")

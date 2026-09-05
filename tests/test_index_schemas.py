@@ -810,6 +810,96 @@ def test_the_schemas_audit_attempt_cap_is_the_constant() -> None:
     assert attempts["minimum"] == 0
 
 
+#: The prompts in ``prompts/`` that do not feed the extraction bundle. Each
+#: returns a document with its own contract and its own gate: `T-252`'s brief
+#: and `T-253`'s cross-source relations.
+SOURCE_KNOWLEDGE_PROMPT = "06_source_knowledge.md"
+SOURCE_RELATIONS_PROMPT = "07_source_relations.md"
+SYNTHESIS_PROMPTS = (SOURCE_KNOWLEDGE_PROMPT, SOURCE_RELATIONS_PROMPT)
+
+
+def test_the_source_knowledge_prompt_matches_its_own_schema() -> None:
+    """D-073's rule, applied to the contract `T-252`'s prompt actually has.
+
+    The sixth prompt returns a ``source_knowledge`` document, so the question is
+    the same one and the schema is a different one: does the JSON it tells the
+    agent to return use keys that contract accepts, and does it name every key
+    that contract requires? A prompt that omitted a required key would send the
+    agent to a gate its own output cannot pass.
+    """
+    schema = json.loads(
+        (
+            PROJECT_ROOT
+            / "schemas"
+            / "synthesis"
+            / "v1"
+            / "source_knowledge.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert schema["additionalProperties"] is False, (
+        "this test only means something while the schema forbids other keys"
+    )
+    text = (PROJECT_ROOT / "prompts" / SOURCE_KNOWLEDGE_PROMPT).read_text(encoding="utf-8")
+
+    marker = text.index("Return JSON only:")
+    block = text[marker:].split("```json", 1)[1].split("```", 1)[0]
+    document = json.loads(block)
+
+    assert set(document) - set(schema["properties"]) == set(), sorted(document)
+    missing = [key for key in schema["required"] if key not in document]
+    assert not missing, f"the prompt's example omits required key(s): {missing}"
+
+
+def test_the_source_relations_prompt_matches_its_own_schema() -> None:
+    """The same question as the brief's, against the container's contract."""
+    schema = json.loads(
+        (
+            PROJECT_ROOT / "schemas" / "synthesis" / "v1" / "source_relations.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert schema["additionalProperties"] is False
+    text = (PROJECT_ROOT / "prompts" / SOURCE_RELATIONS_PROMPT).read_text(encoding="utf-8")
+
+    marker = text.index("Return JSON only:")
+    block = text[marker:].split("```json", 1)[1].split("```", 1)[0]
+    document = json.loads(block)
+
+    assert set(document) - set(schema["properties"]) == set(), sorted(document)
+    missing = [key for key in schema["required"] if key not in document]
+    assert not missing, f"the prompt's example omits required key(s): {missing}"
+
+
+def test_the_source_relations_prompt_states_what_a_candidate_is_not() -> None:
+    """The rule the whole pass turns on, and the one most easily lost.
+
+    Similarity, chronology and shared concepts put a pair in front of the model;
+    none of them is evidence of support, critique, response or influence (D-247).
+    A prompt that omitted this would be asking for exactly the overclaim risk
+    R27 names, and the gate cannot catch it — "these two sources overlap" is a
+    perfectly well-formed `overlaps_with` with a real basis.
+    """
+    text = (PROJECT_ROOT / "prompts" / SOURCE_RELATIONS_PROMPT).read_text(encoding="utf-8")
+    assert "A candidate is not a relationship" in text
+    assert "Chronology is not influence" in text
+    assert "Similarity is not agreement" in text
+    assert "no relation" in text.lower()
+    assert "confidence" in text
+
+
+def test_the_source_knowledge_prompt_refuses_to_carry_evidence() -> None:
+    """The one field whose presence would turn derived narrative into a quotation.
+
+    ``additionalProperties: false`` already makes it unrepresentable, and a
+    committed fixture pins the refusal. This checks the prompt *says so*, because
+    the model reading it is the one deciding whether to copy an excerpt across,
+    and a rule enforced only after the fact is a rule the model never saw.
+    """
+    text = (PROJECT_ROOT / "prompts" / SOURCE_KNOWLEDGE_PROMPT).read_text(encoding="utf-8")
+    assert "evidence_excerpt" in text
+    assert "Persian" in text
+    assert "never be stronger" in text or "may never be stronger" in text
+
+
 def test_every_prompt_returns_a_key_the_bundle_schema_accepts() -> None:
     """D-073: the prompts and the schema named different keys, and code hid it.
 
@@ -828,7 +918,18 @@ def test_every_prompt_returns_a_key_the_bundle_schema_accepts() -> None:
         "this test only means something while the schema forbids other keys"
     )
 
-    prompts = sorted((PROJECT_ROOT / "prompts").glob("*.md"))
+    # The **bundle** passes, and only those. `T-252` and `T-253` added prompts
+    # whose output is not a bundle key at all — a `source_knowledge` document and
+    # a `source_relations` container, both of which the bundle schema rejects and
+    # is supposed to, because each goes through a different gate against a
+    # different contract. Checking them here would report the schemas disagreeing
+    # when in fact they describe different things; each has a test below that
+    # holds it to the schema it actually has.
+    prompts = [
+        path
+        for path in sorted((PROJECT_ROOT / "prompts").glob("*.md"))
+        if path.name not in SYNTHESIS_PROMPTS
+    ]
     assert len(prompts) == 5, [path.name for path in prompts]
 
     declared: dict[str, set[str]] = {}

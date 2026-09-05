@@ -33,6 +33,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import type { GraphFilters } from "./graphSnapshot";
 import {
+  type MapMode,
   type MapState,
   graphFiltersOf,
   mapPath,
@@ -68,6 +69,18 @@ export interface MapFocusBinding {
     next: Partial<MapFilterState>,
     options?: { replace?: boolean },
   ) => void;
+  /**
+   * Switch which Map this is (`T-256`), **clearing the selection**.
+   *
+   * The clearing is the decision, not a convenience. A focus is a `global_id`
+   * in both modes, but the Knowledge Map's names a knowledge unit or a concept
+   * and the Source Map's names a source node — so carrying one across would ask
+   * the other mode to resolve an entity it has no record of, and the honest
+   * failure ("this Map has not loaded that entity") would be indistinguishable
+   * from a real one. A push, because switching modes is exactly the step a
+   * reader needs Back to undo.
+   */
+  setMode: (mode: MapMode, options?: { replace?: boolean }) => void;
 }
 
 export function useMapFocus(): MapFocusBinding {
@@ -99,6 +112,13 @@ export function useMapFocus(): MapFocusBinding {
 
   const clearFocus = useCallback(() => focusEntity(null), [focusEntity]);
 
+  const setMode = useCallback(
+    (mode: MapMode, options: { replace?: boolean } = {}) => {
+      go({ ...state, mode, focus: null }, options.replace ?? false);
+    },
+    [go, state],
+  );
+
   const setFilters = useCallback(
     (next: Partial<MapFilterState>, options: { replace?: boolean } = {}) => {
       go({ ...state, ...next }, options.replace ?? false);
@@ -106,5 +126,5 @@ export function useMapFocus(): MapFocusBinding {
     [go, state],
   );
 
-  return { state, focus: state.focus, filters, focusEntity, clearFocus, setFilters };
+  return { state, focus: state.focus, filters, focusEntity, clearFocus, setFilters, setMode };
 }

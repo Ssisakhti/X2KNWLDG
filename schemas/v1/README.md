@@ -112,6 +112,13 @@ When you add a kind or a relation type, edit `constants.py` **and** `common.sche
 - `T-101`–`T-103` — the SQLite index. Note that the canonical `value` field on statistic
   units is polymorphic (`int` or `list[float]`), which is why no numeric column for it
   appears here (risk R16).
+- `T-251` — the first producer of `entity_type: "source"`, which this model has reserved since
+  `T-002`. One per acquired run, addressed as `<source-type>:<external-id>:source` through
+  `ids.source_entity_global_id`. It is validated against `entity_ref.schema.json` like any
+  other entity and is deliberately **not** in `IndexRecords.by_model()`: the index, the API and
+  the Knowledge Map are unchanged by it, which is what D-249 requires and what D-251 makes
+  structural rather than a filter. `IndexRecords.by_model_with_source_entities()` is the view
+  for a caller that wants to hold every record to these schemas at once.
 
 ## Validating
 

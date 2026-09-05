@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "schema",
+  "lie": "key_points is empty. A brief with a thesis and nothing under it is a title, and the Source Map card has a section for these."
+}

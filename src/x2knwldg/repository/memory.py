@@ -49,6 +49,10 @@ from .base import (
     RelationQuery,
     SearchQuery,
     SourceDetail,
+    SourceGraphPage,
+    SourceGraphQuery,
+    SourceNeighborhood,
+    SourceNeighborhoodQuery,
     SourceQuery,
     bounded_edges,
     check_index_integrity,
@@ -60,6 +64,9 @@ from .base import (
     matches_source,
     record_copy,
     sort_records,
+    source_of,
+    source_relation_detail,
+    source_relation_summary,
 )
 
 #: Sentinel for "work the source out yourself", so that ``None`` can keep
@@ -92,6 +99,15 @@ class MemoryRepository:
         self._artifacts = sort_records(records.artifacts, "artifact")
         self._entities = sort_records(records.entities, "entity_ref")
         self._relations = sort_records(records.relations, "indexed_relation")
+        # `T-254`. The fifth record family, kept apart from ``_entities`` for
+        # the reason it is apart in ``IndexRecords``: every existing payload is
+        # built from that list, and a source node in it would move all of them
+        # (D-251). Sorted by the same key, because it is paged by the same
+        # arithmetic.
+        self._source_entities = sort_records(records.source_entities, "source_entity")
+        self._source_entity_by_source = {
+            source_of(entity): entity for entity in self._source_entities
+        }
 
         self._source_by_id = {source["id"]: source for source in self._sources}
         self._artifact_by_id = {artifact["id"]: artifact for artifact in self._artifacts}
@@ -140,6 +156,14 @@ class MemoryRepository:
         # should not pay for a corpus, and ``/api/status`` must stay cheap.
         self._corpus: dict[str, list[SearchDocument]] | None = None
         self._unreadable: set[str] = set()
+
+        # `T-254`. The two derived source-graph documents, read on first use and
+        # kept, exactly as the search corpus is. This repository is the oracle:
+        # it holds no cache of its own, so the brief and the cross-source
+        # synthesis are read from the canonical files the SQLite index projects
+        # them from, through the same two functions the gates use.
+        self._briefs: dict[str, dict[str, Any]] = {}
+        self._source_relations_read: list[dict[str, Any]] | None = None
 
     # ------------------------------------------------------------------
     # Construction
@@ -564,9 +588,173 @@ class MemoryRepository:
         )
 
 
+    # ------------------------------------------------------------------
+    # The source graph — `T-254`
+    # ------------------------------------------------------------------
+
+    def source_graph(self, query: SourceGraphQuery) -> SourceGraphPage:
+        """A page of source nodes with the relations among them.
+
+        A page of **nodes**, exactly as :meth:`graph` is: paging over relations
+        would drop a source that relates to nothing, and in a young corpus that
+        is most of them.
+
+        A relation is carried when both endpoints are sources this index holds
+        and at least one of them is on this page — the membership rule
+        :meth:`graph` applies to edges, one scale up. A relation naming a source
+        the index does not hold is **not** drawn and **is** counted: it would
+        assert a node the client has no record for, and dropping it silently is
+        the failure ADR 0002 names.
+        """
+        self._require_ready()
+        nodes = self._source_entities
+        page = keyset_page(nodes, query, "source_entity")
+
+        indexed = set(self._source_entity_by_source)
+        on_page = {source_of(node) for node in page.items}
+        touching: list[dict[str, Any]] = []
+        unindexed = 0
+        for relation in self._stored_source_relations():
+            endpoints = _endpoints(relation)
+            if not endpoints <= indexed:
+                unindexed += 1
+                continue
+            if endpoints & on_page:
+                touching.append(relation)
+        summaries, cut = bounded_edges(
+            [source_relation_summary(relation) for relation in touching]
+        )
+        return SourceGraphPage(
+            nodes=page.items,
+            relations=summaries,
+            truncated=len(page.items) < len(nodes) or cut,
+            relations_omitted=unindexed + len(touching) - len(summaries),
+            limit=page.limit,
+            next_cursor=page.next_cursor,
+            total=page.total,
+        )
+
+    def source_neighborhood(
+        self, query: SourceNeighborhoodQuery
+    ) -> SourceNeighborhood | None:
+        """One source, its brief, and its qualified relations in both directions.
+
+        ``limit`` bounds the relations this body carries **across** the two
+        directions, applied to them in id order and then split — rather than per
+        direction, which would make ``limit=500`` mean a thousand relations, and
+        rather than incoming-then-outgoing, which would let a bound erase one
+        direction while the other was still short of it.
+        """
+        self._require_ready()
+        node = self._source_entity_by_source.get(query.source_id)
+        if node is None:
+            return None
+
+        indexed = set(self._source_entity_by_source)
+        touching = [
+            relation
+            for relation in self._stored_source_relations()
+            if query.source_id in _endpoints(relation) and _endpoints(relation) <= indexed
+        ]
+        carried = touching[: query.limit]
+        incoming = [
+            source_relation_detail(relation)
+            for relation in carried
+            if relation.get("to_source_id") == query.source_id
+        ]
+        outgoing = [
+            source_relation_detail(relation)
+            for relation in carried
+            if relation.get("from_source_id") == query.source_id
+        ]
+        neighbours = sorted(
+            {
+                other
+                for relation in carried
+                for other in _endpoints(relation)
+                if other != query.source_id
+            }
+        )
+        return SourceNeighborhood(
+            center_id=node["global_id"],
+            source=record_copy(node),
+            source_knowledge=self._brief(query.source_id),
+            incoming=incoming,
+            outgoing=outgoing,
+            neighbors=[
+                record_copy(self._source_entity_by_source[other]) for other in neighbours
+            ],
+            truncated=len(carried) < len(touching),
+        )
+
+    def _brief(self, source_id: str) -> dict[str, Any]:
+        """``SourceKnowledgeAvailability`` for one source, read from its run.
+
+        Through ``synthesis.brief_state`` and nothing else, so the gate, the
+        index and this all answer "is this brief current" with one
+        implementation rather than three opinions about three digests.
+
+        A source whose ``canonical_dir`` does not resolve inside the project is
+        ``unavailable`` rather than an error, for the reason :meth:`_documents`
+        records it as unsearchable: the run cannot be read, that is a fact about
+        the run, and no path reaches the answer.
+        """
+        from .. import synthesis
+
+        cached = self._briefs.get(source_id)
+        if cached is not None:
+            return record_copy(cached)
+        source = self._source_by_id.get(source_id)
+        run_dir = None if source is None else self._run_dir(source)
+        if run_dir is None:
+            state = {
+                "state": "unavailable",
+                "reason": "the run this source names cannot be read",
+                "brief": None,
+            }
+        else:
+            state = synthesis.brief_state(run_dir)
+        availability = {
+            "state": state["state"],
+            "brief": state["brief"],
+            "reason": state["reason"],
+        }
+        self._briefs[source_id] = availability
+        return record_copy(availability)
+
+    def _stored_source_relations(self) -> list[dict[str, Any]]:
+        """The accepted cross-source synthesis, in id order, read once and kept.
+
+        In **id order** rather than file order: the id is deterministic over the
+        two endpoints, the type and the scope (D-252), so ordering by it is an
+        order both implementations reach without either storing a position. The
+        *basis* keeps its stored order, which is the one place the file's own
+        sequence is a fact rather than an accident.
+
+        A damaged synthesis file yields no relations rather than an exception.
+        ``artifacts.source_relations_state`` is emphatic about that at its own
+        level, and the reason carries here: a corpus of readable sources must
+        not become unreadable because one derived file did.
+        """
+        if self._source_relations_read is not None:
+            return self._source_relations_read
+        from ..artifacts import source_relations_document
+
+        relations = source_relations_document(self._output_root)
+        self._source_relations_read = sorted(
+            relations, key=lambda relation: str(relation.get("id", ""))
+        )
+        return self._source_relations_read
+
+
 # --------------------------------------------------------------------------
 # Small helpers
 # --------------------------------------------------------------------------
+
+
+def _endpoints(relation: Mapping[str, Any]) -> set[str]:
+    """The two source ids a stored relation joins."""
+    return {str(relation.get("from_source_id")), str(relation.get("to_source_id"))}
 
 
 def _source_id(value: Any) -> str:

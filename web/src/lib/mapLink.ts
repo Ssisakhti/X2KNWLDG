@@ -1,7 +1,21 @@
 /**
  * The Map's addressable state, in one grammar (`T-206`, D-119):
  *
- *     #/map?focus=<global_id>&source_id=<id>&provenance_class=<class>&relation_vocabulary=<vocab>
+ *     #/map?of=<mode>&focus=<global_id>&source_id=<id>&provenance_class=<class>&relation_vocabulary=<vocab>
+ *
+ * **`of` is the Map's mode, and it is addressable for the reason the rest of
+ * this grammar is** (`T-256`): a Source Map that could not be linked to, opened
+ * cold or reloaded would be a panel rather than a Map. `of=sources` is the only
+ * value written; the Knowledge Map is the absence of the parameter rather than
+ * `of=knowledge`, because this grammar spells no defaults.
+ *
+ * **`focus` stays a `global_id` in both modes.** A source node *is* an
+ * `EntityRef` with `entity_type: "source"` and a three-part id, so the one
+ * selection identity holds across the switch and `parseFocus` needs no second
+ * rule. The two-part `SourceId` the neighbourhood endpoint takes is derived
+ * from it by `format.sourceIdOf` — which already existed for the Reader's
+ * links — rather than carried as a sixth parameter or re-derived here. One
+ * identity in the URL, one derivation, and no second spelling of a source.
  *
  * One module, for the reason `readerLink` already proved: a URL *built* in one
  * place and *read* in another is two implementations of one rule, and the pair
@@ -55,6 +69,7 @@ export type RelationVocabulary = IndexedRelation["relation_vocabulary"];
  * copy, and because `T-207` reads this grammar rather than re-deriving it.
  */
 export const MAP_PARAMS = {
+  mode: "of",
   focus: "focus",
   source: "source_id",
   provenance: "provenance_class",
@@ -66,8 +81,29 @@ export const MAP_PARAMS = {
  * nothing about this" -- which is not the same as a default, and is never
  * spelled out as one.
  */
+/**
+ * What a Map is a map *of*.
+ *
+ * Two modes over one field, not two routes: the workspace, the renderer seam,
+ * the selection identity and the URL are shared, and what differs is which
+ * records are drawn and what a selection means (D-244, D-277).
+ */
+export type MapMode = "knowledge" | "sources";
+
+/** Every mode this Map understands, in the order the switch offers them. */
+export const MAP_MODES: readonly MapMode[] = ["knowledge", "sources"];
+
+/** The mode a URL that says nothing about it means. */
+export const DEFAULT_MAP_MODE: MapMode = "knowledge";
+
 export interface MapState {
-  /** The focused entity's existing `global_id`. */
+  /**
+   * Which Map this is. `null` is "the URL says nothing", which `modeOf` reads
+   * as the Knowledge Map — a default applied at the point of use rather than
+   * written into the state, exactly as the four filters are.
+   */
+  mode: MapMode | null;
+  /** The focused entity's existing `global_id`, in either mode. */
   focus: string | null;
   /** Source scope, as `GET /api/graph`'s `source_id`. */
   source: string | null;
@@ -79,11 +115,32 @@ export interface MapState {
 
 /** The Map at `#/map` with no parameters: nothing selected, nothing filtered. */
 export const NO_MAP_STATE: MapState = {
+  mode: null,
   focus: null,
   source: null,
   provenance: null,
   vocabulary: null,
 };
+
+/**
+ * The mode a URL asks for, or `null` when it does not ask.
+ *
+ * An unreadable value is ignored rather than repaired, which is this grammar's
+ * rule everywhere: reading `of=source` as `sources` would switch a reader to a
+ * Map they did not ask for, and reading it as an error would refuse a link over
+ * a parameter that is not load-bearing. Ignored means the Knowledge Map, which
+ * is what a URL with no `of` at all means.
+ */
+export function parseMapMode(value: string | null | undefined): MapMode | null {
+  return typeof value === "string" && (MAP_MODES as readonly string[]).includes(value)
+    ? (value as MapMode)
+    : null;
+}
+
+/** The mode a state means, with the default applied. */
+export function modeOf(state: MapState): MapMode {
+  return state.mode ?? DEFAULT_MAP_MODE;
+}
 
 /**
  * The focused `global_id` a URL asks for, or `null`.
@@ -147,6 +204,7 @@ export function parseVocabulary(value: string | null | undefined): RelationVocab
 export function parseMapState(query: URLSearchParams | string): MapState {
   const params = typeof query === "string" ? new URLSearchParams(query) : query;
   return {
+    mode: parseMapMode(params.get(MAP_PARAMS.mode)),
     focus: parseFocus(params.get(MAP_PARAMS.focus)),
     source: parseSourceScope(params.get(MAP_PARAMS.source)),
     provenance: parseProvenance(params.get(MAP_PARAMS.provenance)),
@@ -165,6 +223,10 @@ export function parseMapState(query: URLSearchParams | string): MapState {
  */
 export function mapPath(state: Partial<MapState> = {}): string {
   const query = new URLSearchParams();
+  // `of=knowledge` is never written: the Knowledge Map is what a URL with no
+  // mode means, and spelling a default is what this grammar does not do.
+  const mode = parseMapMode(state.mode);
+  if (mode !== null && mode !== DEFAULT_MAP_MODE) query.set(MAP_PARAMS.mode, mode);
   const focus = parseFocus(state.focus);
   if (focus !== null) query.set(MAP_PARAMS.focus, focus);
   const source = parseSourceScope(state.source);
@@ -198,6 +260,7 @@ export function graphFiltersOf(state: MapState): GraphFilters {
 /** Whether two Map states say the same thing. Used to avoid a pointless history entry. */
 export function sameMapState(left: MapState, right: MapState): boolean {
   return (
+    modeOf(left) === modeOf(right) &&
     left.focus === right.focus &&
     left.source === right.source &&
     left.provenance === right.provenance &&

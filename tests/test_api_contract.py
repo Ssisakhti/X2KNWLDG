@@ -66,6 +66,19 @@ SCHEMA_FILES = [
     "indexed_relation.schema.json",
 ]
 
+#: The synthesis records the source-graph shapes reference (``T-251``). A
+#: separate directory because these are files the pipeline writes and
+#: ``schemas/v1/`` describes nothing that the pipeline writes; the API document
+#: reaches them the same way it reaches the index model, through a relative
+#: ``$ref`` that has to resolve from disk.
+SYNTHESIS_DIR = PROJECT_ROOT / "schemas" / "synthesis" / "v1"
+SYNTHESIS_FILES = [
+    "primitives.schema.json",
+    "source_knowledge.schema.json",
+    "source_relation.schema.json",
+    "source_relations.schema.json",
+]
+
 #: The frozen surface. Written out so that adding an endpoint is a deliberate
 #: act with a test to update, not a side effect of editing the document.
 FROZEN_PATHS = {
@@ -80,6 +93,12 @@ FROZEN_PATHS = {
     "/api/search",
     "/api/graph",
     "/api/graph/neighborhood/{entity_id}",
+    # `T-254`. `T-251` froze the two response envelopes as components with no
+    # paths and left an exemption in `test_every_declared_component_is_reachable`
+    # saying so; these two operations are what the exemption was waiting for, and
+    # removing it was part of adding them (D-254).
+    "/api/source-graph",
+    "/api/source-graph/neighborhood/{source_id}",
 }
 
 
@@ -96,7 +115,10 @@ def openapi() -> dict:
 def registry(openapi: dict) -> Registry:
     resources = [
         (schema["$id"], Resource.from_contents(schema))
-        for schema in (_load(V1_DIR / name) for name in SCHEMA_FILES)
+        for schema in (
+            *(_load(V1_DIR / name) for name in SCHEMA_FILES),
+            *(_load(SYNTHESIS_DIR / name) for name in SYNTHESIS_FILES),
+        )
     ]
     # The document carries no $id of its own: a root $id is not a legal OpenAPI
     # field, and openapi-spec-validator rejects it. It is registered under an
@@ -363,7 +385,15 @@ def test_every_json_response_is_enveloped(openapi: dict, registry: Registry) -> 
 
 
 def test_every_declared_component_is_reachable(openapi: dict) -> None:
-    """A component nothing references is a shape the contract does not actually fix."""
+    """A component nothing references is a shape the contract does not actually fix.
+
+    Exceptionless again since `T-254`. `T-251` froze ``SourceGraphResponse`` and
+    ``SourceNeighborhoodResponse`` ahead of the operations that return them and
+    exempted exactly those two by name (D-254); the operations exist now, so the
+    exemption is gone rather than outliving its reason — which is what
+    ``test_only_the_two_envelopes_are_referenced_by_nothing_at_all`` was written
+    to force.
+    """
     text = json.dumps(openapi)
     for name in openapi["components"]["schemas"]:
         if name in {"SearchHit"}:  # referenced through the discriminator mapping too

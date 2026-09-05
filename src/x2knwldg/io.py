@@ -204,6 +204,21 @@ def _whole_seconds(value: Any, label: str) -> int:
 #: it moved here because run discovery is stated here now (D-158).
 LIBRARY_DIR_NAME = "library"
 
+#: The directory under ``output/`` holding canonical cross-source synthesis
+#: (D-247). Named here beside ``library/`` because the two are the same kind of
+#: thing to discovery — a directory under ``output/`` that is **not** an
+#: ingested source — and because the rule that skips them has one home (D-158).
+#:
+#: A synthesis directory holds no ``metadata.json``, so the glob below would
+#: pass over it today whatever this said. It is skipped by name anyway: relying
+#: on the absence of a file to keep a directory out of the run set is a rule
+#: that holds until something writes that file, and by then the failure is a
+#: whole project refusing to index rather than a directory being read twice.
+SYNTHESIS_DIR_NAME = "synthesis"
+
+#: The directories under ``output/`` that discovery never treats as a run.
+NOT_A_RUN = frozenset({LIBRARY_DIR_NAME, SYNTHESIS_DIR_NAME})
+
 
 def discover_run_dirs(output_root: Path) -> tuple[list[Path], list[tuple[Path, Path]]]:
     """``(runs, aliases)`` — every ingested run under *output_root*, once each.
@@ -235,7 +250,7 @@ def discover_run_dirs(output_root: Path) -> tuple[list[Path], list[tuple[Path, P
         metadata_path.parent
         for metadata_path in sorted(Path(output_root).glob("*/metadata.json"))
         if not metadata_path.parent.name.startswith(".")
-        and metadata_path.parent.name != LIBRARY_DIR_NAME
+        and metadata_path.parent.name not in NOT_A_RUN
     ]
 
     # Which directory *owns* each resolved location. A real directory always

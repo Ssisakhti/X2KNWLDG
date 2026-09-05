@@ -62,10 +62,10 @@ X2KNWLDG_BROWSER_CHANNEL= npm run browser
 | `src/components/` | Provenance and status badges (`T-113`), the media panel (`T-114`), the virtualized list, the report renderer, and the Map's DOM surfaces — legend and filters (`T-205`), search rail, result card and Peek (`T-206`), card overlay, related list, Quick Read and the one relation cue (`T-207`), and the one collapsible panel plus the DOM companion that lists everything the Map draws (`T-208`) |
 | `src/views/` | Library (`T-111`), Reader (`T-112`) and Map (`T-204`) |
 | [`src/map/`](src/map/README.md) | The Knowledge Map's machinery: deterministic seed positions (`T-202`), the graph projection, progressive snapshot and page walk (`T-203`), the renderer lifecycle and the one Sigma constructor (`T-204`), the style table and label policy (`T-205`), the URL grammar, search and focus/Peek state (`T-206`), the bounded neighbourhood and the on-stage density policy (`T-207`), the honest-state reducers, the outline projection and the motion policy (`T-208`), and the `T-202` renderer gate |
-| `scripts/dev_api.py` | Stands up the real server over the committed fixtures |
-| `scripts/` (the `.ts` ones) | Tooling for the visual work, none of it a spec: `mockup_layout.ts` and `capture_mockups.ts` render the approved `T-211` compositions, `capture_baseline.ts` photographs the Map they replaced, `measure_orbit.ts` prints the Directional Orbit's numbers off a running build, and `review_sheet.ts` builds the page the two capture sets are compared on (`T-215`) |
+| `scripts/dev_api.py` | Stands up the real server over the committed fixture corpus — four runs across both media, three gated briefs and one accepted cross-source relation, so the browser gate's Source Map half has something to walk (D-281) |
+| `scripts/` (the `.ts` ones) | Tooling for the visual work, none of it a spec: `mockup_layout.ts` and `capture_mockups.ts` render the approved `T-211` compositions, `capture_baseline.ts` photographs the Map they replaced, `measure_orbit.ts` prints the Directional Orbit's numbers off a running build, and `review_sheet.ts` builds the page the two capture sets are compared on (`T-215`), and `source_mockup_layout.ts`, `capture_source_mockups.ts` and `source_review_sheet.ts` do the same for the Source Map (`T-255`, `T-257`) |
 | `gate.html` | The `T-202` gate harness, development-only and outside the production build ([why](src/map/README.md)) |
-| `browser/` | The browser gate: **47 specs** over the built bundle and the real API — `T-209`'s 31 behavioural ones and `T-215`'s 16 visual-quality scenarios, which also write the captures the compositions are accepted on. Development-only, outside `src/`, and it imports nothing from the application — a spec that imported the number it is checking would agree with whatever the module says. `browser/composition.ts` is the one measurement of a drawn composition, shared with `scripts/measure_orbit.ts` |
+| `browser/` | The browser gate: **80 specs** over the built bundle and the real API, walking **both** Maps — `T-209`'s 31 behavioural ones and `T-215`'s 16 visual-quality scenarios for the Knowledge Map, and `T-257`'s 33 for the Source Map (`source.spec.ts`, `sourceAccess.spec.ts`, `sourceVisual.spec.ts` over `sourceGate.ts`). Development-only, outside `src/`, and it imports nothing from the application — a spec that imported the number it is checking would agree with whatever the module says. `browser/composition.ts` is the one measurement of a drawn composition, shared with `scripts/measure_orbit.ts` and with `sourceGate.ts`. **The Knowledge Map's 47 run over a library that carries source briefs and source relations and are unchanged by them**, which is D-249 at the browser's end |
 | `playwright.config.ts` | What the gate is pointed at: `npm run build` then `vite preview`, with `/api` proxied to `scripts/dev_api.py`. One worker, no retries |
 
 ## The API types
@@ -98,7 +98,7 @@ compiler checks every literal against the frozen contract and refuses a table
 that has drifted from it or forgotten an operation. A path this code could not
 spell correctly is a build failure rather than a 404.
 
-**The API is frozen: eleven `GET` endpoints.** Widening it is
+**The API is frozen: thirteen `GET` endpoints.** Widening it is
 `schemas/api/v1/openapi.json` first, a regenerated declaration second, and this
 directory third — never this directory alone.
 
@@ -116,7 +116,7 @@ adding a large ambient type package to the program.
 ## Developing against the real API
 
 Track C is not limited to a mock, and a mock is the weaker oracle: it agrees
-with whatever the frontend assumed. `create_app` serves all eleven endpoints
+with whatever the frontend assumed. `create_app` serves all thirteen endpoints
 over real fixture runs, so development and the integration checks both run
 against it.
 
@@ -126,11 +126,20 @@ npm run dev                                        # terminal two
 X2KNWLDG_API_BASE=http://127.0.0.1:8931 npm test   # runs the integration checks too
 ```
 
-`scripts/dev_api.py` copies the committed `PASS` / `PARTIAL` / `FAIL` run
-fixtures into a scratch project outside the repository, builds the SQLite index
-over it, and serves that on loopback. `--project-root PATH` serves an existing
-project instead, and `--no-index` reaches the `absent` index state deliberately
-— which is how the `503 index_unavailable` rendering is checked by eye.
+`scripts/dev_api.py` copies committed run fixtures into a scratch project
+outside the repository, builds the SQLite index over it, and serves that on
+loopback. `--project-root PATH` serves an existing project instead, and
+`--no-index` reaches the `absent` index state deliberately — which is how the
+`503 index_unavailable` rendering is checked by eye.
+
+The set it copies is `tests/source_map_corpus.py`'s: four runs across both media,
+three gated Persian briefs, one run with no brief at all, and one accepted
+cross-medium relation. That is a `T-257` decision rather than a default (D-281).
+Over the three `PASS` / `PARTIAL` / `FAIL` runs alone, `/api/source-graph`
+answers three nodes, **no brief and no relation** — so every Source Map clause in
+the browser gate would have walked an empty corpus and reported green.
+`tests/test_source_map_phase_gate.py` builds the same project and refuses a
+library that cannot exercise the layer, so this cannot quietly go back.
 
 Without `X2KNWLDG_API_BASE` the integration files skip, so `npm test` stays
 hermetic and needs no server.
@@ -210,15 +219,18 @@ preferences, and each one has a test:
   walked that path in a browser with `Tab` alone, and again with
   `WebGL2RenderingContext` deleted. What no automated gate can be is a real
   **screen reader**: what is asserted is the roles, names and states one reads.
-- **Ten of the eleven frozen endpoints have a caller.** `T-207` closed the
+- **Ten of the thirteen frozen endpoints have a caller.** `T-207` closed the
   two that mattered for the Map: `/api/entities/{entity_id}` backs Quick Read
   and `/api/graph/neighborhood/{entity_id}` backs the constellation and the
-  related list. The one without a caller is `getArtifact`
-  (`/api/artifacts/{artifact_id}`) — it is a row in the client's path table, so
-  the compiler still checks its shape, and nothing in the UI reads an
+  related list. Three have no caller, and each is a row in the client's path
+  table, so the compiler still checks its shape. `getArtifact`
+  (`/api/artifacts/{artifact_id}`) has none because nothing in the UI reads an
   artifact's *record*: the Reader reads its bytes, through
-  `/api/media/{artifact_id}`. This bullet said "every" until the census was
-  actually run (D-187).
+  `/api/media/{artifact_id}`. `getSourceGraph` and `getSourceNeighborhood` have
+  none **yet** — `T-254` served the Source Map, and `T-256` is the Map mode
+  that draws it; until then no view exists to call them, and adding a caller
+  with nothing to render would be scaffolding pretending to be a feature. This
+  bullet said "every" until the census was actually run (D-187).
 - **The Map has been walked in a real browser** (`T-209`), and what that cost
   is worth knowing. The gate is `browser/`: the built bundle over the real API
   in Google Chrome on the target machine, and the same specs on a software

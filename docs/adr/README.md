@@ -61,3 +61,4 @@ When the replacement covers only **part** of an ADR — one invariant, say, whil
 | [0005](0005-knowledge-map-client.md) | A progressive, addressable and accessible Sigma v4 Knowledge Map | Accepted |
 | [0006](0006-map-visual-quality.md) | Separate Explore and Focus compositions for Map visual quality | Accepted |
 | [0007](0007-twitter-acquisition-boundary.md) | Qualify local Twitter/X acquisition before integration | Accepted |
+| [0008](0008-source-level-knowledge-map.md) | Add a source-level knowledge map above the KU graph | Accepted |

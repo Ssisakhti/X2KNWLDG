@@ -753,13 +753,14 @@ def test_ci_sees_a_fixture_the_generator_newly_writes() -> None:
     # And it must check **every** generator that makes the promise, which is
     # the half that was missing: the job was named "run fixtures are
     # reproducible" while regenerating one of the three. Discovered from the
-    # filesystem rather than listed here, so a fourth builder added without a
-    # line in the workflow fails this test rather than being checked by nothing.
+    # filesystem rather than listed here, so a builder added without a line in
+    # the workflow fails this test rather than being checked by nothing — which
+    # is exactly what happened when `T-251` added a fourth.
     builders = sorted(
         path.relative_to(PROJECT_ROOT).as_posix()
         for path in (PROJECT_ROOT / "tests" / "fixtures").glob("*/build_*.py")
     )
-    assert len(builders) == 3, builders
+    assert len(builders) == 4, builders
     unchecked = [builder for builder in builders if builder not in fixtures]
     assert unchecked == [], (
         f"the reproducibility job does not regenerate {', '.join(unchecked)}"
@@ -1838,13 +1839,26 @@ def test_the_map_is_addressable_and_linked() -> None:
     declared route and something that links to it. A Map reachable only by
     typing the fragment is a Map `T-206`'s URL grammar would have nothing to
     hang selection and filters off.
+
+    `T-256` made ``/map`` two Maps, so the route's element is a dispatch rather
+    than a view. What this asserts is therefore the property rather than the
+    spelling: one declared route, something linking to it, and a dispatch that
+    reaches **both** views. Pinning ``<MapView />`` here would have made adding
+    a second mode look like breaking the first.
     """
     app = (WEB / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert re.search(r'path="/map"\s+element=\{<MapView\s*/>\}', app), (
-        "App.tsx no longer routes /map to the Map view"
+    assert re.search(r'path="/map"\s+element=\{<\w+\s*/>\}', app), (
+        "App.tsx no longer declares a /map route"
     )
     shell = (WEB / "src" / "components" / "Shell.tsx").read_text(encoding="utf-8")
     assert 'to="/map"' in shell, "the Shell no longer links to the Map"
+
+    route = (WEB / "src" / "views" / "MapRoute.tsx").read_text(encoding="utf-8")
+    for view in ("MapView", "SourceMapView"):
+        assert view in route, f"the /map route no longer reaches {view}"
+    # The mode is read from the URL, not from state: that is what makes a
+    # Source Map a link rather than something a reload loses.
+    assert "parseMapState" in route, "the /map route no longer reads its mode from the URL"
 
 
 def test_the_application_constructs_the_renderer_in_exactly_one_module() -> None:

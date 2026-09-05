@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x2knwldg.local/schemas/synthesis/v1/source_relation.schema.json",
+  "title": "SourceRelation (v1)",
+  "description": "One qualified, directional relationship between two whole acquired sources, with the knowledge-unit pairs it rests on. Deliberately not an IndexedRelation: that record joins two units and carries a confidence, and neither shape can state the thing that keeps a source-level edge honest — the basis. Every automatic source relation is derived provenance, explicitly_references included: the cited link may be source-grounded, but promoting it into a source-to-source relationship is an aggregation the sources themselves never made (D-247). Frozen by T-251; generation, the apply gate and the validators are T-253.",
+  "type": "object",
+  "required": [
+    "id",
+    "from_source_id",
+    "to_source_id",
+    "relation_type",
+    "scope",
+    "provenance_class",
+    "rationale",
+    "basis",
+    "generated_from"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "Deterministic, from ids.source_relation_id over the two endpoints, the relation type and the scope — and over nothing else. Basis and rationale are content, not identity, so a later pass that finds a fourth ground for the same critique updates this record rather than minting a second one. Direction is part of the identity: 'critiques' is not its own inverse.",
+      "$ref": "primitives.schema.json#/$defs/sourceRelationId"
+    },
+    "from_source_id": { "$ref": "primitives.schema.json#/$defs/sourceId" },
+    "to_source_id": {
+      "description": "The far endpoint. It must differ from from_source_id — a source does not critique itself — which ids.source_relation_id refuses and which JSON Schema cannot compare.",
+      "$ref": "primitives.schema.json#/$defs/sourceId"
+    },
+    "relation_type": { "$ref": "primitives.schema.json#/$defs/sourceRelationType" },
+    "scope": { "$ref": "primitives.schema.json#/$defs/sourceRelationScope" },
+    "provenance_class": {
+      "description": "Always 'derived'. A const rather than an enum of one, so the field cannot be read as a choice the generator gets to make.",
+      "const": "derived"
+    },
+    "rationale": {
+      "description": "Why the basis supports this relation, in Persian, making no claim stronger than scope and basis carry. The strength rule is a judgement the apply gate makes with the basis in hand; the schema's part is to require that a reason exists at all.",
+      "$ref": "primitives.schema.json#/$defs/narrativeText"
+    },
+    "basis": {
+      "description": "The knowledge-unit pairs this relation rests on. Non-empty: a source-level relation with no grounds is exactly the whole-document verdict risk R27 names. Mixed or contrary grounds stay in the list rather than being dropped — the honest answer to conflicting evidence is a narrower relation or two relations, never a tidier one. No maxItems: this is the canonical record and it carries the whole basis; bounding belongs to the API response, which states basis_total and basis_returned so a truncation is never silent.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "source_relation.schema.json#/$defs/basisPair" }
+    },
+    "generated_from": {
+      "description": "The digest of each endpoint run at the time of comparison. A pair is re-evaluated when either digest changes or the synthesis contract version does, which is what keeps the walk bounded (risk R28) without ever presenting a stale conclusion as a current one.",
+      "type": "object",
+      "required": ["from_run_digest", "to_run_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "from_run_digest": { "$ref": "primitives.schema.json#/$defs/sha256" },
+        "to_run_digest": { "$ref": "primitives.schema.json#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": {
+    "basisPair": {
+      "description": "One ground: a unit of the from-endpoint, a unit of the to-endpoint, and how they relate at unit level. The ids are local to their own endpoints — which endpoint owns which is the whole point, and a basis entry whose unit belongs to the other source is a relation that cannot be checked. That ownership needs both runs in hand and is the apply gate's rule, pinned here by a committed invalid fixture.",
+      "type": "object",
+      "required": ["from_ku_id", "to_ku_id", "relation_type"],
+      "additionalProperties": false,
+      "properties": {
+        "from_ku_id": { "$ref": "primitives.schema.json#/$defs/knowledgeUnitId" },
+        "to_ku_id": { "$ref": "primitives.schema.json#/$defs/knowledgeUnitId" },
+        "relation_type": { "$ref": "primitives.schema.json#/$defs/knowledgeRelationType" }
+      }
+    }
+  }
+}

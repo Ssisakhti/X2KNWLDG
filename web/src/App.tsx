@@ -10,6 +10,11 @@
  * Three routes today: the Library, the Reader, and the Map (`T-204`). The
  * Canvas (`T-301`) joins here.
  *
+ * `/map` is one route and two Maps (`T-256`): `MapRoute` reads the mode out of
+ * the same URL the selection and the filters live in, so a Source Map is a link
+ * rather than a state a reload loses — and the Knowledge Map's own view is
+ * reached through that dispatch without being edited for it (D-249).
+ *
  * `#/map` is a first-class address rather than a panel inside the Library, so
  * a Map link can be opened cold and reloaded -- which is what makes `T-206`'s
  * URL grammar for selection and filters a widening of this route rather than a
@@ -23,7 +28,7 @@ import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { Shell } from "./components/Shell";
 import { I18nProvider } from "./i18n";
 import { LibraryView } from "./views/LibraryView";
-import { MapView } from "./views/MapView";
+import { MapRoute } from "./views/MapRoute";
 import { ReaderView } from "./views/ReaderView";
 import { NotFoundView } from "./views/NotFoundView";
 
@@ -32,7 +37,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/" element={<LibraryView />} />
       <Route path="/sources/:sourceId" element={<ReaderView />} />
-      <Route path="/map" element={<MapView />} />
+      <Route path="/map" element={<MapRoute />} />
       <Route path="*" element={<NotFoundView />} />
     </Routes>
   );

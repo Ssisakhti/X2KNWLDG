@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "schema",
+  "lie": "The thesis carries an evidence_excerpt. Excerpts live in the knowledge units and are never copied into derived narrative; additionalProperties: false makes this unrepresentable rather than merely discouraged."
+}

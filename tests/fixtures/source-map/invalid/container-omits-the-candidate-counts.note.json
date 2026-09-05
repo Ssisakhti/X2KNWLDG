@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "schema",
+  "lie": "candidates is missing, so an empty or short relations list cannot be told from a pair that was never compared (risk R28)."
+}

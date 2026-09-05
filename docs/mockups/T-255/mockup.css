@@ -1,0 +1,224 @@
+/*
+ * T-255 mockup stylesheet: the Source Map's surfaces, on top of T-211's.
+ *
+ * The import is deliberate and one-directional. `T-211`'s stylesheet is the
+ * approved visual system — tokens copied from `web/src/styles/tokens.css`, the
+ * workspace, the floats, the drawer, the cards — and it is **read, never
+ * edited**: editing it would move the approved Phase 2.1 captures, which are a
+ * regression surface. Everything below is additive, and everything below is a
+ * surface the Source Map needs and the Knowledge Map does not have.
+ *
+ * The two project rules T-211's header states are kept here too:
+ *  1. Provenance is never colour alone (ADR 0001 invariant 10) — and the two
+ *     attributes this Map adds, medium and brief state, are drawn in two
+ *     channels each for the same reason.
+ *  2. Box properties are logical, never physical (D-012). The one exception is
+ *     the absolute placement of a card on the stage, which is viewport
+ *     geometry: those use `left`/`top`, exactly as T-211's do.
+ */
+@import url("../T-211/mockup.css");
+
+/* ---- the Map mode switch: what this Map is *of* ------------------------ */
+.modeswitch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+.modeswitch__label {
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-inline-end: var(--space-1);
+}
+
+/* ---- badges the Source Map adds ---------------------------------------- */
+.badge--medium {
+  color: var(--medium-hue, var(--fg-muted));
+  background: color-mix(in srgb, var(--medium-hue, var(--fg-muted)) 12%, var(--bg-raised));
+  border-color: color-mix(in srgb, var(--medium-hue, var(--fg-muted)) 45%, transparent);
+}
+
+/* Brief state: a border style as well as a word, so the three states differ
+   without relying on the reader seeing a hue. */
+.badge--brief { border-style: solid; }
+.badge--brief-available { color: var(--provenance-source-fg); background: var(--provenance-source-bg); }
+.badge--brief-stale {
+  color: var(--provenance-derived-fg);
+  background: var(--provenance-derived-bg);
+  border-style: dashed;
+}
+.badge--brief-unavailable {
+  color: var(--fg-faint);
+  background: transparent;
+  border-style: dotted;
+}
+
+/* Run status is a badge on a card and never a mark on the graph: a status is a
+   fact about a run, and drawing it on the field invites reading it as rank. */
+.badge--status { font-family: var(--font-ui); }
+.badge--status-pass { color: var(--provenance-source-fg); background: var(--provenance-source-bg); }
+.badge--status-partial { color: var(--provenance-derived-fg); background: var(--provenance-derived-bg); }
+.badge--status-fail { color: var(--fg-muted); background: var(--bg-sunken); }
+
+/* ---- relation pills ---------------------------------------------------- */
+.relpill__vocab-name { font-family: var(--font-mono); font-weight: 560; }
+.relpill__scope {
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  border-inline-start: var(--border-width) solid var(--border);
+  padding-inline-start: 6px;
+}
+.relpill__basis { font-size: var(--text-xs); color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.relpill__written {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--provenance-derived-fg);
+  border: var(--border-width) dashed currentColor;
+  border-radius: var(--radius-sm);
+  padding-inline: 4px;
+}
+
+/* ---- the source card, and the brief inside it -------------------------- */
+.card--sourceprimary { z-index: 3; }
+.card__title { margin: 0; font-size: var(--text-lg); line-height: var(--leading-tight); letter-spacing: -0.011em; }
+.card--neighbour .card__title { font-size: var(--text-sm); line-height: var(--leading-normal); letter-spacing: 0; }
+
+.brief { display: flex; flex-direction: column; gap: var(--space-2); min-block-size: 0; }
+.brief__label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-faint);
+}
+.brief__thesis { margin: 0; font-size: var(--text-md); line-height: var(--leading-normal); }
+.brief__points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.brief__point { display: flex; gap: var(--space-2); font-size: var(--text-sm); line-height: var(--leading-normal); }
+.brief__id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-faint); flex: none; }
+
+/* Every narrative element names the knowledge units under it. That is the
+   phase's acceptance clause, so it is drawn rather than described. */
+.basedon { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-inline-start: var(--space-1); }
+.basedon__chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--provenance-source-fg);
+  background: var(--provenance-source-bg);
+  border: var(--border-width) solid color-mix(in srgb, var(--provenance-source-fg) 35%, transparent);
+  border-radius: var(--radius-sm);
+  padding-inline: 4px;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* ---- the basis drawer -------------------------------------------------- */
+.basis { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.basis li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  padding-block: 2px;
+  border-block-end: var(--border-width) solid var(--border);
+}
+.basis__arrow { font-family: var(--font-mono); color: var(--accent); }
+.basis__type { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-faint); }
+.rationale {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--fg-muted);
+  padding-inline-start: var(--space-3);
+  border-inline-start: var(--rail-width) solid var(--border-strong);
+}
+
+/* ---- the synthetic-data banner ----------------------------------------- */
+/* It is a floating surface like any other, so `coveredShare` measures it: a
+   disclosure that hid from the instrument would be the wrong kind of honest. */
+.float--synthetic {
+  inset-block-end: var(--space-4);
+  inset-inline-start: var(--space-4);
+  max-inline-size: 560px;
+  border-style: dashed;
+  border-color: var(--provenance-derived-fg);
+}
+.float--synthetic .float__label { color: var(--provenance-derived-fg); }
+.float--synthetic p { margin: var(--space-1) 0 0; font-size: var(--text-xs); color: var(--fg-muted); }
+
+/* ---- refusals: what the Map will not say ------------------------------- */
+.refusals { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.refusals li {
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  padding-inline-start: var(--space-3);
+  border-inline-start: 2px dotted var(--border-strong);
+}
+
+/* ---- the semantic companion list --------------------------------------- */
+.companion { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.companion li { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--text-sm); }
+.companion__side {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-faint);
+  inline-size: 5.5rem;
+  flex: none;
+}
+
+/* ---- states sheet ------------------------------------------------------ */
+.sheet {
+  padding: var(--space-6);
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+}
+.demo { border: var(--border-width) solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--stage-ground); }
+.demo__label {
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-raised);
+  border-block-end: var(--border-width) solid var(--border);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-faint);
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.demo__label .mono { text-transform: none; letter-spacing: 0; }
+.demo__stage { min-block-size: 190px; position: relative; display: grid; place-items: center; padding: var(--space-5); }
+.demo__stage .notice { max-inline-size: 56ch; }
+
+/* The workspace never scrolls the document (D-153), and the mode switch is the
+   one surface T-255 adds to the bar — so it is the one that has to fold. At
+   390 px the un-folded bar measured 461 px of content against a 390 px
+   viewport, which is a horizontal document scroll rather than a narrow layout. */
+@media (max-width: 48rem) {
+  .modeswitch__label { display: none; }
+  .modeswitch { flex: none; }
+  .modeswitch .pill { padding-inline: var(--space-2); font-size: var(--text-xs); }
+  .bar__nav .pill { padding-inline: var(--space-2); font-size: var(--text-xs); }
+}
+
+/* An in-flow pill may wrap: a relationship row carries four parts and a drawer
+   is 560 px wide, so `white-space: nowrap` alone pushed it past the edge. */
+.relpill--inline { flex-wrap: wrap; white-space: normal; max-inline-size: 100%; }
+
+/* Below the `full` tier the floats are chips, not panels — SPEC §5's rule for
+   the `compact` tier, which T-216's R3 had to apply to the Knowledge Map after
+   the fact. It is applied here from the start for the same measured reason:
+   un-folded, the legend and the disclosure took 19.2% of a 1440×900 field and
+   left the graph 299 px of height to be drawn in. A fold is a disclosure the
+   reader opens; a panel is one they cannot close. */
+.float--folded .legend__grid,
+.float--folded .legend__note,
+.float--folded p { display: none; }
+.float--folded .float__label::after { content: " ⌄"; color: var(--fg-faint); }
+.float--folded { padding-block: var(--space-1); }
+.float--folded .float__label { margin-block-end: 0 !important; }

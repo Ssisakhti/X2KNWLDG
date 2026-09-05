@@ -91,6 +91,8 @@ from x2knwldg.repository import (
     NeighborhoodQuery,
     RelationQuery,
     SearchQuery,
+    SourceGraphQuery,
+    SourceNeighborhoodQuery,
     SourceQuery,
 )
 
@@ -276,7 +278,13 @@ def page_shapes(pages: Sequence[Any]) -> list[tuple[Any, ...]]:
 
 
 def graph_shapes(pages: Sequence[Any]) -> list[tuple[Any, ...]]:
-    """``nodes`` in order, ``edges`` in order and ``truncated``, plus the page."""
+    """``nodes`` in order, ``edges`` in order and ``truncated``, plus the page.
+
+    Also what a source-graph walk is compared by: :class:`SourceGraphPage`
+    exposes the same two methods, and the payload it builds carries its own
+    ``counts`` — so comparing the payload compares ``relations_omitted`` too,
+    which is the number a bounded body must not get wrong quietly.
+    """
     return [(page.payload(), page.page_info()) for page in pages]
 
 
@@ -494,6 +502,24 @@ def snapshot(repo: Any, probes: Probes, plan: Plan = FIXTURE_PLAN) -> dict[str, 
     for filters, limit in itertools.product(plan.graph_filters, plan.limits):
         seen[f"graph({_label(filters)}) limit={limit}"] = graph_shapes(
             walk(repo.graph, GraphQuery, limit=limit, **filters)
+        )
+
+    # `T-254`. The source layer through the same machinery, so every scenario
+    # below — a run edited, added, removed, a library rebuilt, a cache deleted —
+    # proves the Source Map rebuilds to the same answer, and does it without a
+    # second comparison harness that could disagree with this one.
+    for limit in plan.limits:
+        seen[f"source_graph() limit={limit}"] = graph_shapes(
+            walk(repo.source_graph, SourceGraphQuery, limit=limit)
+        )
+    for source_id, limit in itertools.product(
+        probes.sources, plan.neighbourhood_limits
+    ):
+        found = repo.source_neighborhood(
+            SourceNeighborhoodQuery(source_id=source_id, limit=limit)
+        )
+        seen[f"source_neighborhood({source_id},{limit})"] = (
+            None if found is None else found.payload()
         )
 
     for entity_id, depth, limit, vocabulary in itertools.product(
@@ -1010,6 +1036,158 @@ def test_a_refresh_against_a_deleted_cache_directory_rebuilds_it(tmp_path: Path)
     with opened(sqlite_factory(root)) as repo:
         after = snapshot(repo, probes)
     assert [key for key in before if before[key] != after[key]] == []
+
+
+# --------------------------------------------------------------------------
+# 9b. Scenario 9 — the source layer, over a corpus that actually has one
+#
+# The eight scenarios above run over ``project()``, which copies runs and
+# nothing else: no run there has a brief and no synthesis file exists, so their
+# source-graph observations prove the *nodes* rebuild and say nothing about the
+# other two record families. `T-254` stores three, and two of them come from
+# documents no run fixture carries.
+#
+# ``source_map_corpus`` is that corpus — four runs across both media, three
+# briefs generated from those runs' own digests, one ``FAIL`` run with none, and
+# the committed cross-medium relation. Every claim below is about what a
+# *rebuild* of it produces, because ADR 0001 invariant 3 is the whole reason the
+# index may be deleted at all.
+# --------------------------------------------------------------------------
+
+
+def source_map_project(root: Path, *, relations: bool = True) -> Path:
+    """The `T-254` corpus, built under *root*."""
+    import source_map_corpus
+
+    return source_map_corpus.build(root / "project", relations=relations).project_root
+
+
+@requires_fts5
+def test_the_source_layer_reads_the_same_through_the_index_as_through_the_files(
+    tmp_path: Path,
+) -> None:
+    """A build, a refresh and the cache-free oracle, over a corpus with all three families."""
+    root = source_map_project(tmp_path)
+    built(root)
+    compared = compare("sqlite", sqlite_factory(root), "oracle", memory_factory(root))
+    assert compared > 100, "the comparison must not be vacuous"
+    refreshed(root)
+    compare("refreshed", sqlite_factory(root), "oracle", memory_factory(root))
+
+
+@requires_fts5
+def test_the_corpus_carries_the_records_the_source_layer_needs(tmp_path: Path) -> None:
+    """A guard on the fixture, not on the code.
+
+    Every assertion in this section is worthless if the corpus quietly stops
+    holding a brief or a relation — the comparison would go on passing over two
+    empty answers. Measured here so that is a failure.
+    """
+    import source_map_corpus
+
+    root = source_map_project(tmp_path)
+    built(root)
+    with opened(sqlite_factory(root)) as repo:
+        page = repo.source_graph(SourceGraphQuery(limit=MAX_LIMIT))
+        assert len(page.nodes) == len(source_map_corpus.SOURCE_IDS)
+        assert [relation["id"] for relation in page.relations] == [
+            source_map_corpus.RELATION_ID
+        ]
+        states = {
+            source_id: repo.source_neighborhood(
+                SourceNeighborhoodQuery(source_id=source_id)
+            ).source_knowledge["state"]
+            for source_id in source_map_corpus.SOURCE_IDS
+        }
+    assert sorted(states.values()) == ["available", "available", "available", "unavailable"]
+
+
+@requires_fts5
+def test_deleting_the_cache_loses_no_brief_and_no_relation(tmp_path: Path) -> None:
+    """The three source tables are rebuildable, so the cache may still be deleted."""
+    root = source_map_project(tmp_path)
+    built(root)
+    with opened(sqlite_factory(root)) as repo:
+        probes = probes_of(repo)
+        before = snapshot(repo, probes)
+
+    shutil.rmtree(root / DATABASE_DIRNAME)
+    assert not database_path(root).exists()
+
+    built(root)
+    with opened(sqlite_factory(root)) as repo:
+        after = snapshot(repo, probes)
+    differing = [key for key in before if before[key] != after[key]]
+    assert not differing, (
+        f"a rebuild from a deleted cache differs on {len(differing)} observations: "
+        f"{differing[:3]}"
+    )
+
+
+@requires_fts5
+def test_a_re_extracted_run_makes_its_brief_stale_on_both_paths(tmp_path: Path) -> None:
+    """The one thing a stored brief could get wrong: staleness the scan did not see.
+
+    ``SqliteRepository`` reads the state the scan stored; the oracle recomputes
+    it from the run. They can only agree if a run whose knowledge moved is
+    re-read — which is what the run digest is for — so this is the scenario that
+    proves the stored copy is a cache rather than a second opinion.
+    """
+    import source_map_corpus
+
+    root = source_map_project(tmp_path)
+    built(root)
+    with opened(sqlite_factory(root)) as repo:
+        fresh = repo.source_neighborhood(
+            SourceNeighborhoodQuery(source_id=source_map_corpus.YOUTUBE_PASS)
+        )
+    assert fresh.source_knowledge["state"] == "available"
+
+    edit(
+        root / "output" / "pass-run" / "knowledge_units.json",
+        lambda document: document["units"][0].update({"confidence": 0.55}),
+    )
+    refreshed(root)
+    with opened(sqlite_factory(root)) as repo, opened(memory_factory(root)) as oracle:
+        stored = repo.source_neighborhood(
+            SourceNeighborhoodQuery(source_id=source_map_corpus.YOUTUBE_PASS)
+        )
+        read = oracle.source_neighborhood(
+            SourceNeighborhoodQuery(source_id=source_map_corpus.YOUTUBE_PASS)
+        )
+    assert stored.source_knowledge["state"] == "stale"
+    assert stored.payload() == read.payload()
+    assert stored.source_knowledge["brief"] is not None, (
+        "a stale brief is carried with the state saying so, not withheld"
+    )
+
+
+@requires_fts5
+def test_a_relation_whose_endpoint_left_the_corpus_is_counted_rather_than_drawn(
+    tmp_path: Path,
+) -> None:
+    """An edge to a node the page will not show asserts a node that does not exist.
+
+    Removing one endpoint run is the way that happens in life: the synthesis
+    file still names the pair it was applied against, and one half of it is
+    gone. Counted in ``relations_omitted`` on both paths, and drawn on neither.
+    """
+    import source_map_corpus
+
+    root = source_map_project(tmp_path)
+    built(root)
+    shutil.rmtree(root / "output" / "twitter-quote")
+    rebuild_library(root / "output")
+    refreshed(root)
+
+    for label, factory in (("sqlite", sqlite_factory(root)), ("oracle", memory_factory(root))):
+        with opened(factory) as repo:
+            page = repo.source_graph(SourceGraphQuery(limit=MAX_LIMIT))
+        assert page.relations == [], label
+        assert page.payload()["counts"]["relations_omitted"] == 1, label
+        assert page.payload()["counts"]["sources_total"] == (
+            len(source_map_corpus.SOURCE_IDS) - 1
+        ), label
 
 
 # --------------------------------------------------------------------------

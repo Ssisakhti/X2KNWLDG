@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "source_id": "youtube:fixture-pass",
+  "status": "PASS",
+  "thesis": {
+    "content": "این منبعِ آزمایشی (test fixture) نشان می‌دهد که هر واحد دانش باید شواهدی را که بر آن تکیه دارد همراه خود بیاورد.",
+    "based_on": [
+      "KU-000001"
+    ],
+    "evidence_excerpt": "A knowledge unit must carry the evidence it rests on."
+  },
+  "key_points": [
+    {
+      "id": "SP-001",
+      "content": "ادعای بدون شاهدِ زمان‌دار، دانشِ برگرفته از منبع نیست و نباید چنین نمایش داده شود.",
+      "based_on": [
+        "KU-000001"
+      ]
+    },
+    {
+      "id": "SP-002",
+      "content": "پوشش (coverage) پنجره‌به‌پنجره ممیزی می‌شود، نه یک‌جا برای کل منبع.",
+      "based_on": [
+        "KU-000001"
+      ]
+    }
+  ],
+  "limitations_or_tensions": [],
+  "generated_from": {
+    "knowledge_units_sha256": "d5bbb3a5a8f8c101483fd37c8e1b2626dd9236e1eea178a975d6485daf714bd3",
+    "relationships_sha256": "9d2cbeafa14435c536788344ab64488f18dee6c6e6feeeb45146bf950c01ecb3",
+    "coverage_sha256": "34d32aa2917205dc6148e8e8271f044195a25416357fb195b62dc84643476ae6"
+  },
+  "generated_at": "2026-01-01T00:00:00+00:00"
+}

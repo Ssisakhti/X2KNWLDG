@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "gate",
+  "lie": "Two records share one SR- id while differing in rationale. uniqueItems compares whole records, so the schema accepts it and the gate must not."
+}

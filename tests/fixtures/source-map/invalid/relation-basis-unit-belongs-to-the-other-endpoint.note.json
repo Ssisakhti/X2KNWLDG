@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "gate",
+  "lie": "to_ku_id names KU-000002, which is a real unit id elsewhere in the fixture corpus and is not one the to-endpoint's run holds. Well-formed, plausible, and checkable only with both runs in hand — which is why it is the gate's rule and not the schema's."
+}

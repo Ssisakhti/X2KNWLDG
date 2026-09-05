@@ -20,7 +20,7 @@ function envelope(code: string, message: string) {
 }
 
 describe("the path table", () => {
-  it("covers exactly the eleven frozen operations", () => {
+  it("covers exactly the thirteen frozen operations", () => {
     expect(Object.keys(PATHS).sort()).toEqual(
       [
         "getArtifact",
@@ -29,6 +29,11 @@ describe("the path table", () => {
         "getGraph",
         "getNeighborhood",
         "getSource",
+        // T-254's two. They have no caller yet — the Source Map mode is T-256 —
+        // but the table is typed as `{ [K in OperationId]: ... }`, so a missing
+        // row is a build failure rather than a 404 discovered later.
+        "getSourceGraph",
+        "getSourceNeighborhood",
         "getStatus",
         "listSourceEntities",
         "listSourceRelations",

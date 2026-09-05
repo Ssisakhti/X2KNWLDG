@@ -244,9 +244,13 @@ export type Artifact = {
    * a Twitter run's evidence is capture.json rather than a transcript, and each item inside it
    * is addressed as an artifact of its own so that a claim can cite a text_span into the post it
    * came from. 'post' is the item, not the file - it is role 'external' with no path, the way
-   * 'video' already is.
+   * 'video' already is. 'source_knowledge' was added the same way by T-252 (D-246): a run's
+   * readable Persian brief, written through its own apply gate after extraction and coverage. It
+   * is derived knowledge rather than evidence, and it is optional - a run that has none is the
+   * normal state and stays so, which is why the adapters omit the record entirely rather than
+   * listing it unavailable on every run forever (D-257).
    */
-  kind: "metadata" | "raw_source" | "raw_transcript" | "transcript" | "segments" | "capture" | "post" | "knowledge_units" | "relationships" | "graph" | "coverage" | "validation" | "report" | "extraction_bundle" | "vault_note" | "video" | "audio" | "image" | "pdf" | "article";
+  kind: "metadata" | "raw_source" | "raw_transcript" | "transcript" | "segments" | "capture" | "post" | "knowledge_units" | "relationships" | "graph" | "coverage" | "validation" | "source_knowledge" | "report" | "extraction_bundle" | "vault_note" | "video" | "audio" | "image" | "pdf" | "article";
   /**
    * Storage tier and mutability class. 'raw' is immutable evidence under output/<id>/raw/.
    * 'canonical' is pipeline output under output/<id>/. 'work' is intermediate pipeline scratch.
@@ -494,6 +498,219 @@ export type IndexedRelation = {
    */
   intentional_self_loop?: boolean;
   created_at?: IsoTimestamp | null;
+};
+
+// -------------------------------------------------------------------------
+// Source synthesis records — schemas/synthesis/v1/
+// -------------------------------------------------------------------------
+
+/**
+ * The record model version. The version is the directory: a breaking change becomes
+ * schemas/synthesis/v2/.
+ */
+export type SynthesisSchemaVersion = "1.0";
+
+export type SynthesisSourceId = string;
+
+export type SynthesisKnowledgeUnitId = string;
+
+export type SynthesisSourceRelationId = string;
+
+/**
+ * The eight source-to-source relation types. Mirrors constants.SOURCE_RELATION_TYPES, and
+ * deliberately not constants.RELATION_TYPES: that vocabulary joins two knowledge units, this
+ * one joins two whole sources, and 'supports' means a different-sized claim in each (risk
+ * R27).
+ */
+export type SynthesisSourceRelationType = "explicitly_references" | "responds_to" | "critiques" | "supports" | "contradicts" | "extends" | "applies" | "overlaps_with";
+
+/**
+ * How much of the two sources the basis supports. Two values and no third: scope qualifies the
+ * claim, it does not measure it, and a percentage would be a number nothing produced (D-247).
+ */
+export type SynthesisSourceRelationScope = "partial" | "broad";
+
+/**
+ * The KU-level canonical vocabulary, mirroring constants.RELATION_TYPES. A basis entry states
+ * how one unit relates to another; the source-level type is the aggregation over those, and
+ * the two vocabularies stay apart.
+ */
+export type SynthesisKnowledgeRelationType = "supports" | "contradicts" | "causes" | "contributes_to" | "depends_on" | "enables" | "inhibits" | "exemplifies" | "is_example_of" | "is_evidence_for" | "refines" | "qualifies" | "is_part_of" | "precedes" | "results_in" | "related_to";
+
+/**
+ * The status of the run a brief accounts for. UNKNOWN is absent on purpose: a brief is
+ * generated after extraction and coverage, so a run whose validators never ran has nothing to
+ * summarise, and 'UNKNOWN' here would be a brief claiming a run state nobody measured.
+ */
+export type SynthesisRunStatus = "PASS" | "PARTIAL" | "FAIL";
+
+export type SynthesisSha256 = string;
+
+export type SynthesisIsoTimestamp = string;
+
+/**
+ * A Persian narrative statement, under the permanent output-language policy. The schema can
+ * require that text exists and is not empty; it cannot check which language it is in, so the
+ * policy is enforced by the apply gate (T-252) and by tests/test_output_language_policy.py,
+ * and this description is where the requirement is recorded rather than left implicit.
+ */
+export type SynthesisNarrativeText = string;
+
+/**
+ * The knowledge units a narrative statement rests on. Non-empty, always: an empty list asserts
+ * derived knowledge while showing no work, which is exactly what adapters.base._derived_refs
+ * refuses one layer down.
+ */
+export type SynthesisSupportList = Array<SynthesisKnowledgeUnitId>;
+
+/**
+ * A Persian statement and the knowledge units it rests on. The pairing is the contract: a
+ * statement with no support is an assertion the source never made, and support naming units
+ * the run does not hold is worse, because it looks checkable and is not. The second condition
+ * needs the run's own unit list and is checked by the apply gate.
+ */
+export type SourceKnowledgeStatement = {
+  content: SynthesisNarrativeText;
+  based_on: SynthesisSupportList;
+};
+
+/**
+ * A supported statement that is addressable — the UI links to one, and a later revision has to
+ * be able to say which point it changed. Ids are unique within their list; JSON Schema can
+ * require the whole objects to differ but cannot compare one field across array members, so
+ * the duplicate-id case is a validator rule and a committed invalid fixture.
+ */
+export type SourceKnowledgePoint = {
+  id: string;
+  content: SynthesisNarrativeText;
+  based_on: SynthesisSupportList;
+};
+
+/**
+ * One ground: a unit of the from-endpoint, a unit of the to-endpoint, and how they relate at
+ * unit level. The ids are local to their own endpoints — which endpoint owns which is the
+ * whole point, and a basis entry whose unit belongs to the other source is a relation that
+ * cannot be checked. That ownership needs both runs in hand and is the apply gate's rule,
+ * pinned here by a committed invalid fixture.
+ */
+export type SourceRelationBasisPair = {
+  from_ku_id: SynthesisKnowledgeUnitId;
+  to_ku_id: SynthesisKnowledgeUnitId;
+  relation_type: SynthesisKnowledgeRelationType;
+};
+
+/**
+ * One readable, derived account of one acquired source, written as output/<run-
+ * id>/source_knowledge.json after extraction, normalization, relationship extraction and the
+ * coverage audit. It is knowledge, not evidence: every narrative statement names the knowledge
+ * units it rests on, evidence excerpts stay in those units and are never copied here, and the
+ * record cannot claim a status stronger than the run it describes. Frozen by T-251; the apply
+ * gate, the validators and the adapter projection are T-252. A missing artifact is an honest
+ * 'unavailable' brief, never an empty successful one.
+ */
+export type SourceKnowledge = {
+  schema_version: SynthesisSchemaVersion;
+  /**
+   * The source this brief accounts for. The apply gate additionally checks it against the run it
+   * is being written into: a brief carrying another source's id would attach one source's
+   * account to another's evidence, and JSON Schema cannot compare a document with its own
+   * location.
+   */
+  source_id: SynthesisSourceId;
+  /**
+   * The status of the underlying run, copied. Never computed here and never raised: a brief
+   * derived from a PARTIAL run is visibly partial, and the validator refuses a status stronger
+   * than validation.json states (D-246).
+   */
+  status: SynthesisRunStatus;
+  /**
+   * The source's central claim, in Persian, in one statement.
+   */
+  thesis: SourceKnowledgeStatement;
+  /**
+   * The points a reader needs, in the order they should be read. At least one: a brief with a
+   * thesis and nothing under it is a title, and the Source Map card has a section for these.
+   */
+  key_points: Array<SourceKnowledgePoint>;
+  /**
+   * What the source leaves unresolved, contradicts itself about, or does not establish. May be
+   * empty — an empty array here says 'none recorded', which is a claim the generator is allowed
+   * to make; it is not the same as the field being absent, which is why the field is required
+   * and the array is not.
+   */
+  limitations_or_tensions: Array<SourceKnowledgePoint>;
+  /**
+   * Digests of the canonical inputs this brief was generated from, so staleness is detectable
+   * rather than assumed. A digest that no longer matches the file means the brief describes a
+   * run that has since changed, and the reader is told rather than shown an account of something
+   * else.
+   */
+  generated_from: {
+    knowledge_units_sha256: SynthesisSha256;
+    relationships_sha256: SynthesisSha256;
+    coverage_sha256: SynthesisSha256;
+  };
+  /**
+   * When the brief was generated. Optional, and never a substitute for the digests: a timestamp
+   * says when, the digests say what from, and only the second can detect staleness.
+   */
+  generated_at?: SynthesisIsoTimestamp;
+};
+
+/**
+ * One qualified, directional relationship between two whole acquired sources, with the
+ * knowledge-unit pairs it rests on. Deliberately not an IndexedRelation: that record joins two
+ * units and carries a confidence, and neither shape can state the thing that keeps a source-
+ * level edge honest — the basis. Every automatic source relation is derived provenance,
+ * explicitly_references included: the cited link may be source-grounded, but promoting it into
+ * a source-to-source relationship is an aggregation the sources themselves never made (D-247).
+ * Frozen by T-251; generation, the apply gate and the validators are T-253.
+ */
+export type SourceRelation = {
+  /**
+   * Deterministic, from ids.source_relation_id over the two endpoints, the relation type and the
+   * scope — and over nothing else. Basis and rationale are content, not identity, so a later
+   * pass that finds a fourth ground for the same critique updates this record rather than
+   * minting a second one. Direction is part of the identity: 'critiques' is not its own inverse.
+   */
+  id: SynthesisSourceRelationId;
+  from_source_id: SynthesisSourceId;
+  /**
+   * The far endpoint. It must differ from from_source_id — a source does not critique itself —
+   * which ids.source_relation_id refuses and which JSON Schema cannot compare.
+   */
+  to_source_id: SynthesisSourceId;
+  relation_type: SynthesisSourceRelationType;
+  scope: SynthesisSourceRelationScope;
+  /**
+   * Always 'derived'. A const rather than an enum of one, so the field cannot be read as a
+   * choice the generator gets to make.
+   */
+  provenance_class: "derived";
+  /**
+   * Why the basis supports this relation, in Persian, making no claim stronger than scope and
+   * basis carry. The strength rule is a judgement the apply gate makes with the basis in hand;
+   * the schema's part is to require that a reason exists at all.
+   */
+  rationale: SynthesisNarrativeText;
+  /**
+   * The knowledge-unit pairs this relation rests on. Non-empty: a source-level relation with no
+   * grounds is exactly the whole-document verdict risk R27 names. Mixed or contrary grounds stay
+   * in the list rather than being dropped — the honest answer to conflicting evidence is a
+   * narrower relation or two relations, never a tidier one. No maxItems: this is the canonical
+   * record and it carries the whole basis; bounding belongs to the API response, which states
+   * basis_total and basis_returned so a truncation is never silent.
+   */
+  basis: Array<SourceRelationBasisPair>;
+  /**
+   * The digest of each endpoint run at the time of comparison. A pair is re-evaluated when
+   * either digest changes or the synthesis contract version does, which is what keeps the walk
+   * bounded (risk R28) without ever presenting a stale conclusion as a current one.
+   */
+  generated_from: {
+    from_run_digest: SynthesisSha256;
+    to_run_digest: SynthesisSha256;
+  };
 };
 
 // -------------------------------------------------------------------------
@@ -817,6 +1034,162 @@ export type NeighborhoodResponse = {
   data: NeighborhoodPayload;
 };
 
+/**
+ * Whether a source's readable brief is available, and why not when it is not. A brief is a
+ * gated derived artifact that may simply not have been generated yet, and an absent one must
+ * not reach the client as an empty successful brief — 'this source has no thesis and no key
+ * points' is a claim about the source, and it would be false. `state` carries the distinction
+ * and `brief` is null whenever the state is `unavailable`. `stale` is its own state rather
+ * than an error: the brief exists and describes inputs whose digests have since moved, so it
+ * is carried with that said out loud rather than withheld or silently trusted — `stale` is the
+ * one state other than `available` in which `brief` is a document. (`T-254` sharpened these
+ * two sentences, which had frozen in contradiction with each other: the first said a brief is
+ * null in every state but `available`, the second that a stale one is shown rather than
+ * withheld. Serving it is what makes `stale` differ from `unavailable` by more than a word.)
+ */
+export type SourceKnowledgeAvailability = {
+  state: "available" | "unavailable" | "stale";
+  /**
+   * The generated brief, or null when there is not one to show.
+   */
+  brief: SourceKnowledge | null;
+  /**
+   * Why the brief is unavailable or stale, project-relative and free of host paths (D-030,
+   * D-051). Null when `state` is `available`.
+   */
+  reason: string | null;
+};
+
+/**
+ * One source relation as the Source Explore graph needs it: direction, type, scope and how
+ * many grounds stand behind it — but not the grounds themselves. `basis_total` is required
+ * here precisely because the basis is absent: an edge pill reads `critiques · 3 grounds`, and
+ * a summary that omitted the count would let a relation resting on one pair and one resting on
+ * forty draw identically. The count is a count, never a strength, a confidence or a rank
+ * (D-247).
+ */
+export type SourceRelationSummary = {
+  id: SynthesisSourceRelationId;
+  from_source_id: SynthesisSourceId;
+  to_source_id: SynthesisSourceId;
+  relation_type: SynthesisSourceRelationType;
+  scope: SynthesisSourceRelationScope;
+  /**
+   * Always `derived` for an automatic source relation.
+   */
+  provenance_class: "derived";
+  /**
+   * How many knowledge-unit pairs the stored relation rests on.
+   */
+  basis_total: number;
+};
+
+/**
+ * One source relation with its Persian rationale and a bounded page of its basis. The two
+ * counts are both required and are not the same number: `basis_total` is what the canonical
+ * record holds, `basis_returned` is what is in this body. A response that carried only the
+ * second would present a truncated basis as the whole of it, which is the overclaim risk R27
+ * names, arriving through the API instead of through the model. `basis` is capped at
+ * `maxItems`, the value of constants.MAX_SOURCE_RELATION_BASIS, for the reason
+ * `GraphPayload.edges` is capped: an unbounded array in a response is an unbounded response.
+ */
+export type SourceRelationDetail = {
+  id: SynthesisSourceRelationId;
+  from_source_id: SynthesisSourceId;
+  to_source_id: SynthesisSourceId;
+  relation_type: SynthesisSourceRelationType;
+  scope: SynthesisSourceRelationScope;
+  provenance_class: "derived";
+  rationale: SynthesisNarrativeText;
+  /**
+   * The grounds carried in this body, in the stored order. Mixed and contrary grounds are
+   * included rather than filtered: hiding them would make the relation read cleaner than the
+   * evidence is.
+   */
+  basis: Array<SourceRelationBasisPair>;
+  basis_total: number;
+  basis_returned: number;
+};
+
+/**
+ * The source topology: one node per acquired source, and the relations among them. The nodes
+ * are `EntityRef` records with `entity_type: "source"` — the same addressable handle every
+ * other entity uses, so a source selection resolves the way a knowledge unit selection does.
+ * Chapters, posts in a self-thread, transcript segments, knowledge units and concepts are not
+ * nodes here; that is the whole point of the second Map mode (D-244).
+ */
+export type SourceGraphPayload = {
+  nodes: Array<EntityRef>;
+  relations: Array<SourceRelationSummary>;
+  /**
+   * True when `limit` cut the result short. Stated rather than implied, exactly as
+   * `GraphPayload.truncated` is.
+   */
+  truncated: boolean;
+  counts: SourceGraphCounts;
+};
+
+/**
+ * Returned, omitted and total, counted separately. Three numbers rather than one because they
+ * answer three different questions, and collapsing them is how a bounded result comes to look
+ * like a complete one. `sources_total` may be null, which means not counted — never zero, the
+ * same rule `PageInfo.total` carries.
+ */
+export type SourceGraphCounts = {
+  sources_returned: number;
+  relations_returned: number;
+  /**
+   * Relations the bound left out of this body. Counted, never silent — the same discipline the
+   * synthesis file's `candidates.omitted` carries upstream.
+   */
+  relations_omitted: number;
+  sources_total: number | null;
+};
+
+export type SourceGraphResponse = {
+  api_version: ApiVersion;
+  schema_version: SchemaVersion;
+  data: SourceGraphPayload;
+  page: PageInfo;
+};
+
+/**
+ * One selected source, its readable brief, and its qualified relations in both directions.
+ * `incoming` and `outgoing` are separate arrays rather than one list with a direction flag,
+ * because direction is what the Focus composition places on the left and the right and what
+ * the semantic companion list has to state in text — and a client that has to derive it by
+ * comparing `to_source_id` with `center_id` is a client that can derive it wrongly.
+ */
+export type SourceNeighborhoodPayload = {
+  center_id: GlobalId;
+  /**
+   * The selected source's own `EntityRef`, echoed back.
+   */
+  source: EntityRef;
+  source_knowledge: SourceKnowledgeAvailability;
+  /**
+   * Relations whose `to_source_id` is the selected source.
+   */
+  incoming: Array<SourceRelationDetail>;
+  /**
+   * Relations whose `from_source_id` is the selected source.
+   */
+  outgoing: Array<SourceRelationDetail>;
+  /**
+   * The `EntityRef` of every source named by a returned relation, so no relation names an
+   * endpoint the client has no node for. ADR 0002 is emphatic that an edge to a node the page
+   * will not show asserts a node that does not exist.
+   */
+  neighbors: Array<EntityRef>;
+  truncated: boolean;
+};
+
+export type SourceNeighborhoodResponse = {
+  api_version: ApiVersion;
+  schema_version: SchemaVersion;
+  data: SourceNeighborhoodPayload;
+};
+
 // -------------------------------------------------------------------------
 // Operations
 // -------------------------------------------------------------------------
@@ -984,6 +1357,33 @@ export interface Endpoints {
       relation_vocabulary?: "canonical" | "library_synthetic" | "user";
     };
     response: NeighborhoodResponse;
+  };
+  /**
+   * One node per acquired source, and the relations among them
+   */
+  getSourceGraph: {
+    path: "/api/source-graph";
+    method: "get";
+    params: Record<string, never>;
+    query: {
+      limit?: number;
+      cursor?: string;
+    };
+    response: SourceGraphResponse;
+  };
+  /**
+   * One selected source, its readable brief and its qualified relations
+   */
+  getSourceNeighborhood: {
+    path: "/api/source-graph/neighborhood/{source_id}";
+    method: "get";
+    params: {
+      source_id: SourceId;
+    };
+    query: {
+      limit?: number;
+    };
+    response: SourceNeighborhoodResponse;
   };
 }
 

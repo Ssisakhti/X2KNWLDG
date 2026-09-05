@@ -22,7 +22,7 @@ page.items        # Source records, exactly as the adapters produce them
 page.page_info()  # {"limit": 20, "next_cursor": ..., "total": ...}
 ```
 
-## Eleven endpoints, ten methods
+## Thirteen endpoints, twelve methods
 
 [`schemas/api/v1/openapi.json`](../../../schemas/api/v1/README.md) is the
 specification. Every endpoint in it is answered here, and nothing else is:
@@ -40,6 +40,16 @@ specification. Every endpoint in it is answered here, and nothing else is:
 | `GET /api/search` | `search(SearchQuery)` |
 | `GET /api/graph` | `graph(GraphQuery)` |
 | `GET /api/graph/neighborhood/{entity_id}` | `neighborhood(NeighborhoodQuery)` |
+| `GET /api/source-graph` | `source_graph(SourceGraphQuery)` |
+| `GET /api/source-graph/neighborhood/{source_id}` | `source_neighborhood(SourceNeighborhoodQuery)` |
+
+The last two are `T-254`'s, and they are the **only** widening this protocol has had.
+ADR 0002 invariant 3 says no implementation widens the interface, so the Source Map's two
+reads were a contract change first and a method second: the response shapes were frozen as
+components in `T-251` (D-254), and the operations that return them arrived with these methods.
+They are also the two that page over a record family `by_model()` does not carry — D-251 keeps
+the source node out of `entities` so that no existing payload moves, and `SourceGraphPage`
+pages it by the same `order_key` arithmetic under the model name `source_entity`.
 
 `/api/media` deliberately reuses `get_artifact`. The record carries `path` —
 project-relative, produced by `adapters.project_relative` — and `available`.

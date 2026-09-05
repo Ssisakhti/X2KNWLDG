@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "gate",
+  "lie": "status is PASS over partial-run, whose validation.json says PARTIAL. A brief may never be more confident than the run beneath it (D-246)."
+}

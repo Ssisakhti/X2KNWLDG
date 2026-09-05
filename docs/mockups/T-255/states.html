@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>T-255 — Honest states</title>
+<link rel="stylesheet" href="mockup.css">
+<style>
+  /* T-211's stylesheet pins the workspace to the viewport and hides overflow,
+     because a Map never scrolls the document. This sheet is a document, so it
+     undoes both — without `block-size: auto` the full-page capture stopped at
+     the viewport and the last two states were cut off the picture. */
+  html, body { block-size: auto; overflow: auto; }
+  h1 { font-size: var(--text-xl); margin: 0 0 var(--space-1); }
+  .lede { color: var(--fg-muted); margin: 0 0 var(--space-5); max-inline-size: 96ch; }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div style="grid-column: 1 / -1">
+    <h1 id="title"></h1>
+    <p class="lede" id="lede"></p>
+  </div>
+  <div id="demos" style="display: contents"></div>
+</div>
+
+<script type="module">
+import { DATA, t, LOCALE, RTL, el, bdi } from "./render.js";
+
+document.documentElement.lang = LOCALE;
+document.body.dir = RTL ? "rtl" : "ltr";
+document.getElementById("title").textContent = RTL
+  ? "وضعیت‌های صادقانهٔ نقشهٔ منابع"
+  : "The Source Map's honest states";
+document.getElementById("lede").textContent = RTL
+  ? "هر وضعیت زیر از همان دو پاسخِ سرویس خوانده شده است. سه وضعیت آخر از کاتالوگ نقشهٔ دانش می‌آیند و واژه‌به‌واژه همان‌اند، چون دربارهٔ منابع نیستند."
+  : "Every state below is read out of the two served responses. The last three are the Knowledge Map's own catalogue strings, verbatim, because none of them is about sources.";
+
+const served = DATA.served;
+const dense = DATA.dense;
+
+/** One demo cell: a machine-readable label, then what the reader would see. */
+function demo(labels, build) {
+  const box = el("div", "demo");
+  const head = el("div", "demo__label");
+  for (const label of labels) head.appendChild(el("span", "mono", label));
+  box.appendChild(head);
+  const body = el("div", "demo__stage");
+  body.appendChild(build());
+  box.appendChild(body);
+  document.getElementById("demos").appendChild(box);
+}
+
+function notice(title, ...lines) {
+  const box = el("div", "notice");
+  box.appendChild(el("strong", "", title));
+  for (const line of lines) {
+    const paragraph = el("p", "");
+    paragraph.appendChild(typeof line === "string" ? bdi(line) : line);
+    box.appendChild(paragraph);
+  }
+  return box;
+}
+
+/** A brief's state, as the card head would carry it. */
+function stateRow(state, status) {
+  const row = el("div", "card__head");
+  row.appendChild(el("span", `badge badge--brief badge--brief-${state}`,
+    `${t("source.brief.state")}: ${t(`source.brief.${state}`)}`));
+  if (status !== null) {
+    row.appendChild(el("span", `badge badge--status badge--status-${status.toLowerCase()}`,
+      `${t("source.status")}: ${status}`));
+  }
+  return row;
+}
+
+function briefDemo(body, extra) {
+  const knowledge = body.source_knowledge;
+  const wrap = el("div", "notice");
+  wrap.appendChild(stateRow(knowledge.state, knowledge.brief?.status ?? null));
+  const title = el("strong", "");
+  title.appendChild(bdi(body.source.label));
+  title.style.marginBlockStart = "var(--space-2)";
+  wrap.appendChild(title);
+  if (knowledge.brief !== null) {
+    const thesis = el("p", "");
+    thesis.appendChild(bdi(knowledge.brief.thesis.content));
+    wrap.appendChild(thesis);
+  }
+  if (knowledge.reason !== null && knowledge.reason !== undefined) {
+    wrap.appendChild(el("p", "mono", knowledge.reason));
+  }
+  if (extra) {
+    const line = el("p", "");
+    line.appendChild(bdi(extra));
+    line.style.color = "var(--fg-faint)";
+    wrap.appendChild(line);
+  }
+  return wrap;
+}
+
+// 1–2. A brief that is current, at both honest statuses. A brief may never
+// claim more than the run it was written from, so PARTIAL is a state to draw
+// rather than a shortfall to hide.
+demo(['source_knowledge.state="available"', 'status="PASS"'],
+  () => briefDemo(served.focus["youtube:fixture-pass"]));
+demo(['source_knowledge.state="available"', 'status="PARTIAL"'],
+  () => briefDemo(served.focus["youtube:fixture-partial"], t("source.brief.statusNote")));
+
+// 3. Stale: carried, with the state saying so. Not withheld, not refreshed.
+demo(['source_knowledge.state="stale"', 'brief!==null'],
+  () => briefDemo(served.stale, t("source.brief.staleNote")));
+
+// 4. Unavailable: a normal, possibly permanent condition (D-257).
+demo(['source_knowledge.state="unavailable"', 'brief===null'],
+  () => briefDemo(served.focus["youtube:fixture-fail"], t("source.brief.unavailableNote")));
+
+// 5. A bounded graph page, and the edge whose other end is not on it.
+demo(['data.truncated=true', `counts.relations_omitted=${served.bounded.counts.relations_omitted}`], () => {
+  const box = notice(
+    RTL ? "بخشی از گراف" : "Part of the graph",
+    t("map.state.truncated"),
+    t("source.counts.offPage"),
+  );
+  const counts = el("p", "mono",
+    `sources_returned=${served.bounded.counts.sources_returned} · ` +
+    `relations_returned=${served.bounded.counts.relations_returned} · ` +
+    `relations_omitted=${served.bounded.counts.relations_omitted} · ` +
+    `sources_total=${served.bounded.counts.sources_total}`);
+  box.appendChild(counts);
+  return box;
+});
+
+// 6. A bounded neighbourhood: the limit binds both directions together.
+demo(['neighborhood.truncated=true',
+      `in=${dense.bounded_focus.incoming.length} out=${dense.bounded_focus.outgoing.length}`],
+  () => notice(t("source.bound.title"), t("source.bound.bothDirections")));
+
+// 7. A source that relates to nothing still appears exactly once.
+demo(['incoming=[] outgoing=[]', 'the node is still returned'],
+  () => notice(
+    RTL ? "منبعی بدون هیچ نسبت" : "A source with no relationships",
+    t("source.relations.none")));
+
+// 8. A well-formed id the index does not hold. Absence is a return value.
+demo(["HTTP 404", `source_id="${served.unknown_source}"`],
+  () => notice(t("source.unknown.title"), t("source.unknown.note")));
+
+// 9. Omissions: two different causes, one counter.
+demo(["counts.relations_omitted", "bound cut · endpoint absent"],
+  () => notice(
+    RTL ? "نسبت‌های کنارگذاشته" : "Omitted relationships",
+    t("source.counts.omittedNote")));
+
+// 10–11. Two states the Knowledge Map already has words for. The no-WebGL
+// notice is the reason this row exists: the Source Map's whole reading path —
+// the brief, the relationships, their basis — is DOM, so none of it depends on
+// the drawing.
+demo(['data-map-canvas="unavailable"', "WebGL2"],
+  () => notice(t("map.renderer.unavailable"), t("map.renderer.unavailableNote")));
+demo(['data-map-canvas="nothing"', "empty index"],
+  () => notice(RTL ? "چیزی برای ترسیم نیست" : "There is no node to draw", t("map.empty")));
+
+// 12. What the Map refuses to say, drawn as a state of its own, because a
+// refusal that is only written down in a spec is a refusal nobody sees.
+demo(["D-247 · D-274", "no rank · no freshness"], () => {
+  const box = el("div", "notice");
+  box.appendChild(el("strong", "", t("source.refusals.title")));
+  const list = el("ul", "refusals");
+  list.append(el("li", "", t("source.refusals.rank")), el("li", "", t("source.refusals.freshness")));
+  box.appendChild(list);
+  return box;
+});
+
+window.__states = document.querySelectorAll(".demo").length;
+</script>
+</body>
+</html>

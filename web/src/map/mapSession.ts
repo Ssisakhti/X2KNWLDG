@@ -43,6 +43,7 @@
 
 import forceAtlas2 from "graphology-layout-forceatlas2";
 
+import type { IndexedRelation } from "../api/contract";
 import type { MapGraph } from "./graphProjection";
 import { cameraAnimation, type MapCameraAnimation } from "./motion";
 
@@ -160,7 +161,20 @@ export interface MapRenderer {
   nodeDisplay(globalId: string): MapPoint | null;
 }
 
-export type MapRendererFactory = (graph: MapGraph, container: HTMLElement) => MapRenderer;
+/**
+ * A renderer over a Map graph.
+ *
+ * Generic over the edge record, with the Knowledge Map's as the default, so
+ * `T-256`'s second caller — whose edges are `SourceRelationSummary`s — reaches
+ * the same session without a union or a cast. Nothing in the session or in the
+ * Sigma adapter reads an edge attribute: the reducers do, and each style table
+ * is paired with the graph it styles, so the edge record is the one part of
+ * this shape the seam has no opinion about.
+ */
+export type MapRendererFactory<E = IndexedRelation> = (
+  graph: MapGraph<E>,
+  container: HTMLElement,
+) => MapRenderer;
 
 /**
  * What the view wants to know when the canvas is used (`T-207`).
@@ -326,9 +340,9 @@ export interface MapLayoutMeasurement {
   milliseconds: number;
 }
 
-export interface MapSessionOptions {
+export interface MapSessionOptions<E = IndexedRelation> {
   container: HTMLElement;
-  createRenderer: MapRendererFactory;
+  createRenderer: MapRendererFactory<E>;
   /** Overridden only to re-measure D-121; defaults to what the gate measured. */
   iterations?: number;
   /** Injected for tests; `performance.now` in the browser. */
@@ -345,20 +359,20 @@ export interface MapSessionOptions {
  * are the `x`/`y` that ForceAtlas2 refines -- the two the projection seeds at
  * insertion and the layout exists to improve (D-124).
  */
-export class MapSession {
-  private readonly options: MapSessionOptions;
+export class MapSession<E = IndexedRelation> {
+  private readonly options: MapSessionOptions<E>;
   private readonly iterations: number;
   private readonly now: () => number;
 
   private renderer: MapRenderer | null = null;
-  private graph: MapGraph | null = null;
+  private graph: MapGraph<E> | null = null;
   private handlers: MapSessionHandlers;
 
   /** Every create and every kill, counted, so a leak shows up as a mismatch. */
   private created = 0;
   private killed = 0;
 
-  constructor(options: MapSessionOptions) {
+  constructor(options: MapSessionOptions<E>) {
     this.options = options;
     this.iterations = options.iterations ?? MAP_LAYOUT_ITERATIONS;
     this.now = options.now ?? (() => performance.now());
@@ -402,7 +416,7 @@ export class MapSession {
    * reproduce the picture the user last saw rather than a new arrangement of
    * the same graph.
    */
-  attach(graph: MapGraph): MapLayoutMeasurement {
+  attach(graph: MapGraph<E>): MapLayoutMeasurement {
     if (this.renderer !== null) this.kill();
     const layout = this.relax(graph);
     this.graph = graph;
@@ -685,7 +699,7 @@ export class MapSession {
    * Map does not hand-tune it, because a tuned constant measured once would
    * describe the tuning rather than the layout.
    */
-  private relax(graph: MapGraph): MapLayoutMeasurement {
+  private relax(graph: MapGraph<E>): MapLayoutMeasurement {
     const started = this.now();
     // An empty graph has nothing to relax, and `inferSettings` divides by its
     // order. An honest empty Map is a state the Map has to render (D-123's

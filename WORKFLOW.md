@@ -309,6 +309,90 @@ That historical verification does not remove the prerequisites for a new capture
 
 ---
 
+# Source synthesis, across a whole project
+
+Everything above produces **one run**. This stage is about a project that holds several,
+and it is the only part of this workflow that is not per-source: it produces a readable
+account of one source, and qualified relationships *between* sources. `T-257` added it
+here, and the ordering rule §8.9 states is why it was not here sooner — no task in
+Phase 2.3 documents a step in this file until there is behaviour, a validator **and** a
+surface that renders it. All three now exist, so the sequence is numbered rather than
+described only in `README.md`.
+
+Both steps are **optional**, both are gates, and both are derived knowledge rather than
+evidence. Neither re-grades a run: writing an account of a run does not change its verdict,
+so a brief over a `PARTIAL` run still exits `3`.
+
+## S1. A readable brief for one source
+
+Run after `apply-bundle` has written the run's knowledge, relationships and coverage —
+those three files are what the brief is derived from and what its digests are taken over.
+
+```bash
+# run prompts/06_source_knowledge.md over the run's canonical files
+x2knwldg apply-source-knowledge output/<run-id> source_knowledge.json
+```
+
+The document is a thesis, its key points and any limitations or tensions, in Persian, with
+**every statement naming the knowledge units it rests on**. The contract is
+`schemas/synthesis/v1/`, and the command refuses rather than writes when the brief names a
+unit the run does not hold, claims a status stronger than the run's own, or records input
+digests that no longer match the files. A refused brief leaves the run byte-identical; an
+accepted one changes exactly one file and does not restamp `extracted_at`.
+
+No evidence excerpt may appear in a brief, and none can: the contract has no field for one.
+A brief is an account *of* extracted knowledge, and quoting a source inside it would put
+unverifiable text where the run's own timed evidence belongs.
+
+A run with no brief is in the `unavailable` state, which is normal and possibly permanent
+rather than a shortfall. A run whose canonical files change afterwards makes its brief
+`stale`, and the brief is still carried with the state saying so.
+
+## S2. Relationships between whole sources
+
+Run once two or more sources have validated extractions.
+
+```bash
+x2knwldg source-candidates --output output
+# run prompts/07_source_relations.md over the pairs it lists
+x2knwldg apply-source-relations source_relations.json --output output
+```
+
+`source-candidates` is deterministic and **bounded**: it proposes a pair only where
+something specific points at it — a reference one source's artifacts actually record, or a
+canonical concept both contribute to — and it reports what it considered, what the bound
+left out, and how many ordered pairs existed at all. Comparing every pair is quadratic in
+the corpus and each comparison is a pass over two whole knowledge-unit sets, so the bound
+is the point rather than a limitation to work around.
+
+`apply-source-relations` is the gate and it does not take the pass's word for the bound: it
+**re-runs discovery** and refuses a relation for a pair nothing proposed, along with counts
+that disagree with a fresh run. It also refuses a basis unit belonging to the other
+endpoint, an `explicitly_references` claim the corpus cannot corroborate, a relation whose
+grounds all contradict its direction, a rationale that is not Persian, and any invented
+confidence — there is no field for one, and no score, rank or similarity is representable.
+Accepted records are written atomically to `output/synthesis/source_relations.json`.
+
+**Emitting no relation is a normal outcome, not a failure.** Two sources can share every
+concept in a field and stand in no relation at all. The candidate counts are what make an
+empty result readable, and a report that names the retrieval route it did not implement is
+telling the truth rather than producing nothing silently.
+
+## S3. Where this is read
+
+Both documents are rendered by the **Source Map**, at `#/map?of=sources` in the local UI
+that `x2knwldg ui` serves: one mark per acquired source, a readable brief for the selected one with
+its supporting knowledge-unit ids beside every statement, and each returned relationship as
+a row that expands into the unit pairs it rests on, each linking into that endpoint's own
+Reader. Nothing there is drawn from anything a record does not carry — no ranking, no
+weighting by basis count, and no claim that a relationship is still current, because the
+v1 shapes carry no per-relation staleness.
+
+The whole reading path is DOM: a browser with no WebGL2 loses the picture and keeps the
+brief, the relationships and the grounds.
+
+---
+
 # Unsupported source types
 
 Do not treat architectural readiness as ingestion support. Medium articles, generic web

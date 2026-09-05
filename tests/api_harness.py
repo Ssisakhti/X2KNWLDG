@@ -49,6 +49,20 @@ SCHEMA_FILES = (
     "indexed_relation.schema.json",
 )
 
+#: The pipeline's own contract directory (`T-251`). The source-graph components
+#: reach into it by relative ``$ref`` — a brief *is* a
+#: ``source_knowledge.json``, and a relation's basis pair *is* the one the
+#: canonical record declares — so a registry without these resolves nothing for
+#: `T-254`'s two responses and :func:`assert_contract` would fail on the ref
+#: rather than on the body.
+SYNTHESIS_DIR = PROJECT_ROOT / "schemas" / "synthesis" / "v1"
+SYNTHESIS_FILES = (
+    "primitives.schema.json",
+    "source_knowledge.schema.json",
+    "source_relation.schema.json",
+    "source_relations.schema.json",
+)
+
 ALL_FIXTURES = ("pass-run", "partial-run", "fail-run")
 
 #: The whole API layer is the `ui` extra. On a bare core install these tests do
@@ -190,7 +204,10 @@ def _registry() -> Any:
 
     resources = [
         (schema["$id"], Resource.from_contents(schema))
-        for schema in (_load(V1_DIR / name) for name in SCHEMA_FILES)
+        for schema in (
+            *(_load(V1_DIR / name) for name in SCHEMA_FILES),
+            *(_load(SYNTHESIS_DIR / name) for name in SYNTHESIS_FILES),
+        )
     ]
     resources.append(
         (OPENAPI_ID, Resource.from_contents(_load(OPENAPI_PATH), default_specification=DRAFT202012))

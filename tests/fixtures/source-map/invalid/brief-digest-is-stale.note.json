@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "gate",
+  "lie": "knowledge_units_sha256 is a real-looking digest that is not the file's. This is exactly what staleness detection exists to catch, so it must not be accepted as current."
+}

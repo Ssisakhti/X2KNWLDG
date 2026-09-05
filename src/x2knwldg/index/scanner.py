@@ -98,6 +98,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from .. import synthesis
 from ..adapters import (
     LIBRARY_DIR_NAME,
     AdapterError,
@@ -149,6 +150,19 @@ MODELS: tuple[tuple[str, str], ...] = (
 _MEMBER_TABLES: tuple[str, ...] = tuple(
     table for _model, table in MODELS if table != "sources"
 )
+
+#: The source layer's per-source tables (`T-254`). Separate from
+#: :data:`_MEMBER_TABLES` because that tuple is also what the library fragment
+#: is evicted from, and the library owns no source node and no brief: both of
+#: these declare ``source_id NOT NULL``, so a ``source_id IS NULL`` delete over
+#: them would be a statement about rows that cannot exist.
+_SOURCE_MEMBER_TABLES: tuple[str, ...] = ("source_entities", "source_briefs")
+
+#: Every table a whole build discards, in addition to the four record families.
+#: ``source_relations`` is here and not in :data:`_SOURCE_MEMBER_TABLES`: it
+#: belongs to the corpus rather than to any one source, exactly as the canonical
+#: file it is read from sits beside the runs rather than inside one (D-247).
+_SOURCE_TABLES: tuple[str, ...] = (*_SOURCE_MEMBER_TABLES, "source_relations")
 
 #: Separates the cheap fingerprint from the content hash inside one ``digest``.
 #: Both halves are hex, so the separator cannot occur inside either.
@@ -528,8 +542,10 @@ def _column_values(record: Mapping[str, Any], model: str) -> tuple[Any, ...]:
         status = record.get("status")
         overall = status.get("overall") if isinstance(status, Mapping) else None
         return (record.get("source_type"), overall)
-    if model == "artifact":
+    if model in ("artifact", "source_entity"):
         return (record.get("source_id"),)
+    if model == "source_relation":
+        return (record.get("from_source_id"), record.get("to_source_id"))
     if model == "entity_ref":
         confidence = record.get("confidence")
         numeric = isinstance(confidence, (int, float)) and not isinstance(confidence, bool)
@@ -561,6 +577,14 @@ _INSERTS: Mapping[str, str] = {
         "INSERT INTO relations (identity, digest, doc, source_id, relation_vocabulary, "
         "from_id, to_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ),
+    "source_entity": (
+        "INSERT INTO source_entities (identity, digest, doc, source_id) "
+        "VALUES (?, ?, ?, ?)"
+    ),
+    "source_relation": (
+        "INSERT INTO source_relations (identity, digest, doc, from_source_id, "
+        "to_source_id) VALUES (?, ?, ?, ?, ?)"
+    ),
 }
 
 
@@ -575,9 +599,13 @@ def _insert_records(connection: sqlite3.Connection, records: IndexRecords) -> No
     the belt that catches whatever the braces missed.
     """
     by_model = records.by_model()
-    for model, _table in MODELS:
+    families = [(model, by_model[model]) for model, _table in MODELS]
+    # `T-254`. The fifth family, stored into its own table rather than appended
+    # to `entities` — D-251 in the schema, not only in the adapter.
+    families.append(("source_entity", records.source_entities))
+    for model, rows in families:
         statement = _INSERTS[model]
-        for record in by_model[model]:
+        for record in rows:
             try:
                 connection.execute(
                     statement,
@@ -646,8 +674,67 @@ def _evict(connection: sqlite3.Connection, source_id: str | None) -> None:
             connection.execute(f"DELETE FROM {table} WHERE source_id IS NULL")
         return
     connection.execute("DELETE FROM sources WHERE identity = ?", (source_id,))
-    for table in _MEMBER_TABLES:
+    for table in (*_MEMBER_TABLES, *_SOURCE_MEMBER_TABLES):
         connection.execute(f"DELETE FROM {table} WHERE source_id = ?", (source_id,))
+
+
+def _write_brief(connection: sqlite3.Connection, run: _Run) -> None:
+    """Store what ``synthesis.brief_state`` said about one run's brief (`T-254`).
+
+    A row is written for **every** indexed run, including one with no brief at
+    all. ``unavailable`` with a reason is an answer about the source; a missing
+    row would make "this run has no brief" and "this run is not in the index"
+    the same silence, and the Source Map has to tell them apart.
+
+    ``doc`` is the document when there is one to show and ``NULL`` when there is
+    not — which is ``available`` and ``stale``, and not ``unavailable``. A stale
+    brief is carried rather than withheld: the record exists, it describes
+    inputs whose digests have moved, and the state says so out loud, which is
+    the whole reason ``stale`` is a state rather than an error.
+    """
+    if run.source_id is None or run.brief is None:
+        return
+    connection.execute(
+        "INSERT INTO source_briefs (source_id, state, reason, doc) VALUES (?, ?, ?, ?)",
+        (
+            run.source_id,
+            run.brief["state"],
+            run.brief["reason"],
+            None if run.brief["brief"] is None else json.dumps(run.brief["brief"]),
+        ),
+    )
+
+
+def _write_source_relations(connection: sqlite3.Connection, output_root: Path) -> None:
+    """Replace the stored cross-source synthesis with what the file holds (`T-254`).
+
+    Rewritten on **every** scan, whole or incremental, and deliberately without
+    a ``runs`` row of its own. ``output/synthesis/source_relations.json`` is one
+    small file that belongs to no run — ``io.NOT_A_RUN`` names its directory
+    beside ``library/`` — so there is no per-run digest that could decide it was
+    unchanged, and giving it a row in a table keyed by *run directory* would
+    make it look like a run to every count that reads that table. Re-reading one
+    file is cheaper than the bookkeeping that would avoid it.
+
+    The read is ``artifacts.source_relations_document``, the same function the
+    cache-free oracle uses, so a damaged file yields no relations on both paths
+    rather than an exception on one and an empty answer on the other. Imported
+    here rather than at module scope: the scanner is reachable from the CLI's
+    index branch, and ``artifacts`` pulls in the whole pipeline layer.
+    """
+    from ..artifacts import source_relations_document
+
+    connection.execute("DELETE FROM source_relations")
+    for relation in source_relations_document(output_root):
+        connection.execute(
+            _INSERTS["source_relation"],
+            (
+                identity(relation, "source_relation"),
+                content_digest(relation),
+                json.dumps(relation),
+                *_column_values(relation, "source_relation"),
+            ),
+        )
 
 
 # --------------------------------------------------------------------------
@@ -671,6 +758,12 @@ class _Run:
     source_id: str | None = None
     problems: tuple[str, ...] = ()
     reason: str | None = None
+    #: ``synthesis.brief_state`` for this run, or ``None`` when the run was not
+    #: re-read on this pass. Read here rather than in ``_apply`` because this is
+    #: the one place that has the run directory *and* has decided the run is
+    #: worth re-reading; an unchanged run keeps the row the last pass wrote,
+    #: which is the same bargain every other record family makes.
+    brief: dict[str, object] | None = None
     #: Whether this run had records in the index *before* this scan. It decides
     #: whether the library's cross-source projection can still be trusted.
     had_records: bool = False
@@ -755,6 +848,10 @@ def _examine(
         source_id=records.sources[0]["id"] if records.sources else None,
         problems=tuple(problems),
         had_records=had_records,
+        # `T-254`. Never raises, so a damaged brief cannot cost the run its
+        # index entry — which is the same promise `brief_state` makes one layer
+        # down, kept here rather than restated.
+        brief=synthesis.brief_state(run_dir),
     )
 
 
@@ -1156,6 +1253,12 @@ def _apply(
             connection.execute("DELETE FROM runs")
             for _model, table in MODELS:
                 connection.execute(f"DELETE FROM {table}")
+            # `T-254`. The source layer's tables are discarded with the rest:
+            # `build_index` promises to discard "whatever was stored", and a
+            # family left behind by that loop is exactly the defect D-088
+            # records for the search corpus.
+            for table in _SOURCE_TABLES:
+                connection.execute(f"DELETE FROM {table}")
             # D-088: `build_index`'s docstring promises it discards "whatever
             # was stored", and this loop discarded everything *except* the
             # search corpus — `documents` and the two FTS5 tables were left to
@@ -1198,7 +1301,11 @@ def _apply(
         for run in runs:
             if run.records is not None:
                 _insert_records(connection, run.records)
+            _write_brief(connection, run)
             _write_run(connection, run)
+        # `T-254`. After the runs, because a relation names two of them, and on
+        # every pass, because the file it is read from has no per-run digest.
+        _write_source_relations(connection, output_root)
         if rebuild_library_fragment:
             _insert_records(connection, library)
         _write_run(

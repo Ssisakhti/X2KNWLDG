@@ -11,6 +11,15 @@ Two identifier forms are real, and neither replaces the other:
     must keep emitting it. This module *adds* the global form alongside it and
     converts between the two; it never replaces one with the other.
 
+``SR-<16 hex digits>``
+    A **source relation** id (`T-251`, D-247), and the one identifier here that
+    is a digest rather than a spelling of its parts. It cannot be a spelling:
+    the record joins two source ids, and concatenating them would exceed every
+    length bound the other forms live inside. It is deterministic for the same
+    reason ``adapters.base.edge_id`` is — a rebuild must reach the identical set
+    — and :func:`source_relation_id` states exactly which four parts are
+    identity and which fields are content.
+
 The patterns here mirror ``schemas/v1/common.schema.json`` (D-015). The
 duplication is deliberate — the core package stays zero-dependency and cannot
 import ``jsonschema`` — and it is guarded: ``tests/test_ids.py`` fails the
@@ -26,11 +35,13 @@ listed in ``schemas/v1/README.md``:
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from .constants import SOURCE_RELATION_SCOPES, SOURCE_RELATION_TYPES
 from .io import require_seconds
 
 # --------------------------------------------------------------------------
@@ -66,6 +77,30 @@ CONCEPT_LIBRARY_PREFIX = "concept"
 #: Source type assumed for a canonical run whose ``metadata.json`` predates the
 #: field. Every existing run is a YouTube run.
 DEFAULT_SOURCE_TYPE = "youtube"
+
+#: The local id of the one entity that stands for a whole acquired source
+#: (D-244, `T-251`). ``EntityRef.entity_type`` has reserved ``source`` since
+#: `T-002`; this is the ``local_id`` half of the identity that reservation
+#: implies, so a source node is addressed as ``<source-type>:<external-id>:source``.
+#:
+#: The segment was free and is now claimed rather than assumed:
+#: ``YouTubeAdapter``'s raw artifact key is ``raw_source``, not ``source``, and
+#: ``IndexRecords.addressable`` claims this id in the same namespace as every
+#: artifact and entity, so a future adapter that spells an artifact key
+#: ``source`` is refused instead of silently overwriting the source node.
+SOURCE_ENTITY_LOCAL_ID = "source"
+
+#: Prefix and digest width of a ``SourceRelation`` id (D-247, `T-251`).
+SOURCE_RELATION_ID_PREFIX = "SR-"
+SOURCE_RELATION_DIGEST_LENGTH = 16
+
+#: The separator joining the parts of a source-relation digest. A unit
+#: separator cannot occur in a source id, a relation type or a scope — every
+#: part is validated against a closed vocabulary or ``ID_PART_PATTERN`` before
+#: it is joined — so the encoding is unambiguous by construction rather than by
+#: hope. ``adapters.base.edge_id`` escapes its separator for the same reason;
+#: here the parts cannot spell it at all.
+_DIGEST_SEPARATOR = "\x1f"
 
 
 def declared_source_type(metadata: Mapping[str, Any]) -> str:
@@ -301,6 +336,92 @@ def is_global_id(value: Any) -> bool:
 def concept_global_id(concept_hash: str) -> GlobalId:
     """Global id of a cross-source canonical concept (D-016)."""
     return make_global_id(LIBRARY_SOURCE_TYPE, LIBRARY_CONCEPTS_EXTERNAL_ID, concept_hash)
+
+
+def source_entity_global_id(source_id: SourceId | str) -> GlobalId:
+    """Global id of the entity that stands for a whole acquired source (D-244).
+
+    One per run, whatever the run's status: a ``FAIL`` run is a source that
+    exists, and a Source Map that quietly omitted it would be reporting a
+    smaller library than the one on disk.
+
+    Built rather than spelled, like every other id here, so the first invariant
+    of ``schemas/v1/README.md`` holds by construction: the parts and the whole
+    cannot disagree, and a malformed ``external_id`` is refused at the point the
+    adapter reads it rather than at the point the index tries to store it.
+    """
+    parsed = source_id if isinstance(source_id, SourceId) else parse_source_id(source_id)
+    return parsed.entity(SOURCE_ENTITY_LOCAL_ID)
+
+
+def source_relation_id(
+    from_source_id: Any, to_source_id: Any, relation_type: Any, scope: Any
+) -> str:
+    """The deterministic id of one ``SourceRelation`` (D-247, `T-251`).
+
+    ``SR-`` followed by the first 16 hex digits of the SHA-256 of the four parts
+    that *are* the relation's identity: the two endpoints in their recorded
+    order, the relation type, and the scope.
+
+    **What is identity, and what is content.** ``basis``, ``rationale`` and
+    ``generated_from`` are deliberately not in the digest. A later synthesis run
+    that finds a fourth ground for the same critique has learned more about one
+    relation, not discovered a second one, so it updates a record instead of
+    minting a new id and leaving the old one to be deleted by a path that could
+    forget to. What the digest *does* separate is what
+    ``SOURCE_MAP_SPEC.md`` §3.3 allows to coexist: two records between the same
+    pair of sources whose supported semantics differ.
+
+    **Direction is part of the identity.** ``critiques`` is not its own inverse,
+    so the two orderings of one pair are two ids and the arguments are never
+    sorted.
+
+    Every part is validated before it is hashed — the endpoints as source ids,
+    the type and scope against the closed vocabularies of
+    :mod:`x2knwldg.constants`. A digest over unvalidated input is a stable id
+    for a record that should never have existed.
+    """
+    endpoints = [
+        parse_source_id(_require_text(value, label)).value
+        for value, label in (
+            (from_source_id, "from_source_id"),
+            (to_source_id, "to_source_id"),
+        )
+    ]
+    if endpoints[0] == endpoints[1]:
+        raise IdError(
+            f"a source relation joins two different sources; both endpoints are "
+            f"{endpoints[0]!r}"
+        )
+    relation = _require_text(relation_type, "relation_type")
+    if relation not in SOURCE_RELATION_TYPES:
+        raise IdError(
+            f"relation_type {relation!r} is not one of the {len(SOURCE_RELATION_TYPES)} "
+            "source relation types"
+        )
+    qualifier = _require_text(scope, "scope")
+    if qualifier not in SOURCE_RELATION_SCOPES:
+        raise IdError(f"scope {qualifier!r} must be one of {sorted(SOURCE_RELATION_SCOPES)}")
+
+    payload = _DIGEST_SEPARATOR.join([*endpoints, relation, qualifier])
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"{SOURCE_RELATION_ID_PREFIX}{digest[:SOURCE_RELATION_DIGEST_LENGTH]}"
+
+
+def is_source_relation_id(value: Any) -> bool:
+    """Whether *value* has the shape a ``SourceRelation`` id is written in.
+
+    A shape check, not a proof: it says the string could have come from
+    :func:`source_relation_id`, never that it did. Only recomputing the digest
+    from the record's own endpoints, type and scope shows that, which is the
+    apply gate's job in `T-253`.
+    """
+    if not isinstance(value, str) or not value.startswith(SOURCE_RELATION_ID_PREFIX):
+        return False
+    digest = value[len(SOURCE_RELATION_ID_PREFIX) :]
+    return len(digest) == SOURCE_RELATION_DIGEST_LENGTH and all(
+        char in "0123456789abcdef" for char in digest
+    )
 
 
 # --------------------------------------------------------------------------

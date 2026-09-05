@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-01-01T00:00:00+00:00",
+  "candidates": {
+    "considered": 1,
+    "omitted": 0,
+    "bound": 25
+  },
+  "relations": [
+    {
+      "id": "SR-f596992c42435c40",
+      "from_source_id": "twitter:2094039408081068233",
+      "to_source_id": "youtube:fixture-pass",
+      "relation_type": "causes",
+      "scope": "partial",
+      "provenance_class": "derived",
+      "rationale": "این پستِ آزمایشی یکی از ادعاهای مشخصِ آن ویدیوی آزمایشی را نقد می‌کند؛ گسترهٔ (scope) نسبت جزئی است، چون تنها یک جفت واحد دانش پشتیبان آن است.",
+      "basis": [
+        {
+          "from_ku_id": "KU-000001",
+          "to_ku_id": "KU-000001",
+          "relation_type": "contradicts"
+        }
+      ],
+      "generated_from": {
+        "from_run_digest": "029ae4c7e20006f5da865859d5e20e751679f73e98ed2992ab66b109fd0c7c2d",
+        "to_run_digest": "58ecad539c115c87ab94d803903d2fc229457da6de291100040cf3fba6991292"
+      }
+    }
+  ]
+}

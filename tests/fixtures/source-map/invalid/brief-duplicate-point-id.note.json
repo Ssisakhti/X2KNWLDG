@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "gate",
+  "lie": "Two key points share SP-001. uniqueItems compares whole objects, so two points differing only in wording pass the schema; the gate compares ids."
+}

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x2knwldg.local/schemas/synthesis/v1/primitives.schema.json",
+  "title": "Source synthesis primitives (v1)",
+  "description": "Shared primitives for the two derived synthesis records of T-251: the per-run source brief and the cross-source relation. Self-contained on purpose — these are pipeline contracts, and schemas/v1/ describes nothing the pipeline writes, so a reference into it would run the dependency backwards. The identifier patterns therefore mirror src/x2knwldg/ids.py the way schemas/v1/common.schema.json does, and tests/test_source_map_schemas.py fails the moment one of them disagrees.",
+  "$defs": {
+    "schemaVersion": {
+      "description": "The record model version. The version is the directory: a breaking change becomes schemas/synthesis/v2/.",
+      "const": "1.0"
+    },
+    "sourceId": {
+      "$comment": "ids.SourceId — '<source-type>:<external-id>'. Two parts, never three: this addresses a source, not an entity inside one.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*:[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+      "maxLength": 300
+    },
+    "knowledgeUnitId": {
+      "$comment": "The unit's canonical local id inside its own run — 'KU-000001', 'KU-D-0001'. Local, not global: a brief belongs to one source and a basis entry names its endpoint separately, so repeating the source type in every id would be a second spelling of a fact already stated.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+      "maxLength": 256
+    },
+    "sourceRelationId": {
+      "$comment": "ids.source_relation_id — 'SR-' and 16 hex digits of a SHA-256 over the endpoints, the type and the scope. A pattern check is a shape check: only recomputing the digest proves the id belongs to the record, which is the apply gate's job (T-253).",
+      "type": "string",
+      "pattern": "^SR-[0-9a-f]{16}$"
+    },
+    "sourceRelationType": {
+      "description": "The eight source-to-source relation types. Mirrors constants.SOURCE_RELATION_TYPES, and deliberately not constants.RELATION_TYPES: that vocabulary joins two knowledge units, this one joins two whole sources, and 'supports' means a different-sized claim in each (risk R27).",
+      "enum": [
+        "explicitly_references",
+        "responds_to",
+        "critiques",
+        "supports",
+        "contradicts",
+        "extends",
+        "applies",
+        "overlaps_with"
+      ]
+    },
+    "sourceRelationScope": {
+      "description": "How much of the two sources the basis supports. Two values and no third: scope qualifies the claim, it does not measure it, and a percentage would be a number nothing produced (D-247).",
+      "enum": ["partial", "broad"]
+    },
+    "knowledgeRelationType": {
+      "description": "The KU-level canonical vocabulary, mirroring constants.RELATION_TYPES. A basis entry states how one unit relates to another; the source-level type is the aggregation over those, and the two vocabularies stay apart.",
+      "enum": [
+        "supports",
+        "contradicts",
+        "causes",
+        "contributes_to",
+        "depends_on",
+        "enables",
+        "inhibits",
+        "exemplifies",
+        "is_example_of",
+        "is_evidence_for",
+        "refines",
+        "qualifies",
+        "is_part_of",
+        "precedes",
+        "results_in",
+        "related_to"
+      ]
+    },
+    "runStatus": {
+      "description": "The status of the run a brief accounts for. UNKNOWN is absent on purpose: a brief is generated after extraction and coverage, so a run whose validators never ran has nothing to summarise, and 'UNKNOWN' here would be a brief claiming a run state nobody measured.",
+      "enum": ["PASS", "PARTIAL", "FAIL"]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "isoTimestamp": {
+      "$comment": "RFC 3339 with a required offset, exactly as schemas/v1/common.schema.json states it: a naive local time is not a point in time.",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]\\d{2}:\\d{2})$",
+      "maxLength": 64
+    },
+    "narrativeText": {
+      "description": "A Persian narrative statement, under the permanent output-language policy. The schema can require that text exists and is not empty; it cannot check which language it is in, so the policy is enforced by the apply gate (T-252) and by tests/test_output_language_policy.py, and this description is where the requirement is recorded rather than left implicit.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "supportList": {
+      "description": "The knowledge units a narrative statement rests on. Non-empty, always: an empty list asserts derived knowledge while showing no work, which is exactly what adapters.base._derived_refs refuses one layer down.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "primitives.schema.json#/$defs/knowledgeUnitId" }
+    }
+  }
+}

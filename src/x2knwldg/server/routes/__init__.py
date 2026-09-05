@@ -5,7 +5,10 @@ nothing in particular — FastAPI matches on the full path template, so
 ``/api/sources/{source_id}`` and ``/api/sources/{source_id}/entities`` do not
 compete — but ``graph`` declares ``/api/graph/neighborhood/{entity_id}``
 alongside ``/api/graph``, and keeping them in one module is what stops a later
-edit from separating them.
+edit from separating them. ``source_graph`` is the same arrangement one scale
+up (`T-254`), and it is a module of its own rather than two more routes in
+``graph``: the Knowledge Map and the Source Map are two Map modes over two
+record families, and D-249 is that neither may move the other.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from .entities import router as entities_router
 from .graph import router as graph_router
 from .media import router as media_router
 from .search import router as search_router
+from .source_graph import router as source_graph_router
 from .sources import router as sources_router
 from .status import router as status_router
 
@@ -25,4 +29,5 @@ ROUTERS = (
     media_router,
     search_router,
     graph_router,
+    source_graph_router,
 )

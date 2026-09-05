@@ -103,6 +103,10 @@ from ..repository import (
     RelationQuery,
     SearchQuery,
     SourceDetail,
+    SourceGraphPage,
+    SourceGraphQuery,
+    SourceNeighborhood,
+    SourceNeighborhoodQuery,
     SourceQuery,
     bounded_edges,
     encode_cursor,
@@ -114,6 +118,9 @@ from ..repository import (
     order_key,
     page_from_window,
     record_copy,
+    source_of,
+    source_relation_detail,
+    source_relation_summary,
 )
 from . import schema
 from .errors import SchemaTooNew, StoreError
@@ -129,6 +136,12 @@ _TABLES: Mapping[str, str] = {
     "artifact": "artifacts",
     "entity_ref": "entities",
     "indexed_relation": "relations",
+    # `T-254`. Two more families in two more tables, and a source node is
+    # deliberately not a row of `entities`: that table is what `/api/graph`,
+    # `/api/sources/{id}/entities` and every entity count read, and none of them
+    # filters on `entity_type` (D-251).
+    "source_entity": "source_entities",
+    "source_relation": "source_relations",
 }
 
 #: How many per-walk answers one repository keeps at once (D-188). A walk needs
@@ -952,6 +965,179 @@ class SqliteRepository:
         )
 
     # ------------------------------------------------------------------
+    # 2b. The source graph — `T-254`
+    # ------------------------------------------------------------------
+
+    @_serialized
+    def source_graph(self, query: SourceGraphQuery) -> SourceGraphPage:
+        """A page of source nodes with the relations among them.
+
+        The nodes page through :meth:`_page` like every other family, so the
+        cursor a client is handed here is minted by the same arithmetic and is
+        the same token ``MemoryRepository`` mints for the same position.
+
+        The relations do **not** page. They are read whole, filtered against the
+        page's nodes and bounded by
+        :func:`~x2knwldg.repository.base.bounded_edges` — the discipline
+        :meth:`graph` applies to edges, and for the same reason: a graph page is
+        a page of nodes, and an edge list is what travels with them. Reading
+        them whole is affordable by construction, because discovery is bounded
+        per source (``MAX_SOURCE_CANDIDATES``) and the bound is reported
+        upstream rather than left to grow here.
+        """
+        self._require_ready()
+        page = self._page("source_entity", query, lambda _record: True)
+
+        indexed = self._indexed_source_ids()
+        on_page = {source_of(node) for node in page.items}
+        touching: list[dict[str, Any]] = []
+        unindexed = 0
+        for relation in self._stored_source_relations():
+            endpoints = _endpoints(relation)
+            if not endpoints <= indexed:
+                # A relation naming a source this index does not hold cannot be
+                # drawn — it would assert a node the client has no record for —
+                # and it is counted rather than dropped in silence.
+                unindexed += 1
+                continue
+            if endpoints & on_page:
+                touching.append(relation)
+        summaries, cut = bounded_edges(
+            [source_relation_summary(relation) for relation in touching]
+        )
+        return SourceGraphPage(
+            nodes=page.items,
+            relations=summaries,
+            truncated=(page.total is not None and len(page.items) < page.total) or cut,
+            relations_omitted=unindexed + len(touching) - len(summaries),
+            limit=page.limit,
+            next_cursor=page.next_cursor,
+            total=page.total,
+        )
+
+    @_serialized
+    def source_neighborhood(
+        self, query: SourceNeighborhoodQuery
+    ) -> SourceNeighborhood | None:
+        """One source, its brief, and its qualified relations in both directions.
+
+        ``limit`` bounds the relations across both directions and is applied in
+        id order before the split, so a bound cannot erase one direction while
+        the other is still short of it. ``MemoryRepository`` applies it the same
+        way; the two are compared page for page.
+        """
+        self._require_ready()
+        node = self._source_entity(query.source_id)
+        if node is None:
+            return None
+
+        indexed = self._indexed_source_ids()
+        touching = [
+            relation
+            for relation in self._stored_source_relations()
+            if query.source_id in _endpoints(relation) and _endpoints(relation) <= indexed
+        ]
+        carried = touching[: query.limit]
+        neighbours = sorted(
+            {
+                other
+                for relation in carried
+                for other in _endpoints(relation)
+                if other != query.source_id
+            }
+        )
+        return SourceNeighborhood(
+            center_id=node["global_id"],
+            source=node,
+            source_knowledge=self._brief(query.source_id),
+            incoming=[
+                source_relation_detail(relation)
+                for relation in carried
+                if relation.get("to_source_id") == query.source_id
+            ],
+            outgoing=[
+                source_relation_detail(relation)
+                for relation in carried
+                if relation.get("from_source_id") == query.source_id
+            ],
+            neighbors=[
+                found
+                for other in neighbours
+                if (found := self._source_entity(other)) is not None
+            ],
+            truncated=len(carried) < len(touching),
+        )
+
+    def _source_entity(self, source_id: str) -> dict[str, Any] | None:
+        """The node that stands for one whole source, or ``None``.
+
+        Sought on the extracted ``source_id`` column rather than on the node's
+        global id: the caller holds a two-part source id, and rebuilding the
+        three-part id from it here would be this module deriving an identifier
+        the record already carries.
+        """
+        row = self._query(
+            "SELECT identity, digest, doc FROM source_entities WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()
+        return None if row is None else self._document(row, "source_entities")
+
+    def _indexed_source_ids(self) -> set[str]:
+        """Every source this index holds a node for."""
+        return {
+            row["source_id"]
+            for row in self._query("SELECT source_id FROM source_entities").fetchall()
+        }
+
+    def _stored_source_relations(self) -> list[dict[str, Any]]:
+        """The accepted cross-source synthesis, in id order.
+
+        In id order because that is the order the oracle reads the canonical
+        file into, and the id is deterministic over the endpoints, the type and
+        the scope (D-252) — so neither implementation has to store a position
+        for the two to agree. The *basis* keeps the order the record states,
+        which :func:`~x2knwldg.repository.base.source_relation_detail` does not
+        touch.
+        """
+        rows = self._query(
+            "SELECT identity, digest, doc FROM source_relations ORDER BY identity"
+        ).fetchall()
+        return [self._document(row, "source_relations") for row in rows]
+
+    def _brief(self, source_id: str) -> dict[str, Any]:
+        """``SourceKnowledgeAvailability`` for one source, as the scan stored it.
+
+        Read back rather than recomputed: ``synthesis.brief_state`` needs the
+        run's three canonical files, and this class does not open one. The scan
+        that wrote the row called that same function, so the answer is the
+        oracle's answer as of the last pass — which is what every other row in
+        this index already is.
+
+        A source with **no row** is ``unavailable``. That is a real state: a run
+        the scanner skipped has a node from no pass and a brief from no pass,
+        and answering "there is no brief to show" is true of it.
+        """
+        row = self._query(
+            "SELECT state, reason, doc FROM source_briefs WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()
+        if row is None:
+            return {
+                "state": "unavailable",
+                "brief": None,
+                "reason": "no source_knowledge.json",
+            }
+        document = None
+        if row["doc"] is not None:
+            try:
+                document = json.loads(row["doc"])
+            except (TypeError, ValueError) as exc:
+                raise StoreError(
+                    "source_briefs holds a row that is not a readable brief"
+                ) from exc
+        return {"state": row["state"], "brief": document, "reason": row["reason"]}
+
+    # ------------------------------------------------------------------
     # 3. Paging — the seek, the short-page loop, and the shared arithmetic
     # ------------------------------------------------------------------
 
@@ -1293,6 +1479,11 @@ def _offset(query: SearchQuery) -> int:
 def _encode_offset(query: SearchQuery, offset: int) -> str:
     """The token for the next window of a ranked list."""
     return encode_cursor(query.fingerprint, str(offset))
+
+
+def _endpoints(relation: Mapping[str, Any]) -> set[str]:
+    """The two source ids a stored source relation joins."""
+    return {str(relation.get("from_source_id")), str(relation.get("to_source_id"))}
 
 
 def _vocabulary_filter(query: NeighborhoodQuery) -> GraphQuery:

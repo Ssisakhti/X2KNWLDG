@@ -195,6 +195,59 @@ work for both supported sources:
 Completion may be claimed only when the command exits `0`. A `PARTIAL` run is a real,
 inspectable deliverable, but it is not a pass.
 
+### Optional: a readable brief for one source
+
+After `apply-bundle` has written a run's knowledge, relations and coverage, one further
+pass can produce a short Persian account of the whole source — a thesis, its key points,
+and any limitations — with every statement naming the knowledge units it rests on:
+
+```bash
+.venv/bin/x2knwldg apply-source-knowledge output/<run-id> source_knowledge.json
+```
+
+The document comes from [`prompts/06_source_knowledge.md`](prompts/06_source_knowledge.md)
+and the contract is [`schemas/synthesis/v1/`](schemas/synthesis/v1/README.md). The command
+is a **gate**: a brief whose support names units the run does not hold, whose status is
+stronger than the run's own, or whose recorded input digests no longer match the files is
+refused rather than written. It is derived knowledge, never evidence — no evidence excerpt
+may appear in it, and none can: the contract has no field for one.
+
+The exit code is the **run's** standing verdict, not the brief's. Writing an account of a
+run does not re-grade it, so a brief over a `PARTIAL` run still exits `3`.
+
+This step is optional and deliberately absent from `WORKFLOW.md`'s numbered sequence: the
+Source Map surfaces that display a brief are still being built (`T-256`), so today the
+document is written, validated and indexed but not rendered anywhere.
+
+### Optional: relations between whole sources
+
+Once two or more sources have validated extractions, one more pass can propose qualified,
+directional relationships between them — *this thread critiques that video* — each resting
+on named knowledge-unit pairs:
+
+```bash
+.venv/bin/x2knwldg source-candidates --output output
+# run prompts/07_source_relations.md over the pairs it lists
+.venv/bin/x2knwldg apply-source-relations source_relations.json --output output
+```
+
+`source-candidates` is deterministic and **bounded**: it proposes a pair only when something
+specific points at it — a reference one source's artifacts actually record, or a canonical
+concept both contribute to — and it reports what it considered, what the bound left out, and
+how many ordered pairs existed. Comparing every pair is quadratic in the corpus, and each
+comparison is a pass over two whole knowledge-unit sets.
+
+`apply-source-relations` is a gate, and it does not take the pass's word for the bound: it
+re-runs discovery and refuses a relation for a pair nothing proposed, along with counts that
+disagree. It also refuses a basis unit that belongs to the other endpoint, an
+`explicitly_references` claim the corpus cannot corroborate, a relation whose grounds all
+contradict it, and any invented confidence — there is no field for one. Accepted records are
+written atomically to `output/synthesis/source_relations.json`.
+
+Emitting **no relation** is a normal outcome, not a failure. Two sources can share every
+concept in a field and stand in no relation at all; the candidate counts are what make an
+empty result readable. As with the brief, nothing renders these yet (`T-256`).
+
 ## Local Knowledge Canvas
 
 Install and build the optional local UI:

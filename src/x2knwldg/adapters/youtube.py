@@ -196,6 +196,7 @@ class YouTubeAdapter(SourceAdapter):
                 artifacts=artifacts,
                 entities=entities,
                 relations=relations,
+                source_entities=[self._source_entity(run_dir, source_id, metadata)],
             )
         )
 
@@ -284,6 +285,11 @@ class YouTubeAdapter(SourceAdapter):
             adapter_metadata["unmappable_artifacts"] = unmappable
         if damaged:
             adapter_metadata["unreadable_files"] = damaged
+        # `T-252`: whether the run's brief still describes the run as it is now.
+        # Absent when there is none, so no existing record moves (D-257).
+        brief = self._source_knowledge_metadata(run_dir)
+        if brief is not None:
+            adapter_metadata["source_knowledge"] = brief
         return {
             "schema_version": SCHEMA_VERSION,
             "id": source_id.value,
@@ -397,6 +403,13 @@ class YouTubeAdapter(SourceAdapter):
         video = self._video_artifact(run_dir, source_id, metadata)
         if video is not None:
             artifacts.append(video)
+
+        # `T-252`: emitted only when the run has a brief (D-257).
+        brief = self._source_knowledge_artifact(
+            run_dir, source_id, hash_artifacts, unmappable
+        )
+        if brief is not None:
+            artifacts.append(brief)
         return artifacts
 
     def _raw_source_spec(self, run_dir: Path) -> ArtifactSpec | None:

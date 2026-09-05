@@ -35,6 +35,7 @@ import pytest
 
 from x2knwldg.artifacts import _carry_coverage_scaffold_forward, apply_extraction_bundle
 from x2knwldg.constants import COVERAGE_WINDOW_SEC, DERIVED_KINDS, SOURCE_KINDS
+from x2knwldg.ids import source_relation_id
 from x2knwldg.pipeline import PipelineError
 from x2knwldg.validators import (
     MAX_AUDIT_ATTEMPTS,
@@ -47,6 +48,8 @@ from x2knwldg.validators import (
     validate_post_provenance,
     validate_provenance,
     validate_relationships,
+    validate_source_knowledge,
+    validate_source_relations,
 )
 
 VIDEO_ID = "vid12345678"
@@ -1401,6 +1404,502 @@ def test_post_unit_defects_are_named(code: str, document: Any) -> None:
     assert code in {error["code"] for error in result["errors"]}
 
 
+# --------------------------------------------------------------------------
+# The source brief's rejection codes (`T-252`)
+# --------------------------------------------------------------------------
+#
+# Cased here rather than only in `tests/test_source_knowledge_gate.py` for the
+# reason every other group in this file is: that suite drives whole documents
+# through the gate and proves the gate refuses them; this one proves each
+# individual branch still fires. The two answer different questions, and the
+# `test_every_emittable_code_is_covered_here` guard is about this one.
+
+_BRIEF_RUN_STATUS = "PASS"
+_BRIEF_UNITS = {"KU-000001", "KU-000002"}
+_BRIEF_SOURCE_ID = "youtube:fixture-pass"
+_BRIEF_DIGESTS = {
+    "knowledge_units_sha256": "a" * 64,
+    "relationships_sha256": "b" * 64,
+    "coverage_sha256": "c" * 64,
+}
+
+
+def _statement(**changes: Any) -> dict[str, Any]:
+    statement = {"content": "روایتی به فارسی.", "based_on": ["KU-000001"]}
+    statement.update(changes)
+    return statement
+
+
+def _point(**changes: Any) -> dict[str, Any]:
+    point = {"id": "SP-001", **_statement()}
+    point.update(changes)
+    return point
+
+
+def _brief(**changes: Any) -> dict[str, Any]:
+    document = {
+        "schema_version": "1.0",
+        "source_id": _BRIEF_SOURCE_ID,
+        "status": "PASS",
+        "thesis": _statement(),
+        "key_points": [_point()],
+        "limitations_or_tensions": [],
+        "generated_from": dict(_BRIEF_DIGESTS),
+    }
+    document.update(changes)
+    return document
+
+
+#: ``(code, document, run_status)``. The run status varies only where the code
+#: is about it.
+SOURCE_KNOWLEDGE_CODES: list[tuple[str, Any, str]] = [
+    ("not_an_object", ["not", "a", "brief"], _BRIEF_RUN_STATUS),
+    ("missing_field", {"schema_version": "1.0"}, _BRIEF_RUN_STATUS),
+    ("unknown_field", _brief(notes="a key nobody consumes"), _BRIEF_RUN_STATUS),
+    (
+        "unknown_schema_version",
+        _brief(schema_version="2.0"),
+        _BRIEF_RUN_STATUS,
+    ),
+    ("source_id_mismatch", _brief(source_id="twitter:20"), _BRIEF_RUN_STATUS),
+    ("unknown_status", _brief(status="OK"), _BRIEF_RUN_STATUS),
+    ("run_has_no_verdict", _brief(), "UNKNOWN"),
+    ("status_stronger_than_run", _brief(status="PASS"), "PARTIAL"),
+    (
+        "generated_from_not_an_object",
+        _brief(generated_from="a" * 64),
+        _BRIEF_RUN_STATUS,
+    ),
+    (
+        "missing_digest",
+        _brief(generated_from={"knowledge_units_sha256": "a" * 64}),
+        _BRIEF_RUN_STATUS,
+    ),
+    (
+        "unknown_digest",
+        _brief(generated_from={**_BRIEF_DIGESTS, "transcript_sha256": "d" * 64}),
+        _BRIEF_RUN_STATUS,
+    ),
+    (
+        "stale_input",
+        _brief(generated_from={**_BRIEF_DIGESTS, "coverage_sha256": "0" * 64}),
+        _BRIEF_RUN_STATUS,
+    ),
+    ("not_an_array", _brief(key_points="SP-001"), _BRIEF_RUN_STATUS),
+    ("no_key_points", _brief(key_points=[]), _BRIEF_RUN_STATUS),
+    ("statement_not_an_object", _brief(key_points=["SP-001"]), _BRIEF_RUN_STATUS),
+    (
+        "missing_point_id",
+        _brief(key_points=[{k: v for k, v in _point().items() if k != "id"}]),
+        _BRIEF_RUN_STATUS,
+    ),
+    (
+        "duplicate_point_id",
+        _brief(key_points=[_point(), _point(content="نکتهٔ دیگر با همان شناسه.")]),
+        _BRIEF_RUN_STATUS,
+    ),
+    ("invalid_point_id", _brief(key_points=[_point(id="SP 001")]), _BRIEF_RUN_STATUS),
+    ("empty_content", _brief(thesis=_statement(content="   ")), _BRIEF_RUN_STATUS),
+    (
+        "narrative_not_in_persian_script",
+        _brief(thesis=_statement(content="A brief written in English.")),
+        _BRIEF_RUN_STATUS,
+    ),
+    (
+        "support_not_an_array",
+        _brief(thesis=_statement(based_on="KU-000001")),
+        _BRIEF_RUN_STATUS,
+    ),
+    ("empty_support", _brief(thesis=_statement(based_on=[])), _BRIEF_RUN_STATUS),
+    (
+        "unknown_support",
+        _brief(thesis=_statement(based_on=["KU-999999"])),
+        _BRIEF_RUN_STATUS,
+    ),
+    (
+        "duplicate_support",
+        _brief(thesis=_statement(based_on=["KU-000001", "KU-000001"])),
+        _BRIEF_RUN_STATUS,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "code,document,run_status",
+    SOURCE_KNOWLEDGE_CODES,
+    ids=[c for c, _, _ in SOURCE_KNOWLEDGE_CODES],
+)
+def test_source_knowledge_defects_are_named(code: str, document: Any, run_status: str) -> None:
+    result = validate_source_knowledge(
+        document,
+        unit_ids=set(_BRIEF_UNITS),
+        source_id=_BRIEF_SOURCE_ID,
+        run_status=run_status,
+        current_digests=dict(_BRIEF_DIGESTS),
+    )
+    assert result["status"] == "FAIL"
+    assert code in {error["code"] for error in result["errors"]}
+
+
+def test_an_honest_brief_is_accepted() -> None:
+    """The list above is only meaningful while the baseline passes."""
+    result = validate_source_knowledge(
+        _brief(),
+        unit_ids=set(_BRIEF_UNITS),
+        source_id=_BRIEF_SOURCE_ID,
+        run_status=_BRIEF_RUN_STATUS,
+        current_digests=dict(_BRIEF_DIGESTS),
+    )
+    assert result == {"status": "PASS", "errors": [], "warnings": []}
+
+
+def test_an_excerpt_smuggled_into_a_statement_is_refused() -> None:
+    """``additionalProperties: false`` holds one level down, where it matters.
+
+    The top level of a brief has no plausible place to put evidence in; a thesis
+    does. This branch was missing when the gate was first written — the schema
+    refused the document and the runtime validator did not, which is the whole
+    distance between "enforced in CI" and "enforced".
+    """
+    result = validate_source_knowledge(
+        _brief(thesis=_statement(evidence_excerpt="A knowledge unit must carry it.")),
+        unit_ids=set(_BRIEF_UNITS),
+        source_id=_BRIEF_SOURCE_ID,
+        run_status=_BRIEF_RUN_STATUS,
+        current_digests=dict(_BRIEF_DIGESTS),
+    )
+    codes = {error["code"] for error in result["errors"]}
+    assert "unknown_field" in codes
+    assert any(
+        "evidence_excerpt" in (error.get("fields") or [])
+        for error in result["errors"]
+        if error["code"] == "unknown_field"
+    )
+
+
+def test_the_script_check_does_not_claim_to_identify_a_language() -> None:
+    """Perso-Arabic text passes; that is all the check establishes.
+
+    Asserted so the one-directional reading stays true: a validator that started
+    rejecting Persian it disliked, or accepting English it recognised, would be
+    claiming to have solved language identification.
+    """
+    for content in (
+        "متن فارسی.",
+        "متن فارسی با اصطلاح (technical term) انگلیسی.",
+        "نص عربي.",  # Arabic, not Persian — and not this check's business
+    ):
+        result = validate_source_knowledge(
+            _brief(thesis=_statement(content=content)),
+            unit_ids=set(_BRIEF_UNITS),
+            source_id=_BRIEF_SOURCE_ID,
+            run_status=_BRIEF_RUN_STATUS,
+            current_digests=dict(_BRIEF_DIGESTS),
+        )
+        assert result["status"] == "PASS", content
+
+
+# --------------------------------------------------------------------------
+# The cross-source relation's rejection codes (`T-253`)
+# --------------------------------------------------------------------------
+#
+# Same discipline as every group above: one case per branch, so a rejection that
+# stops firing fails a test rather than quietly widening the gate. The corpus is
+# two invented sources with two units each, because what these rules are about
+# is *which* source owns *which* unit, and that only becomes visible when both
+# sides use the same local ids — which is exactly what the real fixtures do.
+
+_REL_FROM = "twitter:20"
+_REL_TO = "youtube:fixture-pass"
+_REL_UNITS = {
+    _REL_FROM: frozenset({"KU-000001", "KU-D-0001"}),
+    _REL_TO: frozenset({"KU-000001", "KU-D-0001"}),
+}
+_REL_DIGESTS = {_REL_FROM: "a" * 64, _REL_TO: "b" * 64}
+_REL_PAIRS = frozenset({(_REL_FROM, _REL_TO)})
+_REL_COUNTS = {"considered": 1, "omitted": 0, "bound": 25, "pairs_in_corpus": 2}
+
+
+def _ground(**changes: Any) -> dict[str, Any]:
+    ground = {
+        "from_ku_id": "KU-000001",
+        "to_ku_id": "KU-000001",
+        "relation_type": "contradicts",
+    }
+    ground.update(changes)
+    return ground
+
+
+def _relation(**changes: Any) -> dict[str, Any]:
+    relation = {
+        "id": source_relation_id(_REL_FROM, _REL_TO, "critiques", "partial"),
+        "from_source_id": _REL_FROM,
+        "to_source_id": _REL_TO,
+        "relation_type": "critiques",
+        "scope": "partial",
+        "provenance_class": "derived",
+        "rationale": "این منبع، یکی از ادعاهای منبع دیگر را نقد می\u200cکند.",
+        "basis": [_ground()],
+        "generated_from": {
+            "from_run_digest": _REL_DIGESTS[_REL_FROM],
+            "to_run_digest": _REL_DIGESTS[_REL_TO],
+        },
+    }
+    relation.update(changes)
+    return relation
+
+
+def _container(**changes: Any) -> dict[str, Any]:
+    document = {
+        "schema_version": "1.0",
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "candidates": dict(_REL_COUNTS),
+        "relations": [_relation()],
+    }
+    document.update(changes)
+    return document
+
+
+def _retyped(relation_type: str, scope: str = "partial", **changes: Any) -> dict[str, Any]:
+    """A relation whose id matches the type and scope it states."""
+    return _relation(
+        id=source_relation_id(_REL_FROM, _REL_TO, relation_type, scope),
+        relation_type=relation_type,
+        scope=scope,
+        **changes,
+    )
+
+
+SOURCE_RELATION_CODES: list[tuple[str, Any]] = [
+    ("not_an_object", ["not", "a", "container"]),
+    ("missing_field", {"schema_version": "1.0"}),
+    ("unknown_field", _container(notes="a key nobody consumes")),
+    ("unknown_schema_version", _container(schema_version="2.0")),
+    ("candidates_not_an_object", _container(candidates=1)),
+    (
+        "missing_candidate_count",
+        _container(candidates={"considered": 1, "bound": 25}),
+    ),
+    (
+        "unknown_candidate_count",
+        _container(candidates={**_REL_COUNTS, "score": 0.9}),
+    ),
+    (
+        "candidate_counts_mismatch",
+        _container(candidates={**_REL_COUNTS, "considered": 99}),
+    ),
+    ("relations_not_an_array", _container(relations={})),
+    ("relation_not_an_object", _container(relations=["SR-0000000000000000"])),
+    (
+        "missing_relation_field",
+        _container(relations=[{k: v for k, v in _relation().items() if k != "scope"}]),
+    ),
+    ("unknown_relation_field", _container(relations=[_relation(confidence=0.9)])),
+    (
+        "unknown_source",
+        _container(relations=[_relation(from_source_id="youtube:not-acquired")]),
+    ),
+    (
+        "self_relation",
+        _container(relations=[_relation(from_source_id=_REL_TO)]),
+    ),
+    ("unknown_relation_type", _container(relations=[_relation(relation_type="causes")])),
+    ("unknown_scope", _container(relations=[_relation(scope="80%")])),
+    (
+        "provenance_not_derived",
+        _container(relations=[_relation(provenance_class="source")]),
+    ),
+    (
+        "relation_id_mismatch",
+        _container(relations=[_relation(id="SR-0123456789abcdef")]),
+    ),
+    ("empty_rationale", _container(relations=[_relation(rationale="   ")])),
+    (
+        "narrative_not_in_persian_script",
+        _container(relations=[_relation(rationale="This thread critiques the video.")]),
+    ),
+    ("basis_not_an_array", _container(relations=[_relation(basis="KU-000001")])),
+    ("empty_basis", _container(relations=[_relation(basis=[])])),
+    ("basis_entry_not_an_object", _container(relations=[_relation(basis=["KU-000001"])])),
+    (
+        "missing_basis_field",
+        _container(relations=[_relation(basis=[{"from_ku_id": "KU-000001"}])]),
+    ),
+    (
+        "unknown_basis_field",
+        _container(relations=[_relation(basis=[_ground(weight=1)])]),
+    ),
+    (
+        "unknown_basis_relation_type",
+        _container(relations=[_relation(basis=[_ground(relation_type="critiques")])]),
+    ),
+    (
+        "basis_unit_not_owned_by_endpoint",
+        _container(relations=[_relation(basis=[_ground(from_ku_id="KU-999999")])]),
+    ),
+    (
+        "duplicate_basis_pair",
+        _container(relations=[_relation(basis=[_ground(), _ground()])]),
+    ),
+    (
+        # Every ground points the other way: a `supports` resting entirely on
+        # `contradicts` pairs is an inversion, not a mixed basis.
+        "direction_incompatible_with_basis",
+        _container(relations=[_retyped("supports", basis=[_ground(relation_type="contradicts")])]),
+    ),
+    (
+        "explicit_reference_without_evidence",
+        _container(relations=[_retyped("explicitly_references")]),
+    ),
+    (
+        "pair_was_not_a_candidate",
+        _container(
+            relations=[
+                _relation(
+                    id=source_relation_id(_REL_TO, _REL_FROM, "critiques", "partial"),
+                    from_source_id=_REL_TO,
+                    to_source_id=_REL_FROM,
+                    generated_from={
+                        "from_run_digest": _REL_DIGESTS[_REL_TO],
+                        "to_run_digest": _REL_DIGESTS[_REL_FROM],
+                    },
+                )
+            ]
+        ),
+    ),
+    (
+        "relation_digests_not_an_object",
+        _container(relations=[_relation(generated_from="a" * 64)]),
+    ),
+    (
+        "missing_relation_digest",
+        _container(relations=[_relation(generated_from={"from_run_digest": "a" * 64})]),
+    ),
+    (
+        "unknown_relation_digest",
+        _container(
+            relations=[
+                _relation(
+                    generated_from={
+                        "from_run_digest": _REL_DIGESTS[_REL_FROM],
+                        "to_run_digest": _REL_DIGESTS[_REL_TO],
+                        "library_digest": "c" * 64,
+                    }
+                )
+            ]
+        ),
+    ),
+    (
+        "stale_endpoint_digest",
+        _container(
+            relations=[
+                _relation(
+                    generated_from={
+                        "from_run_digest": "0" * 64,
+                        "to_run_digest": _REL_DIGESTS[_REL_TO],
+                    }
+                )
+            ]
+        ),
+    ),
+    ("duplicate_relation_id", _container(relations=[_relation(), _relation()])),
+]
+
+
+@pytest.mark.parametrize(
+    "code,document",
+    SOURCE_RELATION_CODES,
+    ids=[c for c, _ in SOURCE_RELATION_CODES],
+)
+def test_source_relation_defects_are_named(code: str, document: Any) -> None:
+    result = validate_source_relations(
+        document,
+        units_by_source=_REL_UNITS,
+        digests_by_source=_REL_DIGESTS,
+        considered_pairs=_REL_PAIRS,
+        explicit_reference_pairs=frozenset(),
+        candidate_counts=dict(_REL_COUNTS),
+    )
+    assert result["status"] == "FAIL"
+    assert code in {error["code"] for error in result["errors"]}
+
+
+def _accepted(document: Any, **overrides: Any) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "units_by_source": _REL_UNITS,
+        "digests_by_source": _REL_DIGESTS,
+        "considered_pairs": _REL_PAIRS,
+        "explicit_reference_pairs": frozenset(),
+        "candidate_counts": dict(_REL_COUNTS),
+    }
+    kwargs.update(overrides)
+    return validate_source_relations(document, **kwargs)
+
+
+def test_an_honest_relation_container_is_accepted() -> None:
+    """The list above is only meaningful while the baseline passes."""
+    assert _accepted(_container()) == {"status": "PASS", "errors": [], "warnings": []}
+
+
+def test_a_container_with_no_relations_is_accepted() -> None:
+    """The no-relation case. Nothing related is a finding, not a failure.
+
+    ``SOURCE_MAP_SPEC.md`` §4: the comparison pass "may emit no relation", and an
+    emitted relation is never the measure of a successful run. The candidate
+    counts are what keep the empty result readable.
+    """
+    assert _accepted(_container(relations=[]))["status"] == "PASS"
+
+
+def test_mixed_support_survives() -> None:
+    """A contrary ground beside agreeing ones is retained, never hidden.
+
+    The polarity check fires only on a total inversion, and this is the case
+    that proves it does not fire on the honest one: `SOURCE_MAP_SPEC.md` §4
+    requires mixed evidence to be kept in the record where a reader can see it.
+    """
+    mixed = _retyped(
+        "supports",
+        basis=[
+            _ground(relation_type="supports"),
+            _ground(to_ku_id="KU-D-0001", relation_type="contradicts"),
+        ],
+    )
+    assert _accepted(_container(relations=[mixed]))["status"] == "PASS"
+
+
+def test_a_neutral_relation_is_never_refused_for_polarity() -> None:
+    """`overlaps_with` asserts neither agreement nor disagreement."""
+    overlap = _retyped(
+        "overlaps_with", "broad", basis=[_ground(relation_type="contradicts")]
+    )
+    assert _accepted(_container(relations=[overlap]))["status"] == "PASS"
+
+
+def test_an_explicit_reference_with_corroboration_is_accepted() -> None:
+    """The route that reads external_references is what corroborates it."""
+    relation = _retyped("explicitly_references")
+    result = _accepted(
+        _container(relations=[relation]), explicit_reference_pairs=_REL_PAIRS
+    )
+    assert result["status"] == "PASS"
+
+
+def test_two_relations_between_one_pair_may_coexist() -> None:
+    """When their supported semantics differ — `SOURCE_MAP_SPEC.md` §3.3.
+
+    The ids differ because type and scope are part of the identity (D-252), so
+    the duplicate-id rule does not fire and both records stand.
+    """
+    document = _container(
+        relations=[
+            _retyped("critiques", "partial"),
+            _retyped("overlaps_with", "broad"),
+        ]
+    )
+    assert _accepted(document)["status"] == "PASS"
+
+
 def test_every_emittable_code_is_covered_here() -> None:
     """The guard that keeps the lists above from going stale.
 
@@ -1441,6 +1940,10 @@ def test_every_emittable_code_is_covered_here() -> None:
     covered |= {code for code, _, _ in POST_PROVENANCE_CODES}
     covered |= {code for code, _, _ in ITEM_COVERAGE_CODES}
     covered |= {code for code, _, _ in ITEM_COVERAGE_LINK_CODES}
+    # `T-252`'s source brief, cased the same way and for the same reason.
+    covered |= {code for code, _, _ in SOURCE_KNOWLEDGE_CODES}
+    # `T-253`'s cross-source relations.
+    covered |= {code for code, _ in SOURCE_RELATION_CODES}
     # Named elsewhere in this file, by the tests that introduced them.
     covered |= {"source_time_outside_segment", "invalid_source_timing"}
     missing = sorted(emittable - covered)

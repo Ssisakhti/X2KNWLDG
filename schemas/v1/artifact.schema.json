@@ -22,7 +22,7 @@
     },
     "source_id": { "$ref": "common.schema.json#/$defs/sourceId" },
     "kind": {
-      "description": "What the artifact is. Grounded in the files the pipeline actually writes plus the media types planned for later phases. 'capture' and 'post' were added additively by T-228 (D-233): a Twitter run's evidence is capture.json rather than a transcript, and each item inside it is addressed as an artifact of its own so that a claim can cite a text_span into the post it came from. 'post' is the item, not the file - it is role 'external' with no path, the way 'video' already is.",
+      "description": "What the artifact is. Grounded in the files the pipeline actually writes plus the media types planned for later phases. 'capture' and 'post' were added additively by T-228 (D-233): a Twitter run's evidence is capture.json rather than a transcript, and each item inside it is addressed as an artifact of its own so that a claim can cite a text_span into the post it came from. 'post' is the item, not the file - it is role 'external' with no path, the way 'video' already is. 'source_knowledge' was added the same way by T-252 (D-246): a run's readable Persian brief, written through its own apply gate after extraction and coverage. It is derived knowledge rather than evidence, and it is optional - a run that has none is the normal state and stays so, which is why the adapters omit the record entirely rather than listing it unavailable on every run forever (D-257).",
       "enum": [
         "metadata",
         "raw_source",
@@ -36,6 +36,7 @@
         "graph",
         "coverage",
         "validation",
+        "source_knowledge",
         "report",
         "extraction_bundle",
         "vault_note",
