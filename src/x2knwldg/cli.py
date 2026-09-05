@@ -410,11 +410,20 @@ def _run_process(args: argparse.Namespace) -> int:
             "timestamped transcript with: x2knwldg import-transcript"
         )
 
-    from .youtube import process_youtube_url
+    from .youtube import DEFAULT_PREFERRED_LANGUAGES, process_youtube_url
 
+    # English is the default caption requirement for URL acquisition. The
+    # YouTube module refuses to fall back silently to another language when
+    # English is absent. An explicit ``--preferred-language`` list replaces
+    # this default rather than being appended after it, so the operator always
+    # has the final say.
     try:
         run_dir = process_youtube_url(
-            args.source, args.output, preferred_languages=args.preferred_language or None
+            args.source,
+            args.output,
+            preferred_languages=(
+                args.preferred_language or list(DEFAULT_PREFERRED_LANGUAGES)
+            ),
         )
     except RunAlreadyExists:
         # The captions were fetched fine; this id is already taken. Asking for a

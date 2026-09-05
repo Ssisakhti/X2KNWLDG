@@ -696,6 +696,56 @@ def test_no_captions_asks_for_a_transcript(
     assert (Path(payload["inbox"]) / "README.md").exists()
 
 
+def test_process_prefers_english_captions_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A base track may be mislabelled while YouTube exposes an English track.
+
+    URL acquisition used to pass ``None`` and accept the first API track. A
+    real English-language video was consequently ingested as Devanagari
+    phonetic text even though YouTube exposed its English captions. The CLI
+    must ask for English unless the operator explicitly chooses otherwise.
+    """
+    import x2knwldg.youtube as youtube
+
+    seen: dict[str, object] = {}
+
+    def imported(
+        source: str, output: Path, preferred_languages: list[str] | None = None
+    ) -> Path:
+        seen["source"] = source
+        seen["output"] = output
+        seen["preferred_languages"] = preferred_languages
+        return output / REAL_ID
+
+    _pretend_the_youtube_extra_is_installed(monkeypatch)
+    monkeypatch.setattr(youtube, "process_youtube_url", imported)
+    code, _, _ = run_cli(_process_argv(tmp_path), capsys)
+    assert code == cli.EXIT_OK
+    assert seen["preferred_languages"] == ["en"]
+
+
+def test_an_explicit_caption_language_replaces_the_english_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import x2knwldg.youtube as youtube
+
+    seen: dict[str, object] = {}
+
+    def imported(
+        source: str, output: Path, preferred_languages: list[str] | None = None
+    ) -> Path:
+        seen["preferred_languages"] = preferred_languages
+        return output / REAL_ID
+
+    _pretend_the_youtube_extra_is_installed(monkeypatch)
+    monkeypatch.setattr(youtube, "process_youtube_url", imported)
+    argv = [*_process_argv(tmp_path), "--preferred-language", "fa"]
+    code, _, _ = run_cli(argv, capsys)
+    assert code == cli.EXIT_OK
+    assert seen["preferred_languages"] == ["fa"]
+
+
 def test_a_name_collision_is_not_reported_as_transcript_required(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

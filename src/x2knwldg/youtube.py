@@ -40,6 +40,11 @@ MAX_CAPTION_BYTES = 16 * 1024 * 1024
 #: accumulated.
 MAX_CAPTIONS = 250_000
 
+# Acquisition-wide default, not merely a CLI convenience. Any future caller of
+# this module inherits the same English-first policy unless it deliberately
+# supplies another ordered list (or an empty list to accept any language).
+DEFAULT_PREFERRED_LANGUAGES = ("en",)
+
 
 def _dependency_error() -> PipelineError:
     return PipelineError(
@@ -71,6 +76,20 @@ def ydl_options(**overrides: Any) -> dict[str, Any]:
     }
     options.update(overrides)
     return options
+
+
+def _impersonation_options() -> dict[str, Any]:
+    """Return yt-dlp's typed Chrome target when its optional stack is present."""
+    try:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+    except ImportError:
+        # Dependency reporting belongs to the caller. Keeping this import lazy
+        # also preserves the package's zero-dependency core and test fakes.
+        return {}
+    # Translated automatic captions can require the same browser-like HTTP
+    # fingerprint as YouTube's player. The `youtube` extra declares the bounded
+    # curl-cffi transport that yt-dlp uses for this option.
+    return {"impersonate": ImpersonateTarget.from_str("chrome")}
 
 
 def bounded_http_client() -> Any | None:
@@ -135,7 +154,11 @@ def fetch_native_transcript(url: str, preferred_languages: list[str] | None = No
     if not video_id:
         raise PipelineError("Could not extract a YouTube video ID")
     api = _transcript_api(YouTubeTranscriptApi)
-    languages = preferred_languages or []
+    languages = list(
+        DEFAULT_PREFERRED_LANGUAGES
+        if preferred_languages is None
+        else preferred_languages
+    )
     try:
         if languages:
             fetched = api.fetch(video_id, languages=languages)
@@ -181,21 +204,42 @@ def fetch_native_transcript(url: str, preferred_languages: list[str] | None = No
         from yt_dlp import YoutubeDL
 
         with TemporaryDirectory(prefix="x2knwldg-subs-") as directory:
-            with YoutubeDL(ydl_options()) as ydl:
+            impersonation = _impersonation_options()
+            with YoutubeDL(ydl_options(**impersonation)) as ydl:
                 info = ydl.extract_info(url, download=False)
             manual = info.get("subtitles") or {}
             automatic = info.get("automatic_captions") or {}
-            available = manual if manual else automatic
-            if not available:
+            if not manual and not automatic:
                 raise PipelineError("No native or automatic caption tracks are listed")
-            preferred = preferred_languages or []
-            language = next((lang for lang in preferred if lang in available), None)
-            language = language or next(iter(available))
+            preferred = languages
+            selected_language: str | None = None
+            use_manual = False
+            for lang in preferred:
+                if lang in manual:
+                    selected_language = lang
+                    use_manual = True
+                    break
+                if lang in automatic:
+                    selected_language = lang
+                    break
+            if preferred and selected_language is None:
+                available_languages = sorted(set(manual) | set(automatic))
+                raise PipelineError(
+                    "None of the preferred YouTube caption languages are available "
+                    f"(preferred: {preferred}; available: {available_languages})"
+                )
+            if selected_language is None:
+                if manual:
+                    selected_language = next(iter(manual))
+                    use_manual = True
+                else:
+                    selected_language = next(iter(automatic))
             output_template = str(Path(directory) / "captions")
             options = ydl_options(
-                writesubtitles=bool(manual),
-                writeautomaticsub=not bool(manual),
-                subtitleslangs=[language],
+                **impersonation,
+                writesubtitles=use_manual,
+                writeautomaticsub=not use_manual,
+                subtitleslangs=[selected_language],
                 subtitlesformat="json3",
                 outtmpl=output_template,
             )
@@ -222,7 +266,7 @@ def fetch_native_transcript(url: str, preferred_languages: list[str] | None = No
                         "text": text,
                         "start": event["tStartMs"] / 1000,
                         "duration": (duration / 1000) if isinstance(duration, (int, float)) and not isinstance(duration, bool) else 0.0,
-                        "language": language,
+                        "language": selected_language,
                     }
                 )
             # A json3 event may omit dDurationMs. A zero-length caption is
@@ -240,7 +284,7 @@ def fetch_native_transcript(url: str, preferred_languages: list[str] | None = No
                 item["duration"] = json3_duration(start, next_start)
             if not items:
                 raise PipelineError("yt-dlp caption file contained no usable timed events")
-            return items, {"video_id": video_id, "language": language, "url": url}
+            return items, {"video_id": video_id, "language": selected_language, "url": url}
     except Exception as ytdlp_error:
         raise PipelineError(
             f"Native YouTube captions unavailable (API: {api_error}; yt-dlp: {ytdlp_error})"
@@ -256,7 +300,7 @@ def fetch_metadata(url: str) -> dict[str, Any]:
         # only one of them is fixed by installing something.
         return {"metadata_error": "yt-dlp is not installed; install the `youtube` extra"}
     try:
-        with YoutubeDL(ydl_options()) as ydl:
+        with YoutubeDL(ydl_options(**_impersonation_options())) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
         # D-099: this was `except Exception: return {}`, which collapsed a

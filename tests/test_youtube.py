@@ -205,7 +205,7 @@ def test_both_ytdlp_calls_in_the_fallback_carry_the_timeout(
             constructed=constructed,
         ),
     )
-    items, metadata = youtube.fetch_native_transcript(REAL_URL)
+    items, metadata = youtube.fetch_native_transcript(REAL_URL, [])
     assert items and metadata["video_id"] == REAL_ID
     assert len(constructed) == 2, constructed
     for options in constructed:
@@ -468,7 +468,7 @@ def test_a_manual_track_is_preferred_over_a_generated_one(
         "youtube_transcript_api",
         _transcript_api_module(listed=[generated, manual]),
     )
-    items, _ = youtube.fetch_native_transcript(REAL_URL)
+    items, _ = youtube.fetch_native_transcript(REAL_URL, [])
     assert items[0]["text"] == "human"
 
 
@@ -486,7 +486,7 @@ def test_the_first_track_is_used_when_none_is_manual(
     _install(
         monkeypatch, "youtube_transcript_api", _transcript_api_module(listed=[first, second])
     )
-    items, _ = youtube.fetch_native_transcript(REAL_URL)
+    items, _ = youtube.fetch_native_transcript(REAL_URL, [])
     assert items[0]["text"] == "auto-1"
 
 
@@ -545,7 +545,7 @@ def test_automatic_captions_are_used_when_there_are_no_manual_ones(
             constructed=constructed,
         ),
     )
-    items, metadata = youtube.fetch_native_transcript(REAL_URL)
+    items, metadata = youtube.fetch_native_transcript(REAL_URL, [])
     assert metadata["language"] == "fr"
     assert constructed[1]["writeautomaticsub"] is True
     assert constructed[1]["writesubtitles"] is False
@@ -566,6 +566,51 @@ def test_a_preferred_language_is_chosen_from_what_is_available(
     )
     _, metadata = youtube.fetch_native_transcript(REAL_URL, ["zz", "de"])
     assert metadata["language"] == "de"
+
+
+def test_a_preferred_automatic_language_is_not_hidden_by_other_manual_tracks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    constructed: list[dict[str, Any]] = []
+    _api_down(monkeypatch)
+    _install(
+        monkeypatch,
+        "yt_dlp",
+        _ytdlp_module(
+            info={
+                "subtitles": {"de": [{}]},
+                "automatic_captions": {"en": [{}]},
+            },
+            events=[{"tStartMs": 0, "dDurationMs": 1000, "segs": [{"utf8": "hello"}]}],
+            constructed=constructed,
+        ),
+    )
+    items, metadata = youtube.fetch_native_transcript(REAL_URL, ["en"])
+    assert metadata["language"] == "en"
+    assert items[0]["text"] == "hello"
+    assert constructed[1]["writesubtitles"] is False
+    assert constructed[1]["writeautomaticsub"] is True
+
+
+def test_default_english_never_falls_back_silently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    constructed: list[dict[str, Any]] = []
+    _api_down(monkeypatch)
+    _install(
+        monkeypatch,
+        "yt_dlp",
+        _ytdlp_module(
+            info={"automatic_captions": {"hi": [{}]}},
+            events=[{"tStartMs": 0, "dDurationMs": 1000, "segs": [{"utf8": "नमस्ते"}]}],
+            constructed=constructed,
+        ),
+    )
+    with pytest.raises(PipelineError) as caught:
+        youtube.fetch_native_transcript(REAL_URL)
+    assert "preferred YouTube caption languages" in str(caught.value)
+    assert "'hi'" in str(caught.value)
+    assert len(constructed) == 1
 
 
 def test_no_caption_tracks_at_all_is_a_pipeline_error(

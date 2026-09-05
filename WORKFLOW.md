@@ -32,7 +32,10 @@ and vault note. It is part of the canonical workflow, not a per-run preference:
 
 Preferred order:
 
-1. Native YouTube captions with timestamps.
+1. Timestamped English captions when YouTube exposes them. `process` requests `en`
+   by default, including YouTube's translated automatic track when that is the English
+   track the service exposes. Pass one or more `--preferred-language` flags to replace
+   this default deliberately. Never fall back silently to an unrequested language.
 2. User-provided `VTT`, `SRT`, or timestamped `JSON`.
 3. Timestamped `TXT/MD` using `[HH:MM:SS - HH:MM:SS]` headers.
 

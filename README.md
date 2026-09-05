@@ -139,6 +139,11 @@ Use native captions when available:
 .venv/bin/x2knwldg process "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
+URL acquisition prefers an English caption track by default whenever YouTube exposes
+one. Choose another language explicitly with `--preferred-language <code>`; an explicit
+choice replaces the English default. If the requested language is unavailable, acquisition
+fails transparently instead of silently ingesting a different track.
+
 If captions are unavailable, the command exits `5` (`TRANSCRIPT_REQUIRED`) and creates
 `inbox/<video-id>/README.md`. Supply `SRT`, `VTT`, timestamped JSON, or timestamped
 TXT/Markdown, then import it:
