@@ -12,14 +12,18 @@ from typing import Any
 from . import constants, ids
 from .ids import declared_source_type, is_id_part
 from .io import (
+    SYNTHESIS_DIR_NAME,
     JsonReadError,
     dumps_json,
     format_timestamp,
     read_json,
+    read_json_or_reason,
+    run_dirs,
     timestamp_url,
     write_group,
 )
 from .pipeline import PipelineError, VerdictRefusal, run_duration_sec, validate_run
+from .synthesis import BRIEF_FILENAME, brief_state, canonical_input_digests
 from .twitter.extract import CAPTURE_FILENAME, post_url
 from .twitter.extract import SOURCE_TYPE as TWITTER_SOURCE_TYPE
 from .twitter.extract import apply_extraction_bundle as apply_twitter_bundle
@@ -32,7 +36,12 @@ from .validators import (
     validate_knowledge_units,
     validate_provenance,
     validate_relationships,
+    validate_source_knowledge,
+    validate_source_relations,
 )
+
+#: The canonical cross-source synthesis file, under ``output/synthesis/``.
+SOURCE_RELATIONS_FILENAME = "source_relations.json"
 
 #: Report sections, in the order they are printed, and the kinds each collects.
 #: The *order* is an editorial decision and lives here; the *vocabulary* does
@@ -629,6 +638,327 @@ def apply_extraction_bundle(run_dir: Path, bundle_path: Path) -> dict[str, Any]:
         ]
     )
     return validate_run(run_dir)
+
+
+def apply_source_knowledge(run_dir: Path, document_path: Path) -> dict[str, Any]:
+    """Validate a model-produced source brief and store it, or refuse (`T-252`).
+
+    A **gate** in the same sense ``apply_extraction_bundle`` is: a document that
+    fails validation is refused rather than written, so ``source_knowledge.json``
+    cannot reach the disk in a state its own validators reject (D-229, D-246).
+    Nothing else in the codebase writes that filename — the point of a gate is
+    that there is no way around it.
+
+    **One command for both media, and no row in ``MEDIUM_PROFILES``.** A brief is
+    a thesis, some points, their supporting units and three digests, and not one
+    of those is a statement about video or posts: it reads
+    ``knowledge_units.json`` and ``validation.json``, which both media have, and
+    it will read a book's when a book adapter exists. Adding a per-medium row for
+    something that does not differ per medium would be the table describing a
+    difference that is not there. ``_profile_for`` is still consulted — a run
+    declaring a medium nothing implements has no business acquiring canonical
+    output — but the answer is used as a refusal, not as a dispatch.
+
+    **What it will not do.**
+
+    * It will not write a brief for a run with no readable verdict. Generation
+      happens after extraction and coverage (D-246), and a run whose validators
+      have not been over it has nothing to be measured against.
+    * It will not raise a run's status, and it will not lower it either. The
+      brief's ``status`` is checked against ``validation.json`` and the run's own
+      verdict is untouched: a brief is an account **of** a run, and an account
+      does not get to re-grade its subject.
+    * It touches nothing under ``raw/`` and rewrites no canonical extraction
+      file. The only path it writes is ``source_knowledge.json``.
+
+    Returns the run's standing verdict, re-read rather than recomputed, so the
+    command's exit code is the run's and not a second opinion about it.
+    """
+    run_dir = run_dir.expanduser().resolve()
+    metadata = _read(run_dir / "metadata.json")
+    # Refusal, not dispatch: see above.
+    _profile_for(metadata)
+    source_id = _source_id_of(run_dir, metadata)
+
+    document = _read(document_path.expanduser().resolve())
+
+    # Absence first, and by name. `_read` raises "Missing JSON file: <path>" for
+    # it, which is true and unhelpful: the reader's actual situation is that the
+    # run has not been extracted yet, and the next command is the answer. A
+    # file that is *there* and unreadable keeps `_read`'s message, because that
+    # is damage rather than sequencing and the two need different fixes.
+    if not (run_dir / "knowledge_units.json").is_file():
+        raise PipelineError(
+            f"{run_dir.name} has no knowledge_units.json, so there is nothing for a "
+            "source brief to rest on. A brief is generated after extraction and "
+            "coverage: run x2knwldg apply-bundle first (D-246)."
+        )
+    knowledge = _read(run_dir / "knowledge_units.json")
+    units = knowledge.get("units") if isinstance(knowledge, dict) else None
+    if not isinstance(units, list):
+        raise PipelineError(
+            f"{run_dir.name}'s knowledge_units.json holds no unit list, so there is "
+            "nothing for a source brief to rest on."
+        )
+    unit_ids = {
+        unit["id"]
+        for unit in units
+        if isinstance(unit, dict) and isinstance(unit.get("id"), str) and unit["id"]
+    }
+
+    validation_path = run_dir / "validation.json"
+    run_status = UNKNOWN_RUN_STATUS
+    if validation_path.is_file():
+        try:
+            validation = _read(validation_path)
+        except (JsonReadError, json.JSONDecodeError, OSError):
+            validation = None
+        if isinstance(validation, dict) and isinstance(validation.get("status"), str):
+            run_status = validation["status"]
+
+    result = validate_source_knowledge(
+        document,
+        unit_ids=unit_ids,
+        source_id=source_id,
+        run_status=run_status,
+        current_digests=canonical_input_digests(run_dir),
+    )
+    if result["errors"]:
+        raise PipelineError(
+            "Source knowledge failed validation: "
+            f"{json.dumps(result['errors'], ensure_ascii=False)}"
+        )
+
+    write_group([(run_dir / BRIEF_FILENAME, dumps_json(document))])
+    # Re-read rather than recomputed. The run's verdict is `validation.json`'s,
+    # and this command has just been forbidden from changing it; returning
+    # anything derived here would be a second opinion about the one number the
+    # caller's exit code comes from.
+    return {
+        "status": run_status,
+        "source_id": source_id,
+        "source_knowledge": brief_state(run_dir),
+    }
+
+
+def _source_id_of(run_dir: Path, metadata: Mapping[str, Any]) -> str:
+    """The run's two-part source id, built through ``ids`` and never spelled."""
+    try:
+        return ids.make_source_id(
+            declared_source_type(metadata), _checked_video_id(dict(metadata))
+        ).value
+    except ids.IdError as exc:
+        raise PipelineError(f"{run_dir / 'metadata.json'}: {exc}") from exc
+
+
+#: What a run with no readable ``validation.json`` status is worth. The same
+#: word ``adapters.base`` uses, and for the same reason: nothing is guessed.
+#: ``validate_source_knowledge`` refuses a brief over one rather than ranking it.
+UNKNOWN_RUN_STATUS = "UNKNOWN"
+
+
+def source_relations_path(output_root: Path) -> Path:
+    """Where accepted cross-source synthesis lives (D-247).
+
+    Beside the runs rather than inside one, because a relation belongs to no
+    single run — and never discovered *as* a run: ``io.NOT_A_RUN`` names this
+    directory alongside ``library/``.
+    """
+    return (
+        Path(output_root).expanduser().resolve()
+        / SYNTHESIS_DIR_NAME
+        / SOURCE_RELATIONS_FILENAME
+    )
+
+
+def apply_source_relations(document_path: Path, output_root: Path) -> dict[str, Any]:
+    """Validate model-proposed cross-source relations and store them (`T-253`).
+
+    The third gate in the project and the same shape as the other two: validate
+    everything before the first write, refuse rather than write-and-warn, and
+    change exactly the file meant to change. What differs is the scope — this one
+    is about the **corpus**, not a run, so it takes a project root and the file
+    it writes sits beside the runs.
+
+    **Discovery is re-run here, and that is the point.** The document states how
+    many pairs were considered and omitted; those numbers are checked against a
+    fresh :func:`x2knwldg.candidates.discover` rather than taken on trust,
+    because a pass that walked every pair and then wrote a small ``considered``
+    would otherwise look exactly like a bounded one. The same run supplies the
+    two facts no schema can hold: which ordered pairs were candidates at all, and
+    which of them carry a corroborated explicit reference.
+
+    A consequence worth stating: if the corpus changed between generating the
+    document and applying it — a run added, re-extracted, removed — the counts no
+    longer match and the apply is **refused**. That is correct. The document
+    describes a corpus that no longer exists, and its conclusions were reached
+    about runs whose digests have moved.
+
+    Writing is atomic through ``write_group``: the file is replaced or it is not,
+    and a refused document leaves the previous synthesis exactly as it was.
+    """
+    from .candidates import ROUTE_EXPLICIT_REFERENCE, discover
+
+    output_root = Path(output_root).expanduser().resolve()
+    document = _read(document_path.expanduser().resolve())
+    report = discover(output_root)
+
+    result = validate_source_relations(
+        document,
+        units_by_source={source.source_id: source.unit_ids for source in report.sources},
+        digests_by_source={source.source_id: source.digest for source in report.sources},
+        considered_pairs=report.considered_pairs,
+        explicit_reference_pairs=frozenset(
+            candidate.pair
+            for candidate in report.considered
+            if ROUTE_EXPLICIT_REFERENCE in candidate.routes
+        ),
+        candidate_counts=report.counts,
+    )
+    if result["errors"]:
+        raise PipelineError(
+            "Source relations failed validation: "
+            f"{json.dumps(result['errors'], ensure_ascii=False)}"
+        )
+
+    destination = source_relations_path(output_root)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    write_group([(destination, dumps_json(document))])
+    return {
+        "status": "PASS",
+        "path": f"{SYNTHESIS_DIR_NAME}/{SOURCE_RELATIONS_FILENAME}",
+        "relations": len(document["relations"]),
+        "candidates": report.counts,
+        "sources": len(report.sources),
+    }
+
+
+def source_relations_document(output_root: Path) -> list[dict[str, Any]]:
+    """The accepted relations the canonical synthesis file holds, or none (`T-254`).
+
+    The read side that hands back the **records**, where
+    :func:`source_relations_state` hands back what is current about them. Two
+    functions rather than one returning both, because they answer different
+    questions and only one of them has to re-digest every run in the corpus:
+    a Source Map request should not pay for a staleness sweep it does not use.
+
+    Never raises, for the reason :func:`source_relations_state` does not: an
+    absent file, an unreadable one and one holding no relation list are all
+    "there is no accepted synthesis", and a corpus of readable sources must not
+    become unreadable because one derived file did. A non-object entry in the
+    list is dropped rather than served — every stored relation went through the
+    apply gate, so an entry that is not an object is damage, and passing it on
+    would put a record the contract cannot describe into a response.
+
+    An id that repeats is kept **once**, at its first position. The apply gate
+    refuses a duplicate id — ``container-duplicates-a-relation-id.json`` is the
+    committed fixture that pins it — so a file with one was edited past the
+    gate. Serving the record twice would draw one edge twice in the Source Map
+    and would be refused outright by an index whose primary key is that id, and
+    two readers disagreeing about one damaged file is worse than either answer.
+    """
+    path = source_relations_path(output_root)
+    if not path.exists():
+        return []
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    relations = document.get("relations") if isinstance(document, Mapping) else None
+    if not isinstance(relations, list):
+        return []
+    kept: dict[str, dict[str, Any]] = {}
+    for relation in relations:
+        if not isinstance(relation, Mapping):
+            continue
+        identifier = relation.get("id")
+        if not isinstance(identifier, str) or identifier in kept:
+            continue
+        kept[identifier] = dict(relation)
+    return list(kept.values())
+
+
+def source_relations_state(output_root: Path) -> dict[str, Any]:
+    """``{"state", "reason", "relations"}`` for the stored synthesis.
+
+    The read side, and as small as the brief's for the same reason: the gate
+    refused anything that was not fully valid, so what can change afterwards is
+    the corpus underneath. Each relation is checked against the endpoint digests
+    as they are **now**, and one whose endpoints have moved is reported ``stale``
+    individually — not the whole file — because a corpus of twenty relations in
+    which one endpoint was re-extracted has nineteen that are still current, and
+    discarding them all would be the coarse answer this phase exists to avoid.
+
+    Never raises. A damaged synthesis file must not take the sources down with it.
+    """
+    from .synthesis import run_digest
+
+    output_root = Path(output_root).expanduser().resolve()
+    path = source_relations_path(output_root)
+    if not path.exists():
+        return {"state": "unavailable", "reason": "no source_relations.json", "relations": []}
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return {
+            "state": "unavailable",
+            "reason": f"source_relations.json cannot be read ({type(exc).__name__})",
+            "relations": [],
+        }
+    relations = document.get("relations") if isinstance(document, dict) else None
+    if not isinstance(relations, list):
+        return {
+            "state": "unavailable",
+            "reason": "source_relations.json holds no relation list",
+            "relations": [],
+        }
+
+    digests: dict[str, str] = {}
+    for run_dir in run_dirs(output_root):
+        metadata = read_json_or_reason(run_dir / "metadata.json")[0]
+        if not isinstance(metadata, Mapping):
+            continue
+        try:
+            source_id = ids.make_source_id(
+                declared_source_type(metadata), metadata.get("video_id")
+            ).value
+        except ids.IdError:
+            continue
+        digests[source_id] = run_digest(run_dir)
+
+    stated: list[dict[str, Any]] = []
+    for relation in relations:
+        if not isinstance(relation, Mapping):
+            continue
+        recorded = relation.get("generated_from")
+        moved = [
+            field
+            for field, source in (
+                ("from_run_digest", relation.get("from_source_id")),
+                ("to_run_digest", relation.get("to_source_id")),
+            )
+            if not isinstance(recorded, Mapping)
+            or not isinstance(source, str)
+            or digests.get(source) is None
+            or recorded.get(field) != digests.get(source)
+        ]
+        stated.append(
+            {
+                "id": relation.get("id"),
+                "state": "stale" if moved else "available",
+                "reason": (
+                    "endpoint runs have changed since this pair was compared: "
+                    + ", ".join(moved)
+                    if moved
+                    else None
+                ),
+            }
+        )
+    return {
+        "state": "stale" if any(r["state"] == "stale" for r in stated) else "available",
+        "reason": None,
+        "relations": stated,
+    }
 
 
 #: One row per medium. Two exist because two media exist — a row for a medium

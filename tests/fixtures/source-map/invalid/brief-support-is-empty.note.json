@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "schema",
+  "lie": "thesis.based_on is an empty list — derived knowledge asserting itself while showing no work."
+}

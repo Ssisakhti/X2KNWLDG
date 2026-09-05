@@ -35,6 +35,8 @@ export const PATHS: { [K in OperationId]: Operation<K>["path"] } = {
   search: "/api/search",
   getGraph: "/api/graph",
   getNeighborhood: "/api/graph/neighborhood/{entity_id}",
+  getSourceGraph: "/api/source-graph",
+  getSourceNeighborhood: "/api/source-graph/neighborhood/{source_id}",
 };
 
 export type QueryValue = string | number | boolean | undefined;

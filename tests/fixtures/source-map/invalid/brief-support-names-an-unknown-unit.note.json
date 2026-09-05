@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "gate",
+  "lie": "thesis.based_on names KU-999999, which pass-run does not hold. The schema cannot see the run, so this is the apply gate's rule; a brief citing a unit that does not exist looks checkable and is not."
+}

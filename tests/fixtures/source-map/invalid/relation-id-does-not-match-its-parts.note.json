@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "gate",
+  "lie": "A well-formed SR- id that is not the digest of this record's endpoints, type and scope. A pattern check is a shape check; only recomputing the digest catches this."
+}

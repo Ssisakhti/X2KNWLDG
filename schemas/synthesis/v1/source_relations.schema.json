@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x2knwldg.local/schemas/synthesis/v1/source_relations.schema.json",
+  "title": "Source relation container (v1)",
+  "description": "The canonical cross-source synthesis file, output/synthesis/source_relations.json. It is derived knowledge that belongs to no single run, which is why it lives beside the runs rather than inside one, and why output/synthesis/ is never discovered as a run (io.NOT_A_RUN). It is not raw evidence and not user workspace state. Written atomically through a gated apply command and validated before output/library/ is rebuilt; the library graph and the SQLite index remain disposable projections of it. Frozen by T-251; the apply command is T-253.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "candidates", "relations"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "$ref": "primitives.schema.json#/$defs/schemaVersion" },
+    "generated_at": { "$ref": "primitives.schema.json#/$defs/isoTimestamp" },
+    "candidates": {
+      "description": "What the bounded discovery pass actually did. Required, not optional: a relation list on its own cannot distinguish 'these two sources are unrelated' from 'that pair was never compared', and only one of those is a finding.",
+      "type": "object",
+      "required": ["considered", "omitted", "bound"],
+      "additionalProperties": false,
+      "properties": {
+        "considered": {
+          "description": "Candidate source pairs actually compared.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "omitted": {
+          "description": "Candidate source pairs the bound left out. Counted, never silent (risk R28).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "bound": {
+          "description": "The per-source candidate cap the pass ran under — constants.MAX_SOURCE_CANDIDATES at the time of writing. Recorded in the file so a later reader can tell a small result from a tight bound without knowing which release produced it.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "pairs_in_corpus": {
+          "description": "Every ordered pair that *could* have been compared: n(n-1) over the acquired sources. Added additively by T-253, and optional so no stored record is invalidated. It closes the last gap in reading an empty result: 'considered' and 'omitted' together say how many pairs discovery proposed, and this says how many existed - so a corpus of twelve sources in which three pairs were compared reads as three of 132 rather than as three of three. It is deliberately not folded into 'omitted', whose meaning was frozen as 'what the bound left out'; a pair no discovery route proposed was never a candidate, and widening a frozen field's meaning is what the versioning doctrine reserves for a v2.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "relations": {
+      "description": "The accepted relations. May be empty: a corpus in which nothing relates to anything is a real and honest outcome, and an emitted relation is never the measure of a successful pass. Ids are unique — uniqueItems compares whole records, so the id-level rule is the apply gate's and is pinned by a committed invalid fixture.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "source_relation.schema.json" }
+    }
+  }
+}

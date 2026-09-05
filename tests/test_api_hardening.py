@@ -83,6 +83,10 @@ ID_ROUTES = [
     "/api/artifacts/{id}",
     "/api/media/{id}",
     "/api/graph/neighborhood/{id}",
+    # `T-254`. Added with the route rather than after it: this list is hand
+    # written, so a new id-taking path that nobody adds here is a path the whole
+    # traversal battery silently skips.
+    "/api/source-graph/neighborhood/{id}",
 ]
 
 
@@ -239,6 +243,10 @@ def _every_response(client):
     yield client.get("/api/graph")
     yield client.get("/api/graph?depth=9")
     yield client.get("/api/graph/neighborhood/nope")
+    yield client.get("/api/source-graph")
+    yield client.get("/api/source-graph?limit=0")
+    yield client.get("/api/source-graph/neighborhood/nope")
+    yield client.get("/api/source-graph/neighborhood/youtube:never-ingested")
     yield client.get("/api/nothing-here")
 
 
@@ -290,6 +298,17 @@ def test_a_malformed_id_and_an_unknown_id_get_different_answers(served: Path) ->
     with h.client(h.memory_repository(served)) as client:
         malformed = client.get("/api/entities/not a global id")
         unknown = client.get("/api/entities/youtube:fixture-pass:KU-999999")
+        assert malformed.status_code == 400
+        assert malformed.json()["error"]["code"] == "invalid_id"
+        assert unknown.status_code == 404
+        assert unknown.json()["error"]["code"] == "not_found"
+
+
+def test_the_source_graph_keeps_the_two_apart_too(served: Path) -> None:
+    """`T-254`'s path takes a *source* id, so it has its own version of D-020."""
+    with h.client(h.memory_repository(served)) as client:
+        malformed = client.get("/api/source-graph/neighborhood/not a source id")
+        unknown = client.get("/api/source-graph/neighborhood/youtube:never-ingested")
         assert malformed.status_code == 400
         assert malformed.json()["error"]["code"] == "invalid_id"
         assert unknown.status_code == 404

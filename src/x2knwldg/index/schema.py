@@ -251,8 +251,81 @@ _MIGRATION_1 = (
     """,
 )
 
+# --------------------------------------------------------------------------
+# Migration 2 — the source layer (`T-254`)
+#
+# Three tables, appended rather than folded into the four above, and that
+# separation is D-251 made durable. `entities` feeds `/api/graph`,
+# `/api/sources/{id}/entities`, the `/api/status` counts and every entity total
+# in the project, and none of those filters on `entity_type`; a source node
+# stored there would move all of them, which D-249 forbids in as many words. A
+# table nothing existing reads cannot leak into a payload at all.
+#
+# All three are rebuildable from canonical files and hold nothing that is not:
+# `source_entities` from the adapters, `source_briefs` from each run's
+# `source_knowledge.json` through `synthesis.brief_state`, and
+# `source_relations` from `output/synthesis/source_relations.json`. ADR 0001
+# invariant 3 therefore still holds of the whole cache: deleting it loses
+# nothing.
+# --------------------------------------------------------------------------
+
+_MIGRATION_2 = (
+    # One row per acquired source. `identity` is the node's three-part global
+    # id — `repository.ORDER_KEYS["source_entity"]` — and `digest` is its
+    # content digest, the pair the keyset walk orders by, exactly as the four
+    # record tables store them.
+    """
+    CREATE TABLE source_entities (
+        identity  TEXT NOT NULL PRIMARY KEY,
+        digest    TEXT NOT NULL,
+        doc       TEXT NOT NULL,
+        source_id TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX source_entities_by_source ON source_entities (source_id)",
+    # The readable brief, and what is true about it. `state` and `reason` are
+    # `synthesis.brief_state`'s own two fields, stored as it computed them at
+    # scan time rather than re-derived on read: the gate, the adapter and this
+    # answer "is this brief current" with one implementation.
+    #
+    # `doc` is NULL exactly when there is no document to show. A run with no
+    # brief still gets a row — `unavailable` with a reason is an answer about
+    # the source, and a missing row would make "not indexed" and "no brief"
+    # indistinguishable.
+    """
+    CREATE TABLE source_briefs (
+        source_id TEXT NOT NULL PRIMARY KEY,
+        state     TEXT NOT NULL,
+        reason    TEXT,
+        doc       TEXT
+    )
+    """,
+    # The accepted cross-source synthesis. Keyed by the deterministic
+    # `SR-`-prefixed id (D-252), which is what makes a second pass that finds
+    # another ground update one record rather than mint a second.
+    #
+    # The two endpoint columns are extracted for the same reason `relations`
+    # extracts `from_id` and `to_id`: they narrow a seek. They are not the
+    # filter — which endpoints a neighbourhood carries is decided in Python,
+    # against the ids the seam parsed.
+    """
+    CREATE TABLE source_relations (
+        identity       TEXT NOT NULL PRIMARY KEY,
+        digest         TEXT NOT NULL,
+        doc            TEXT NOT NULL,
+        from_source_id TEXT NOT NULL,
+        to_source_id   TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX source_relations_by_from ON source_relations (from_source_id)",
+    "CREATE INDEX source_relations_by_to ON source_relations (to_source_id)",
+)
+
 #: ``(version, statements)`` in ascending order. The tuple is the ledger.
-MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = ((1, _MIGRATION_1),)
+MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
+    (1, _MIGRATION_1),
+    (2, _MIGRATION_2),
+)
 
 #: The version a fresh database reaches. Derived, never typed twice.
 SCHEMA_VERSION = MIGRATIONS[-1][0]

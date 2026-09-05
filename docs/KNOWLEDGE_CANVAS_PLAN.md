@@ -3,9 +3,9 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0, 1, 2 and 2.1 are complete. The user has chosen Twitter/X as the next product phase, ahead of Canvas. **Phase 2.2 / `T-220` is active; `T-221` and `T-222` are complete. `T-222` measured a `GO` (D-205) and `T-223` is next, gated on three user answers in [the spike report](spikes/T-222/REPORT.md) §11 — one of which changes the phase MVP (D-206).** The accepted acquisition boundary qualifies `x-cli` first on the user's real Iran environment, keeps FxTwitter/FxEmbed explicit opt-in, uses official oEmbed only for corroboration, limits Firefox to passive credential-free capture, and excludes Treasury/twscrape account-pool and evasion patterns (D-204; [ADR 0007](adr/0007-twitter-acquisition-boundary.md)). Phase 3 remains technically unblocked after the accepted Map gate (D-202) but is deliberately deferred until the Twitter phase closes.
-**Last updated:** 2026-09-03
-**Current scope:** personal, fully local execution on macOS, YouTube first
+**Current stage:** Phases 0, 1, 2, 2.1 and 2.2 are complete. **Phase 2.3 / `T-250`, the Source Map, is under way: `T-251` froze the records, ids, bounds, API shapes and fixtures (D-251–D-256), `T-252` gave the per-run brief a prompt, a gate and a projection (D-257–D-261), `T-253` made cross-source relations discoverable, bounded and gated (D-262–D-268), `T-254` gave the layer three rebuildable tables and the two read-only endpoints (D-269–D-276), and `T-255` — the high-fidelity mockups — is next.** It adds one readable node per source and automatic, evidence-backed source relationships before Canvas. Phase 3 remains technically unblocked but is deliberately deferred until the Source Map gate closes (D-244–D-250; [ADR 0008](adr/0008-source-level-knowledge-map.md)).
+**Last updated:** 2026-09-05
+**Current scope:** personal, fully local execution on macOS; YouTube and public X/Twitter implemented
 **Data owner:** the user; no dependency on any paid service or cloud storage
 
 ---
@@ -207,6 +207,15 @@ The automatic global graph view:
 - Moves a selected node or subgraph to the Canvas
 
 The Knowledge Map is not the primary environment for editing or media playback.
+
+The Map has two addressable abstraction modes (D-244):
+
+- **Sources:** one node per acquired source, with automatic qualified cross-source relations;
+- **Knowledge:** the existing KU/concept graph and evidence journey.
+
+The Source mode is specified in [`SOURCE_MAP_SPEC.md`](SOURCE_MAP_SPEC.md). It is not a mixed
+graph that merely enlarges source marks among KUs. Only its selected source becomes a readable
+card; neighbours remain compact and the complete relationship set remains available as text.
 
 ### 6.4. Canvas
 
@@ -607,7 +616,22 @@ Every relation must carry an explicit origin class:
 
 A user relation must never be written automatically into `relationships.json`.
 
-### 10.6. Board and BoardItem
+### 10.6. SourceKnowledge
+
+`SourceKnowledge` is a post-extraction, derived reading layer for one source. Its Persian
+thesis, points and limitations each name the KUs that support them. It is generated only after
+coverage, enters through an apply gate, carries input hashes and cannot claim a stronger
+status than its run. It is not evidence and never replaces the KUs it cites.
+
+### 10.7. SourceRelation
+
+`SourceRelation` is a qualified, derived aggregation between two source records. It has its
+own vocabulary, direction, `partial`/`broad` scope, Persian rationale and a non-empty basis of
+source-owned KU pairs. Retrieval overlap may nominate a comparison but is not itself a
+relationship. The complete schemas and rules are frozen by `T-251`; see
+[`SOURCE_MAP_SPEC.md`](SOURCE_MAP_SPEC.md) §3.
+
+### 10.8. Board and BoardItem
 
 A board holds only layout and the user's selection:
 
@@ -636,10 +660,10 @@ Minimum adapter output:
 - validation/coverage status
 - paths to the canonical files
 
-Planned adapters:
+Implemented and planned adapters:
 
 1. YouTube adapter, from the current `output/<video-id>` structure
-2. Twitter/X adapter, after the corresponding extraction pipeline is designed
+2. Twitter/X adapter
 3. Medium/article adapter
 4. Books — PDF and EPUB
 5. Website links
@@ -649,8 +673,9 @@ the vault**, not only the index and the Reader. A claim in any of them is a `tex
 its own artifact (D-233), so the four differ in what an artifact *is* — a post, an article, a
 chapter, a page — and not in how a claim is addressed.
 
-Only the YouTube adapter is currently implemented. Phase 2.2 adds Twitter through the same
-generic boundary; it does not make a provider response part of the adapter contract.
+The YouTube and Twitter/X adapters are currently implemented. Medium/articles, books,
+PDF/EPUB and website links remain roadmap sources; the generic boundary does not make a
+provider response part of the adapter contract.
 
 ### 11.1 What an adapter does with what it cannot map
 
@@ -1113,8 +1138,108 @@ Acceptance criteria:
 - `WORKFLOW.md` is updated only after the behaviour and validators exist, and promises only
   matrix capabilities that passed.
 
-The exact executable tasks and dependencies are `T-221`–`T-229` in
-`PROJECT_MANAGEMENT.md` §5. `T-222` is currently the only claimable task.
+The exact executable tasks and dependencies were `T-221`–`T-230` in
+`PROJECT_MANAGEMENT.md` §5. The phase is complete (D-243).
+
+### Phase 2.3 — Source Map and automatic source synthesis
+
+**Goal:** add a calm, readable layer above the KU graph: one node per acquired source, with
+automatic cross-source relationships that remain traceable to exact KU evidence.
+
+This phase is accepted before Canvas by D-244–D-250 and [ADR 0008](adr/0008-source-level-knowledge-map.md).
+The complete implementation contract is [`SOURCE_MAP_SPEC.md`](SOURCE_MAP_SPEC.md).
+
+Deliverables:
+
+- one adapter-emitted source entity per run using the reserved source entity type;
+- gated `source_knowledge.json` with Persian thesis/points and non-empty KU support;
+- gated canonical `SourceRelation` records under `output/synthesis/`, with direction, scope,
+  rationale, KU-pair basis and input hashes;
+- bounded automatic candidate discovery; similarity remains retrieval data, not graph meaning;
+- additive read-only source-graph repository/API projection;
+- a `Sources` / `Knowledge` Map mode switch;
+- Source Explore and Directional Orbit Focus using Sigma, with exactly one rich selected card;
+- high-fidelity mockup approval and browser/accessibility phase gate.
+
+Acceptance criteria:
+
+- each implemented source appears once and only once in Source Explore;
+- the selected card is readable in place and every narrative item resolves to existing KUs;
+- automatic YouTube↔X fixture relations expose valid source-owned basis, while a no-relation
+  fixture emits none;
+- incoming/outgoing, partial/broad and mixed basis are stated in text as well as visually;
+- candidate comparison is bounded and omitted candidates are counted;
+- SQLite rebuild produces an equivalent Source Map;
+- the existing Knowledge Map/API and raw evidence remain unchanged;
+- a future book is one source node with internal structure below it, while book ingestion
+  remains explicitly unsupported.
+
+Execution is `T-251 → T-252 → T-253 → T-254 → T-255 → T-256 → T-257` in
+`PROJECT_MANAGEMENT.md` §5. **`T-251`–`T-254` are done** (D-251–D-276) and `T-255` is next.
+
+What `T-251` settled, and why each one is a decision rather than a detail:
+
+- **One source node per run, in its own record family.** The reserved
+  `EntityRef.entity_type = "source"` is now emitted by both adapters — for a `FAIL` run as
+  well as a `PASS` one, because a Source Map that omitted a failed run would report a smaller
+  library than the one on disk. It lands in `IndexRecords.source_entities` rather than
+  `entities`, so the Knowledge Map's payloads are unchanged **by construction** rather than
+  by a filter somebody has to remember (D-251).
+- **The record families exist before anything generates them.** `schemas/synthesis/v1/` is a
+  pipeline contract in its own versioned directory, like `schemas/capture/v1/` and for the
+  same reason: `schemas/v1/` describes nothing the pipeline writes (D-253).
+- **A relation's identity is its endpoints, type and scope** — not its basis, so accumulating
+  evidence updates one record instead of churning ids (D-252).
+- **The two bounds are measured numbers**, with the corpus they were measured on recorded
+  beside them and a committed tool to re-measure it (D-255).
+- **The API shapes were frozen without their paths.** Eleven `GET` endpoints stayed eleven until
+  `T-254` added the two operations that return the shapes `T-251` fixed, which is what made
+  every declared component reachable again and retired the exemption two tests held open
+  (D-254).
+
+What `T-252` added, and the one thing each part is guarding against:
+
+- **A pass and a gate.** `prompts/06_source_knowledge.md` runs after `apply-bundle`;
+  `x2knwldg apply-source-knowledge` refuses a brief rather than writing one it would then
+  have to warn about. One gate for both media, because a thesis and its supporting units
+  are not a statement about video or posts (D-258).
+- **Support, status and staleness, all checked against the run itself.** Every `based_on`
+  id must be a unit this run holds; `status` may equal the run's verdict or be more
+  cautious and never bolder; the three input digests are supplied by the pass and
+  recomputed by the gate, so a brief describing inputs that have moved is refused at write
+  time and reported `stale` at read time (D-259).
+- **An excerpt has no valid spelling anywhere in the document** — including inside a
+  statement, which is where a copied excerpt would actually be put, and which was the one
+  branch missing when the gate was first written.
+- **The projection stays additive.** A run gains one artifact and one free-form metadata
+  key only if it has a brief, so no existing record moved (D-257).
+
+What `T-253` added:
+
+- **Discovery that points at pairs instead of walking them.** Two deterministic routes —
+  a resolved explicit reference and a shared canonical concept — bounded per from-source,
+  with the third route `SOURCE_MAP_SPEC.md` §4 permits named as unimplemented in every
+  report so "no candidates" is never read as "nothing is related" (D-262, D-263).
+- **A gate that will not take the pass's word for it.** It re-runs discovery, refuses a
+  relation for a pair nothing proposed, and refuses counts that disagree — which is what
+  makes "no all-pairs walk" a check rather than a promise (D-264).
+- **Grounds that can be inspected.** Every basis unit must belong to the endpoint claiming
+  it; `explicitly_references` must be corroborated rather than asserted; a relation whose
+  grounds all invert it is refused, while mixed evidence is retained where a reader can
+  see it (D-266, D-267).
+- **Nothing that looks like a number nobody measured.** Discovery carries no score or
+  rank into a record, and `confidence` remains unrepresentable.
+
+The current stage's honest boundary: every canonical record exists, is gated and is now
+**served**, and **nothing renders any of it**. `GET /api/source-graph` and
+`GET /api/source-graph/neighborhood/{source_id}` answer over three rebuildable SQLite
+tables (D-269), but there are no approved mockups (`T-255`) and no Source Map UI
+(`T-256`), so a brief and a relation are written, validated, indexed and addressable and
+then drawn by nothing. Two gaps are on the record rather than hidden: a relation carries no
+confidence, score or rank (D-247), and per-relation staleness has no member in the v1
+response shapes, so the endpoint neither filters on it nor reports it (D-274). The fixtures
+are labelled synthetic and are contract cases, not evidence that any real source has been
+summarised or related to another.
 
 ### Phase 3 — Canvas and board persistence
 
@@ -1331,11 +1456,38 @@ exclude account pools, automation and evasion; state that unofficial access is n
 as X-approved; keep `x-cli` outside the runtime dependency graph until the qualification and
 AGPL boundary are recorded. See [ADR 0007](adr/0007-twitter-acquisition-boundary.md).
 
+### Risk 14: a source-level edge overclaims agreement or contradiction
+
+Mitigation: every automatic edge is a qualified derived record with `partial`/`broad` scope,
+a Persian rationale and non-empty KU-pair basis. Mixed evidence is retained. Similarity and
+chronology cannot establish response, critique or influence.
+
+### Risk 15: automatic relationship discovery becomes an all-pairs cost
+
+Mitigation: deterministic candidate discovery from explicit references, shared concepts and
+local retrieval; measured bounds and counted omissions; recomputation only when source or
+contract digests change.
+
+### Risk 16: long books explode the global graph
+
+Mitigation: one acquired book/edition is one source node. Captured parts and chapters are
+Reader structure loaded on demand, then KUs and evidence. They are not Source Map nodes by
+default.
+
+### Risk 17: a readable generated brief is mistaken for source evidence
+
+Mitigation: `source_knowledge.json` is always marked derived, every narrative element cites
+supporting KUs, and exact evidence remains in those KUs. Missing or partial source knowledge is
+shown honestly rather than synthesized in the UI.
+
 ## 19. Recorded decisions
 
 This table is the canonical index of decisions and answers "what was decided". The reasoning, rejected alternatives, and consequences are recorded in `docs/adr/`. The ADR convention is described in `docs/adr/README.md`.
 
-**This mirror is behind.** It runs to D-219 and then jumps to D-233; D-220–D-232 were recorded in `docs/PROJECT_MANAGEMENT.md` §6 only, which is the complete ledger and the one to read. The two rows below are here because they change *this* document's roadmap — they are not evidence that the rest was backfilled.
+**This mirror is behind.** It runs to D-219 and then jumps; D-220–D-232 and D-235–D-243
+remain recorded in `docs/PROJECT_MANAGEMENT.md` §6 only, which is the complete ledger and the
+one to read. Later rows appear here when they change this document's roadmap; they are not
+evidence that the skipped range was backfilled.
 
 Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/0001-local-web-ui.md).
 
@@ -1455,6 +1607,39 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 | D-233 | A source claim is projected as a **per-item artifact addressed by the generic `text_span` locator**; no locator branch is widened. Revises D-212's plan | accepted | Four media are coming (D-234) and a per-medium branch would repeat the same three span fields four times, in a file whose header says the reserved branches exist so that adding PDFs, articles or posts needs no version bump. One locator type over four artifact kinds instead — and the artifact id replaces the `video_id` comparison a post claim has nothing to compare for. Cost: an artifact per item, carrying no bytes, which `_video_artifact` already has precedent for. Full reasoning in `PROJECT_MANAGEMENT.md` §6 |
 | D-234 | Source-type order is **Twitter → Medium/articles → books → website links**, each reaching the **graph and the vault**; `T-230` generalizes finalize and the vault for all four | accepted | The user's, 2026-09-04. Neither the order nor **books** was derivable from this document. `finalize_run` and `_obsidian_files` are YouTube-shaped, so the wall is not Twitter's — folding the fix into `T-228` would rewrite an acceptance clause mid-claim, and leaving it in `T-229` would have the phase gate implement what it exists to rehearse |
 | D-240 | The finalize path **dispatches on one per-medium table** (`artifacts.MEDIUM_PROFILES`) rather than branching, and there is one answer to which medium a run is (`ids.declared_source_type`) | accepted | D-234 required the finalize and vault generalization be done once for all four media and D-185 forbids a second `finalize_run`. Seven YouTube-shaped places, including the validator the path called; the profile carries names as data and rules as pure callables, so a third medium is a row and the refusals still land before the first write. See `PROJECT_MANAGEMENT.md` §6 for the full record, and D-241 for the reproducibility defect that measuring this one exposed |
+| D-244 | Add a distinct, addressable **Source Map** above the existing KU/concept Knowledge Map before Canvas; it is an automatic read-only projection, not a larger KU or a user board | accepted | The user needs to understand relationships between complete sources without losing the atomic evidence layer. Keeping modes distinct prevents two abstraction scales competing in one graph. See [ADR 0008](adr/0008-source-level-knowledge-map.md) |
+| D-245 | Reuse Sigma and Directional Orbit for Source Map; only the selected source becomes a readable HTML card, while neighbours stay compact and all returned relations remain in the semantic DOM list | accepted | This meets the selected-node reading requirement without turning the global WebGL graph into an unbounded card canvas. React Flow remains the editable Canvas renderer |
+| D-246 | Generate a gated per-run `source_knowledge.json` only after extraction and coverage; every Persian narrative item has non-empty KU support and cannot exceed the run status | accepted | Readable synthesis is derived knowledge, not evidence. Explicit KU support and input hashes make it inspectable and stale-detectable |
+| D-247 | Automatic source relationships use a separate qualified `SourceRelation` contract and vocabulary, carry KU-pair basis, scope, rationale and digests, and are stored under `output/synthesis/`; similarity creates candidates only | accepted | A whole-document verdict is too coarse, and `IndexedRelation` lacks the basis needed to state the aggregation honestly. See [ADR 0008](adr/0008-source-level-knowledge-map.md) |
+| D-248 | A future acquired book/edition is one Source Map node; its real captured parts/chapters are Reader drill-down, not global nodes | accepted | Global density stays proportional to sources rather than chapters, while structure and exact evidence remain reachable. This does not implement book ingestion |
+| D-249 | Extend the read-only API additively with dedicated source-graph operations and repository methods; do not change current Knowledge Map payloads | accepted | Isolating the new projection preserves the already-frozen KU graph meaning and lets both rebuild from canonical records |
+| D-250 | Insert Phase 2.3 / `T-250` before Canvas, delivered serially as `T-251`–`T-257` with mockup approval before production UI | accepted | The source-level model, gates and projection must be real before the UI; the existing visual acceptance lesson remains binding |
+| D-251 | Adapters emit the source `EntityRef` into a **fifth record family**, `IndexRecords.source_entities`, deliberately absent from `by_model()` | accepted | `entities` feeds `/api/graph`, `/api/sources/{id}/entities`, `/api/status` counts and the SQLite `entities` table, and none of them filters on `entity_type`. Appending a source node there would have put a source-scale mark into the Knowledge Map and moved every entity count in the project — which D-249 forbids in as many words. The alternative was an `entity_type != "source"` clause at four call sites, where the first one anybody forgets is a silent contract change. A list nothing reads yet cannot leak into a payload at all. `check_records` still holds it to every `ids` invariant and claims its ids in the artifacts' own namespace, so a future adapter spelling an artifact key `source` is refused rather than silently overwriting the node. `T-254` gives it tables and endpoints of its own |
+| D-252 | A `SourceRelation`'s identity is **`(from_source_id, to_source_id, relation_type, scope)`** and nothing else; `basis`, `rationale` and `generated_from` are content | accepted | A later pass that finds a fourth ground for the same critique has learned more about one relation, not discovered a second one. Folding the basis into the digest looks like extra rigour and would instead churn ids every time evidence accumulated, leaving a delete path `T-253` could forget to walk. The four parts are exactly the semantics `SOURCE_MAP_SPEC.md` §3.3 lets coexist between one pair of sources, and direction is part of them because `critiques` is not its own inverse |
+| D-253 | The synthesis schemas live in **`schemas/synthesis/v1/`**, are self-contained, and every `$ref` — a document's references into its own `$defs` included — names its owning file | accepted | `schemas/v1/README.md` says it describes "nothing that the pipeline writes", and both records *are* files the pipeline writes; the precedent is `schemas/capture/v1/`. The reference spelling is not style: `tools/generate_api_types.py` resolves a `$ref` by the string alone across every schema directory at once, so a second `common.schema.json` would have resolved a synthesis primitive to the index model's identically-named one, silently and with the last registration winning. The primitives file is therefore `primitives.schema.json`, and `build_name_table` now **refuses** a duplicate reference key rather than overwriting it |
+| D-254 | `T-251` freezes the source-graph **response shapes as components, with no `paths` entries**; the served surface stays exactly eleven `GET` endpoints until `T-254` | accepted | The task freezes shapes so the repository, index and frontend can be built against them; adding paths would either fail `test_the_served_surface_is_exactly_the_frozen_one` or drag `T-254`'s routes into this task. `test_every_declared_component_is_reachable` gains a two-name exemption, and `test_only_the_two_envelopes_are_referenced_by_nothing_at_all` requires that exemption to be exhaustive — so the day an operation references `SourceGraphResponse`, a test fails and the exemption has to be removed rather than quietly outliving its reason |
+| D-255 | The two synthesis bounds are **`MAX_SOURCE_CANDIDATES = 25`** and **`MAX_SOURCE_RELATION_BASIS = 200`**, measured rather than chosen | accepted | `tools/measure_source_bounds.py` measured the corpus on 2026-09-05: 12 sources, 63 knowledge units, 0–33 per source; an all-pairs walk is 132 ordered source pairs over 2,718 knowledge-unit pairs, the largest single pair being 363; one basis entry built from the widest real id serializes to 89 bytes, so 368 fit a 32 KiB relation-detail budget. 25 leaves every source in that corpus fully compared and starts binding at 27 sources (R28); 200 sits at 17,800 bytes inside that budget and above all but one pair product, so a wider basis has stopped qualifying a relation and started restating the source (R27). Neither bound is ever silent: `candidates.omitted` upstream, `basis_total`/`basis_returned` in the response |
+| D-256 | A synthesis input digest is **content-only over the three canonical extraction inputs**, not `index.scanner`'s run digest | accepted | The scanner's digest covers the whole subtree, folds in mtime and size as a cheap prefilter, and is truncated to sixteen hex digits: it answers "has anything under this directory been touched", which is right for an incremental re-index and wrong for staleness of a derived account. A brief goes stale when the knowledge it summarises changes — not when `report.md` is regenerated and not when the run is copied and every mtime moves. `x2knwldg.synthesis` is the one home for the rule, so the fixture generator and the `T-252`/`T-253` gates cannot disagree about it |
+| D-257 | The brief's artifact record and its `adapter_metadata` state are **emitted only when a run has one** | accepted | Every other canonical artifact is listed with `available: false` when absent, because a run without a `report.md` has not been finalized yet and saying so is useful. A run without a brief is in a state that is normal, honest and possibly permanent — a `FAIL` run may never get one — so listing it as missing on every run in the project forever would report an absence as a shortfall. The precedent is `adapters.base`'s own: `_raw_source_spec`, `_video_artifact` and `_vault_artifacts` are all conditional. The practical consequence is that no existing run's artifact list or `Source` record moves, which is what D-249 asks of everything in this phase |
+| D-258 | One apply gate serves both media, and `MEDIUM_PROFILES` gains **no row** | accepted | A brief is a thesis, some points, the units they rest on and three digests, and not one of those is a statement about video or posts: it reads `knowledge_units.json` and `validation.json`, which both media have, and it will read a book's when a book adapter exists. A per-medium row for something that does not differ per medium would make the table describe a difference that is not there. `_profile_for` is still consulted, but the answer is used as a **refusal** — a run declaring a medium nothing implements has no business acquiring canonical output — rather than as a dispatch |
+| D-259 | `apply-source-knowledge` **never stamps `generated_from` itself**; a document that omits or misstates a digest is refused | accepted | If the gate filled the digests in, a brief generated against yesterday's units would be filed as though it described today's, and the field would hide precisely what it exists to expose. The model computes them and the gate recomputes and compares, so an invented digest fails and a guessed one cannot pass. The prompt gives the one-line command rather than leaving the agent to fabricate a hex string |
+| D-260 | The Persian output-language policy is enforced at the gate as a **one-directional script check**, and is described as one everywhere it appears | accepted | Text carrying no Perso-Arabic character cannot be the Persian the policy requires, and that is the whole of what a refusal establishes. It catches the real failure — a model that ignored the policy and returned an English brief — and claims nothing about whether Perso-Arabic text is good Persian, idiomatic, or Persian rather than Arabic. Identifying a language is a different problem, and a validator that claimed to have solved it would be inventing a verdict. Mixed text passes, because Persian with the English term in parentheses is the spelling the policy asks for |
+| D-261 | A brief's state is **not** a section of `validation.json` | accepted | A run without a brief is the normal state, so a section reporting it would make every run in the project look incomplete, and every existing `validation.json` would grow a key. The state is reported where it is actually needed: by the gate when the document is written, and by `synthesis.brief_state` through the adapter's free-form channel when it is read. The run's own verdict is untouched in both directions — `apply-source-knowledge` re-reads it rather than recomputing it, because writing an account of a run does not re-grade its subject |
+| D-262 | Candidate discovery implements **two routes** — a resolved explicit reference and a shared canonical concept — and **names the third as unimplemented** in every report | accepted | `SOURCE_MAP_SPEC.md` §4 permits local FTS retrieval as well; `T-253` did not build it. An unbuilt route that produced nothing silently would make "no candidates" indistinguishable from "nothing is related", which is the exact confusion the candidate counts exist to prevent. `CandidateReport.routes` therefore carries a line per route saying whether it ran, and the explicit-reference route says plainly that it reads a capture's `external_references` and so contributes nothing for a YouTube from-endpoint |
+| D-263 | `MAX_SOURCE_CANDIDATES` bounds candidates **per from-source**, not per corpus | accepted | It is what the constant already meant — "the most candidate counterpart sources one source's synthesis pass compares" — and the alternative is worse in a specific way: a corpus-wide budget lets one heavily-connected source consume it and silently starve every other, so the omissions would concentrate exactly where nobody is looking |
+| D-264 | The apply gate **re-runs discovery** and refuses (a) a relation for an ordered pair nothing proposed and (b) candidate counts that disagree with a fresh run | accepted | This is what turns "no all-pairs walk" from a promise into a check. A pass that compared every pair and then wrote a small `considered` is otherwise indistinguishable from a bounded one, and a relation for an unproposed pair is precisely the evidence that the comparison looked past its candidate list. Discovery is deterministic and reads only canonical files, so recomputing it is cheap. The honest consequence is stated rather than worked around: if the corpus changed between generating a document and applying it, the counts no longer match and the apply is refused — the document describes a corpus that no longer exists |
+| D-265 | `pairs_in_corpus` is added to the container **additively and optionally**; `omitted` keeps its frozen meaning | accepted | `T-251` froze `omitted` as "candidate source pairs the bound left out". Pairs that no route proposed were never candidates, so folding them in would have changed a frozen field's meaning — which `schemas/synthesis/v1/README.md`'s own doctrine reserves for a `v2`. The new field says how many ordered pairs existed, which is what lets `considered: 3` be read as three of 132 rather than three of three |
+| D-266 | Direction/basis compatibility is a **total-inversion check only**, and says so wherever it appears | accepted | It fires when a source-level relation has a polarity and *every* ground carries the opposite one — a `supports` resting entirely on `contradicts` pairs. Deliberately weak, because the alternative is an exhaustive table of which unit-level relation may support which source-level one, which is a semantic algebra nobody has established and which would refuse honest aggregations on an invented rule. And mixed evidence **must** survive: `SOURCE_MAP_SPEC.md` §4 requires contrary grounds to be retained or to produce a narrower relation, never hidden |
+| D-267 | `explicitly_references` requires **corroboration from the discovery route**, never the model's word | accepted | The route that reads `external_references` is the only thing in the project that knows one source names another, so a claimed reference the corpus cannot resolve to the to-endpoint is refused. It remains `derived` provenance even when corroborated: the cited link may be source-grounded, but promoting it into a source-to-source relationship is an aggregation the sources themselves never made |
+| D-268 | The cross-medium corpus that proves the phase's acceptance clause is built **in the test process** (`tests/source_corpus.py`), never committed | accepted | No committed corpus can produce a cross-medium canonical concept: every committed Twitter run emits `quote` and `synthesis` units, deliberately, because that builder's docstring says inventing analytical claims about real posts "would put words in real authors' mouths in a file that is committed forever" — and `quote` is not a concept kind. Fabricating provider bytes to get one is what D-222's `sha256_raw`/`sha256_sanitized` pair exists to prevent. The project's own answer to this shape of problem is `tests/capture_shapes.py`, which builds the unmeasurable case in-process "so nothing on disk claims to be evidence". The corpus reuses the committed capture and `raw/` bytes untouched and varies only the **bundle**, and within it one field: `kind`, from `quote` to `principle`. The unit still says exactly what the post says |
+| D-269 | The source layer gets **three tables of its own** in a second migration — `source_entities`, `source_briefs`, `source_relations` — rather than columns on the four record tables or a canonical read inside the repository | accepted | D-251 kept the source node out of `IndexRecords.by_model()` because `entities` feeds `/api/graph`, `/api/sources/{id}/entities`, the `/api/status` counts and the SQLite `entities` table, and none of them filters on `entity_type`. That argument does not stop at the adapter: a `source_entities` row in `entities` would have moved every one of those payloads on the first build, and an `entity_type != "source"` clause at four call sites is the arrangement whose first forgotten instance is a silent contract change. Storing the brief and the synthesis file rather than reading them per request keeps `SqliteRepository`'s own rule — no id reaches a path, no canonical file is opened — which is what lets the same class answer from a thread pool. All three are rebuildable from the adapters, each run's `source_knowledge.json` and `output/synthesis/source_relations.json`, so ADR 0001 invariant 3 still holds of the whole cache: `tests/test_sqlite_equivalence.py` §9b deletes it and rebuilds |
+| D-270 | `source_relations` is rewritten on **every** scan and keeps no `runs` row | accepted | The file belongs to no run — `io.NOT_A_RUN` names its directory beside `library/` — so there is no per-run digest that could decide it was unchanged, and a row in a table keyed by *run directory* would make it look like a run to every count that reads that table. It is one small file written by a gated command; re-reading it is cheaper than the bookkeeping that would avoid re-reading it, and a stale relation list is the one thing a Source Map cannot detect for itself |
+| D-271 | `SourceGraphCounts.relations_omitted` counts **both** the bound's cut and a relation naming a source the index does not hold | accepted | A relation whose endpoint has left the corpus cannot be drawn: ADR 0002 is emphatic that an edge to a node the page will not show asserts a node that does not exist. It therefore has to be dropped, and the frozen shape has exactly one number for "a relation this body does not carry". Leaving the drop uncounted would have been the silence the field exists to prevent; widening the field's meaning is the smaller cost, and it is stated in the route, in both implementations and here. A relation that merely belongs to another *page* is **not** counted — a full walk returns it, and counting it would report a bound that does not exist |
+| D-272 | `SourceNeighborhoodQuery` takes a `limit` and **no `depth`**, and the limit binds both directions together, applied in id order before the split | accepted | A Focus composition shows one source and the sources one qualified relation away from it; a two-hop source walk is a different picture, and freezing a parameter nothing draws would be inventing a bound. Binding the two directions together rather than each separately keeps `limit=500` from meaning a thousand relations, and applying it in id order *before* splitting keeps a bound from erasing one direction while the other is still short of it — which incoming-then-outgoing would do. `truncated` says when it bound |
+| D-273 | A **stale** brief is carried in the response, and the frozen `SourceKnowledgeAvailability` description was sharpened rather than left contradictory | accepted | `T-251` froze two sentences that cannot both be true: "`brief` is null in every state but `available`", and "the brief exists … so it is shown with that said out loud rather than withheld". Withholding it is precisely what the first would do. Serving it is what makes `stale` differ from `unavailable` by more than a word, it is what `synthesis.brief_state` — the read side `T-252` froze and the vocabulary this component publishes — already returns, and one implementation of "is this brief current" across the gate, the adapter, the index and the API is worth more than a second opinion. The shape did not change; the sentence now says which state carries a document |
+| D-274 | Per-relation staleness is **not** representable in the v1 response shapes, so no relation is filtered on it, and the gap is recorded rather than papered over | accepted | `artifacts.source_relations_state` reports a relation whose endpoint runs have moved as `stale` individually, and neither `SourceRelationSummary` nor `SourceRelationDetail` has a member for it — both are `additionalProperties: false`. Two things were available and both are worse than saying so: dropping a stale relation, which the counts could only report as a bound that did not bind, and serving it as though it were current, which is the overclaim the whole basis discipline exists to prevent. What is served is what the canonical file holds, which is the record the gate accepted; the staleness channel is a field for a later contract version, and `T-256` must not present a relation as fresh on the strength of this endpoint alone |
+| D-275 | `artifacts.source_relations_document` keeps the **first** record for a repeated id | accepted | The apply gate refuses a duplicate id and `container-duplicates-a-relation-id.json` is the committed fixture that pins it, so a file with one was edited past the gate. The two readers cannot disagree about damage: the oracle would have drawn one edge twice and the index would have refused the whole scan on its primary key, and "the Source Map is unreadable because one derived file is" is the outcome `source_relations_state` already rules out one layer up |
+| D-276 | `SourceNeighborhoodPayload.neighbors` excludes the selected source | accepted | The frozen description asks that no relation name an endpoint the client has no node for, and the payload carries the centre separately as `source`. Repeating it in `neighbors` would put the same node in a body twice under a name that says it is not the centre; the purpose clause is satisfied by `source` ∪ `neighbors`, which is what `tests/test_api_source_graph.py` asserts for every source in the corpus |
 
 > **Ledger maintenance note.** Phase 1 implementation decisions D-046–D-116 are in
 > `PROJECT_MANAGEMENT.md` §6, which remains their complete live ledger. Backfilling those
@@ -1463,17 +1648,10 @@ Decisions D-001 through D-013 are consolidated and documented in [ADR 0001](adr/
 
 ## 20. Open questions
 
-The Twitter questions below block contracts but are answered by `T-222`'s evidence, not by
-guessing or by asking the user to choose a library name:
-
-- Does the pinned credential-free `x-cli` path work from the target Iran environment for a
-  public single post and a same-author self-thread?
-- Which long-post, Article, edit, poll, media/alt-text and tombstone fields are actually
-  available and stable enough to enter the canonical contract?
-- Can the tested route prove a self-thread boundary from root and middle anchors, or must the
-  capture remain `PARTIAL`?
-- If `x-cli` does not qualify, is explicit opt-in FxTwitter sufficient, or is passive Firefox
-  capture required for the approved MVP?
+There is no blocking product question for `T-251`. The user has decided that source relations
+are automatic, only the selected node is richly readable, and books stay one source node with
+internal drill-down. Exact candidate bounds and API basis-page bounds must be measured and
+frozen by `T-251`; they are implementation measurements, not product guesses.
 
 These board/media questions remain deferred to their appropriate later phase:
 
@@ -1627,8 +1805,23 @@ An agent must not guess the answers to these if the decision would cause a notic
   shell `WORKFLOW.md` documents. Walked live on the target machine on 2026-09-04 — a real public
   Persian post and a real ten-post self-thread from its last post, to a vault note and a library
   of two runs (D-243)
-- [ ] **Canvas — Phase 3 / `T-301`: next.** Technically unblocked by `T-210` and deliberately
-  deferred until the Twitter phase gate closed (D-204). It has closed
+- [ ] **Source Map — Phase 2.3 / `T-250`: under way.** Accepted in
+  [ADR 0008](adr/0008-source-level-knowledge-map.md). `T-251` is **done**: one source
+  `EntityRef` per run in a record family the Knowledge Map never sees, four schemas in
+  `schemas/synthesis/v1/`, a deterministic relation id over endpoints/type/scope, eight frozen
+  API response shapes with no new path, and 28 fixtures — 22 of them dishonest on purpose, each
+  naming its own lie. Bounds measured, not chosen (D-244–D-256). `T-252` is **done** too: a run
+  can now carry a gated, readable Persian brief whose every statement names units the run holds
+  and whose status can never outrank the run's own (D-257–D-261). And `T-253` is **done**:
+  cross-source relations are discovered through bounded deterministic routes, proposed by a
+  pass, and gated against endpoints, basis ownership, corroboration, direction and digests
+  (D-262–D-268). And `T-254` is **done**: three rebuildable SQLite tables and two read-only
+  endpoints — `GET /api/source-graph` and `GET /api/source-graph/neighborhood/{source_id}` —
+  page over source nodes, count what they omit, bound every basis and state both counts, and
+  leave every Knowledge Map payload where it was (D-269–D-276). `T-255`, the high-fidelity
+  mockups, is next; **nothing renders any of it yet**
+- [ ] Canvas — Phase 3 / `T-301`: technically unblocked, now deliberately deferred until the
+  Source Map phase gate closes
 - [ ] Pen annotations
 - [ ] Additional adapters, in the user's stated order (D-234): **Medium and articles**, then
   **books** (PDF/EPUB), then **website links** — each reaching the graph *and* the vault
@@ -1637,10 +1830,25 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**Phase 2.2 has closed and Canvas (`T-301`) is next.** `T-230` generalized finalize and the
-vault for all four media (D-240–D-242) and `T-229` closed the gate (D-243); D-204's deferral of
-Canvas was explicitly until that gate closed, so the next task is `T-301`. What follows is the
-record of why `T-230` came before the gate rather than the gate implementing it.
+**Phase 2.3 / Source Map is under way; `T-251`–`T-254` are done and `T-255` is next.** Every
+canonical record exists, is gated and is served (D-251–D-276): one source node per run, a
+readable Persian brief per run, and qualified cross-source relations with knowledge-unit basis,
+behind two read-only endpoints over three rebuildable SQLite tables. The response shapes frozen
+and unserved since `T-251` now have their operations, which is what retired the exemption two
+tests held open (D-254), and every Knowledge Map payload is where it was — D-251 is what makes
+that structural and `tests/test_source_map_regression.py` is what notices.
+
+`T-255` is the **mockups**, and it is a human decision rather than a build: real bodies from the
+two live endpoints, drawn in dark and light, Persian and English, `PASS` and `PARTIAL`, dense
+and sparse, and with no WebGL — approved before a line of production UI. Do not skip to the UI
+(`T-256`); each task consumes the previous one's gate. The complete handoff is
+[`SOURCE_MAP_SPEC.md`](SOURCE_MAP_SPEC.md) §8 and `PROJECT_MANAGEMENT.md` §11. Canvas (`T-301`)
+follows the `T-257` phase gate.
+
+### Historical Phase 2.2 closeout
+
+The remainder of this section records why `T-230` came before the Twitter gate. It is history,
+not the current next task.
 
 With `T-228` done, a Twitter run is a first-class citizen of the index, the API, search, the Reader
 and the Map: it projects artifacts, entities, `text_span` locators and relations, it coexists
@@ -1683,6 +1891,18 @@ not before.
 
 ## 24. Research references
 
+- Source Map implementation specification and research synthesis:
+  [`SOURCE_MAP_SPEC.md`](SOURCE_MAP_SPEC.md) §10
+- W3C PROV-O: <https://www.w3.org/TR/2013/REC-prov-o-20130430/>
+- Microsoft GraphRAG dataflow and output model:
+  <https://microsoft.github.io/graphrag/index/default_dataflow/>
+  <https://microsoft.github.io/graphrag/index/outputs/>
+- Park et al., *ClaimDiff*: <https://aclanthology.org/2020.acl-main.406/>
+- Sigma renderers: <https://www.sigmajs.org/docs/advanced/renderers/>
+- EPUB 3.3: <https://www.w3.org/TR/epub-33/>
+- WCAG information/relationships and complex-image text equivalents:
+  <https://www.w3.org/WAI/WCAG21/Understanding/info-and-relationships>
+  <https://www.w3.org/WAI/tutorials/images/complex/>
 - AFFiNE: <https://github.com/toeverything/AFFiNE>
 - BlockSuite Edgeless Editor: <https://blocksuite.io/components/editors/edgeless-editor>
 - BlockSuite Edgeless Data Structure: <https://blocksuite.io/components/editors/edgeless-data-structure>
@@ -1753,6 +1973,16 @@ not before.
 - XCancel legal-notice shutdown context: <https://github.com/dgw/sopel-cancelx>
 
 ## 25. Document change history
+
+### 2026-09-05 — Source Map accepted before Canvas
+
+- Added Phase 2.3 / `T-250`: one node per source, a readable selected card, and automatic
+  evidence-backed source relationships above the existing KU graph.
+- Accepted [ADR 0008](adr/0008-source-level-knowledge-map.md) and D-244–D-250.
+- Added [`SOURCE_MAP_SPEC.md`](SOURCE_MAP_SPEC.md) as the Claude Code implementation handoff,
+  including data contracts, automation, API/UI behavior, book disclosure and `T-251`–`T-257`.
+- Kept YouTube and X/Twitter as the only implemented source types. No production code,
+  canonical output or operational workflow changed in this planning session.
 
 ### 2026-09-03 — Twitter/X source foundation moved before Canvas
 
@@ -1835,7 +2065,7 @@ not before.
   `window`) and D-149 (one plural form in `interpolate`) recorded from what the walk found.
 - ADR 0005 § *Walk result* records where it ran, what it drew, the measurements that replaced
   the numbers chosen by argument, the anti-pogo baseline and the nine findings.
-- §22 and §23 updated: Phase 3 is next and its first act is to decompose it.
+- At that point, §22 and §23 marked Phase 3 as next; D-250 later inserted Source Map first.
 
 ### 2026-08-31 — initial version
 

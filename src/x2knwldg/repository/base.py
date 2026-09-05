@@ -65,7 +65,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from .. import ids
 from ..adapters import RUN_STATUSES, UNKNOWN_STATUS
-from ..constants import KNOWLEDGE_KINDS, MAX_GRAPH_EDGES
+from ..constants import KNOWLEDGE_KINDS, MAX_GRAPH_EDGES, MAX_SOURCE_RELATION_BASIS
 
 #: Page size bounds, copied from ``schemas/api/v1/openapi.json``. The contract
 #: is the authority; these exist so a query object cannot be constructed outside
@@ -83,6 +83,12 @@ MAX_QUERY_LENGTH = 512
 #: ``/api/graph/neighborhood`` caps ``depth`` at 3.
 MIN_DEPTH = 1
 MAX_DEPTH = 3
+
+#: ``entity_type`` of the one node that stands for a whole acquired source
+#: (D-244). Named here because two implementations and one route all have to
+#: agree on which entities the Source Map is drawn over, and a string spelled in
+#: three files is three strings.
+SOURCE_ENTITY_TYPE = "source"
 
 #: What the index can answer with. ``absent`` and ``building`` are reported
 #: plainly: a UI that cannot tell an empty index from an unbuilt one presents
@@ -117,6 +123,18 @@ ORDER_KEYS = {
     "artifact": "id",
     "entity_ref": "global_id",
     "indexed_relation": "id",
+    # `T-254`, the source layer's two families. A source node is an
+    # ``EntityRef`` and orders by the same field, but it is its own model
+    # because it is its own *table*: `by_model` does not carry it and the
+    # `entities` table must not hold it (D-251). A ``SourceRelation`` is not an
+    # ``IndexedRelation`` at all — it joins two whole sources and carries a
+    # basis where the other carries a confidence.
+    #
+    # Neither is a member of :func:`check_index_integrity`'s namespaces: those
+    # describe what the Knowledge Map is drawn from, and D-249 forbids the
+    # source layer moving any of it.
+    "source_entity": "global_id",
+    "source_relation": "id",
 }
 
 #: Separates an order key's identity from its tiebreak. NUL sorts below every
@@ -645,6 +663,45 @@ class NeighborhoodQuery:
         )
 
 
+@dataclass(frozen=True)
+class SourceGraphQuery(PagedQuery):
+    """``GET /api/source-graph`` (`T-254`).
+
+    No filters. ``GraphQuery`` has three because the Knowledge Map draws over a
+    library of knowledge units, concepts and three edge vocabularies; the Source
+    Map draws over **every acquired source**, and a filter here would answer a
+    question the frozen ``SourceGraphPayload`` gives the client no way to ask.
+    A filter added later is an additive contract change, and adding one now
+    would freeze a parameter nothing had asked for.
+    """
+
+
+@dataclass(frozen=True)
+class SourceNeighborhoodQuery:
+    """``GET /api/source-graph/neighborhood/{source_id}`` (`T-254`).
+
+    Not a :class:`PagedQuery`, for the reason :class:`NeighborhoodQuery` is not:
+    ``SourceNeighborhoodResponse`` carries no ``page``. The selected source is a
+    **two-part source id** — the addressable handle a run has — and the node's
+    three-part global id is what comes back as ``center_id``.
+
+    There is no ``depth``. A Focus composition shows one source and the sources
+    one qualified relation away from it; a two-hop source walk is a different
+    view with a different picture, and inventing the parameter now would freeze
+    a bound nothing draws.
+    """
+
+    source_id: str = ""
+    limit: int = DEFAULT_LIMIT
+
+    def __post_init__(self) -> None:
+        parsed = _check_source_id(self.source_id, "source_id")
+        if parsed is None:
+            raise InvalidId("source_id: a source id is required")
+        object.__setattr__(self, "source_id", parsed)
+        object.__setattr__(self, "limit", _check_limit(self.limit))
+
+
 # --------------------------------------------------------------------------
 # Results — the payloads of the frozen contract, without its envelope
 # --------------------------------------------------------------------------
@@ -691,6 +748,25 @@ def bounded_edges(edges: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bo
     return edges[:MAX_GRAPH_EDGES], True
 
 
+def bounded_basis(basis: Sequence[Any]) -> tuple[list[Any], int, int]:
+    """``(entries, total, returned)`` — at most ``MAX_SOURCE_RELATION_BASIS`` (`T-254`).
+
+    The analogue of :func:`bounded_edges` one layer up, and the reason it
+    returns three values rather than one: ``SourceRelationDetail`` requires
+    **both** ``basis_total`` and ``basis_returned``, because a body carrying
+    only the second presents a truncation as the whole basis — which is risk
+    R27 arriving through the API instead of through the model.
+
+    The stored order is kept. ``basis`` is what qualifies a source-level
+    relation, and re-ranking it here would be this layer inventing an order the
+    canonical record does not state.
+    """
+    entries = list(basis)
+    if len(entries) <= MAX_SOURCE_RELATION_BASIS:
+        return entries, len(entries), len(entries)
+    return entries[:MAX_SOURCE_RELATION_BASIS], len(entries), MAX_SOURCE_RELATION_BASIS
+
+
 @dataclass(frozen=True)
 class GraphPage:
     """``GET /api/graph`` — a page of nodes with the edges that connect them.
@@ -733,6 +809,77 @@ class Neighborhood:
             "depth": self.depth,
             "nodes": list(self.nodes),
             "edges": list(self.edges),
+            "truncated": self.truncated,
+        }
+
+
+@dataclass(frozen=True)
+class SourceGraphPage:
+    """``GET /api/source-graph`` — a page of source nodes and their relations.
+
+    Paged over **nodes**, exactly as :class:`GraphPage` is and for the same
+    reason: paging over relations would silently drop a source that relates to
+    nothing, and a source that relates to nothing is a real source.
+
+    ``relations_omitted`` is every stored relation this body does not carry and
+    could not be paged to. Two things put a relation there — the
+    :data:`~x2knwldg.constants.MAX_GRAPH_EDGES` cap, and an endpoint the index
+    does not hold — and both are counted rather than left silent. A relation
+    that simply belongs to another *page* is not omitted: a full walk returns
+    it, and counting it here would report a bound that does not exist.
+    """
+
+    nodes: list[dict[str, Any]] = field(default_factory=list)
+    relations: list[dict[str, Any]] = field(default_factory=list)
+    truncated: bool = False
+    relations_omitted: int = 0
+    limit: int = DEFAULT_LIMIT
+    next_cursor: str | None = None
+    total: int | None = None
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "nodes": list(self.nodes),
+            "relations": list(self.relations),
+            "truncated": self.truncated,
+            "counts": {
+                "sources_returned": len(self.nodes),
+                "relations_returned": len(self.relations),
+                "relations_omitted": self.relations_omitted,
+                "sources_total": self.total,
+            },
+        }
+
+    def page_info(self) -> dict[str, Any]:
+        return {"limit": self.limit, "next_cursor": self.next_cursor, "total": self.total}
+
+
+@dataclass(frozen=True)
+class SourceNeighborhood:
+    """``GET /api/source-graph/neighborhood/{source_id}`` — one selected source.
+
+    ``incoming`` and ``outgoing`` are separate lists rather than one with a
+    direction flag, because that is what the frozen payload declares and why:
+    a client that derives direction by comparing ``to_source_id`` with
+    ``center_id`` is a client that can derive it wrongly.
+    """
+
+    center_id: str
+    source: dict[str, Any]
+    source_knowledge: dict[str, Any]
+    incoming: list[dict[str, Any]] = field(default_factory=list)
+    outgoing: list[dict[str, Any]] = field(default_factory=list)
+    neighbors: list[dict[str, Any]] = field(default_factory=list)
+    truncated: bool = False
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "center_id": self.center_id,
+            "source": dict(self.source),
+            "source_knowledge": dict(self.source_knowledge),
+            "incoming": list(self.incoming),
+            "outgoing": list(self.outgoing),
+            "neighbors": list(self.neighbors),
             "truncated": self.truncated,
         }
 
@@ -968,6 +1115,64 @@ def matches_source(source: Mapping[str, Any], query: SourceQuery) -> bool:
     return True
 
 
+def source_relation_summary(relation: Mapping[str, Any]) -> dict[str, Any]:
+    """``SourceRelationSummary`` — an edge pill, without the grounds behind it.
+
+    ``basis_total`` is carried precisely *because* the basis is not: an edge
+    that reads ``critiques · 3 grounds`` and one resting on forty would
+    otherwise draw identically. It is a count and never a strength, a rank or a
+    confidence (D-247), and no source relation is representable with one.
+
+    One projection for both implementations, so a summary cannot mean two
+    things. Nothing is defaulted: every field is copied out of the canonical
+    record, which the apply gate already refused unless it had all of them.
+    """
+    return {
+        "id": relation["id"],
+        "from_source_id": relation["from_source_id"],
+        "to_source_id": relation["to_source_id"],
+        "relation_type": relation["relation_type"],
+        "scope": relation["scope"],
+        "provenance_class": relation["provenance_class"],
+        "basis_total": len(relation["basis"]),
+    }
+
+
+def source_relation_detail(relation: Mapping[str, Any]) -> dict[str, Any]:
+    """``SourceRelationDetail`` — the summary, the Persian rationale, and a bounded basis.
+
+    ``generated_from`` is deliberately **not** carried: it is the pair of
+    endpoint digests the comparison was made against, it is how
+    ``artifacts.source_relations_state`` decides staleness, and the frozen
+    response shape has no member for it. Adding one would be a contract change,
+    and passing it through under another name would be a second vocabulary for
+    one fact.
+    """
+    basis, total, returned = bounded_basis(relation["basis"])
+    return {
+        "id": relation["id"],
+        "from_source_id": relation["from_source_id"],
+        "to_source_id": relation["to_source_id"],
+        "relation_type": relation["relation_type"],
+        "scope": relation["scope"],
+        "provenance_class": relation["provenance_class"],
+        "rationale": relation["rationale"],
+        "basis": [record_copy(entry) for entry in basis],
+        "basis_total": total,
+        "basis_returned": returned,
+    }
+
+
+def source_of(entity: Mapping[str, Any]) -> str:
+    """The source id a source node stands for.
+
+    Read off the record rather than rebuilt from its global id: the node carries
+    ``source_id`` and the two cannot disagree, because ``check_records`` holds
+    every source entity to the rule that its parts and its whole agree.
+    """
+    return str(entity.get("source_id", ""))
+
+
 def record_copy(record: Mapping[str, Any]) -> dict[str, Any]:
     """An independent copy of *record*, safe to hand outside the repository.
 
@@ -1198,3 +1403,16 @@ class IndexRepository(Protocol):
 
     def neighborhood(self, query: NeighborhoodQuery) -> Neighborhood | None:
         """``GET /api/graph/neighborhood/{entity_id}``, or ``None`` for an unknown center."""
+
+    # `T-254`. The Source Map's two reads. They are on the protocol rather than
+    # only on the implementations because ADR 0002's rule is that the API talks
+    # to this interface and to nothing else — so a route that needed a method
+    # the protocol could not express would be a contract change first, which is
+    # what these two are.
+    def source_graph(self, query: SourceGraphQuery) -> SourceGraphPage:
+        """``GET /api/source-graph`` — a page of source nodes and their relations."""
+
+    def source_neighborhood(
+        self, query: SourceNeighborhoodQuery
+    ) -> SourceNeighborhood | None:
+        """``GET /api/source-graph/neighborhood/{source_id}``, or ``None``."""

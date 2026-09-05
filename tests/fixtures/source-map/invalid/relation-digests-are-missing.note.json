@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "schema",
+  "lie": "generated_from omits to_run_digest, so half the pair can change without the relation ever going stale."
+}

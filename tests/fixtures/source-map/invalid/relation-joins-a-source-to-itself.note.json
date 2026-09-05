@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "gate",
+  "lie": "Both endpoints are the same source. ids.source_relation_id refuses to mint an id for this, so the record cannot even acquire the id its schema requires — the id here is the one for the honest pair."
+}

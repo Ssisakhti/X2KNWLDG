@@ -251,6 +251,40 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("run_dir", type=Path)
     apply_parser.add_argument("bundle", type=Path)
 
+    source_knowledge_parser = commands.add_parser(
+        "apply-source-knowledge",
+        help="Validate and store the readable Persian brief for one already-validated run",
+    )
+    source_knowledge_parser.add_argument("run_dir", type=Path)
+    source_knowledge_parser.add_argument(
+        "document",
+        type=Path,
+        help=(
+            "The model's source_knowledge.json, produced by prompts/06_source_knowledge.md "
+            "after apply-bundle has written this run's knowledge, relations and coverage"
+        ),
+    )
+
+    candidates_parser = commands.add_parser(
+        "source-candidates",
+        help="List the bounded, deterministic candidate source pairs worth comparing",
+    )
+    candidates_parser.add_argument("--output", type=Path, default=Path("output"))
+
+    relations_parser = commands.add_parser(
+        "apply-source-relations",
+        help="Validate and store model-proposed relations between whole sources",
+    )
+    relations_parser.add_argument(
+        "document",
+        type=Path,
+        help=(
+            "The model's source_relations.json, produced by "
+            "prompts/07_source_relations.md over the output of source-candidates"
+        ),
+    )
+    relations_parser.add_argument("--output", type=Path, default=Path("output"))
+
     finalize_parser = commands.add_parser(
         "finalize", help="Generate report, graph, and Obsidian files from canonical data"
     )
@@ -806,6 +840,36 @@ def main(argv: list[str] | None = None) -> int:
             result = apply_bundle_to_any_run(args.run_dir, args.bundle)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return verdict_exit_code(result["status"])
+        if args.command == "apply-source-knowledge":
+            # `T-252`. A gate, like `apply-bundle`: a brief that fails
+            # validation is refused rather than written. The exit code is the
+            # *run's* standing verdict, re-read rather than recomputed — writing
+            # an account of a run does not re-grade it, so a brief over a
+            # `PARTIAL` run still exits 3.
+            from .artifacts import apply_source_knowledge
+
+            result = apply_source_knowledge(args.run_dir, args.document)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return verdict_exit_code(result["status"])
+        if args.command == "source-candidates":
+            # Read-only and deterministic: it opens canonical files and counts.
+            # The report is what `prompts/07_source_relations.md` consumes, and
+            # what the apply gate recomputes rather than trusts.
+            from .candidates import discover
+
+            report = discover(args.output)
+            print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
+            return EXIT_OK
+        if args.command == "apply-source-relations":
+            # `T-253`. A gate, like the other two: a document that fails
+            # validation is refused rather than written. Its exit code is its
+            # own — unlike the per-run gates, this command is about the corpus
+            # and there is no single run verdict for it to report.
+            from .artifacts import apply_source_relations
+
+            result = apply_source_relations(args.document, args.output)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return EXIT_OK
         if args.command == "finalize":
             from .artifacts import finalize_run
 

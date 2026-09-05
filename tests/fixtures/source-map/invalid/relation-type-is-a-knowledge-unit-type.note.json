@@ -1,0 +1,6 @@
+{
+  "fixture": true,
+  "fixture_note": "Synthetic test fixture — not real evidence about any source. Regenerate with tests/fixtures/source-map/build_fixtures.py.",
+  "refused_by": "schema",
+  "lie": "relation_type is 'causes' — a KU-level canonical type, not one of the eight source-level ones. The two vocabularies stay apart."
+}

@@ -54,7 +54,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, NoReturn
 
-from .. import constants, ids
+from .. import constants, ids, synthesis
 from ..io import read_json_or_reason, scrub_host_paths, sha256_file
 
 #: Index model version these records conform to. The version is the schema
@@ -157,18 +157,40 @@ class AdapterError(RuntimeError):
 
 @dataclass
 class IndexRecords:
-    """The four v1 record families produced from one or more sources.
+    """The v1 record families produced from one or more sources.
 
     Purely a carrier: it holds plain dicts so the index (``T-101``–``T-104``)
     and the API (``T-105``–``T-107``) can persist and serialise them without a
     translation layer, and so the contract tests can validate them directly
     against the JSON Schemas.
+
+    ``source_entities`` is the fifth family and the one that is **not** in
+    :meth:`by_model` (``T-251``, D-244). It holds the ``EntityRef`` that stands
+    for a whole acquired source — one per run — and it is separate on purpose.
+
+    ``entities`` is what ``/api/graph``, ``/api/sources/{id}/entities``,
+    ``/api/status`` counts and the SQLite ``entities`` table are built from, and
+    none of them filters on ``entity_type``. Appending a source node to that
+    list would therefore have put a source-scale node into the Knowledge Map,
+    changed three frozen payloads and moved every entity count in the project —
+    which D-249 forbids in as many words. The alternative to a separate list is
+    an ``entity_type != "source"`` clause repeated at four call sites, where the
+    first one anybody forgets is a silent contract change. A list nothing reads
+    yet cannot leak into a payload at all. ``T-254`` gave it the source-graph
+    tables and endpoints of its own: a ``source_entities`` table of its own in
+    the index (D-269), and ``GET /api/source-graph``, whose nodes these are and
+    which is the only surface that reads them.
+
+    It is still held to every rule the other families are: :func:`check_records`
+    runs the ``ids`` invariants over it and claims its ids in the same namespace
+    as artifacts and entities, so a collision is refused rather than resolved.
     """
 
     sources: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     entities: list[dict[str, Any]] = field(default_factory=list)
     relations: list[dict[str, Any]] = field(default_factory=list)
+    source_entities: list[dict[str, Any]] = field(default_factory=list)
 
     def __add__(self, other: IndexRecords) -> IndexRecords:
         return IndexRecords(
@@ -176,16 +198,37 @@ class IndexRecords:
             artifacts=[*self.artifacts, *other.artifacts],
             entities=[*self.entities, *other.entities],
             relations=[*self.relations, *other.relations],
+            source_entities=[*self.source_entities, *other.source_entities],
         )
 
     def by_model(self) -> dict[str, list[dict[str, Any]]]:
-        """Keyed by schema file stem, so a record set validates in a loop."""
+        """Keyed by schema file stem, so a record set validates in a loop.
+
+        Deliberately unchanged by ``T-251``: this mapping is what
+        ``index.scanner`` writes and what ``repository.check_index_integrity``
+        judges, so anything added here reaches every existing payload. The
+        source entities are reachable as :attr:`source_entities`, and validate
+        against the same ``entity_ref.schema.json`` — see
+        :meth:`by_model_with_source_entities` for the validating callers.
+        """
         return {
             "source": self.sources,
             "artifact": self.artifacts,
             "entity_ref": self.entities,
             "indexed_relation": self.relations,
         }
+
+    def by_model_with_source_entities(self) -> dict[str, list[dict[str, Any]]]:
+        """:meth:`by_model`, with the source entities folded into ``entity_ref``.
+
+        For a caller that wants to hold **every** record this set carries to the
+        v1 schemas — the contract tests do — without that reach becoming the
+        thing the index persists. Two different questions, two methods, and the
+        one the index calls is the one that did not change.
+        """
+        grouped = self.by_model()
+        grouped["entity_ref"] = [*grouped["entity_ref"], *self.source_entities]
+        return grouped
 
     def addressable(self) -> Iterator[tuple[str, str, str]]:
         """Every id this set claims, as ``(namespace, id, claimant)``.
@@ -202,7 +245,7 @@ class IndexRecords:
             yield "source id", source["id"], f"source in {source.get('canonical_dir')}"
         for artifact in self.artifacts:
             yield "global id", artifact["id"], f"artifact {artifact.get('kind')}"
-        for entity in self.entities:
+        for entity in (*self.entities, *self.source_entities):
             yield "global id", entity["global_id"], f"{entity.get('entity_type')}"
         for relation in self.relations:
             yield "edge id", relation["id"], f"{relation.get('relation')} edge"
@@ -518,6 +561,12 @@ def check_records(records: IndexRecords, *, self_contained: bool = True) -> Inde
     it names, no two records claim one id, and no edge names an endpoint the set
     has no entity for.
 
+    The source entities of ``T-251`` are checked here alongside the others, not
+    beside them. They are absent from ``by_model`` so that no existing payload
+    moves, and that is a statement about what the *index* stores; it is not a
+    reason for the id that addresses a source node to be held to a weaker rule
+    than the id that addresses a knowledge unit.
+
     The last two are exactly ``repository.check_index_integrity``, deliberately
     to the letter. That function refuses the same two conditions when a
     repository is constructed, which is the right failure at the wrong end of
@@ -559,7 +608,7 @@ def check_records(records: IndexRecords, *, self_contained: bool = True) -> Inde
                 f"belongs to {global_id.source_id.value!r}"
             )
 
-    for entity in records.entities:
+    for entity in (*records.entities, *records.source_entities):
         owner = f"{entity.get('entity_type')} {entity.get('global_id')}"
         _wrap(ids.check_entity_ref_ids, entity, owner)
         locator = entity.get("locator")
@@ -862,6 +911,130 @@ class SourceAdapter(ABC):
     # implementation of ``_derived_refs`` in particular would be free to
     # disagree with its own ``derived_from`` edges, which is the exact bug that
     # method's docstring exists to prevent.
+
+    def _source_knowledge_artifact(
+        self,
+        run_dir: Path,
+        source_id: ids.SourceId,
+        hash_artifacts: bool,
+        unmappable: list[dict[str, str]],
+    ) -> dict[str, Any] | None:
+        """The run's readable brief as an artifact, or ``None`` when it has none.
+
+        ``T-252``, D-257. **Emitted only when the file exists**, unlike the
+        canonical artifacts every run is expected to grow. The difference is
+        whether absence is a gap: a run with no ``report.md`` has not been
+        finalized yet, and saying ``available: false`` about it is useful. A run
+        with no brief is in a state that is normal, honest and possibly
+        permanent — a `FAIL` run may never get one — so listing it as missing on
+        every run in the project forever would report an absence as a shortfall.
+
+        The precedent is this module's own: ``_raw_source_spec``,
+        ``_video_artifact`` and ``_vault_artifacts`` are all conditional for
+        related reasons. The practical consequence is that no existing run's
+        artifact list moves, which is what D-249 asks of everything in this
+        phase.
+        """
+        if not (run_dir / synthesis.BRIEF_FILENAME).is_file():
+            return None
+        return self._file_artifact(
+            run_dir,
+            source_id,
+            ArtifactSpec(
+                "source_knowledge", "source_knowledge", "canonical", synthesis.BRIEF_FILENAME
+            ),
+            hash_artifacts,
+            unmappable,
+        )
+
+    def _source_knowledge_metadata(self, run_dir: Path) -> dict[str, Any] | None:
+        """``{"state", "reason"}`` for the brief, or ``None`` when there is none.
+
+        Read through ``synthesis.brief_state``, so the index and the future API
+        answer "is this brief current" the same way the gate does, rather than
+        each deriving staleness from the digests separately.
+
+        The **brief itself is not carried here.** ``adapter_metadata`` is a
+        record field served verbatim inside ``/api/sources`` bodies, and a whole
+        Persian brief in it would put derived narrative into a payload that
+        exists to describe a source's *files*. `T-254` reads the document
+        through its own repository method, out of a ``source_briefs`` table the
+        scan fills from this same function (D-269); what the index needs from
+        the adapter is the one fact it cannot recompute cheaply — whether what
+        is on disk still describes the run as it is now.
+
+        ``None`` when the run has no brief, for the reason the artifact is
+        omitted: a key stating ``unavailable`` on every run in the project would
+        move every existing ``Source`` record to say something that was already
+        true and unstated.
+        """
+        state = synthesis.brief_state(run_dir)
+        if state["state"] == "unavailable" and state["brief"] is None:
+            path = run_dir / synthesis.BRIEF_FILENAME
+            if not path.exists():
+                return None
+        return {"state": state["state"], "reason": state["reason"]}
+
+    def _source_entity(
+        self, run_dir: Path, source_id: ids.SourceId, metadata: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """The one ``EntityRef`` that stands for this whole acquired source.
+
+        ``T-251``, D-244. One per run, and medium-neutral by construction: a
+        source node is a title, an identity and a canonical file, and none of
+        those three is a statement about video, posts or — when a book adapter
+        arrives — chapters. That is the point of the abstraction, so this lives
+        on the base class and neither adapter overrides it.
+
+        Three rules it does not bend:
+
+        **The label is the original title, never a summary.** ``library.py``
+        already chooses a knowledge unit's label and ``_knowledge_entities``
+        copies that choice rather than making a second one; the same reasoning
+        applies here one level up. A generated one-line account of the source is
+        a real thing the Source Map wants — it is the Persian thesis of
+        ``source_knowledge.json`` — and it belongs in that gated artifact, where
+        it names the knowledge units it rests on, not in a display label the
+        adapter would have had to invent (D-246).
+
+        **Provenance is ``source``.** The node stands for acquired evidence with
+        its own identity and status. What is *derived* from it is the brief and
+        the cross-source relations, and both are separate records that say so.
+
+        **The status is not copied onto it.** The ``Source`` record already
+        carries the status block, verbatim, out of the validator files, and a
+        second copy on the entity is a second place for it to go stale — the
+        exact shape of risk R12 one family over. A reader that wants the status
+        of a source reads the source.
+
+        The entity is emitted whatever the run's status, ``FAIL`` included. A
+        Source Map that omitted a failed run would report a smaller library than
+        the one on disk, and honest states are the phase's own acceptance
+        criterion rather than a nicety.
+        """
+        owner = self.relative(run_dir / "metadata.json")
+        global_id = build_id(ids.source_entity_global_id, source_id, f"source {source_id.value}")
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "global_id": global_id.value,
+            "source_type": global_id.source_type,
+            "external_id": global_id.external_id,
+            "local_id": global_id.local_id,
+            "source_id": source_id.value,
+            "entity_type": "source",
+            "provenance_class": "source",
+            # A source is not a knowledge kind, and `entity_ref.schema.json`
+            # requires one only of knowledge units and concepts. Null is the
+            # honest answer, not a placeholder for one.
+            "kind": None,
+            "label": copied_text(
+                metadata.get("title"),
+                owner=owner,
+                field="title",
+                max_length=MAX_LABEL_LENGTH,
+            ),
+            "canonical_path": owner,
+        }
 
     def _locator(
         self,

@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "source_id": "youtube:fixture-partial",
+  "status": "PASS",
+  "thesis": {
+    "content": "این منبعِ آزمایشی ناقص است: یک پنجرهٔ پوشش پس از سه تلاشِ ممیزی همچنان بی‌پوشش مانده است، و این گزارش همان وضعیت را بازگو می‌کند.",
+    "based_on": [
+      "KU-000001"
+    ]
+  },
+  "key_points": [
+    {
+      "id": "SP-001",
+      "content": "گزارشِ برگرفته از اجرای ناقص، هرگز نباید کامل‌تر از خودِ اجرا نمایش داده شود.",
+      "based_on": [
+        "KU-000001"
+      ]
+    }
+  ],
+  "limitations_or_tensions": [],
+  "generated_from": {
+    "knowledge_units_sha256": "9ab652d39c61d410aed7f06b98e70ed5562e39935f4decd4aa3dff2a253e72ee",
+    "relationships_sha256": "feb54587aa0fcc6b7e15826ef58df66593dd6b2e5fdacd1a109bd23a6e995f3e",
+    "coverage_sha256": "8c4d5ab255c67cd42a50bdd9d9d4bcac254e8b73cc36ab6479e2b2afa55e2daa"
+  },
+  "generated_at": "2026-01-01T00:00:00+00:00"
+}

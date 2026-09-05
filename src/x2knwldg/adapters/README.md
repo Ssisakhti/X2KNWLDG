@@ -17,8 +17,17 @@ from pathlib import Path
 from x2knwldg.adapters import adapt_project
 
 records = adapt_project(Path.cwd())
-records.by_model()   # {"source": [...], "artifact": [...], "entity_ref": [...], "indexed_relation": [...]}
+records.by_model()          # {"source": [...], "artifact": [...], "entity_ref": [...], "indexed_relation": [...]}
+records.source_entities     # one EntityRef per run — the Source Map's nodes (T-251)
 ```
+
+`by_model()` is what the index writes and what the API serves, and it is **four** families, not
+five. `source_entities` holds the node that stands for a whole acquired source, and it is
+deliberately outside that mapping: `entities` feeds `/api/graph`, `/api/sources/{id}/entities`
+and every entity count in the project, so a source node appended there would have changed three
+frozen payloads (D-249, D-251). Use `by_model_with_source_entities()` to hold *every* record to
+`schemas/v1/` at once — the contract tests do — and `by_model()` everywhere the index is
+concerned.
 
 ## An adapter is a reader
 
@@ -61,7 +70,9 @@ would mean inventing a fourth relation vocabulary, which is a schema change.
 1. Subclass `SourceAdapter` in a new module; set `source_type` and `version`.
 2. Implement `detect` and `adapt_run`, building every id through `ids.py` and
    every path through `self.relative`.
-3. Return `check_records(IndexRecords(...))`.
+3. Return `check_records(IndexRecords(...))`, including
+   `source_entities=[self._source_entity(run_dir, source_id, metadata)]` — the base class
+   builds it, and one is emitted per run whatever the run's status.
 4. Register the class in `ADAPTERS`.
 5. Add fixtures under `tests/fixtures/runs/` and let the contract tests in
    `tests/test_index_schemas.py` run over them.

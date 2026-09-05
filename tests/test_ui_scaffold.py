@@ -753,13 +753,14 @@ def test_ci_sees_a_fixture_the_generator_newly_writes() -> None:
     # And it must check **every** generator that makes the promise, which is
     # the half that was missing: the job was named "run fixtures are
     # reproducible" while regenerating one of the three. Discovered from the
-    # filesystem rather than listed here, so a fourth builder added without a
-    # line in the workflow fails this test rather than being checked by nothing.
+    # filesystem rather than listed here, so a builder added without a line in
+    # the workflow fails this test rather than being checked by nothing — which
+    # is exactly what happened when `T-251` added a fourth.
     builders = sorted(
         path.relative_to(PROJECT_ROOT).as_posix()
         for path in (PROJECT_ROOT / "tests" / "fixtures").glob("*/build_*.py")
     )
-    assert len(builders) == 3, builders
+    assert len(builders) == 4, builders
     unchecked = [builder for builder in builders if builder not in fixtures]
     assert unchecked == [], (
         f"the reproducibility job does not regenerate {', '.join(unchecked)}"

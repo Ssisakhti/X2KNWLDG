@@ -21,7 +21,7 @@ repo.status().payload()["counts"]   # {"sources": 1, "artifacts": 85, ...}
 | `schema.py` | The DDL and the versioned migrations. The only module that writes `CREATE` |
 | `scanner.py` | Discovery, per-run digests, incremental change detection, the build lifecycle. The only module that writes record rows |
 | `search.py` | FTS5 candidate retrieval behind `query.rank_documents`, and the `documents` corpus |
-| `repository.py` | `SqliteRepository` — the ten protocol methods. Writes nothing at all |
+| `repository.py` | `SqliteRepository` — the twelve protocol methods. Writes nothing at all |
 | `__init__.py` | The public surface |
 
 Stdlib only: `sqlite3` ships with Python, so this package works on a bare core
@@ -115,6 +115,34 @@ the searchable text is stored once rather than twice. It is the only virtual
 table in the schema — `document_tokens` is an ordinary one, and the only other
 `USING fts5` in the package is the capability probe `connect` creates and drops
 to find out whether this build of SQLite has the extension at all.
+
+## The source layer is three more tables, not four wider ones (`T-254`, D-269)
+
+Migration **2** adds `source_entities`, `source_briefs` and `source_relations`, and the reason
+they are separate is D-251's reason one layer down. `entities` feeds `/api/graph`,
+`/api/sources/{id}/entities`, the `/api/status` counts and every entity total in the project,
+and not one of those filters on `entity_type` — so a source node stored there would have moved
+all of them on the first build. A table nothing existing reads cannot leak into a payload at
+all.
+
+`source_entities` and `source_relations` store `identity`, `digest` and the record verbatim,
+exactly as the four record tables do, because they are paged by the same `order_key`
+arithmetic. `source_briefs` does not: it is keyed by `source_id`, holds `synthesis.brief_state`'s
+own `state` and `reason`, and holds the brief itself in `doc` — `NULL` exactly when there is no
+document to show, which is the `unavailable` state and never the `stale` one. A row is written
+for **every** indexed run, including one with no brief, so that "this run has no brief" and
+"this run is not indexed" are not the same silence.
+
+All three are rebuildable from canonical files — the adapters, each run's
+`source_knowledge.json`, and `output/synthesis/source_relations.json` — so the rule at the top
+of this file is untouched: deleting the cache still loses nothing, and
+`tests/test_sqlite_equivalence.py` §9b proves it over a corpus that actually holds all three.
+
+`source_relations` is the one thing the scanner rewrites on **every** pass and gives no `runs`
+row (D-270). The file belongs to no run, so there is no per-run digest that could decide it was
+unchanged, and a row in a table keyed by run directory would make it look like a run to every
+count that reads that table. It is one small file; re-reading it is cheaper than the
+bookkeeping that would avoid it.
 
 ## Migrations are forward-only, appended and never edited
 

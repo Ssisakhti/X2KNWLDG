@@ -96,6 +96,52 @@ conform to.
 
 Additive, optional fields are edited in place.
 
+## Frozen ahead of its routes, then served: the source graph (D-254)
+
+`T-251` added eight components for the Source Map — `SourceGraphResponse`,
+`SourceNeighborhoodResponse` and the six shapes beneath them — and **no paths**. That was the
+opposite of the section below, and deliberately so: the shapes were fixed then because the
+repository, the index and the frontend were all built against them, while the operations that
+return them were `T-254`'s.
+
+`T-254` added them. This document now describes **thirteen `GET` endpoints** —
+`GET /api/source-graph` and `GET /api/source-graph/neighborhood/{source_id}` joined the eleven —
+and `test_the_served_surface_is_exactly_the_frozen_one` still compares that set with what the
+app serves.
+
+The arrangement ended the way it was designed to. Two tests kept it honest from both sides:
+`test_every_declared_component_is_reachable` exempted the two response envelopes by name, and
+`test_only_the_two_envelopes_are_referenced_by_nothing_at_all` required that exemption to be
+exhaustive — so the day an operation referenced `SourceGraphResponse`, a test failed and the
+exemption had to come out rather than quietly outlive its reason. It came out; both tests now
+assert that **no** component is unreachable, and
+`test_the_two_operations_return_the_two_envelopes` names the wiring rather than inferring it
+from a reachability walk.
+
+One description was **sharpened** rather than left frozen in contradiction (D-273).
+`SourceKnowledgeAvailability` said both "`brief` is null in every state but `available`" and
+that a stale brief "is shown … rather than withheld", and withholding it is exactly what the
+first sentence would do. The shape did not change; the text now says that `brief` is null when
+the state is `unavailable`, and that `stale` is the one other state carrying a document —
+which is what `synthesis.brief_state` returns and what makes `stale` differ from `unavailable`
+by more than a word.
+
+Two rules these shapes carry, both of them about not lying by omission:
+
+- **A bounded basis states both counts.** `basis_total` is what the stored relation holds and
+  `basis_returned` is what is in the body; a response carrying only the second would present a
+  truncation as the whole basis. `maxItems` on `basis` is `constants.MAX_SOURCE_RELATION_BASIS`,
+  and `tests/test_source_map_contracts.py` fails if the two disagree.
+- **An absent brief is a state, not an empty one.** `SourceKnowledgeAvailability` distinguishes
+  `available`, `unavailable` and `stale`; "this source has no thesis and no key points" is a
+  claim about the source, and it would be false.
+
+The response bodies reference `schemas/synthesis/v1/`, which is a **pipeline** contract in its
+own versioned directory. Its primitives file is `primitives.schema.json` rather than a second
+`common.schema.json`, because the type generator resolves a `$ref` by the string alone across
+every schema directory at once — see that directory's README, and the duplicate-reference guard
+in `build_name_table`.
+
 ## What is deliberately not frozen (D-027)
 
 The board endpoints of canvas plan §15 — `GET/POST /api/boards`, `GET/PUT

@@ -55,6 +55,37 @@ RELATION_TYPES = {
     "related_to",
 }
 
+#: The eight source-to-source relation types of `SOURCE_MAP_SPEC.md` §3.3, and
+#: only those (`T-251`, D-247).
+#:
+#: Deliberately **not** `RELATION_TYPES`. That vocabulary connects two knowledge
+#: units inside one run; this one connects two whole acquired sources, and the
+#: two questions are not the same size. `supports` and `contradicts` appear in
+#: both and mean different things in each: a unit supporting a unit is a claim
+#: about two sentences, a source supporting a source is an aggregation over many
+#: pairs whose honesty depends on the basis carried with it. Merging the two
+#: lists would let a KU-level edge be read as a whole-source verdict, which is
+#: risk **R27** stated as a data model.
+#:
+#: `explicitly_references` is in here and is still `derived` provenance: the
+#: cited link may be source-grounded, but promoting it to a source-to-source
+#: relation is an aggregation the sources themselves never made.
+SOURCE_RELATION_TYPES = {
+    "explicitly_references",
+    "responds_to",
+    "critiques",
+    "supports",
+    "contradicts",
+    "extends",
+    "applies",
+    "overlaps_with",
+}
+
+#: How much of the two sources a relation's basis supports. Two values, and no
+#: third: `scope` qualifies the claim, it does not measure it. A percentage
+#: would be a number nothing produced (D-247).
+SOURCE_RELATION_SCOPES = {"partial", "broad"}
+
 OMISSION_REASONS = {
     "intro_noninformational",
     "sponsor",
@@ -141,6 +172,42 @@ MAX_PAGE_LIMIT = 500
 #: `truncated` is what says the graph was cut, and it already means exactly
 #: that: "a slice of a larger graph", stated rather than implied.
 MAX_GRAPH_EDGES = 5000
+
+#: The most candidate counterpart sources one source's synthesis pass compares.
+#:
+#: Risk **R28**: candidate discovery grows quadratically. An all-pairs walk over
+#: *n* sources is ``n(n-1)`` ordered comparisons, each of them a model pass over
+#: two whole knowledge-unit sets — so the cost is not the pair count but the
+#: knowledge-unit pairs behind it. Measured on this corpus with
+#: ``tools/measure_source_bounds.py`` on 2026-09-05: **12 sources, 63 knowledge
+#: units, 0–33 per source — 132 ordered source pairs and 2,718 knowledge-unit
+#: pairs, the largest single pair being 363.**
+#:
+#: 25 leaves every source in that corpus fully compared — 11 candidates each,
+#: well inside the bound — and starts binding at 27 sources, which is where a
+#: growing library would otherwise start paying quadratically. The bound is
+#: never silent: a synthesis run reports ``candidates_considered`` and
+#: ``candidates_omitted``, because "we did not look" and "there was nothing
+#: there" are different statements and only one of them is true.
+MAX_SOURCE_CANDIDATES = 25
+
+#: The most basis entries one relation carries in one response.
+#:
+#: Risk **R27**: a source edge overclaims a whole-source verdict. The basis is
+#: what keeps ``critiques`` from meaning "these two sources disagree" — it names
+#: the knowledge-unit pairs the claim rests on. Measured with the same tool on
+#: the same corpus: one basis entry built from the widest real identifier
+#: serializes to **89 bytes**, so **368** of them fit the 32 KiB budget a
+#: relation-detail response is measured against — an order of magnitude under
+#: `MAX_GRAPH_EDGES`, because this is one detail panel rather than a whole graph.
+#:
+#: 200 sits inside that budget at 17,800 bytes and above the largest
+#: knowledge-unit pair product any two sources in the corpus can even form
+#: except one (363). A basis wider than this has stopped qualifying a relation
+#: and started restating the source, which is the overclaim R27 names. Where it
+#: does bind, ``basis_total`` and ``basis_returned`` are both required in the
+#: response: a truncated basis is stated, never implied.
+MAX_SOURCE_RELATION_BASIS = 200
 
 #: D-030's error taxonomy, as the closed ``ErrorCode`` vocabulary the frozen
 #: `schemas/api/v1/openapi.json` publishes.

@@ -64,6 +64,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 V1_DIR = PROJECT_ROOT / "schemas" / "v1"
+SYNTHESIS_DIR = PROJECT_ROOT / "schemas" / "synthesis" / "v1"
 API_DIR = PROJECT_ROOT / "schemas" / "api" / "v1"
 OPENAPI_PATH = API_DIR / "openapi.json"
 OUTPUT_PATH = API_DIR / "types.d.ts"
@@ -77,6 +78,41 @@ RECORD_TYPE_NAMES: Mapping[str, str] = {
     "locator.schema.json": "Locator",
     "entity_ref.schema.json": "EntityRef",
     "indexed_relation.schema.json": "IndexedRelation",
+}
+
+#: The synthesis record schemas, and the TypeScript name each becomes. Same rule
+#: as :data:`RECORD_TYPE_NAMES` and the same reason: explicit, so renaming a
+#: title cannot rename a type the frontend imports. ``T-251``.
+#:
+#: ``source_relations.schema.json`` — the ``output/synthesis/`` container — is
+#: deliberately absent. It is a file the pipeline writes, not a response body,
+#: and nothing in the browser reads it; declaring a type for it would publish a
+#: shape no endpoint returns.
+SYNTHESIS_TYPE_NAMES: Mapping[str, str] = {
+    "source_knowledge.schema.json": "SourceKnowledge",
+    "source_relation.schema.json": "SourceRelation",
+}
+
+#: TypeScript names for the ``$defs`` the synthesis records reference. Every one
+#: carries the ``Synthesis`` prefix, uniformly and including the five whose
+#: schema-level names would otherwise collide with ``schemas/v1/``'s —
+#: ``schemaVersion``, ``sourceId``, ``runStatus``, ``sha256`` and
+#: ``isoTimestamp``.
+#:
+#: Prefixing all of them rather than only the colliding five is the point: the
+#: two directories are separate contracts that happen to describe some of the
+#: same primitives today, and a rule with five exceptions is a rule that stops
+#: being applied. ``SynthesisRunStatus`` is also not merely a renamed
+#: ``RunStatus`` — it has three members where that one has four, because a brief
+#: cannot summarise a run whose validators never ran.
+SYNTHESIS_DEF_PREFIX = "Synthesis"
+
+#: The ``$defs`` inside the synthesis *record* schemas, which the API components
+#: reference directly.
+SYNTHESIS_RECORD_DEF_NAMES: Mapping[str, str] = {
+    "source_knowledge.schema.json#/$defs/supportedStatement": "SourceKnowledgeStatement",
+    "source_knowledge.schema.json#/$defs/identifiedStatement": "SourceKnowledgePoint",
+    "source_relation.schema.json#/$defs/basisPair": "SourceRelationBasisPair",
 }
 
 #: Schemas whose ``allOf`` is a discriminated union rather than a set of
@@ -149,12 +185,34 @@ def _pascal(name: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def build_name_table(common: Mapping[str, Any], openapi: Mapping[str, Any]) -> dict[str, str]:
+def build_name_table(
+    common: Mapping[str, Any],
+    openapi: Mapping[str, Any],
+    synthesis: Mapping[str, Any] | None = None,
+) -> dict[str, str]:
     """Map every ``$ref`` string the contract uses onto a declared type name.
 
     Both the relative form used inside ``schemas/v1/`` and the ``../../v1/``
     form used from the API document resolve to the same name, so the two
     documents cannot end up describing two different types for one schema.
+
+    ``synthesis`` is ``schemas/synthesis/v1/primitives.schema.json``, added by
+    ``T-251``. It is optional so that every existing caller — the tests build a
+    renderer from two documents — keeps working unchanged.
+
+    Two collisions are refused rather than resolved, and they are different
+    failures. **One name, two schemas** is what ``claim`` catches: a type the
+    frontend imports would silently start describing something else. **One
+    reference string, two schemas** is what the ``register`` guard catches, and
+    it is the sharper of the two, because this table is keyed by the reference
+    string alone. A second file named ``common.schema.json`` in a second schema
+    directory would have made ``common.schema.json#/$defs/sourceId`` mean one
+    thing in one document and another elsewhere, and the last registration would
+    simply have won — no error, and a declaration quietly describing the wrong
+    contract. The synthesis directory therefore names its primitives file
+    ``primitives.schema.json`` and writes every reference with its owning
+    filename, and this guard is what keeps that from being a convention nobody
+    checks.
     """
     table: dict[str, str] = {}
     taken: dict[str, str] = {}
@@ -168,20 +226,47 @@ def build_name_table(common: Mapping[str, Any], openapi: Mapping[str, Any]) -> d
             )
         taken[name] = owner
 
+    def register(ref: str, name: str, owner: str) -> None:
+        previous = table.get(ref)
+        if previous is not None and previous != name:
+            raise UnsupportedSchema(
+                f"the reference {ref!r} already resolves to {previous!r} and {owner} wants it "
+                f"to resolve to {name!r}; one reference string, one schema"
+            )
+        table[ref] = name
+
     for key in common["$defs"]:
         name = _pascal(key)
         claim(name, f"common.schema.json#/$defs/{key}")
         for prefix in ("", "../../v1/"):
-            table[f"{prefix}common.schema.json#/$defs/{key}"] = name
+            register(f"{prefix}common.schema.json#/$defs/{key}", name, "schemas/v1/")
 
     for filename, name in RECORD_TYPE_NAMES.items():
         claim(name, filename)
         for prefix in ("", "../../v1/"):
-            table[f"{prefix}{filename}"] = name
+            register(f"{prefix}{filename}", name, "schemas/v1/")
+
+    if synthesis is not None:
+        for key in synthesis["$defs"]:
+            name = f"{SYNTHESIS_DEF_PREFIX}{_pascal(key)}"
+            owner = f"primitives.schema.json#/$defs/{key}"
+            claim(name, owner)
+            for prefix in ("", "../../synthesis/v1/"):
+                register(f"{prefix}primitives.schema.json#/$defs/{key}", name, owner)
+
+        for filename, name in SYNTHESIS_TYPE_NAMES.items():
+            claim(name, filename)
+            for prefix in ("", "../../synthesis/v1/"):
+                register(f"{prefix}{filename}", name, "schemas/synthesis/v1/")
+
+        for ref, name in SYNTHESIS_RECORD_DEF_NAMES.items():
+            claim(name, ref)
+            for prefix in ("", "../../synthesis/v1/"):
+                register(f"{prefix}{ref}", name, "schemas/synthesis/v1/")
 
     for key in openapi["components"]["schemas"]:
         claim(key, f"openapi.json#/components/schemas/{key}")
-        table[f"#/components/schemas/{key}"] = key
+        register(f"#/components/schemas/{key}", key, "openapi.json")
 
     return table
 
@@ -455,7 +540,9 @@ def generate() -> str:
     common = _load(V1_DIR / "common.schema.json")
     openapi = _load(OPENAPI_PATH)
     records = {name: _load(V1_DIR / name) for name in RECORD_TYPE_NAMES}
-    renderer = Renderer(build_name_table(common, openapi))
+    synthesis = _load(SYNTHESIS_DIR / "primitives.schema.json")
+    synthesis_records = {name: _load(SYNTHESIS_DIR / name) for name in SYNTHESIS_TYPE_NAMES}
+    renderer = Renderer(build_name_table(common, openapi, synthesis))
 
     blocks: list[str] = [
         "/**\n"
@@ -485,6 +572,29 @@ def generate() -> str:
             blocks.extend(_locator(schema, DISCRIMINATED_UNIONS[filename], renderer))
             continue
         blocks.append(_declare(name, schema, renderer, _constraint_docs(schema, name)))
+
+    blocks.append(
+        _section("Source synthesis records — schemas/synthesis/v1/")
+    )
+
+    for key, schema in synthesis["$defs"].items():
+        blocks.append(_declare(f"{SYNTHESIS_DEF_PREFIX}{_pascal(key)}", schema, renderer))
+
+    for ref, name in SYNTHESIS_RECORD_DEF_NAMES.items():
+        filename, _, pointer = ref.partition("#/$defs/")
+        blocks.append(
+            _declare(name, synthesis_records[filename]["$defs"][pointer], renderer)
+        )
+
+    for filename, name in SYNTHESIS_TYPE_NAMES.items():
+        blocks.append(
+            _declare(
+                name,
+                synthesis_records[filename],
+                renderer,
+                _constraint_docs(synthesis_records[filename], name),
+            )
+        )
 
     blocks.append(_section("API envelopes — schemas/api/v1/openapi.json"))
 

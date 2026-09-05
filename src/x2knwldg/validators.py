@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
+from collections.abc import Mapping
 from typing import Any, TypeGuard
 
 from .constants import (
@@ -14,11 +15,14 @@ from .constants import (
     OMISSION_REASONS,
     RELATION_TYPES,
     SOURCE_KINDS,
+    SOURCE_RELATION_SCOPES,
+    SOURCE_RELATION_TYPES,
     # The one timing epsilon. Six independent copies were six chances to disagree.
     TIME_TOLERANCE_SEC,
 )
-from .ids import DEFAULT_SOURCE_TYPE, is_id_part
+from .ids import DEFAULT_SOURCE_TYPE, IdError, is_id_part, source_relation_id
 from .io import is_finite_seconds
+from .synthesis import SCHEMA_VERSION as SOURCE_KNOWLEDGE_SCHEMA_VERSION
 from .transcripts import clean_text, transcript_end_sec
 
 # An excerpt shorter than this cannot be evidence: a one- or two-character
@@ -212,6 +216,784 @@ def bundle_shape_error(bundle: Any) -> str | None:
             f"{type(extraction_metadata).__name__}"
         )
     return None
+
+# --------------------------------------------------------------------------
+# The source brief (`T-252`)
+# --------------------------------------------------------------------------
+
+#: Every top-level key ``source_knowledge.json`` must carry, mirroring
+#: ``schemas/synthesis/v1/source_knowledge.schema.json``. Mirrored rather than
+#: read, for the reason ``ids.py`` mirrors the identifier patterns: the core
+#: package is zero-dependency and cannot apply a JSON Schema at runtime (ADR
+#: 0001 invariant 5), so the contract is enforced here or nowhere.
+#: ``tests/test_source_knowledge_gate.py`` fails the moment this disagrees with
+#: the schema.
+SOURCE_KNOWLEDGE_KEYS = (
+    "schema_version",
+    "source_id",
+    "status",
+    "thesis",
+    "key_points",
+    "limitations_or_tensions",
+    "generated_from",
+)
+
+#: The one optional key. ``generated_at`` says *when*; only the digests say
+#: *what from*, which is why it is not a substitute for them.
+SOURCE_KNOWLEDGE_OPTIONAL_KEYS = ("generated_at",)
+
+#: What a thesis may carry, and what an identified statement may carry. Mirrors
+#: the two ``$defs`` of ``source_knowledge.schema.json``, both of which set
+#: ``additionalProperties: false``.
+SOURCE_KNOWLEDGE_THESIS_KEYS = ("content", "based_on")
+SOURCE_KNOWLEDGE_POINT_KEYS = ("id", "content", "based_on")
+
+#: The three digests of ``generated_from``, in the order
+#: ``synthesis.CANONICAL_INPUTS`` names them.
+SOURCE_KNOWLEDGE_DIGEST_KEYS = (
+    "knowledge_units_sha256",
+    "relationships_sha256",
+    "coverage_sha256",
+)
+
+#: What a run status is worth, so "stronger than" is an ordering rather than a
+#: pile of comparisons. ``UNKNOWN`` is deliberately absent: a run with no
+#: readable verdict has no rank, and a brief over one is refused rather than
+#: compared against a number nobody measured.
+_STATUS_RANK = {"FAIL": 0, "PARTIAL": 1, "PASS": 2}
+
+#: Unicode ranges that carry Perso-Arabic script. Used for one narrow check
+#: described at :func:`_narrative_script_error`.
+_ARABIC_RANGES = (
+    (0x0600, 0x06FF),  # Arabic, including every Persian letter and digit
+    (0x0750, 0x077F),  # Arabic Supplement
+    (0x08A0, 0x08FF),  # Arabic Extended-A
+    (0xFB50, 0xFDFF),  # Arabic Presentation Forms-A
+    (0xFE70, 0xFEFF),  # Arabic Presentation Forms-B
+)
+
+
+def _has_arabic_script(text: str) -> bool:
+    return any(
+        any(low <= ord(char) <= high for low, high in _ARABIC_RANGES) for char in text
+    )
+
+
+def _narrative_script_error(text: str, field: str) -> dict[str, Any] | None:
+    """Refuse a narrative field written in Latin script alone.
+
+    **What this establishes, and what it does not.** It is a *script* check, not
+    a language check. Text containing no Perso-Arabic character at all cannot be
+    the Persian the permanent output-language policy requires, and that is the
+    whole of what a refusal here proves. It says nothing about whether
+    Perso-Arabic text is good Persian, idiomatic, or even Persian rather than
+    Arabic — identifying a language is a different problem, and a validator that
+    claimed to have solved it would be inventing a verdict.
+
+    One-directional on purpose. The failure it is built for is the real one: a
+    model that ignored the policy and returned an English brief. That produces
+    text with no Perso-Arabic character in it and is caught. A brief that is
+    Persian but poor is not caught, and no error message here should suggest
+    otherwise.
+
+    The policy explicitly permits an English technical term in parentheses
+    beside the Persian one, so mixed text passes — which it must, because that
+    is the spelling the policy asks for.
+    """
+    if _has_arabic_script(text):
+        return None
+    return {
+        "code": "narrative_not_in_persian_script",
+        "field": field,
+        "note": (
+            "carries no Perso-Arabic character, so it cannot be the Persian the "
+            "output-language policy requires. This is a script check: it proves the "
+            "text is not Latin-only, and nothing more"
+        ),
+    }
+
+
+def validate_source_knowledge(
+    document: Any,
+    *,
+    unit_ids: set[str],
+    source_id: str,
+    run_status: str,
+    current_digests: dict[str, str],
+) -> dict[str, Any]:
+    """Everything ``source_knowledge.json`` must satisfy to be written.
+
+    The schema in ``schemas/synthesis/v1/`` states the shape; this states the
+    four things the schema cannot, because each needs a second document in hand,
+    and each already exists as a committed fixture under
+    ``tests/fixtures/source-map/invalid/`` filed as ``gate``-refused:
+
+    1. every ``based_on`` id names a knowledge unit **this run holds**;
+    2. ``source_id`` is **this run's**;
+    3. ``status`` is not stronger than the run's own ``validation.json``;
+    4. no two points share an id — ``uniqueItems`` compares whole objects, so
+       two points differing only in wording pass the schema.
+
+    It states the shape as well, for the reason ``bundle_shape_error`` does: the
+    package is zero-dependency and applies no JSON Schema at runtime, so a
+    contract enforced only in ``schemas/`` is a contract enforced only in CI.
+
+    *current_digests* is what ``synthesis.canonical_input_digests`` reads off the
+    run **now**. A brief whose ``generated_from`` disagrees was generated against
+    inputs that have since changed, and writing it would file a stale account as
+    a current one. That is refused here rather than being written and flagged:
+    the artifact is what a reader is shown, and "shown with a warning" is a
+    weaker promise than "not written until it is true".
+    """
+    errors: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+
+    if not isinstance(document, dict):
+        return _result([{"code": "not_an_object"}], warnings)
+
+    missing = [key for key in SOURCE_KNOWLEDGE_KEYS if key not in document]
+    if missing:
+        errors.append({"code": "missing_field", "fields": missing})
+    unknown = sorted(
+        set(document) - set(SOURCE_KNOWLEDGE_KEYS) - set(SOURCE_KNOWLEDGE_OPTIONAL_KEYS)
+    )
+    if unknown:
+        # `additionalProperties: false`, enforced where the document is read.
+        # The pointed case is an `evidence_excerpt` smuggled into the narrative:
+        # excerpts live in the knowledge units, and a copy here is evidence that
+        # has been through a paraphrase nobody can see.
+        errors.append({"code": "unknown_field", "fields": unknown})
+    if missing:
+        # Every check below subscripts what is missing. Reporting the absence
+        # and stopping is more useful than reporting it and then reporting
+        # twelve consequences of it.
+        return _result(errors, warnings)
+
+    if document["schema_version"] != SOURCE_KNOWLEDGE_SCHEMA_VERSION:
+        errors.append(
+            {
+                "code": "unknown_schema_version",
+                "value": document["schema_version"],
+                "expected": SOURCE_KNOWLEDGE_SCHEMA_VERSION,
+            }
+        )
+
+    if document["source_id"] != source_id:
+        errors.append(
+            {
+                "code": "source_id_mismatch",
+                "value": document["source_id"],
+                "expected": source_id,
+            }
+        )
+
+    errors.extend(_status_errors(document["status"], run_status))
+    errors.extend(_digest_errors(document["generated_from"], current_digests))
+    errors.extend(_statement_errors(document, unit_ids))
+
+    return _result(errors, warnings)
+
+
+def _status_errors(claimed: Any, run_status: str) -> list[dict[str, Any]]:
+    """A brief may be as honest as its run, or more cautious. Never bolder."""
+    errors: list[dict[str, Any]] = []
+    if claimed not in _STATUS_RANK:
+        return [
+            {"code": "unknown_status", "value": claimed, "expected": sorted(_STATUS_RANK)}
+        ]
+    if run_status not in _STATUS_RANK:
+        # No verdict to compare against. Generating a brief before the run has
+        # been validated is the sequencing error D-246 forbids, and answering
+        # "not stronger than UNKNOWN" would be inventing a rank for it.
+        return [
+            {
+                "code": "run_has_no_verdict",
+                "value": run_status,
+                "note": (
+                    "a brief is generated after extraction and coverage; this run has "
+                    "no readable validation.json status to be measured against"
+                ),
+            }
+        ]
+    if _STATUS_RANK[claimed] > _STATUS_RANK[run_status]:
+        errors.append(
+            {
+                "code": "status_stronger_than_run",
+                "value": claimed,
+                "run_status": run_status,
+            }
+        )
+    return errors
+
+
+def _digest_errors(
+    generated_from: Any, current: dict[str, str]
+) -> list[dict[str, Any]]:
+    if not isinstance(generated_from, dict):
+        return [{"code": "generated_from_not_an_object"}]
+    errors: list[dict[str, Any]] = []
+    missing = [key for key in SOURCE_KNOWLEDGE_DIGEST_KEYS if key not in generated_from]
+    if missing:
+        errors.append({"code": "missing_digest", "fields": missing})
+    unknown = sorted(set(generated_from) - set(SOURCE_KNOWLEDGE_DIGEST_KEYS))
+    if unknown:
+        errors.append({"code": "unknown_digest", "fields": unknown})
+    for key in SOURCE_KNOWLEDGE_DIGEST_KEYS:
+        if key not in generated_from:
+            continue
+        if generated_from[key] != current.get(key):
+            errors.append(
+                {
+                    "code": "stale_input",
+                    "field": key,
+                    "value": generated_from[key],
+                    "expected": current.get(key),
+                }
+            )
+    return errors
+
+
+def _statement_errors(document: dict[str, Any], unit_ids: set[str]) -> list[dict[str, Any]]:
+    """Support, ids and narrative script, over the thesis and both lists."""
+    errors: list[dict[str, Any]] = []
+
+    thesis = document["thesis"]
+    errors.extend(
+        _one_statement_errors(thesis, "thesis", unit_ids, SOURCE_KNOWLEDGE_THESIS_KEYS)
+    )
+
+    for field in ("key_points", "limitations_or_tensions"):
+        items = document[field]
+        if not isinstance(items, list):
+            errors.append({"code": "not_an_array", "field": field})
+            continue
+        if field == "key_points" and not items:
+            errors.append({"code": "no_key_points"})
+        seen: set[str] = set()
+        for index, item in enumerate(items):
+            location = f"{field}[{index}]"
+            if not isinstance(item, dict):
+                errors.append({"code": "statement_not_an_object", "field": location})
+                continue
+            point_id = item.get("id")
+            if not isinstance(point_id, str) or not point_id:
+                errors.append({"code": "missing_point_id", "field": location})
+            elif point_id in seen:
+                # `uniqueItems` compares whole objects, so two points that
+                # differ only in wording share an id and pass the schema. The UI
+                # links to a point by this id and a later revision has to be
+                # able to say which one it changed.
+                errors.append({"code": "duplicate_point_id", "field": location, "id": point_id})
+            else:
+                seen.add(point_id)
+                if not is_id_part(point_id):
+                    errors.append({"code": "invalid_point_id", "field": location, "id": point_id})
+            errors.extend(
+                _one_statement_errors(
+                    item,
+                    f"{location} ({point_id})",
+                    unit_ids,
+                    SOURCE_KNOWLEDGE_POINT_KEYS,
+                )
+            )
+    return errors
+
+
+def _one_statement_errors(
+    statement: Any, field: str, unit_ids: set[str], allowed: tuple[str, ...]
+) -> list[dict[str, Any]]:
+    if not isinstance(statement, dict):
+        return [{"code": "statement_not_an_object", "field": field}]
+    errors: list[dict[str, Any]] = []
+
+    # ``additionalProperties: false`` holds **inside** a statement too, and this
+    # is where it matters most. The document's top level has no plausible place
+    # to smuggle evidence into; a thesis does — ``evidence_excerpt`` beside the
+    # Persian narrative reads like provenance and is a paraphrase nobody can
+    # see. Checking only the top level left the one field this contract exists
+    # to keep out passing the gate while the schema refused it, which is the
+    # gap between "enforced in CI" and "enforced".
+    unknown = sorted(set(statement) - set(allowed))
+    if unknown:
+        errors.append({"code": "unknown_field", "field": field, "fields": unknown})
+
+    content = statement.get("content")
+    if not isinstance(content, str) or not content.strip():
+        errors.append({"code": "empty_content", "field": field})
+    else:
+        script_error = _narrative_script_error(content, field)
+        if script_error is not None:
+            errors.append(script_error)
+
+    based_on = statement.get("based_on")
+    if not isinstance(based_on, list):
+        errors.append({"code": "support_not_an_array", "field": field})
+        return errors
+    if not based_on:
+        # An empty list asserts knowledge derived from the source while naming
+        # nothing it was derived from — the same refusal
+        # `adapters.base._derived_refs` makes one layer down.
+        errors.append({"code": "empty_support", "field": field})
+        return errors
+    unknown = sorted({ref for ref in based_on if ref not in unit_ids})
+    if unknown:
+        errors.append({"code": "unknown_support", "field": field, "units": unknown})
+    duplicates = sorted({ref for ref in based_on if based_on.count(ref) > 1})
+    if duplicates:
+        errors.append({"code": "duplicate_support", "field": field, "units": duplicates})
+    return errors
+
+
+# --------------------------------------------------------------------------
+# Cross-source relations (`T-253`)
+# --------------------------------------------------------------------------
+
+#: The container's top-level keys, mirroring
+#: ``schemas/synthesis/v1/source_relations.schema.json``. Mirrored for the reason
+#: everything else here is: the package is zero-dependency and applies no JSON
+#: Schema at runtime, so the contract is enforced here or only in CI.
+SOURCE_RELATIONS_KEYS = ("schema_version", "generated_at", "candidates", "relations")
+
+#: The candidate block's keys. ``pairs_in_corpus`` is the additive optional
+#: field `T-253` needed: ``omitted`` was frozen as "what the **bound** left out",
+#: and pairs that no discovery route proposed are not that. Widening ``omitted``
+#: to cover them would have been changing a frozen field's meaning, which the
+#: versioning doctrine reserves for a ``v2``.
+SOURCE_RELATIONS_CANDIDATE_KEYS = ("considered", "omitted", "bound")
+SOURCE_RELATIONS_CANDIDATE_OPTIONAL_KEYS = ("pairs_in_corpus",)
+
+#: One ``SourceRelation``'s keys.
+SOURCE_RELATION_KEYS = (
+    "id",
+    "from_source_id",
+    "to_source_id",
+    "relation_type",
+    "scope",
+    "provenance_class",
+    "rationale",
+    "basis",
+    "generated_from",
+)
+SOURCE_RELATION_BASIS_KEYS = ("from_ku_id", "to_ku_id", "relation_type")
+SOURCE_RELATION_DIGEST_KEYS = ("from_run_digest", "to_run_digest")
+
+#: Which source-level relations assert agreement and which assert disagreement.
+#: The three that assert neither — ``explicitly_references``, ``responds_to``,
+#: ``overlaps_with`` — are absent on purpose and never trigger the polarity
+#: check below.
+_SOURCE_POLARITY = {
+    "supports": 1,
+    "extends": 1,
+    "applies": 1,
+    "critiques": -1,
+    "contradicts": -1,
+}
+
+#: The same question at knowledge-unit level. Everything not listed —
+#: ``causes``, ``depends_on``, ``qualifies``, ``is_part_of``, ``precedes``,
+#: ``results_in``, ``related_to`` — is neutral, and a neutral ground supports
+#: either reading.
+_UNIT_POLARITY = {
+    "supports": 1,
+    "is_evidence_for": 1,
+    "exemplifies": 1,
+    "is_example_of": 1,
+    "enables": 1,
+    "contributes_to": 1,
+    "refines": 1,
+    "contradicts": -1,
+    "inhibits": -1,
+}
+
+
+def _polarity_error(relation_type: str, basis: list[Any], owner: str) -> dict[str, Any] | None:
+    """Refuse a relation every one of whose grounds points the other way.
+
+    **A deliberately weak rule, and it says so.** It fires only when the
+    source-level claim has a polarity *and every single ground carries the
+    opposite one* — a ``supports`` resting entirely on ``contradicts`` pairs, or
+    a ``critiques`` resting entirely on ``supports``. That is an inversion, not
+    a judgement call.
+
+    It is weak because the alternative is worse. An exhaustive table of which
+    unit-level relation may support which source-level one would be a semantic
+    algebra nobody has established, and enforcing it would refuse honest
+    aggregations on the strength of an invented rule. **Mixed support must
+    survive**: ``SOURCE_MAP_SPEC.md`` §4 requires contrary grounds to be retained
+    or to produce a narrower relation, never hidden, so a ``supports`` relation
+    with three agreeing grounds and one contradicting one passes here — and the
+    contrary ground stays in the record where a reader can see it.
+    """
+    wanted = _SOURCE_POLARITY.get(relation_type)
+    if wanted is None:
+        return None
+    # A ground's relation type comes out of an untrusted document, so it may be
+    # anything; a non-string is neutral here and is reported as
+    # `unknown_basis_relation_type` by the basis check.
+    grounds = [
+        _UNIT_POLARITY.get(ground) if isinstance(ground, str) else None
+        for entry in basis
+        if isinstance(entry, Mapping)
+        for ground in (entry.get("relation_type"),)
+    ]
+    if not grounds or any(polarity != -wanted for polarity in grounds):
+        return None
+    return {
+        "code": "direction_incompatible_with_basis",
+        "relation": owner,
+        "relation_type": relation_type,
+        "note": (
+            "every supporting pair points the other way; a relation whose grounds all "
+            "contradict it is an inversion, not a mixed basis"
+        ),
+    }
+
+
+def validate_source_relations(
+    document: Any,
+    *,
+    units_by_source: Mapping[str, frozenset[str]],
+    digests_by_source: Mapping[str, str],
+    considered_pairs: frozenset[tuple[str, str]],
+    explicit_reference_pairs: frozenset[tuple[str, str]],
+    candidate_counts: Mapping[str, int],
+) -> dict[str, Any]:
+    """Everything ``output/synthesis/source_relations.json`` must satisfy.
+
+    The arguments are plain data rather than a discovery report, so this module
+    stays independent of :mod:`x2knwldg.candidates`; the gate is what joins them.
+
+    Six rules here are beyond any schema, and each is a sentence from
+    ``SOURCE_MAP_SPEC.md`` §4 made checkable:
+
+    1. **Both endpoints exist and differ.** A relation naming a source the
+       project does not hold cannot be drawn or inspected.
+    2. **Every basis unit belongs to the endpoint that claims it.** Both fixture
+       runs use ``KU-000001``, so the ids look right and the ownership is
+       wrong — nothing short of holding both runs can see it.
+    3. **The direction is not contradicted by every ground** — see
+       :func:`_polarity_error`, and note how little it claims.
+    4. **An `explicitly_references` relation points at captured evidence of the
+       reference.** The discovery route that reads ``external_references`` is
+       the only thing in the project that knows one source names another, so a
+       claimed reference the corpus cannot corroborate is refused rather than
+       taken on the model's word.
+    5. **The pair was actually a candidate.** This is the "no all-pairs walk"
+       exit condition, made into a check: a relation for a pair discovery never
+       proposed means the comparison pass looked at something it was not given.
+    6. **The recorded run digests are current.** Same rule as the brief's, and
+       the same reason: a conclusion about two runs that have since changed is
+       not a conclusion about the runs on disk.
+    """
+    errors: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+
+    if not isinstance(document, dict):
+        return _result([{"code": "not_an_object"}], warnings)
+
+    missing = [key for key in SOURCE_RELATIONS_KEYS if key not in document]
+    if missing:
+        errors.append({"code": "missing_field", "fields": missing})
+    unknown = sorted(set(document) - set(SOURCE_RELATIONS_KEYS))
+    if unknown:
+        errors.append({"code": "unknown_field", "fields": unknown})
+    if missing:
+        return _result(errors, warnings)
+
+    if document["schema_version"] != SOURCE_KNOWLEDGE_SCHEMA_VERSION:
+        errors.append(
+            {
+                "code": "unknown_schema_version",
+                "value": document["schema_version"],
+                "expected": SOURCE_KNOWLEDGE_SCHEMA_VERSION,
+            }
+        )
+
+    errors.extend(_candidate_block_errors(document["candidates"], candidate_counts))
+
+    relations = document["relations"]
+    if not isinstance(relations, list):
+        return _result(errors + [{"code": "relations_not_an_array"}], warnings)
+
+    seen: set[str] = set()
+    for index, relation in enumerate(relations):
+        owner = relation.get("id", index) if isinstance(relation, Mapping) else index
+        if not isinstance(relation, dict):
+            errors.append({"code": "relation_not_an_object", "relation": owner})
+            continue
+        relation_errors = _one_relation_errors(
+            relation,
+            owner,
+            units_by_source=units_by_source,
+            digests_by_source=digests_by_source,
+            considered_pairs=considered_pairs,
+            explicit_reference_pairs=explicit_reference_pairs,
+        )
+        errors.extend(relation_errors)
+        relation_id = relation.get("id")
+        if isinstance(relation_id, str):
+            if relation_id in seen:
+                # `uniqueItems` compares whole records, so two records that
+                # differ only in rationale share an id and pass the schema.
+                errors.append({"code": "duplicate_relation_id", "relation": relation_id})
+            seen.add(relation_id)
+
+    return _result(errors, warnings)
+
+
+def _candidate_block_errors(
+    block: Any, expected: Mapping[str, int]
+) -> list[dict[str, Any]]:
+    """The counts are checked against a fresh discovery run, not taken on trust.
+
+    A pass that walked every pair and then wrote a small ``considered`` would
+    otherwise be indistinguishable from a bounded one. Recomputing discovery is
+    cheap — it reads canonical files — and makes the counts non-forgeable.
+    """
+    if not isinstance(block, dict):
+        return [{"code": "candidates_not_an_object"}]
+    errors: list[dict[str, Any]] = []
+    missing = [key for key in SOURCE_RELATIONS_CANDIDATE_KEYS if key not in block]
+    if missing:
+        errors.append({"code": "missing_candidate_count", "fields": missing})
+    unknown = sorted(
+        set(block)
+        - set(SOURCE_RELATIONS_CANDIDATE_KEYS)
+        - set(SOURCE_RELATIONS_CANDIDATE_OPTIONAL_KEYS)
+    )
+    if unknown:
+        errors.append({"code": "unknown_candidate_count", "fields": unknown})
+    for key, value in expected.items():
+        if key not in block:
+            continue
+        if block[key] != value:
+            errors.append(
+                {
+                    "code": "candidate_counts_mismatch",
+                    "field": key,
+                    "value": block[key],
+                    "expected": value,
+                }
+            )
+    return errors
+
+
+def _one_relation_errors(
+    relation: dict[str, Any],
+    owner: Any,
+    *,
+    units_by_source: Mapping[str, frozenset[str]],
+    digests_by_source: Mapping[str, str],
+    considered_pairs: frozenset[tuple[str, str]],
+    explicit_reference_pairs: frozenset[tuple[str, str]],
+) -> list[dict[str, Any]]:
+    errors: list[dict[str, Any]] = []
+
+    missing = [key for key in SOURCE_RELATION_KEYS if key not in relation]
+    if missing:
+        errors.append({"code": "missing_relation_field", "relation": owner, "fields": missing})
+    unknown = sorted(set(relation) - set(SOURCE_RELATION_KEYS))
+    if unknown:
+        # `confidence` is the pointed case: it is not merely absent from the
+        # contract, it is unrepresentable, and this is where that is enforced
+        # at runtime (D-247).
+        errors.append({"code": "unknown_relation_field", "relation": owner, "fields": unknown})
+    if missing:
+        return errors
+
+    from_source = relation["from_source_id"]
+    to_source = relation["to_source_id"]
+
+    for side, value in (("from_source_id", from_source), ("to_source_id", to_source)):
+        if value not in units_by_source:
+            errors.append({"code": "unknown_source", "relation": owner, "field": side, "value": value})
+    if from_source == to_source:
+        errors.append({"code": "self_relation", "relation": owner, "value": from_source})
+
+    relation_type = relation["relation_type"]
+    scope = relation["scope"]
+    if relation_type not in SOURCE_RELATION_TYPES:
+        errors.append({"code": "unknown_relation_type", "relation": owner, "value": relation_type})
+    if scope not in SOURCE_RELATION_SCOPES:
+        errors.append({"code": "unknown_scope", "relation": owner, "value": scope})
+    if relation["provenance_class"] != "derived":
+        errors.append(
+            {
+                "code": "provenance_not_derived",
+                "relation": owner,
+                "value": relation["provenance_class"],
+            }
+        )
+
+    # The id is a digest of four fields, so it is recomputed rather than
+    # pattern-checked: a well-formed `SR-` id that belongs to a different
+    # relation is exactly what a shape check cannot see.
+    try:
+        expected_id = source_relation_id(from_source, to_source, relation_type, scope)
+    except IdError:
+        expected_id = None
+    if expected_id is not None and relation["id"] != expected_id:
+        errors.append(
+            {
+                "code": "relation_id_mismatch",
+                "relation": owner,
+                "value": relation["id"],
+                "expected": expected_id,
+            }
+        )
+
+    rationale = relation["rationale"]
+    if not isinstance(rationale, str) or not rationale.strip():
+        errors.append({"code": "empty_rationale", "relation": owner})
+    else:
+        script_error = _narrative_script_error(rationale, f"relation {owner} rationale")
+        if script_error is not None:
+            errors.append(script_error)
+
+    basis = relation["basis"]
+    if not isinstance(basis, list):
+        errors.append({"code": "basis_not_an_array", "relation": owner})
+        basis = []
+    elif not basis:
+        # The whole-document verdict risk R27 names, with nothing behind it.
+        errors.append({"code": "empty_basis", "relation": owner})
+    else:
+        errors.extend(
+            _basis_errors(basis, owner, from_source, to_source, units_by_source)
+        )
+        polarity = _polarity_error(relation_type, basis, owner)
+        if polarity is not None:
+            errors.append(polarity)
+
+    if relation_type == "explicitly_references" and (from_source, to_source) not in explicit_reference_pairs:
+        errors.append(
+            {
+                "code": "explicit_reference_without_evidence",
+                "relation": owner,
+                "note": (
+                    "no canonical artifact of the from-endpoint records a reference this "
+                    "corpus can resolve to the to-endpoint; an explicit reference is "
+                    "corroborated, never asserted"
+                ),
+            }
+        )
+
+    if (from_source, to_source) not in considered_pairs:
+        errors.append(
+            {
+                "code": "pair_was_not_a_candidate",
+                "relation": owner,
+                "note": (
+                    "discovery did not propose this ordered pair, so the comparison pass "
+                    "compared something it was not given — which is the all-pairs walk "
+                    "the bound exists to prevent (risk R28)"
+                ),
+            }
+        )
+
+    errors.extend(
+        _relation_digest_errors(
+            relation["generated_from"], owner, from_source, to_source, digests_by_source
+        )
+    )
+    return errors
+
+
+def _basis_errors(
+    basis: list[Any],
+    owner: Any,
+    from_source: Any,
+    to_source: Any,
+    units_by_source: Mapping[str, frozenset[str]],
+) -> list[dict[str, Any]]:
+    errors: list[dict[str, Any]] = []
+    seen: set[tuple[Any, Any, Any]] = set()
+    for index, entry in enumerate(basis):
+        location = f"{owner}.basis[{index}]"
+        if not isinstance(entry, dict):
+            errors.append({"code": "basis_entry_not_an_object", "relation": location})
+            continue
+        missing = [key for key in SOURCE_RELATION_BASIS_KEYS if key not in entry]
+        if missing:
+            errors.append(
+                {"code": "missing_basis_field", "relation": location, "fields": missing}
+            )
+            continue
+        unknown = sorted(set(entry) - set(SOURCE_RELATION_BASIS_KEYS))
+        if unknown:
+            errors.append(
+                {"code": "unknown_basis_field", "relation": location, "fields": unknown}
+            )
+        if entry["relation_type"] not in RELATION_TYPES:
+            errors.append(
+                {
+                    "code": "unknown_basis_relation_type",
+                    "relation": location,
+                    "value": entry["relation_type"],
+                }
+            )
+        for field, source in (
+            ("from_ku_id", from_source),
+            ("to_ku_id", to_source),
+        ):
+            owned = units_by_source.get(source)
+            if owned is None:
+                continue
+            if entry[field] not in owned:
+                errors.append(
+                    {
+                        "code": "basis_unit_not_owned_by_endpoint",
+                        "relation": location,
+                        "field": field,
+                        "value": entry[field],
+                        "endpoint": source,
+                    }
+                )
+        signature = (entry["from_ku_id"], entry["to_ku_id"], entry["relation_type"])
+        if signature in seen:
+            errors.append({"code": "duplicate_basis_pair", "relation": location})
+        seen.add(signature)
+    return errors
+
+
+def _relation_digest_errors(
+    generated_from: Any,
+    owner: Any,
+    from_source: Any,
+    to_source: Any,
+    digests_by_source: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    if not isinstance(generated_from, dict):
+        return [{"code": "relation_digests_not_an_object", "relation": owner}]
+    errors: list[dict[str, Any]] = []
+    missing = [key for key in SOURCE_RELATION_DIGEST_KEYS if key not in generated_from]
+    if missing:
+        errors.append({"code": "missing_relation_digest", "relation": owner, "fields": missing})
+    unknown = sorted(set(generated_from) - set(SOURCE_RELATION_DIGEST_KEYS))
+    if unknown:
+        errors.append({"code": "unknown_relation_digest", "relation": owner, "fields": unknown})
+    for key, source in (
+        ("from_run_digest", from_source),
+        ("to_run_digest", to_source),
+    ):
+        if key not in generated_from:
+            continue
+        # `source` is read out of an untrusted document, so it may be
+        # anything; a non-string simply matches no source and is already
+        # reported as `unknown_source` above.
+        current = digests_by_source.get(source) if isinstance(source, str) else None
+        if current is not None and generated_from[key] != current:
+            errors.append(
+                {
+                    "code": "stale_endpoint_digest",
+                    "relation": owner,
+                    "field": key,
+                    "value": generated_from[key],
+                    "expected": current,
+                }
+            )
+    return errors
+
 
 def validate_knowledge_units(document: Any) -> dict[str, Any]:
     errors: list[dict[str, Any]] = []

@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "source_id": "twitter:2094039408081068233",
+  "status": "PASS",
+  "thesis": {
+    "content": "این پستِ آزمایشی نقلِ قول (quote post) را همچون ارجاع در نظر می‌گیرد، نه همچون محتوایی که خودش برداشت شده باشد.",
+    "based_on": [
+      "KU-000001"
+    ]
+  },
+  "key_points": [
+    {
+      "id": "SP-001",
+      "content": "متنِ نویسنده بایت‌به‌بایت حفظ می‌شود؛ پستِ نقل‌شده یک ارجاع است، نه یک ورودیِ برداشت (ingestion).",
+      "based_on": [
+        "KU-000001"
+      ]
+    }
+  ],
+  "limitations_or_tensions": [],
+  "generated_from": {
+    "knowledge_units_sha256": "3ce8d55eb54983254cf57a9d408c75f6fc805423ce31b6b7c28ff166e4f20c36",
+    "relationships_sha256": "c5c1bb02728c1609a885093b7f5704b749884a8b773e39297ee5c89c1ac57a22",
+    "coverage_sha256": "53d12f1ba0a71f48ace43a912f8c469053d6b73bfd069a580f6f2b636285a880"
+  },
+  "generated_at": "2026-01-01T00:00:00+00:00"
+}

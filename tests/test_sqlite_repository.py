@@ -451,6 +451,12 @@ def test_the_sqlite_repository_answers_the_whole_protocol_and_nothing_more(sqlit
         "search",
         "graph",
         "neighborhood",
+        # `T-254`. The protocol widened here and only here: ADR 0002 invariant 3
+        # says no *implementation* may widen it, so the Source Map's two reads
+        # are a contract change first and a method second. Spelled out rather
+        # than counted, so adding a third is a deliberate edit to this list.
+        "source_graph",
+        "source_neighborhood",
     }
     public = {
         name

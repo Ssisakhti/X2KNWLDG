@@ -212,6 +212,7 @@ class TwitterAdapter(SourceAdapter):
                 artifacts=artifacts,
                 entities=entities,
                 relations=relations,
+                source_entities=[self._source_entity(run_dir, source_id, metadata)],
             )
         )
 
@@ -305,6 +306,13 @@ class TwitterAdapter(SourceAdapter):
         ]
         artifacts.extend(self._raw_artifacts(run_dir, source_id, hash_artifacts, unmappable))
         artifacts.extend(self._post_artifacts(run_dir, source_id, items, unmappable))
+        # `T-252`: emitted only when the run has a brief (D-257). The base
+        # class's, because what a brief is does not change with the medium.
+        brief = self._source_knowledge_artifact(
+            run_dir, source_id, hash_artifacts, unmappable
+        )
+        if brief is not None:
+            artifacts.append(brief)
         return artifacts
 
     def _raw_artifacts(
@@ -442,6 +450,28 @@ class TwitterAdapter(SourceAdapter):
         unmappable: list[dict[str, str]],
         damaged: list[dict[str, str]],
     ) -> dict[str, Any]:
+        adapter_metadata: dict[str, Any] = {
+            "item_count": metadata.get("item_count"),
+            "available_item_count": metadata.get("available_item_count"),
+            "capture_coverage_status": metadata.get("capture_coverage_status"),
+            "order_basis": metadata.get("order_basis"),
+            "completeness": metadata.get("completeness"),
+            "anchor": metadata.get("anchor"),
+            "external_references": metadata.get("external_references"),
+            "extraction": metadata.get("extraction"),
+            "fixture": metadata.get("fixture"),
+            "fixture_note": metadata.get("fixture_note"),
+            "unmappable_artifacts": unmappable,
+            "damaged_files": damaged,
+        }
+        # `T-252`: whether the run's brief still describes the run as it is now.
+        # Added rather than always present, so a run without one keeps exactly
+        # the record it had (D-257) — this dict's other keys are unconditional
+        # and may hold `None`, which is this adapter's own convention and not
+        # one to extend to a key whose absence is meaningful.
+        brief = self._source_knowledge_metadata(run_dir)
+        if brief is not None:
+            adapter_metadata["source_knowledge"] = brief
         return {
             "schema_version": SCHEMA_VERSION,
             "id": source_id.value,
@@ -498,18 +528,5 @@ class TwitterAdapter(SourceAdapter):
             # are in `capture.json`, which is an artifact, and putting them here
             # would publish them on `/api/sources` and make a provider name part
             # of the read surface T-228 is told to keep them out of.
-            "adapter_metadata": {
-                "item_count": metadata.get("item_count"),
-                "available_item_count": metadata.get("available_item_count"),
-                "capture_coverage_status": metadata.get("capture_coverage_status"),
-                "order_basis": metadata.get("order_basis"),
-                "completeness": metadata.get("completeness"),
-                "anchor": metadata.get("anchor"),
-                "external_references": metadata.get("external_references"),
-                "extraction": metadata.get("extraction"),
-                "fixture": metadata.get("fixture"),
-                "fixture_note": metadata.get("fixture_note"),
-                "unmappable_artifacts": unmappable,
-                "damaged_files": damaged,
-            },
+            "adapter_metadata": adapter_metadata,
         }

@@ -98,7 +98,7 @@ compiler checks every literal against the frozen contract and refuses a table
 that has drifted from it or forgotten an operation. A path this code could not
 spell correctly is a build failure rather than a 404.
 
-**The API is frozen: eleven `GET` endpoints.** Widening it is
+**The API is frozen: thirteen `GET` endpoints.** Widening it is
 `schemas/api/v1/openapi.json` first, a regenerated declaration second, and this
 directory third — never this directory alone.
 
@@ -116,7 +116,7 @@ adding a large ambient type package to the program.
 ## Developing against the real API
 
 Track C is not limited to a mock, and a mock is the weaker oracle: it agrees
-with whatever the frontend assumed. `create_app` serves all eleven endpoints
+with whatever the frontend assumed. `create_app` serves all thirteen endpoints
 over real fixture runs, so development and the integration checks both run
 against it.
 
@@ -210,15 +210,18 @@ preferences, and each one has a test:
   walked that path in a browser with `Tab` alone, and again with
   `WebGL2RenderingContext` deleted. What no automated gate can be is a real
   **screen reader**: what is asserted is the roles, names and states one reads.
-- **Ten of the eleven frozen endpoints have a caller.** `T-207` closed the
+- **Ten of the thirteen frozen endpoints have a caller.** `T-207` closed the
   two that mattered for the Map: `/api/entities/{entity_id}` backs Quick Read
   and `/api/graph/neighborhood/{entity_id}` backs the constellation and the
-  related list. The one without a caller is `getArtifact`
-  (`/api/artifacts/{artifact_id}`) — it is a row in the client's path table, so
-  the compiler still checks its shape, and nothing in the UI reads an
+  related list. Three have no caller, and each is a row in the client's path
+  table, so the compiler still checks its shape. `getArtifact`
+  (`/api/artifacts/{artifact_id}`) has none because nothing in the UI reads an
   artifact's *record*: the Reader reads its bytes, through
-  `/api/media/{artifact_id}`. This bullet said "every" until the census was
-  actually run (D-187).
+  `/api/media/{artifact_id}`. `getSourceGraph` and `getSourceNeighborhood` have
+  none **yet** — `T-254` served the Source Map, and `T-256` is the Map mode
+  that draws it; until then no view exists to call them, and adding a caller
+  with nothing to render would be scaffolding pretending to be a feature. This
+  bullet said "every" until the census was actually run (D-187).
 - **The Map has been walked in a real browser** (`T-209`), and what that cost
   is worth knowing. The gate is `browser/`: the built bundle over the real API
   in Google Chrome on the target machine, and the same specs on a software
