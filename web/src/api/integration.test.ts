@@ -65,12 +65,29 @@ describe.skipIf(BASE === undefined || BASE === "")("against a running server", (
   });
 
   it("serves a transcript through the byte channel that the reader can parse", async () => {
-    const sources = await client.call("listSources", { query: { limit: 1 } });
-    const first = sources.data[0];
-    expect(first).toBeDefined();
-    const detail = await client.call("getSource", { params: { source_id: first!.id } });
-    const transcript = detail.data.artifacts.find((artifact) => artifact.kind === "transcript");
-    expect(transcript).toBeDefined();
+    /*
+     * The source is *searched for*, not taken as the first one listed.
+     *
+     * It used to be `listSources({ limit: 1 })`, which held only because the
+     * served library was three YouTube runs and every one of them had a
+     * transcript. D-281 put a Twitter run in it, an X post has no transcript at
+     * all, and it sorts first — so the test began asserting that a medium
+     * without transcripts has one. What this is about is the **byte channel**,
+     * so it asks the library for a source that has the artifact and fails
+     * honestly if none does.
+     */
+    const sources = await client.call("listSources", { query: { limit: 500 } });
+    expect(sources.data.length).toBeGreaterThan(0);
+    let transcript: { id: string } | undefined;
+    for (const source of sources.data) {
+      const detail = await client.call("getSource", { params: { source_id: source.id } });
+      const found = detail.data.artifacts.find((artifact) => artifact.kind === "transcript");
+      if (found !== undefined) {
+        transcript = found;
+        break;
+      }
+    }
+    expect(transcript, "no source in the served library has a transcript").toBeDefined();
     const captions = readCaptions(await client.media(transcript!.id));
     expect(captions).not.toBeNull();
     expect((captions ?? []).length).toBeGreaterThan(0);

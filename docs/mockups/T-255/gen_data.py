@@ -152,6 +152,7 @@ def _units(run: Path) -> list[str]:
 def _served(tmp: Path) -> dict[str, Any]:
     """The `T-254` corpus, its four bodies, its bound and its stale state."""
     import source_map_corpus as corpus
+
     from x2knwldg.repository import (
         MemoryRepository,
         SourceGraphQuery,

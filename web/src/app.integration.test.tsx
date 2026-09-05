@@ -53,12 +53,29 @@ describe.skipIf(BASE === undefined || BASE === "")("the application, end to end"
   });
 
   it("opens a source in the reader and reads its transcript from the byte channel", async () => {
+    /*
+     * The source is chosen by *medium*, and the count is a floor rather than an
+     * equality.
+     *
+     * Both used to be facts about a library of three YouTube runs: exactly three
+     * cards, and the first one has a transcript. D-281 put a Twitter run in the
+     * served corpus, so the count is four and the first card is an X post —
+     * which has no transcript, because that medium has none. This test is about
+     * the Reader reading captions through the byte channel, so it opens a
+     * YouTube source and leaves the library's size to the test above, which is
+     * the one whose subject that is.
+     */
     render(<App />);
-    await waitFor(() => expect(document.querySelectorAll("[data-source-id]").length).toBe(3), {
-      timeout: 5000,
-    });
+    await waitFor(
+      () => expect(document.querySelectorAll("[data-source-id]").length).toBeGreaterThanOrEqual(3),
+      { timeout: 5000 },
+    );
 
-    const link = document.querySelector("[data-source-id] a") as HTMLAnchorElement;
+    const card = [...document.querySelectorAll("[data-source-id]")].find((node) =>
+      (node.getAttribute("data-source-id") ?? "").startsWith("youtube:"),
+    );
+    expect(card, "the served library holds no YouTube source").toBeDefined();
+    const link = card!.querySelector("a") as HTMLAnchorElement;
     fireEvent.click(link, { button: 0 });
 
     await waitFor(() => expect(screen.getByText("Canonical directory")).not.toBeNull(), {

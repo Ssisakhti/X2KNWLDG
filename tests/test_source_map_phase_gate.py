@@ -36,7 +36,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 import source_map_corpus as smc
 
 from x2knwldg.adapters import adapt_project
