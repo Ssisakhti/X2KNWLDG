@@ -76,14 +76,27 @@ export function SourceBasisPanel({ relation }: { relation: SourceRelationDetail 
           total: relation.basis_total,
         })}
       </h4>
+      {/*
+        Each end of a pair is a *place*, not a printed id (`T-257`).
+
+        Which source a unit belongs to is stated by the record rather than
+        guessed: `from_ku_id` belongs to `from_source_id` and `to_ku_id` to
+        `to_source_id`, which is exactly the check `apply-source-relations`
+        enforces when it accepts a relation ("each basis unit belongs to its
+        stated endpoint", D-266). So the link is a consequence of the gate that
+        let the relation exist, and no id is resolved by searching for it.
+      */}
       <ul className="basis__pairs">
         {relation.basis.map((pair, index) => (
-          <li key={`${pair.from_ku_id}:${pair.to_ku_id}:${index}`}>
-            <Mono>{pair.from_ku_id}</Mono>
+          <li
+            key={`${pair.from_ku_id}:${pair.to_ku_id}:${index}`}
+            data-source-basis-pair={`${pair.from_ku_id}->${pair.to_ku_id}`}
+          >
+            <UnitReaderLink sourceId={relation.from_source_id} unitId={pair.from_ku_id} />
             <span className="basis__arrow">
               <InlineArrow />
             </span>
-            <Mono>{pair.to_ku_id}</Mono>
+            <UnitReaderLink sourceId={relation.to_source_id} unitId={pair.to_ku_id} />
             <span className="basis__type">{pair.relation_type}</span>
           </li>
         ))}
@@ -189,15 +202,29 @@ export function SourceRelationList({
  *
  * Exported rather than inlined because a basis pair names units in *two*
  * different sources — `from_ku_id` belongs to one end and `to_ku_id` to the
- * other — and the link a reader needs depends on which. The panel above does
- * not draw these yet: resolving a unit id to its source needs the endpoint the
- * pair belongs to, which the detail record states, and `T-257`'s walk is where
- * that journey is measured rather than assumed.
+ * other — and the link a reader needs depends on which.
+ *
+ * `T-256` wrote this and did not draw it, and `T-257` drew it: the panel above
+ * now renders one per end of every pair, so the journey the phase asks for —
+ * source, to relationship, to the grounds, to the unit the grounds name — ends
+ * in the records rather than in a printed identifier. What was actually
+ * measured to close it is that both ends resolve: the walk opens a
+ * `from_ku_id`'s link and a `to_ku_id`'s link from the *same* pair and lands in
+ * two different sources' Readers, which is the assertion that would fail if the
+ * two ends were ever resolved against one endpoint.
+ *
+ * The label carries the unit id, so the accessible name distinguishes the two
+ * links in a pair rather than reading "Open in the Reader" twice; `data-source-
+ * unit-link` carries the pair `sourceId` and `unitId` for the gate.
  */
 export function UnitReaderLink({ sourceId, unitId }: { sourceId: string; unitId: string }) {
   const { t } = useI18n();
   return (
-    <Link className="button button--quiet" to={readerPath(sourceId, { tab: "units" })}>
+    <Link
+      className="button button--quiet"
+      data-source-unit-link={`${sourceId}:${unitId}`}
+      to={readerPath(sourceId, { tab: "units" })}
+    >
       {t("source.basis.openUnit", { id: unitId })}
     </Link>
   );

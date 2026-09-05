@@ -1445,11 +1445,27 @@ input {
    * `align-items: center` on the bar means a `min-block-size` here grows the
    * target without moving the text.
    */
+  /*
+   * `T-257`: the Source Map's three controls joined this list, and the reason
+   * they were missing is the reason the comment above says the list rots.
+   *
+   * `T-256` added `.sourceoutline__row`, `.relationlist__select` and
+   * `.relationlist__other` — a source, a relationship, and the other end of one
+   * — and none of them is a `.button`, so none of them was covered. The browser
+   * gate measured `.relationlist__select` at **35 px** on a coarse pointer:
+   * selecting a relationship is the step between reading a source and reading
+   * what a relationship rests on, and it was the one control in that journey a
+   * finger could miss. The other two happened to clear 44 px on their own
+   * content, which is exactly the accident this rule exists to stop relying on.
+   */
   .button,
   .tabs__tab,
   summary,
   select,
   input,
+  .sourceoutline__row,
+  .relationlist__select,
+  .relationlist__other,
   .shell__brand,
   .shell__skip {
     min-block-size: 2.75rem;

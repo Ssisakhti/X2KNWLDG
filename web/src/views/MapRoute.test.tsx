@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { waitFor } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 
 import { jsonFetch, renderApp } from "../test/render";
 import { graphPayload, graphResponse, sourceNode, PASS } from "../test/sourceRecords";
@@ -86,6 +86,47 @@ describe("the /map route", () => {
       expect(document.querySelector("[data-map-of='sources']")).not.toBeNull(),
     );
     expect(server.asked.some((url) => url.includes("/api/source-graph"))).toBe(true);
+  });
+
+  it("offers the switch on both Maps, so each is reachable from the other", async () => {
+    /*
+     * D-282, in jsdom.
+     *
+     * `T-256` rendered `MapModeSwitch` only inside `SourceMapView`, so the
+     * Source Map could be *left* but never *reached*: from `#/map` no control
+     * anywhere in the application addressed `#/map?of=sources`. The browser gate
+     * found it by pressing the control a reader would; this is the same
+     * assertion one layer down, and it is about the switch existing on the Map
+     * that is **not** the one it navigates to.
+     */
+    const server = bothMaps();
+    vi.stubGlobal("fetch", server.fetch);
+    sizeTheStage();
+    renderApp(<MapRoute />, { route: "/map" });
+
+    const option = await waitFor(() => {
+      const found = document.querySelector('[data-map-mode-option="sources"]');
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    // A radiogroup, so the unchecked value is out of the tab order and the
+    // checked one says which Map this is.
+    expect(option.getAttribute("tabindex")).toBe("-1");
+    expect(
+      document.querySelector('[data-map-mode-option="knowledge"]')?.getAttribute("aria-checked"),
+    ).toBe("true");
+
+    fireEvent.click(option);
+    await waitFor(() =>
+      expect(document.querySelector("[data-map-of='sources']")).not.toBeNull(),
+    );
+    expect(server.asked.some((url) => url.includes("/api/source-graph"))).toBe(true);
+
+    // And back, through the same control on the other field.
+    fireEvent.click(
+      document.querySelector('[data-map-mode-option="knowledge"]') as HTMLElement,
+    );
+    await waitFor(() => expect(document.querySelector("[data-map-of='sources']")).toBeNull());
   });
 
   it("keeps the Knowledge Map's filters addressable beside the mode", async () => {

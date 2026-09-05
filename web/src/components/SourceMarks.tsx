@@ -153,10 +153,17 @@ export function RelationPill({
   );
 }
 
-/** One knowledge-unit id, as the chip that says a statement rests on it. */
+/**
+ * One knowledge-unit id, as the chip that says a statement rests on it.
+ *
+ * `data-source-ku` carries the id itself rather than a marker, and that is what
+ * makes the phase's support clause checkable from outside (`T-257`, D-284): a gate can
+ * read every chip a card drew and compare the set with the `based_on` arrays the
+ * server sent, which is a different assertion from "some chips were rendered".
+ */
 export function UnitChip({ id }: { id: string }) {
   return (
-    <span className="basedon__chip">
+    <span className="basedon__chip" data-source-ku={id}>
       <Mono>{id}</Mono>
     </span>
   );
@@ -173,7 +180,7 @@ export function BasedOn({ ids }: { ids: readonly string[] }) {
   const { t } = useI18n();
   if (ids.length === 0) return null;
   return (
-    <span className="basedon">
+    <span className="basedon" data-source-basedon={String(ids.length)}>
       <span className="visually-hidden">
         {ids.length === 1
           ? t("source.brief.basedOnOne", { count: ids.length })

@@ -491,17 +491,63 @@ measurements are recorded in full in `PROJECT_MANAGEMENT.md` §5 and §11.
 - render one selected source knowledge card and compact neighbours;
 - add relationship basis detail and Reader/KU navigation.
 
-### T-257 — Phase gate
+### T-257 — Phase gate ✅ done (D-281–D-284)
 
-- unit, schema, API, frontend and browser tests;
-- screenshot review at approved viewports;
-- accessibility and reduced-motion checks;
-- no raw mutation and byte/equivalence checks for current KU Map outputs;
-- update `WORKFLOW.md` only for behavior that is now implemented and validated.
+- **The browser gate walks the Source Map**, in `web/browser/source.spec.ts`,
+  `sourceAccess.spec.ts` and `sourceVisual.spec.ts` over `sourceGate.ts`: 33 scenarios
+  beside the Knowledge Map's 47. Two things about it are worth stating rather than
+  counting.
+
+  The first is that **it can fail**. The gate is served whatever
+  `web/scripts/dev_api.py` builds, and over the three `PASS`/`PARTIAL`/`FAIL` runs that
+  project used to hold, `/api/source-graph` answers three nodes, no brief and no relation
+  — so every clause here would have walked an empty corpus and reported green. That
+  project now builds `tests/source_map_corpus.py`'s four runs across both media (D-281),
+  and `tests/test_source_map_phase_gate.py` holds it to that by building the same project
+  and refusing a library with no brief, no relation or one medium.
+
+  The second is that **the Knowledge Map's 47 scenarios pass unchanged over it**. They now
+  walk a library that carries source briefs and source relations, and every number they
+  assert on still agrees, because those numbers are read from the payload rather than
+  typed into a test. That is the browser end of D-249.
+
+- **Screenshot review**: eleven captures at the approved viewports, and
+  `npm --prefix web run mockups:source-review` builds the page they are compared on —
+  the approved `T-255` composition beside the build, scene by scene.
+
+- **Accessibility and reduced motion**: the whole four-level journey by keyboard alone,
+  every control 44 px on a coarse pointer, the same journey by tap with no hover in it,
+  the camera arriving in one frame with the preference set, Persian mirroring with the
+  identifiers left to right, and the drawer readable to its foot at a viewport the brief
+  does not fit.
+
+- **No raw mutation**: `test_no_run_lost_a_byte_of_raw_evidence` reads every file under
+  every run's `raw/`, projects, indexes, deletes `.x2knwldg/` and rebuilds, and compares
+  bytes and mtimes. `T-252` proved this of one apply; this proves it of the phase's whole
+  read path over both media.
+
+- **`WORKFLOW.md` now documents the two synthesis steps** — §S1, §S2 and §S3 — because
+  §8.9's condition is finally met: there is behaviour, a validator *and* a surface that
+  renders it. It documents nothing else.
+
+**Three defects the gate found, each fixed here and none visible to any passing test.**
+
+1. **The Source Map was unreachable.** `MapModeSwitch` was rendered only by
+   `SourceMapView`, so from `#/map` no control anywhere in the application reached
+   `#/map?of=sources` — the surface existed and could only be opened by typing its URL
+   (D-282). The switch is now in the Knowledge Map's own float too, in the same place.
+2. **A relationship row was a 35 px target on a coarse pointer.** The `pointer: coarse`
+   rule is a list of selectors, `T-256`'s three new controls are not `.button`, and none
+   of them joined it. Selecting a relationship is the step between reading a source and
+   reading its grounds, and it was the one control in that journey a finger could miss.
+3. **`UnitReaderLink` was exported and rendered by nothing.** Its own comment handed the
+   journey to this task; the basis panel now draws one per end of every pair, and the
+   measurement that closes it is that the two ends of *one* pair land in two different
+   sources' Readers — which is what would still pass if both were resolved against a
+   single endpoint.
 
 The tasks are serial at the phase boundary: `T-251 → T-252 → T-253 → T-254 → T-255 →
-T-256 → T-257`. `T-251`–`T-256` are done; `T-257` is the phase gate. Implementation may parallelize internal tests only when the contract owner
-has already frozen the relevant shape.
+T-256 → T-257`. All seven are done and Phase 2.3 is closed.
 
 ## 9. Phase acceptance criteria
 

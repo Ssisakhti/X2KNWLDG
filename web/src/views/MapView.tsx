@@ -86,6 +86,7 @@ import { ErrorState } from "../components/ErrorState";
 import { MapOrbit } from "../components/MapOrbit";
 import { MapFilters } from "../components/MapFilters";
 import { MapLegend } from "../components/MapLegend";
+import { MapModeSwitch } from "../components/MapModeSwitch";
 import { MapOutline } from "../components/MapOutline";
 import { MapPeekCard } from "../components/MapPeekCard";
 import { MapQuickRead } from "../components/MapQuickRead";
@@ -876,6 +877,25 @@ export function MapView({ createRenderer }: { createRenderer?: MapRendererFactor
         and precedes the stage, which is also what D-129 asks for.
       */}
       <div className="map__float map__float--search stack" data-map-chrome>
+        {/*
+          The way to the other Map (`T-257`).
+
+          `T-256` put the mode switch on the Map's own field rather than in the
+          app bar, for a reason that still holds — the bar is `Shell`'s and a
+          control meaningless on the Library and the Reader does not belong on a
+          surface those two also render. What it did not do was put the switch on
+          *this* field as well, and the browser gate is where that showed: from
+          `#/map` there was no control anywhere in the application that reached
+          `#/map?of=sources`. A surface reachable only by typing its URL is not a
+          surface a reader has (D-282).
+
+          The switch is the same component, in the same place in the same float,
+          so the two modes are one control a reader learns once. This is the only
+          change `T-257` makes to this file, and it adds no request, no state and
+          no payload: `MapModeSwitch` writes the URL through the grammar's own
+          `setMode`, which is what `MapRoute` already dispatches on.
+        */}
+        <MapModeSwitch mode={focus.state.mode} onChange={focus.setMode} />
         <MapSearchRail
           graph={graph}
           revision={snapshotId + pages}

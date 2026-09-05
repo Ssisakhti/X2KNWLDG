@@ -1,186 +1,214 @@
 /**
- * The page `T-255` is approved or refused on.
+ * The comparison `T-257` is accepted or refused on.
  *
- * `review_sheet.ts` builds a *comparison* — the running build beside an approved
- * mockup — which is `T-215`'s question. `T-255` has no build to compare against
- * and no approved set yet: its question is "may this be built", so this page is
- * one set, in the order a reviewer should meet it, with what each picture is
- * there to answer written beside it.
+ * Two pages have lived at this path. `T-255`'s asked "may this be built" and
+ * showed one set of proposals; this one asks ADR 0006 clause 5's question of the
+ * finished surface — *the running build beside the approved compositions, at
+ * actual viewports* — and shows two. The earlier page is regenerable from the
+ * same committed sources whenever the proposal itself needs re-reading; what a
+ * phase gate needs is the pair.
  *
- * It is a script and not a spec: it asserts nothing, `npm run browser` does not
- * run it, and it writes into a gitignored file beside gitignored captures, both
- * regenerated from committed sources:
+ * The comparing is a person's job. This builds the page they do it on, and it is
+ * a script and not a spec: it asserts nothing, `npm run browser` does not run
+ * it, and it writes a gitignored file beside gitignored captures, both build
+ * products of committed sources (D-191):
  *
- *   .venv/bin/python docs/mockups/T-255/gen_data.py
+ *   .venv/bin/python docs/mockups/T-255/gen_data.py     # the approved set's data
  *   npm --prefix web run mockups:source-layout
- *   npm --prefix web run mockups:source-capture
- *   npm --prefix web run mockups:source-review
+ *   npm --prefix web run mockups:source-capture         # the approved captures
+ *   npx playwright test browser/sourceVisual.spec.ts    # the build's captures
+ *   npm --prefix web run mockups:source-review          # this page
+ *
+ * **The pairing is deliberately incomplete, and the page says so where it is.**
+ * `T-255`'s Focus drew a Directional Orbit; `T-256` built a drawer (D-283). So
+ * the Focus rows are a comparison of two different compositions rather than of
+ * one composition drawn twice, and a reviewer who is not told that is being
+ * invited to read a recorded decision as a regression. The note on each such row
+ * carries it.
  */
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs/promises";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CAPTURES = path.resolve(HERE, "../../docs/mockups/T-255/captures");
+const APPROVED = path.resolve(HERE, "../../docs/mockups/T-255/captures");
+const BUILDS = path.resolve(HERE, "../../docs/mockups/T-257/captures");
 const OUT = path.resolve(HERE, "../../docs/mockups/T-255/review.html");
 
-interface Shot {
-  readonly name: string;
+interface Row {
+  /** The build capture, written by `browser/sourceVisual.spec.ts`. */
+  readonly build: string;
+  /** The approved capture of the same scene, when there is one. */
+  readonly approved?: string;
   readonly note: string;
 }
 
-/** The order matters: what the API answers today comes before what was written. */
-const ORDER: readonly Shot[] = [
+/** Every pair, in the order a reviewer should meet them. */
+const ORDER: readonly Row[] = [
   {
-    name: "explore-served-dark",
-    note: "What the two endpoints answer today, with nothing added: four sources and one gated relationship. Every later Explore picture is this plus written judgements.",
+    build: "source-explore-dark",
+    approved: "explore-served-dark",
+    note:
+      "Explore at the review viewport, over the served library on both sides — the approved " +
+      "capture and the build are drawing the same four sources and the same one relationship, " +
+      "so this row is a like-for-like comparison and is the right one to start on.",
   },
   {
-    name: "focus-served-dark",
-    note: "The same, focused. One readable source card carrying a real Persian brief whose every statement names the knowledge units under it; one real relationship with its real basis.",
+    build: "source-explore-light",
+    approved: "explore-served-light",
+    note: "The same overview in light.",
   },
   {
-    name: "explore-dense-dark",
-    note: "Ten real sources, thirteen written relationships, disclosed on the face of the picture. One mark per source, one weight per edge — a basis count is a count.",
+    build: "source-explore-fa",
+    approved: "explore-dense-fa",
+    note:
+      "Persian: the composition mirrors and the identifiers do not (D-012). The approved " +
+      "capture is the dense synthetic field, so compare the mirroring rather than the graph.",
   },
   {
-    name: "focus-dense-dark",
-    note: "The Directional Orbit: incoming where reading starts, outgoing opposite, direction read from the focus's own end. The drawer carries one relationship's basis pair by pair.",
+    build: "source-focus-dark",
+    approved: "focus-served-dark",
+    note:
+      "Focus. **The compositions differ by decision, not by defect (D-283):** the approved " +
+      "picture seats neighbour cards and relation pills on the field; the build carries the " +
+      "readable card, the relationship list and the basis in one drawer. What to judge is " +
+      "whether the drawer reads as well as the orbit would have — the brief with a knowledge-" +
+      "unit chip on every statement, direction and scope in words, and the grounds beneath.",
   },
   {
-    name: "focus-dense-fa",
-    note: "Persian. The composition mirrors and the identifiers do not (D-012). The brief is Persian in BOTH locales, because the record is — that is the output-language policy, drawn.",
+    build: "source-focus-light",
+    note: "The same reading in light; no approved counterpart at this scene.",
   },
   {
-    name: "explore-dense-fa",
-    note: "The field, mirrored, with two Persian-labelled sources beside Latin ids.",
+    build: "source-focus-fa",
+    approved: "focus-rtl-label",
+    note:
+      "A Persian brief beside Latin identifiers, mirrored. This is the row the output-language " +
+      "policy is visible on: the chrome is Persian here and the brief is Persian in both " +
+      "locales, because the record is.",
   },
   {
-    name: "focus-rtl-label",
-    note: "A real committed run whose title is Persian with a ZWNJ, focused in the Persian UI — and it has no brief, which is why an RTL label beside a Persian card had to be built rather than found.",
-  },
-  { name: "explore-dense-light", note: "The field in light." },
-  { name: "focus-dense-light", note: "The orbit in light: the focused card keeps a tinted ground as well as its ring." },
-  {
-    name: "focus-partial",
-    note: "A brief at PARTIAL. A brief may never claim more than the run it was written from, so this is a state to draw rather than a shortfall to hide.",
+    build: "source-explore-1440",
+    approved: "explore-dense-1440",
+    note: "The compact tier's overview: the legend and disclosures fold to their triggers.",
   },
   {
-    name: "focus-unavailable",
-    note: "A run that did not pass has no brief, and no relationships. Both absences are stated in words; neither is an error.",
+    build: "source-focus-1440",
+    approved: "focus-dense-1440",
+    note: "The compact tier's reading.",
   },
   {
-    name: "focus-bound",
-    note: "A bounded neighbourhood: `truncated: true`, and the note says the limit bound BOTH directions together in id order (D-272).",
+    build: "source-focus-1280",
+    note: "The compact tier at the gate's own default viewport; no approved counterpart.",
   },
   {
-    name: "explore-dense-1440",
-    note: "The compact tier's field. The legend and the disclosure fold to their triggers here — un-folded they took 19.2% of the field and left the graph 299px of height.",
+    build: "source-focus-390",
+    approved: "focus-dense-390",
+    note:
+      "A phone. Below the compact minimum the route is its own document and scrolls (D-153), " +
+      "and every returned relationship is still a row — none is dropped for want of room.",
   },
   {
-    name: "focus-dense-1440",
-    note: "The compact tier's orbit: two cards a side, two counted, and the relationship pill moves into the card because there is no clear run of edge to ride.",
+    build: "source-focus-reduced-motion",
+    note:
+      "The same composition for a reader who asked for less motion. It must be " +
+      "indistinguishable from source-focus-dark: the preference removes the camera's easing, " +
+      "never anything the picture says.",
   },
-  {
-    name: "focus-dense-390",
-    note: "Below the orbit's floor there is no orbit. Every relationship is a row, six are counted as unplaced, and none is dropped.",
-  },
-  {
-    name: "focus-dense-reduced-motion",
-    note: "The same composition under `prefers-reduced-motion`. Nothing here animates, so nothing changes — captured to prove it rather than to assert it.",
-  },
-  {
-    name: "states-dark",
-    note: "Twelve honest states, each labelled with the machine-readable state it is drawn from. The no-WebGL row is the Knowledge Map's own shipped string: the whole reading path is DOM.",
-  },
-  { name: "states-fa", note: "The same states in Persian." },
-  { name: "states-light", note: "The same states in light." },
-  { name: "explore-served-light", note: "The served field in light, for completeness." },
 ];
 
-const escape = (value: string): string =>
-  value.replace(/[&<>"]/g, (c) =>
-    c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : "&quot;");
+async function exists(file: string): Promise<boolean> {
+  try {
+    await fs.access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function escape(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** `**bold**` in a note, because two of them carry the load-bearing caveat. */
+function emphasise(text: string): string {
+  return escape(text).replace(/\*\*(.+?)\*\*/gu, "<strong>$1</strong>");
+}
+
+function figure(caption: string, file: string | null, alt: string): string {
+  if (file === null) {
+    return `<figure><figcaption>${escape(caption)}</figcaption><p class=missing>not captured</p></figure>`;
+  }
+  const href = path.relative(path.dirname(OUT), file);
+  return `<figure><figcaption>${escape(caption)}</figcaption><a href="${href}"><img src="${href}" alt="${escape(alt)}"></a></figure>`;
+}
 
 async function main(): Promise<void> {
-  const present = new Set(
-    (await fs.readdir(CAPTURES).catch(() => [] as string[]))
-      .filter((name) => name.endsWith(".png"))
-      .map((name) => name.replace(/\.png$/, "")),
-  );
-  if (present.size === 0) {
-    throw new Error(`no captures in ${CAPTURES} — run mockups:source-capture first`);
+  const sections: string[] = [];
+  let paired = 0;
+  for (const row of ORDER) {
+    const build = path.join(BUILDS, `${row.build}.png`);
+    const approved = row.approved === undefined ? null : path.join(APPROVED, `${row.approved}.png`);
+    const haveBuild = await exists(build);
+    const haveApproved = approved !== null && (await exists(approved));
+    if (!haveBuild && !haveApproved) continue;
+    if (haveBuild && haveApproved) paired += 1;
+    sections.push(`<section>
+  <h2>${escape(row.build)}</h2>
+  <p>${emphasise(row.note)}</p>
+  <div class="pair">
+    ${figure(
+      row.approved === undefined
+        ? "Approved composition (T-255) — none for this scene"
+        : `Approved composition (T-255) — ${row.approved}`,
+      haveApproved ? approved : null,
+      `${row.approved ?? row.build} approved`,
+    )}
+    ${figure("Running build (T-257)", haveBuild ? build : null, `${row.build} build`)}
+  </div>
+</section>`);
   }
-
-  const listed = new Set(ORDER.map((shot) => shot.name));
-  const extra = [...present].filter((name) => !listed.has(name)).sort();
-  const missing = ORDER.filter((shot) => !present.has(shot.name)).map((shot) => shot.name);
-
-  const figure = (name: string, note: string): string => {
-    const file = path.relative(path.dirname(OUT), path.join(CAPTURES, `${name}.png`));
-    return `<section>
-  <h2>${escape(name)}</h2>
-  <p>${escape(note)}</p>
-  <a href="${file}"><img src="${file}" alt="${escape(name)}"></a>
-</section>`;
-  };
-
-  const body = [
-    ...ORDER.filter((shot) => present.has(shot.name)).map((shot) => figure(shot.name, shot.note)),
-    ...extra.map((name) => figure(name, "Captured but not in the review order — added since this page was written.")),
-  ].join("\n");
 
   const page = `<!doctype html>
 <html lang="en">
-<head>
 <meta charset="utf-8">
-<title>T-255 — Source Explore and Focus, for approval</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T-257 — the Source Map beside the compositions it was approved from</title>
 <style>
-  :root { color-scheme: dark light; }
-  body { margin: 0; padding: 2rem clamp(1rem, 4vw, 4rem) 6rem;
-         font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-         background: #17161a; color: #ece9e4; }
-  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
-  .lead { color: #a9a49c; max-inline-size: 92ch; margin: 0 0 2rem; }
-  .lead code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
-  section { margin-block-end: 3rem; }
-  h2 { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9rem;
-       color: #82b1e0; margin: 0 0 .25rem; }
-  section p { color: #a9a49c; max-inline-size: 92ch; margin: 0 0 .75rem; }
-  img { display: block; inline-size: 100%; block-size: auto;
-        border: 1px solid #35333a; border-radius: 10px; }
-  .warn { border: 1px dashed #e2b95f; color: #e2b95f; border-radius: 8px;
-          padding: .75rem 1rem; margin-block-end: 2rem; max-inline-size: 92ch; }
-  @media (prefers-color-scheme: light) {
-    body { background: #fbfaf8; color: #1c1a17; }
-    .lead, section p { color: #5e5851; }
-    h2 { color: #2f5d8a; }
-    img { border-color: #ded9d2; }
-  }
+  :root { color-scheme: dark; }
+  body { margin: 0 auto; padding: 2rem; max-width: 1800px; background: #14161a; color: #e6e8ec;
+         font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1rem; letter-spacing: .08em; text-transform: uppercase; color: #9aa3b2; margin-bottom: .2rem; }
+  p { color: #b9c0cc; margin: .2rem 0 1rem; max-width: 100ch; }
+  section { margin: 2.5rem 0; border-top: 1px solid #262a31; padding-top: 1.2rem; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  figure { margin: 0; }
+  figcaption { font-size: .8rem; color: #8a93a2; margin-bottom: .35rem; }
+  img { width: 100%; height: auto; border: 1px solid #2b3038; border-radius: 6px; display: block; }
+  .missing { color: #d08b6a; }
+  .lead { max-width: 80ch; }
+  code { background: #1d2026; padding: .1em .35em; border-radius: 4px; }
+  strong { color: #e8d5a8; }
 </style>
-</head>
-<body>
-<h1>T-255 — Source Explore and Source Focus</h1>
-<p class="lead">
-  Every picture below is drawn from the two served source-graph reads. The first two are
-  <strong>entirely real</strong> — four sources and the one gated relationship the fixtures hold.
-  The dense ones carry ten real source nodes and thirteen relationships that were
-  <strong>written for this mockup</strong>, disclosed in the picture itself, because real
-  discovery over every committed fixture run proposes three pairs and no cross-medium pair at
-  all. The full argument, the measured geometry and the differences from the approved T-211 set
-  are in <code>docs/mockups/T-255/SPEC.md</code>.
-</p>
-${missing.length > 0 ? `<p class="warn">Missing capture(s): ${escape(missing.join(", "))} — re-run <code>mockups:source-capture</code>.</p>` : ""}
-${body}
-</body>
+<h1>T-257 — the Source Map beside the compositions it was approved from</h1>
+<p class="lead">Left is what was approved in <code>T-255</code> (D-277); right is what the
+browser drew, captured by <code>browser/sourceVisual.spec.ts</code> over the fixture corpus
+the gate serves. That gate asserts the geometry — tier, direction, no two floating surfaces
+over one pixel, the chrome's share of the field, the document not scrolling, and a drawer
+that can be read to its foot. What this page is for is the judgement it cannot make.</p>
+<p class="lead"><strong>Read the Focus rows knowing they compare two compositions, not one
+drawn twice.</strong> The approved Focus is a Directional Orbit; the built one is a drawer
+(D-283). The gate asserts that no orbit is drawn, so a build that grew one would fail rather
+than pass quietly — the difference is a recorded decision and this is where it is put to a
+reviewer.</p>
+${sections.join("\n")}
 </html>
 `;
+
+  await fs.mkdir(path.dirname(OUT), { recursive: true });
   await fs.writeFile(OUT, page, "utf8");
-  console.log(`${present.size} capture(s) -> ${OUT}`);
-  if (missing.length > 0) console.log(`missing: ${missing.join(", ")}`);
+  console.log(`${sections.length} scene(s), ${paired} paired, written to ${OUT}`);
 }
 
-main().catch((error: unknown) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+await main();

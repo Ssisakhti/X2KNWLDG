@@ -3,7 +3,7 @@
 ---
 
 **Document status:** active; the design authority for continuing this work
-**Current stage:** Phases 0, 1, 2, 2.1 and 2.2 are complete. **Phase 2.3 / `T-250`, the Source Map, is under way: `T-251` froze the records, ids, bounds, API shapes and fixtures (D-251–D-256), `T-252` gave the per-run brief a prompt, a gate and a projection (D-257–D-261), `T-253` made cross-source relations discoverable, bounded and gated (D-262–D-268), `T-254` gave the layer three rebuildable tables and the two read-only endpoints (D-269–D-276), `T-255`'s compositions were approved (D-277), and `T-256` built the Source Map at `#/map?of=sources` (D-278–D-280); `T-257`, the phase gate, is what is left.** It adds one readable node per source and automatic, evidence-backed source relationships before Canvas. Phase 3 remains technically unblocked but is deliberately deferred until the Source Map gate closes (D-244–D-250; [ADR 0008](adr/0008-source-level-knowledge-map.md)).
+**Current stage:** Phases 0, 1, 2, 2.1, 2.2 and 2.3 are complete. **Phase 2.3 / `T-250`, the Source Map, closed on 2026-09-05**: `T-251` froze the records, ids, bounds, API shapes and fixtures (D-251–D-256), `T-252` gave the per-run brief a prompt, a gate and a projection (D-257–D-261), `T-253` made cross-source relations discoverable, bounded and gated (D-262–D-268), `T-254` gave the layer three rebuildable tables and the two read-only endpoints (D-269–D-276), `T-255`'s compositions were approved (D-277), `T-256` built the Source Map at `#/map?of=sources` (D-278–D-280), and `T-257` walked it in a real browser, fixed three defects no passing test could see, and documented the synthesis steps in `WORKFLOW.md` (D-281–D-284). The phase added one readable node per source and automatic, evidence-backed source relationships before Canvas. **Phase 3 is unblocked** (D-244–D-250; [ADR 0008](adr/0008-source-level-knowledge-map.md)).
 **Last updated:** 2026-09-05
 **Current scope:** personal, fully local execution on macOS; YouTube and public X/Twitter implemented
 **Data owner:** the user; no dependency on any paid service or cloud storage
@@ -1175,7 +1175,7 @@ Acceptance criteria:
   remains explicitly unsupported.
 
 Execution is `T-251 → T-252 → T-253 → T-254 → T-255 → T-256 → T-257` in
-`PROJECT_MANAGEMENT.md` §5. **`T-251`–`T-256` are done** (D-251–D-280) and `T-257` is the phase gate.
+`PROJECT_MANAGEMENT.md` §5. **All seven are done** (D-251–D-284) and the phase is closed.
 
 What `T-251` settled, and why each one is a decision rather than a detail:
 
@@ -1819,9 +1819,10 @@ An agent must not guess the answers to these if the decision would cause a notic
   endpoints — `GET /api/source-graph` and `GET /api/source-graph/neighborhood/{source_id}` —
   page over source nodes, count what they omit, bound every basis and state both counts, and
   leave every Knowledge Map payload where it was (D-269–D-276). `T-255`'s compositions are
-  approved and `T-256` renders them; **the phase gate `T-257` is what is left**
-- [ ] Canvas — Phase 3 / `T-301`: technically unblocked, now deliberately deferred until the
-  Source Map phase gate closes
+  approved, `T-256` renders them, and `T-257` **closed the phase**: the Source Map is walked in
+  a real browser beside the Knowledge Map, the gate was proved able to fail before it was
+  believed, and the two synthesis steps are documented in `WORKFLOW.md` (D-281–D-284)
+- [ ] Canvas — Phase 3 / `T-301`: **unblocked** — the Source Map phase gate is closed
 - [ ] Pen annotations
 - [ ] Additional adapters, in the user's stated order (D-234): **Medium and articles**, then
   **books** (PDF/EPUB), then **website links** — each reaching the graph *and* the vault
@@ -1830,27 +1831,31 @@ Live status, task breakdown, and track ownership are maintained in `docs/PROJECT
 
 ## 23. Precise next step
 
-**Phase 2.3 / Source Map is under way; `T-251`–`T-256` are done and `T-257` is the phase gate.** Every
-canonical record exists, is gated and is served (D-251–D-276): one source node per run, a
-readable Persian brief per run, and qualified cross-source relations with knowledge-unit basis,
-behind two read-only endpoints over three rebuildable SQLite tables. The response shapes frozen
-and unserved since `T-251` now have their operations, which is what retired the exemption two
-tests held open (D-254), and every Knowledge Map payload is where it was — D-251 is what makes
-that structural and `tests/test_source_map_regression.py` is what notices.
+**Phase 2.3 / Source Map is complete; `T-251`–`T-257` are done.** Every canonical record
+exists, is gated, is served and is rendered (D-251–D-280), and `T-257` walked the whole of it
+in a real browser (D-281–D-284): one source node per run, a readable Persian brief whose every
+drawn statement names the knowledge units under it, and qualified cross-source relations with
+knowledge-unit basis that a reader can follow into each endpoint's own Reader.
 
-`T-255` is the **mockups**, and it is a human decision rather than a build: real bodies from the
-two live endpoints, drawn in dark and light, Persian and English, `PASS` and `PARTIAL`, dense
-and sparse, and with no WebGL — approved before a line of production UI. Claiming it measured
-that the fixture corpus carries four source nodes and **one** relation, and that the private
-library carries one node and none, so the dense half of that list has no committed body to be
-drawn from: sourcing it, through the `T-252`/`T-253` gates or as openly-labelled synthetic data,
-was the task's first decision, and it was answered by measuring what real discovery can
-propose over committed fixtures — three pairs, all single-medium — so the dense field is ten real
-source nodes carrying thirteen openly-labelled written relationships
-([`docs/mockups/T-255/SPEC.md`](mockups/T-255/SPEC.md)). Do not skip to the UI
-(`T-256`); each task consumes the previous one's gate. The complete handoff is
-[`SOURCE_MAP_SPEC.md`](SOURCE_MAP_SPEC.md) §8 and `PROJECT_MANAGEMENT.md` §11. Canvas (`T-301`)
-follows the `T-257` phase gate.
+Three things `T-257` established are worth carrying forward rather than looking up:
+
+- **The Knowledge Map did not move, proved the hard way.** Its 47 browser scenarios now walk a
+  served library that carries source briefs and source relations, and pass unchanged. D-249
+  had been held by an empty `git diff`; it is now held by a walk over the thing that could
+  have broken it.
+- **A gate is only worth its green if it can go red.** The fixture project the browser gate is
+  served used to hold no brief and no relation at all, so every Source Map clause would have
+  passed vacuously. D-281 changed it and `tests/test_source_map_phase_gate.py` refuses a
+  degenerate library, measured against the old one.
+- **One approved composition was not built as drawn.** `T-255`'s Focus is a Directional Orbit
+  and what ships is a drawer (D-283). The gate asserts no orbit is drawn, and
+  `docs/mockups/T-255/review.html` puts the difference to a reviewer rather than resolving it
+  in a test.
+
+**Canvas (`T-301`) is next and is now unblocked.** The complete handoff is
+[`SOURCE_MAP_SPEC.md`](SOURCE_MAP_SPEC.md) §8 and `PROJECT_MANAGEMENT.md` §11. Medium,
+articles, books, PDFs, EPUBs and website links remain roadmap sources with no capture
+contract, extraction path, adapter or medium profile, and the book design remains a design.
 
 ### Historical Phase 2.2 closeout
 

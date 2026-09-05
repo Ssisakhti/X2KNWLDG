@@ -450,3 +450,121 @@ describe("the canvas", () => {
     expect(stage?.getAttribute("aria-hidden")).toBe("true");
   });
 });
+
+/**
+ * What `T-256` deferred and `T-257` closed.
+ *
+ * `UnitReaderLink` existed, was exported, and was rendered by nothing — its own
+ * comment said so and handed the journey to this task. These are the assertions
+ * that make drawing it a claim rather than a change: both ends of a pair resolve,
+ * and they resolve to *different* sources, which is the one thing that would
+ * still pass if both were resolved against a single endpoint.
+ */
+describe("from a basis to the units it names", () => {
+  it("opens each end of a pair in the Reader of the source that owns it", async () => {
+    vi.stubGlobal("fetch", corpus());
+    mount();
+    const row = await waitFor(() => {
+      const found = document.querySelector(`[data-source-row="${PASS}"] button`);
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    fireEvent.click(row);
+
+    const basis = await waitFor(() => {
+      const found = document.querySelector("[data-source-basis]");
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+
+    // One row per pair, and the row names the pair it is.
+    const pairs = [...basis.querySelectorAll("[data-source-basis-pair]")];
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]?.getAttribute("data-source-basis-pair")).toBe("KU-000001->KU-000001");
+
+    // Two links, one per end. The relation runs POST -> PASS, so `from_ku_id`
+    // belongs to the X post and `to_ku_id` to the video — and the two hrefs
+    // must therefore differ even though the two unit ids are identical, which
+    // is exactly the case a single-endpoint resolution would get wrong.
+    const links = [...basis.querySelectorAll("[data-source-unit-link]")];
+    expect(links.map((link) => link.getAttribute("data-source-unit-link"))).toEqual([
+      `${POST}:KU-000001`,
+      `${PASS}:KU-000001`,
+    ]);
+    const hrefs = links.map((link) => link.getAttribute("href"));
+    expect(new Set(hrefs).size).toBe(2);
+    for (const href of hrefs) expect(href).toContain("tab=units");
+
+    // The accessible name distinguishes them from each other by the unit id,
+    // rather than reading the same words twice.
+    for (const link of links) expect(link.textContent).toContain("KU-000001");
+  });
+
+  it("names the supporting units of every narrative element it draws", async () => {
+    vi.stubGlobal("fetch", corpus());
+    // The widest tier, so the whole brief is drawn rather than counted: the
+    // clause is about every element the card shows, and a card that hides two
+    // key points is a weaker witness for it than one that shows them.
+    sizeTheStage({ width: 2100, height: 900 });
+    renderApp(<SourceMapView />, { route: "/map?of=sources" });
+    const row = await waitFor(() => {
+      const found = document.querySelector(`[data-source-row="${PASS}"] button`);
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    fireEvent.click(row);
+
+    const card = await waitFor(() => {
+      const found = document.querySelector(`[data-source-card="${PASS}"]`);
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+
+    // The thesis and both key points, each with its own `based_on` group, and
+    // nothing counted away: three groups is the acceptance clause said as a
+    // number rather than as "some chips were rendered".
+    const groups = [...card.querySelectorAll("[data-source-basedon]")];
+    expect(groups).toHaveLength(3);
+    expect(card.querySelector("[data-source-points-hidden]")).toBeNull();
+    for (const group of groups) {
+      expect(Number(group.getAttribute("data-source-basedon"))).toBeGreaterThan(0);
+      expect(group.querySelectorAll("[data-source-ku]").length).toBe(
+        Number(group.getAttribute("data-source-basedon")),
+      );
+    }
+    // The chip carries the id itself, so a gate compares sets rather than counts.
+    expect(
+      [...card.querySelectorAll("[data-source-ku]")].map((chip) =>
+        chip.getAttribute("data-source-ku"),
+      ),
+    ).toEqual(["KU-000001", "KU-000001", "KU-000001"]);
+  });
+
+  it("counts the elements a narrower card did not draw, rather than dropping them", async () => {
+    vi.stubGlobal("fetch", corpus());
+    // The same brief at `compact`: one key point drawn, one counted. What must
+    // not happen is a statement drawn *without* its support, so the invariant
+    // asserted here is per drawn element rather than per record element.
+    mount();
+    const row = await waitFor(() => {
+      const found = document.querySelector(`[data-source-row="${PASS}"] button`);
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    fireEvent.click(row);
+
+    const card = await waitFor(() => {
+      const found = document.querySelector(`[data-source-card="${PASS}"]`);
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    const groups = [...card.querySelectorAll("[data-source-basedon]")];
+    // The thesis plus each key point the card drew, and no more.
+    expect(groups).toHaveLength(1 + card.querySelectorAll(".sourcecard__points li").length);
+    for (const group of groups) {
+      expect(group.querySelectorAll("[data-source-ku]").length).toBeGreaterThan(0);
+    }
+    // And the rest is a number on the card, not an omission in silence.
+    expect(card.querySelector("[data-source-points-hidden]")?.getAttribute("data-source-points-hidden")).toBe("1");
+  });
+});
